@@ -212,6 +212,15 @@ jobs:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
             cargo test -p bsengine-scripting --target wasm32-unknown-unknown --test browser_runtime
 
+      # Video on the web plays through the browser's own <video> element, so
+      # it is tested in a real browser: Chrome, through the chromedriver the
+      # runner image ships, decoding the same H.264/AAC file the native
+      # backends are tested with.
+      - name: Video in a real browser (wasm32, Chrome)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner           CHROMEDRIVER="$CHROMEWEBDRIVER/chromedriver"             cargo test -p bsengine-video --target wasm32-unknown-unknown --test web
+
       - name: Build
         run: cargo build --all
 

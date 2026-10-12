@@ -35,6 +35,21 @@ gstreamer = { version = "0.25", optional = true }
 gstreamer-app = { version = "0.25", optional = true }
 gstreamer-pbutils = { version = "0.25", optional = true }
 
+# The browser plays through its own video element.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+    "Blob", "BlobPropertyBag", "CanvasRenderingContext2d", "Document", "Element",
+    "EventTarget", "HtmlCanvasElement", "HtmlMediaElement", "HtmlVideoElement",
+    "ImageData", "MediaError", "Url", "Window",
+] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
+bevy_app.workspace = true
+
 [features]
 gstreamer = ["dep:gstreamer", "dep:gstreamer-app", "dep:gstreamer-pbutils"]
 

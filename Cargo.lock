@@ -1279,6 +1279,7 @@ dependencies = [
  "gstreamer",
  "gstreamer-app",
  "gstreamer-pbutils",
+ "js-sys",
  "objc2 0.6.4",
  "objc2-av-foundation",
  "objc2-core-audio-types",
@@ -1287,6 +1288,10 @@ dependencies = [
  "objc2-core-video",
  "objc2-foundation 0.3.2",
  "tracing",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
  "windows 0.62.2",
 ]
 

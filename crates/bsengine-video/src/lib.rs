@@ -26,6 +26,8 @@ mod gstreamer_backend;
 mod media_foundation;
 /// The ECS side: `VideoPlugin` plays every entity's `VideoPlayer`.
 pub mod plugin;
+#[cfg(target_arch = "wasm32")]
+mod web;
 pub use plugin::{Playbacks, VideoPlugin};
 
 /// What a video holds.

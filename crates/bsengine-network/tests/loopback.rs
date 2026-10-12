@@ -21,6 +21,39 @@ use bevy_ecs::prelude::*;
 use bsengine_core::{NetworkAuthority, NetworkId, RpcCall, RpcQueues, RpcTarget, Transform};
 use bsengine_network::{AppliedInputs, NetworkConfig, NetworkPlugin, NetworkSession};
 use glam::Vec3;
+use std::time::{Duration, Instant};
+
+/// Runs `frame` -- one frame of every app, collecting what arrived -- until it
+/// says the calls the test is waiting for are in, then [`SETTLE`] more frames,
+/// so a call that should have been refused has had as long to show up as the
+/// ones let through. Panics if they never come within [`DEADLINE`].
+///
+/// Waiting on *arrival*, and in wall-clock time, because these are real
+/// loopback datagrams and a frame here takes microseconds: a datagram the OS
+/// has not delivered yet is not late by any number of frames. Ten frames used
+/// to be the wait, and on macOS CI ten frames once passed with nothing
+/// delivered at all (run 38244635361,
+/// `a_client_cannot_call_on_another_clients_entity`: `left: []`). #1877 fixed
+/// one wait of this kind; this is all the others.
+fn pump(mut frame: impl FnMut() -> bool) {
+    let start = Instant::now();
+    while !frame() {
+        assert!(
+            start.elapsed() < DEADLINE,
+            "the expected calls never arrived within {DEADLINE:?}"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    for _ in 0..SETTLE {
+        std::thread::sleep(Duration::from_millis(1));
+        frame();
+    }
+}
+
+/// How long [`pump`] waits for a call before calling the transport broken.
+const DEADLINE: Duration = Duration::from_secs(5);
+/// Frames [`pump`] keeps running after the awaited calls arrive.
+const SETTLE: usize = 10;
 
 /// A server app and a client app wired to each other over loopback.
 struct Pair {
@@ -603,10 +636,11 @@ fn a_call_arrives_with_its_own_arguments() {
     }
 
     let mut arrived = Vec::new();
-    for _ in 0..10 {
+    pump(|| {
         pair.step();
         Pair::collect(&mut pair.server, &mut arrived);
-    }
+        arrived.len() >= 2
+    });
 
     assert_eq!(arrived.len(), 2, "{arrived:?}");
     assert_eq!(arrived[0].name, "open");
@@ -643,10 +677,11 @@ fn the_server_refuses_a_call_on_an_entity_the_caller_does_not_own() {
     }
 
     let mut arrived = Vec::new();
-    for _ in 0..10 {
+    pump(|| {
         pair.step();
         Pair::collect(&mut pair.server, &mut arrived);
-    }
+        arrived.iter().any(|c| c.name == "touch1")
+    });
 
     let names: Vec<&str> = arrived.iter().map(|c| c.name.as_str()).collect();
     assert_eq!(
@@ -677,11 +712,12 @@ fn a_multicast_runs_on_the_client_and_on_the_server() {
     );
 
     let (mut on_server, mut on_client) = (Vec::new(), Vec::new());
-    for _ in 0..10 {
+    pump(|| {
         pair.step();
         Pair::collect(&mut pair.server, &mut on_server);
         Pair::collect(&mut pair.client, &mut on_client);
-    }
+        !on_server.is_empty() && !on_client.is_empty()
+    });
 
     assert_eq!(on_server.len(), 1, "the server runs its own copy");
     assert_eq!(on_client.len(), 1, "and the client runs one too");
@@ -706,11 +742,12 @@ fn a_call_to_the_owner_reaches_that_peer() {
     );
 
     let (mut on_server, mut on_client) = (Vec::new(), Vec::new());
-    for _ in 0..10 {
+    pump(|| {
         pair.step();
         Pair::collect(&mut pair.server, &mut on_server);
         Pair::collect(&mut pair.client, &mut on_client);
-    }
+        !on_client.is_empty()
+    });
 
     assert_eq!(on_client.len(), 1, "the owner runs it");
     assert_eq!(on_client[0].args, r#"{"damage":12}"#);
@@ -740,15 +777,30 @@ fn a_client_cannot_send_a_multicast() {
         RpcTarget::Multicast,
         true,
     );
+    // Sent after it on the same reliable channel, so once this has arrived
+    // the multicast has had every chance to. Without it the test had nothing
+    // to wait for, and a transport that delivered nothing at all passed.
+    Pair::queue_rpc(
+        &mut pair.client,
+        RpcCall {
+            net_id: 1,
+            name: "canary".into(),
+            args: String::new(),
+        },
+        RpcTarget::Server,
+        true,
+    );
 
     let (mut on_server, mut on_client) = (Vec::new(), Vec::new());
-    for _ in 0..10 {
+    pump(|| {
         pair.step();
         Pair::collect(&mut pair.server, &mut on_server);
         Pair::collect(&mut pair.client, &mut on_client);
-    }
+        on_server.iter().any(|c| c.name == "canary")
+    });
 
-    assert!(on_server.is_empty(), "the server must not relay it");
+    let names: Vec<&str> = on_server.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(names, vec!["canary"], "the server must not relay it");
     assert!(on_client.is_empty(), "and it must not run locally either");
 }
 
@@ -796,12 +848,10 @@ fn transform_replication_still_works_alongside_calls() {
     // A few more frames for that last datagram to land. A starved snapshot
     // stream -- the regression this test exists for -- never gets here
     // however many frames it is given.
-    for _ in 0..10 {
-        if (pair.client_position(on_client).x - 9.0).abs() < 1e-3 {
-            break;
-        }
+    pump(|| {
         pair.step();
-    }
+        (pair.client_position(on_client).x - 9.0).abs() < 1e-3
+    });
     assert!(
         (pair.client_position(on_client).x - 9.0).abs() < 1e-3,
         "the client should still be tracking the server's transform, got {:?}",
@@ -911,11 +961,12 @@ fn an_owner_targeted_call_reaches_that_owner_and_no_one_else() {
     }
 
     let (mut first, mut second) = (Vec::new(), Vec::new());
-    for _ in 0..10 {
+    pump(|| {
         room.step();
         Pair::collect(&mut room.first, &mut first);
         Pair::collect(&mut room.second, &mut second);
-    }
+        first.iter().any(|c| c.name == "hit1") && second.iter().any(|c| c.name == "hit2")
+    });
 
     let names =
         |calls: &[RpcCall]| -> Vec<String> { calls.iter().map(|c| c.name.clone()).collect() };
@@ -952,11 +1003,12 @@ fn a_multicast_reaches_both_clients() {
     );
 
     let (mut first, mut second) = (Vec::new(), Vec::new());
-    for _ in 0..10 {
+    pump(|| {
         room.step();
         Pair::collect(&mut room.first, &mut first);
         Pair::collect(&mut room.second, &mut second);
-    }
+        !first.is_empty() && !second.is_empty()
+    });
 
     assert_eq!(first.len(), 1, "{first:?}");
     assert_eq!(second.len(), 1, "both clients run a multicast: {second:?}");
@@ -988,10 +1040,11 @@ fn a_client_cannot_call_on_another_clients_entity() {
     }
 
     let mut arrived = Vec::new();
-    for _ in 0..10 {
+    pump(|| {
         room.step();
         Pair::collect(&mut room.server, &mut arrived);
-    }
+        arrived.iter().any(|c| c.name == "touch2")
+    });
 
     let names: Vec<&str> = arrived.iter().map(|c| c.name.as_str()).collect();
     assert_eq!(

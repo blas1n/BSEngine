@@ -156,6 +156,9 @@ pub struct Light {
     pub points: Vec<PointLight>,
     /// Rect lights, as the renderer takes them.
     pub rects: Vec<bsengine_rhi_wgpu::area_light::RectLightEntry>,
+    /// Spot lights, as the renderer takes them -- cookie ids included, so a
+    /// test names a texture it uploaded through the registry.
+    pub spots: Vec<bsengine_rhi_wgpu::SpotLightEntry>,
 }
 
 impl Default for Light {
@@ -166,6 +169,7 @@ impl Default for Light {
             ambient: Vec3::splat(0.15),
             points: Vec::new(),
             rects: Vec::new(),
+            spots: Vec::new(),
         }
     }
 }
@@ -186,7 +190,7 @@ impl Light {
                     range: p.range,
                 })
                 .collect(),
-            spot_lights: Vec::new(),
+            spot_lights: self.spots.clone(),
             rect_lights: self.rects.clone(),
         }
     }

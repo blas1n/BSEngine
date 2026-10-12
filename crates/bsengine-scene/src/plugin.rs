@@ -688,6 +688,7 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                 range: sl.range,
                 inner_angle_degrees: sl.inner_angle_degrees.into(),
                 outer_angle_degrees: sl.outer_angle_degrees.into(),
+                cookie: sl.cookie.clone(),
             });
         }
 

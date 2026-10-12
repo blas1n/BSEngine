@@ -520,6 +520,16 @@ pub struct SpotLightDescriptor {
     /// Outer cone half-angle in degrees — zero brightness outside.
     #[serde(default = "default_spot_outer_angle_degrees")]
     pub outer_angle_degrees: f32,
+    /// Texture projected through the cone (`SpotLight::cookie`). Empty --
+    /// and absent from the file, so every scene written before cookies
+    /// existed still reads, and a plain light still writes the same text --
+    /// is a plain cone.
+    ///
+    /// A field here and not left to the generic `components` list because
+    /// `SpotLight` is one of the types that list excludes: without it a
+    /// cookie would be dropped by every save.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub cookie: String,
 }
 
 /// Rigid body type for physics descriptors in scene files.
@@ -1437,6 +1447,27 @@ mod tests {
         assert_ne!(a, c);
     }
 
+    /// A scene written before cookies reads as plain cones, a plain light
+    /// still writes the text it always did, and a cookie survives the trip.
+    #[test]
+    fn spot_light_cookie_is_optional_in_the_file() {
+        let old = "(color: (1.0, 1.0, 1.0), intensity: 1.0, range: 10.0, \
+                   inner_angle_degrees: 15.0, outer_angle_degrees: 30.0)";
+        let plain: SpotLightDescriptor = ron::from_str(old).unwrap();
+        assert_eq!(plain.cookie, "");
+        assert!(!ron::to_string(&plain).unwrap().contains("cookie"));
+
+        let cookied = SpotLightDescriptor {
+            cookie: "lights/window.png".into(),
+            ..plain
+        };
+        let text = ron::to_string(&cookied).unwrap();
+        assert_eq!(
+            ron::from_str::<SpotLightDescriptor>(&text).unwrap(),
+            cookied
+        );
+    }
+
     #[test]
     fn spot_light_descriptor_supports_equality_comparison() {
         let a = SpotLightDescriptor {
@@ -1445,6 +1476,7 @@ mod tests {
             range: 10.0,
             inner_angle_degrees: 22.5,
             outer_angle_degrees: 30.0,
+            cookie: String::new(),
         };
         let b = a.clone();
         let c = SpotLightDescriptor {

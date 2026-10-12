@@ -100,6 +100,7 @@ pub(crate) fn snapshot_entity_as_descriptor(
             range: sl.range,
             inner_angle_degrees: sl.inner_angle_degrees.0,
             outer_angle_degrees: sl.outer_angle_degrees.0,
+            cookie: sl.cookie.clone(),
         }
     });
 
@@ -276,7 +277,7 @@ fn merge_point_light(
 }
 
 /// Same rationale and shape as `merge_point_light`, for `SpotLightDescriptor`'s
-/// five independently-tunable attributes.
+/// six independently-tunable attributes.
 fn merge_spot_light(
     live: &Option<bsengine_scene::SpotLightDescriptor>,
     baseline: &Option<bsengine_scene::SpotLightDescriptor>,
@@ -297,6 +298,7 @@ fn merge_spot_light(
                 &b.outer_angle_degrees,
                 &n.outer_angle_degrees,
             ),
+            cookie: resolve_field(&l.cookie, &b.cookie, &n.cookie),
         }),
         _ => resolve_field(live, baseline, new),
     }
@@ -664,6 +666,7 @@ pub(crate) fn apply_merged_descriptor(
                 range: sl.range,
                 inner_angle_degrees: sl.inner_angle_degrees.into(),
                 outer_angle_degrees: sl.outer_angle_degrees.into(),
+                cookie: sl.cookie.clone(),
             });
         }
         None => {
@@ -1594,6 +1597,7 @@ mod tests {
                     range: 8.0,
                     inner_angle_degrees: 20.0.into(),
                     outer_angle_degrees: 35.0.into(),
+                    cookie: "lights/gobo.png".to_string(),
                 },
             ))
             .id();
@@ -1610,6 +1614,7 @@ mod tests {
                 range: 8.0,
                 inner_angle_degrees: 20.0,
                 outer_angle_degrees: 35.0,
+                cookie: "lights/gobo.png".to_string(),
             })
         );
     }
@@ -2371,6 +2376,7 @@ mod tests {
                 range: 10.0,
                 inner_angle_degrees: 15.0,
                 outer_angle_degrees: 25.0,
+                cookie: String::new(),
             }),
             ..live.clone()
         };

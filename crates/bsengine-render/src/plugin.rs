@@ -67,13 +67,23 @@ fn rect_light_entry(
     }
 }
 
-fn spot_light_entry(sl: &SpotLight, gt: Option<&GlobalTransform>, t: &Transform) -> SpotLightEntry {
+fn spot_light_entry(
+    sl: &SpotLight,
+    gt: Option<&GlobalTransform>,
+    t: &Transform,
+    textures: Option<&crate::texture_cache::TextureCache>,
+) -> SpotLightEntry {
     let pos = gt
         .map(|g| g.to_matrix().w_axis.truncate())
         .unwrap_or(t.position.0);
     let dir = gt
         .map(|g| -glam::Mat3::from_mat4(g.to_matrix()).z_axis)
         .unwrap_or_else(|| t.rotation.0 * Vec3::NEG_Z);
+    // The local +X the cookie's "right" is, from the same transform as the
+    // direction, so a parented light's cookie turns with its parent.
+    let right = gt
+        .map(|g| glam::Mat3::from_mat4(g.to_matrix()).x_axis)
+        .unwrap_or_else(|| t.rotation.0 * Vec3::X);
     SpotLightEntry {
         position: pos,
         direction: dir,
@@ -82,6 +92,11 @@ fn spot_light_entry(sl: &SpotLight, gt: Option<&GlobalTransform>, t: &Transform)
         range: sl.range,
         inner_angle: sl.inner_angle_degrees.to_radians(),
         outer_angle: sl.outer_angle_degrees.to_radians(),
+        right,
+        // Uploaded by `resolve_texture_paths`; until it arrives, a plain cone.
+        cookie: (!sl.cookie.is_empty())
+            .then(|| textures?.id_for(&sl.cookie))
+            .flatten(),
     }
 }
 
@@ -1147,7 +1162,7 @@ fn render_frame(
     let collected_spot_lights: Vec<SpotLightEntry> = render_queries
         .p4()
         .iter()
-        .map(|(sl, gt, t)| spot_light_entry(sl, gt, t))
+        .map(|(sl, gt, t)| spot_light_entry(sl, gt, t, texture_cache.as_deref()))
         .collect();
 
     let collected_rect_lights: Vec<bsengine_rhi_wgpu::area_light::RectLightEntry> =
@@ -2862,10 +2877,50 @@ mod tests {
         };
         let t = Transform::from_position(Vec3::new(0.0, 5.0, 0.0));
 
-        let entry = super::spot_light_entry(&sl, None, &t);
+        let entry = super::spot_light_entry(&sl, None, &t, None);
 
         assert!((entry.inner_angle - 45_f32.to_radians()).abs() < 1e-6);
         assert!((entry.outer_angle - 60_f32.to_radians()).abs() < 1e-6);
+    }
+
+    /// The cookie path becomes the id the texture cache holds for it, and
+    /// the cookie's right axis is the light's world-space +X -- taken from
+    /// the `GlobalTransform` when there is one, so a light parented to a
+    /// turned object turns its picture too. The local `Transform` says
+    /// something else on purpose: reading it would give the wrong axis.
+    ///
+    /// The cookie is a named picture (`set_frame`, how a video is shown),
+    /// which is also the claim that a video can be a cookie.
+    #[test]
+    fn spot_light_entry_carries_the_cookie_id_and_the_lights_right_axis() {
+        use bsengine_core::SpotLight;
+
+        let surface = bsengine_rhi_wgpu::surface::WgpuSurface::offscreen_for_testing(16, 16)
+            .expect("this test needs an adapter; a skip here would look like a pass");
+        let mut registry =
+            bsengine_rhi_wgpu::GpuTextureRegistry::new(surface.device_arc(), surface.queue_arc());
+        let mut cache = crate::texture_cache::TextureCache::default();
+        let id = cache.set_frame("gobo", 1, 1, &[255; 4], &mut registry);
+
+        let turned = glam::Quat::from_rotation_z(std::f32::consts::FRAC_PI_2);
+        let global = GlobalTransform(glam::Mat4::from_quat(turned).into());
+        let local = Transform::default();
+        let sl = SpotLight {
+            cookie: "gobo".into(),
+            ..SpotLight::default()
+        };
+
+        let entry = super::spot_light_entry(&sl, Some(&global), &local, Some(&cache));
+        assert_eq!(entry.cookie, Some(id));
+        assert!(
+            entry.right.distance(Vec3::Y) < 1e-6,
+            "the global +X, turned to +Y: {}",
+            entry.right
+        );
+
+        let plain = super::spot_light_entry(&SpotLight::default(), None, &local, Some(&cache));
+        assert_eq!(plain.cookie, None, "no path, no cookie");
+        assert!(plain.right.distance(Vec3::X) < 1e-6, "{}", plain.right);
     }
 
     #[test]

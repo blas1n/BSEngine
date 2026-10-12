@@ -505,6 +505,7 @@ pub(super) fn process_editor_commands(
                         range,
                         inner_angle_degrees: inner_angle.to_degrees().into(),
                         outer_angle_degrees: outer_angle.to_degrees().into(),
+                        ..SpotLight::default()
                     },
                     Transform::from_position(glam::Vec3::from(position)),
                     GlobalTransform::default(),
@@ -699,6 +700,7 @@ pub(super) fn process_editor_commands(
                             range: sl.range,
                             inner_angle_degrees: sl.inner_angle_degrees.into(),
                             outer_angle_degrees: sl.outer_angle_degrees.into(),
+                            cookie: sl.cookie.clone(),
                         });
                     }
                     if let Some(script) = &entity.script {

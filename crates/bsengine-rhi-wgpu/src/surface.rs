@@ -5,6 +5,9 @@ use std::sync::Arc;
 
 const MAX_POINT_LIGHTS: usize = 8;
 const MAX_SPOT_LIGHTS: usize = 8;
+// Every shaded spot light has a shadow layer -- the layer index *is* the
+// light's index -- so the two caps must move together.
+const _: () = assert!(MAX_SPOT_LIGHTS == crate::spot_shadow::MAX_SPOT_SHADOWS);
 
 /// How many named render passes `render_frame` can time in a single frame.
 /// The frame today has at most 6 (directional shadow, the point-light shadow
@@ -74,7 +77,8 @@ struct SpotLightEntry {
     range: f32,
     // Atlas layer of the light's cookie, or -1.0 for none.
     cookie_layer: f32,
-    _pad2: f32,
+    // Layer of the light's shadow map (`spot_shadow`), or -1.0 for none.
+    shadow_layer: f32,
 };
 struct LightUniform {
     direction: vec3<f32>,
@@ -576,7 +580,7 @@ fn fs_main(in: VertOut) -> SceneOut {
                 let f = fresnel_schlick(h_dot_v, f0);
                 let kd = (vec3<f32>(1.0, 1.0, 1.0) - f) * (1.0 - metallic);
                 let specular = (ndf * g * f) / (4.0 * n_dot_v * n_dot_l + 0.0001);
-                lo += (kd * albedo / PI + specular) * sl.color * spot_cookie(sl, in.world_pos) * (sl.intensity * t * t * spot_factor) * n_dot_l;
+                lo += (kd * albedo / PI + specular) * sl.color * spot_cookie(sl, in.world_pos) * spot_shadow(sl, in.world_pos, n, l, camera.shadow_filter) * (sl.intensity * t * t * spot_factor) * n_dot_l;
             }
         }
     }
@@ -669,7 +673,8 @@ fn fs_main(in: VertOut) -> SceneOut {
 }
 "#,
     crate::area_light::rect_light_wgsl!(),
-    crate::cookie::cookie_wgsl!()
+    crate::cookie::cookie_wgsl!(),
+    crate::spot_shadow::spot_shadow_wgsl!()
 );
 
 const TERRAIN_WGSL: &str = concat!(
@@ -722,7 +727,8 @@ struct SpotLightEntry {
     range: f32,
     // Atlas layer of the light's cookie, or -1.0 for none.
     cookie_layer: f32,
-    _pad2: f32,
+    // Layer of the light's shadow map (`spot_shadow`), or -1.0 for none.
+    shadow_layer: f32,
 };
 struct LightUniform {
     direction: vec3<f32>,
@@ -1032,7 +1038,7 @@ fn fs_main(in: VertOut) -> SceneOut {
                 let f = fresnel_schlick(h_dot_v, f0);
                 let kd = (vec3<f32>(1.0, 1.0, 1.0) - f) * (1.0 - metallic);
                 let specular = (ndf * g * f) / (4.0 * n_dot_v * n_dot_l + 0.0001);
-                lo += (kd * albedo / PI + specular) * sl.color * spot_cookie(sl, in.world_pos) * (sl.intensity * t * t * spot_factor) * n_dot_l;
+                lo += (kd * albedo / PI + specular) * sl.color * spot_cookie(sl, in.world_pos) * spot_shadow(sl, in.world_pos, n, l, camera.shadow_filter) * (sl.intensity * t * t * spot_factor) * n_dot_l;
             }
         }
     }
@@ -1047,7 +1053,8 @@ fn fs_main(in: VertOut) -> SceneOut {
 }
 "#,
     crate::area_light::rect_light_wgsl!(),
-    crate::cookie::cookie_wgsl!()
+    crate::cookie::cookie_wgsl!(),
+    crate::spot_shadow::spot_shadow_wgsl!()
 );
 
 /// The instanced shadow shaders' view of the model buffer.
@@ -1275,7 +1282,8 @@ struct SpotLightEntry {
     range: f32,
     // Atlas layer of the light's cookie, or -1.0 for none.
     cookie_layer: f32,
-    _pad2: f32,
+    // Layer of the light's shadow map (`spot_shadow`), or -1.0 for none.
+    shadow_layer: f32,
 };
 struct LightUniform {
     direction: vec3<f32>,
@@ -1513,7 +1521,7 @@ fn fs_capture(in: VertOut) -> @location(0) vec4<f32> {
                 let f = fresnel_schlick(h_dot_v, f0);
                 let kd = (vec3<f32>(1.0, 1.0, 1.0) - f) * (1.0 - metallic);
                 let specular = (ndf * g * f) / (4.0 * n_dot_v * n_dot_l + 0.0001);
-                lo += (kd * albedo / PI + specular) * sl.color * spot_cookie(sl, in.world_pos) * (sl.intensity * t * t * spot_factor) * n_dot_l;
+                lo += (kd * albedo / PI + specular) * sl.color * spot_cookie(sl, in.world_pos) * spot_shadow(sl, in.world_pos, n, l, 0u) * (sl.intensity * t * t * spot_factor) * n_dot_l;
             }
         }
     }
@@ -1526,7 +1534,8 @@ fn fs_capture(in: VertOut) -> @location(0) vec4<f32> {
     return vec4<f32>(color, 1.0);
 }
 "#,
-    crate::cookie::cookie_wgsl!()
+    crate::cookie::cookie_wgsl!(),
+    crate::spot_shadow::spot_shadow_wgsl!()
 );
 
 /// The skybox, drawn as the background of every probe capture face.
@@ -2177,7 +2186,8 @@ struct SpotLightGpu {
     range: f32,
     /// -1.0 for no cookie: the shader's test, not an index.
     cookie_layer: f32,
-    _pad2: f32,
+    // Layer of the light's shadow map (`spot_shadow`), or -1.0 for none.
+    shadow_layer: f32,
 }
 
 #[repr(C)]
@@ -2520,6 +2530,9 @@ struct LightBindings<'a> {
     ltc: &'a crate::area_light::LtcTables,
     /// The spot lights' cookie atlas and sampler.
     cookies: &'a crate::cookie::CookieAtlas,
+    /// The spot lights' shadow maps, as an array, and their matrices.
+    spot_shadow_view: &'a wgpu::TextureView,
+    spot_shadow_buffer: &'a wgpu::Buffer,
 }
 
 /// Builds the light bind group. The single place the group-2 binding numbers
@@ -2613,6 +2626,14 @@ fn create_light_bind_group(
             wgpu::BindGroupEntry {
                 binding: 19,
                 resource: wgpu::BindingResource::Sampler(&bindings.cookies.sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 20,
+                resource: wgpu::BindingResource::TextureView(bindings.spot_shadow_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 21,
+                resource: bindings.spot_shadow_buffer.as_entire_binding(),
             },
         ],
     })
@@ -2734,6 +2755,15 @@ pub struct WgpuSurface {
     ltc: crate::area_light::LtcTables,
     /// The spot lights' cookies, redrawn every frame (see `crate::cookie`).
     cookies: crate::cookie::CookieAtlas,
+    /// The spot lights' shadow maps (see `crate::spot_shadow`): kept alive
+    /// for the views.
+    _spot_shadow_texture: crate::profiler::TrackedTexture,
+    /// All layers, as binding 20 reads them.
+    spot_shadow_view: wgpu::TextureView,
+    /// One view per layer, to draw into.
+    spot_shadow_layer_views: Vec<wgpu::TextureView>,
+    /// Every spot shadow's view-projection, binding 21.
+    spot_shadow_buffer: wgpu::Buffer,
     /// Every captured reflection probe's prefiltered cube, six layers per
     /// slot, bound as a cube array at binding 13.
     reflection_cubes: crate::profiler::TrackedTexture,
@@ -3805,6 +3835,29 @@ impl WgpuSurface {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                // 20-21: the spot lights' shadow maps and their matrices (see
+                // `crate::spot_shadow`), read through binding 1's comparison
+                // sampler.
+                wgpu::BindGroupLayoutEntry {
+                    binding: 20,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 21,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
 
@@ -3985,7 +4038,10 @@ impl WgpuSurface {
 
         let cascade_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("cascade uniform"),
-            size: CASCADE_STRIDE * crate::shadow::MAX_CASCADES as u64,
+            // The cascades, then one slot per spot shadow: the spot passes
+            // draw with the same pipeline and bind group.
+            size: CASCADE_STRIDE
+                * (crate::shadow::MAX_CASCADES + crate::spot_shadow::MAX_SPOT_SHADOWS) as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -4193,6 +4249,72 @@ impl WgpuSurface {
         });
         let ltc = crate::area_light::LtcTables::new(&device, &queue);
         let cookies = crate::cookie::CookieAtlas::new(&device);
+        let spot_shadow_texture = crate::profiler::create_tracked_texture(
+            &device,
+            &wgpu::TextureDescriptor {
+                label: Some("spot shadow maps"),
+                size: wgpu::Extent3d {
+                    width: crate::spot_shadow::SPOT_SHADOW_MAP_SIZE,
+                    height: crate::spot_shadow::SPOT_SHADOW_MAP_SIZE,
+                    depth_or_array_layers: crate::spot_shadow::MAX_SPOT_SHADOWS as u32,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: DEPTH_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            },
+        );
+        let spot_shadow_view = spot_shadow_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: Some("spot shadow array view"),
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
+        let spot_shadow_layer_views: Vec<wgpu::TextureView> = (0..crate::spot_shadow::MAX_SPOT_SHADOWS)
+            .map(|i| {
+                spot_shadow_texture.create_view(&wgpu::TextureViewDescriptor {
+                    label: Some("spot shadow layer view"),
+                    dimension: Some(wgpu::TextureViewDimension::D2),
+                    base_array_layer: i as u32,
+                    array_layer_count: Some(1),
+                    ..Default::default()
+                })
+            })
+            .collect();
+        // Cleared once to the far plane -- "nothing occludes" -- before
+        // anything reads it. A fresh texture is zeros, which reads as an
+        // occluder at the light, and a probe bake that runs before the first
+        // frame's spot passes would bake every spot light as fully shadowed.
+        {
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("spot shadow clear"),
+            });
+            for view in &spot_shadow_layer_views {
+                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("spot shadow clear"),
+                    color_attachments: &[],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+            }
+            queue.submit(Some(encoder.finish()));
+        }
+        let spot_shadow_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("spot shadow matrices"),
+            size: std::mem::size_of::<crate::spot_shadow::SpotShadowUniform>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
 
         // No skybox at construction, so the cube bindings get the dummy. Every
         // later rebuild goes through `rebuild_light_bind_group`, which binds
@@ -4218,6 +4340,8 @@ impl WgpuSurface {
                 rect_light_buffer: &rect_light_buffer,
                 ltc: &ltc,
                 cookies: &cookies,
+                spot_shadow_view: &spot_shadow_view,
+                spot_shadow_buffer: &spot_shadow_buffer,
             },
         );
 
@@ -4994,6 +5118,10 @@ impl WgpuSurface {
             rect_light_buffer,
             ltc,
             cookies,
+            _spot_shadow_texture: spot_shadow_texture,
+            spot_shadow_view,
+            spot_shadow_layer_views,
+            spot_shadow_buffer,
             reflection_cubes,
             reflection_cubes_view,
             reflection_capture_texture,
@@ -5457,6 +5585,8 @@ impl WgpuSurface {
                 rect_light_buffer: &self.rect_light_buffer,
                 ltc: &self.ltc,
                 cookies: &self.cookies,
+                spot_shadow_view: &self.spot_shadow_view,
+                spot_shadow_buffer: &self.spot_shadow_buffer,
             },
         );
         self.light_bind_group = bind_group;
@@ -6297,7 +6427,7 @@ impl WgpuSurface {
             intensity: 0.0,
             range: 0.0,
             cookie_layer: -1.0,
-            _pad2: 0.0,
+            shadow_layer: -1.0,
         }; 8];
         let num_spot_lights = light.spot_lights.len().min(MAX_SPOT_LIGHTS) as u32;
         // Before the probe bakes below, which light with these same cookies.
@@ -6320,9 +6450,43 @@ impl WgpuSurface {
                 intensity: sl.intensity,
                 range: sl.range,
                 cookie_layer: cookie_layers[i],
-                _pad2: 0.0,
+                shadow_layer: i as f32,
             };
         }
+        // Each shaded spot light's shadow view: into the lighting shaders'
+        // uniform, and into the cascade uniform past the cascades, where the
+        // shadow pipeline the spot passes share reads its matrix. Staged here,
+        // before any pass is encoded, for the write_buffer ordering reason the
+        // cascades give.
+        let spot_shadow_vps: Vec<Mat4> = shaded_spots
+            .iter()
+            .map(|sl| {
+                crate::spot_shadow::spot_shadow_view_proj(
+                    sl.position,
+                    sl.direction,
+                    sl.outer_angle,
+                    sl.range,
+                )
+            })
+            .collect();
+        let mut spot_shadow_data = crate::spot_shadow::SpotShadowUniform {
+            view_proj: [Mat4::IDENTITY.to_cols_array_2d(); crate::spot_shadow::MAX_SPOT_SHADOWS],
+        };
+        for (i, vp) in spot_shadow_vps.iter().enumerate() {
+            spot_shadow_data.view_proj[i] = vp.to_cols_array_2d();
+            self.queue.write_buffer(
+                &self.cascade_uniform_buffer,
+                (crate::shadow::MAX_CASCADES + i) as u64 * CASCADE_STRIDE,
+                bytemuck::cast_slice(&[CascadeUniformData {
+                    light_view_proj: vp.to_cols_array_2d(),
+                }]),
+            );
+        }
+        self.queue.write_buffer(
+            &self.spot_shadow_buffer,
+            0,
+            bytemuck::bytes_of(&spot_shadow_data),
+        );
         let light_data = LightUniformData {
             direction: light.direction.normalize().to_array(),
             _pad0: 0.0,
@@ -6786,6 +6950,76 @@ impl WgpuSurface {
                         frame_objects_drawn += 1;
                         frame_triangles += (mesh.index_count / 3) as u64;
                     }
+                }
+            }
+        }
+
+        // --- spot light shadow passes (see `crate::spot_shadow`) ---
+        // The directional passes' pipeline and casters, one pass per shaded
+        // spot light into its own layer, through the matrix staged above.
+        // Cleared and left empty under `fast_render`, as the cascades are.
+        for (spot, layer_view) in self
+            .spot_shadow_layer_views
+            .iter()
+            .enumerate()
+            .take(spot_shadow_vps.len())
+        {
+            let mut shadow_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("spot shadow pass"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: layer_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            if self.fast_render {
+                continue;
+            }
+            shadow_pass.set_pipeline(&self.shadow_pipeline);
+            shadow_pass.set_bind_group(
+                0,
+                &self.cascade_bind_group,
+                &[((crate::shadow::MAX_CASCADES + spot) as u64 * CASCADE_STRIDE) as u32],
+            );
+            if self.instancing_supported {
+                for batch in &directional_batches {
+                    let Some(mesh) = registry.get(batch.mesh_id) else {
+                        continue;
+                    };
+                    shadow_pass.set_bind_group(
+                        1,
+                        &self.model_storage_bind_group,
+                        &[batch.slot_base * std::mem::size_of::<u32>() as u32],
+                    );
+                    shadow_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                    shadow_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                    shadow_pass.draw_indexed(0..mesh.index_count, 0, 0..batch.count);
+                    frame_draw_calls += 1;
+                    frame_objects_drawn += batch.count;
+                    frame_triangles += (mesh.index_count / 3) as u64 * batch.count as u64;
+                }
+            } else {
+                for (i, (mesh_id, _, _, _, _)) in draw_calls.iter().enumerate() {
+                    if i >= MAX_OBJECTS {
+                        break;
+                    }
+                    let Some(mesh) = registry.get(*mesh_id) else {
+                        continue;
+                    };
+                    let offset = (i as u64 * MODEL_STRIDE) as u32;
+                    shadow_pass.set_bind_group(1, &self.model_bind_group, &[offset]);
+                    shadow_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                    shadow_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                    shadow_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                    frame_draw_calls += 1;
+                    frame_objects_drawn += 1;
+                    frame_triangles += (mesh.index_count / 3) as u64;
                 }
             }
         }

@@ -378,7 +378,7 @@ struct SpotLightEntry {
     range: f32,
     // Atlas layer of the light's cookie, or -1.0 for none.
     cookie_layer: f32,
-    _pad2: f32,
+    shadow_layer: f32,
 }
 // Must match `LightUniformData` in surface.rs field for field, padding
 // included: this binds that struct's buffer.

@@ -12,7 +12,11 @@ fn asset() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/assets/two_colors.mp4")
 }
 
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(any(
+    windows,
+    target_os = "macos",
+    all(target_os = "linux", feature = "gstreamer")
+))]
 mod platform {
     use super::asset;
     use bsengine_video::{open, Packet, VideoFrame};
@@ -161,7 +165,11 @@ mod platform {
 
 /// Where there is no backend yet, opening says so -- it does not panic, and
 /// it does not pretend.
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(not(any(
+    windows,
+    target_os = "macos",
+    all(target_os = "linux", feature = "gstreamer")
+)))]
 #[test]
 fn without_a_backend_opening_says_so() {
     let error = bsengine_video::open(&asset()).err().expect("no decoder");

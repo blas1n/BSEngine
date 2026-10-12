@@ -62,3 +62,9 @@ tempfile        = "3"
 # than a second `remove_dir_all` that would leave litter whenever it lost that
 # race. Same arrangement `bsengine-scene` uses, and for the same reason.
 bsengine-asset  = { workspace = true, features = ["test-support"] }
+
+[features]
+# Video playback on Linux, through GStreamer (`bsengine-video`'s
+# `gstreamer` feature): needs GStreamer's development libraries to build and
+# its plugins (gst-libav for H.264/AAC) to play.
+video-gstreamer = ["bsengine-video/gstreamer"]

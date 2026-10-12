@@ -115,37 +115,143 @@ fn a_block_under_a_spot_light_shades_the_floor() {
     );
 }
 
-/// A lit floor with nothing over it is evenly lit -- no shadow acne, the
-/// speckle a too-small bias leaves where a surface shadows itself. Every
-/// sample on a ring well inside the cone is within a few levels of the next,
-/// where acne would put some of them near black.
+/// A lit floor with nothing over it is lit smoothly -- no shadow acne, the
+/// speckle a too-small offset leaves where a surface shadows itself. Acne
+/// lives on surfaces the light meets at an angle, where the map's depth
+/// changes across each texel, so the light here comes in obliquely; the
+/// floor's lighting then varies across the frame, but only gradually, and
+/// no pixel differs from its neighbour by more than a few levels -- where
+/// acne makes neighbours swing between lit and black.
+///
+/// Also the soft filter's hard case: with the filter off, acne is not
+/// blurred away either.
 #[test]
 fn an_open_floor_has_no_shadow_acne() {
     let mut h = Harness::new();
     let cube = h.cube();
-    let p = h.render(&overhead(
-        vec![floor(cube)],
-        vec![spot_at(Vec3::new(0.0, 4.0, 0.0), Vec3::ZERO, 40.0)],
-    ));
-    let mut samples = Vec::new();
-    for i in 0..48 {
-        let a = i as f32 / 48.0 * std::f32::consts::TAU;
-        for r in [0.5, 1.2, 2.0] {
-            let x = (CX as f32 + a.cos() * r * PX).round() as u32;
-            let y = (CY as f32 + a.sin() * r * PX).round() as u32;
-            samples.push((r, red(&p, x, y)));
+    for soft in [true, false] {
+        let p = h.render(&Scene {
+            soft_shadows: soft,
+            ..overhead(
+                vec![floor(cube)],
+                vec![spot_at(
+                    Vec3::new(3.0, 2.0, 0.0),
+                    Vec3::new(-0.5, 0.0, 0.0),
+                    50.0,
+                )],
+            )
+        });
+        let (mut lit, mut worst) = (0, 0u8);
+        for y in CY - 25..CY + 25 {
+            for x in at_x(-1.5)..at_x(1.0) {
+                let (a, b) = (red(&p, x, y), red(&p, x + 1, y));
+                if a > 20 {
+                    lit += 1;
+                }
+                worst = worst.max(a.abs_diff(b));
+            }
         }
+        assert!(
+            lit > 2000,
+            "premise: the light covers the region (soft {soft}): {lit} lit"
+        );
+        assert!(
+            worst <= 6,
+            "smooth, no speckle (soft {soft}): neighbours differ by {worst}"
+        );
     }
-    for r in [0.5, 1.2, 2.0] {
-        let ring: Vec<u8> = samples
-            .iter()
-            .filter(|(s, _)| *s == r)
-            .map(|(_, v)| *v)
-            .collect();
-        let (lo, hi) = (*ring.iter().min().unwrap(), *ring.iter().max().unwrap());
-        assert!(lo > 40, "premise and result: lit at radius {r} (min {lo})");
-        assert!(hi - lo <= 6, "even at radius {r}: {lo}..{hi}");
-    }
+}
+
+/// The soft filter softens spot shadows too: with `ShadowSettings::soft` the
+/// shadow's edge is a gradient several pixels wide, without it a step. The
+/// count of in-between pixels across the edge is what tells them apart.
+#[test]
+fn soft_shadows_soften_a_spot_shadows_edge() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let mut penumbra = |soft: bool| {
+        let p = h.render(&Scene {
+            soft_shadows: soft,
+            // Close over the edge: the 3x3 filter spans about 0.04 units on
+            // the floor here, a pixel from the usual overhead view and five
+            // from one unit up. The edge is where the block's top, the widest
+            // outline the light sees, projects: 0.5 * 4 / 0.9 = 2.22.
+            camera_pos: Vec3::new(2.22, 1.0, 0.01),
+            look_at: Vec3::new(2.22, 0.0, 0.0),
+            ..overhead(
+                vec![
+                    floor(cube),
+                    block(cube, Vec3::new(0.0, 3.0, 0.0), Vec3::new(0.5, 0.1, 0.5)),
+                ],
+                vec![spot_at(Vec3::new(0.0, 4.0, 0.0), Vec3::ZERO, 40.0)],
+            )
+        });
+        // Across the frame, and so across the edge at its centre.
+        let row: Vec<u8> = (0..WIDTH).map(|x| red(&p, x, CY)).collect();
+        let lit = *row.iter().max().unwrap();
+        assert!(
+            lit > 60 && *row.iter().min().unwrap() < 5,
+            "premise: the row crosses the edge"
+        );
+        row.iter()
+            .filter(|&&v| v as f32 > lit as f32 * 0.15 && (v as f32) < lit as f32 * 0.85)
+            .count()
+    };
+    let (soft, hard) = (penumbra(true), penumbra(false));
+    assert!(
+        soft >= hard + 2,
+        "soft {soft} in-between pixels against hard {hard}"
+    );
+}
+
+/// A probe bake on the very first frame -- before any spot shadow pass has
+/// drawn into the maps -- sees the spot light unshadowed, as later bakes do.
+/// A fresh depth texture is zeros, an occluder at the light itself, so maps
+/// not cleared at creation would bake the light as entirely shadowed.
+#[test]
+fn a_first_frame_probe_bake_is_not_shadowed_by_empty_maps() {
+    let mut h = Harness::new();
+    let (plane, cube) = (h.plane(), h.cube());
+    let probes = bsengine_core::LightProbeVolume {
+        half_extents: Vec3::new(2.5, 1.5, 2.5).into(),
+        resolution: [4, 2, 4],
+    };
+    let room = |intensity: f32, volume| Scene {
+        camera_pos: Vec3::new(0.0, 2.0, 6.0),
+        look_at: Vec3::new(0.0, -0.5, 0.0),
+        light_probes: volume,
+        ..overhead(
+            vec![
+                Draw::new(plane, Vec3::ZERO)
+                    .scaled(Vec3::new(16.0, 1.0, 16.0), Vec3::new(0.0, -0.5, 0.0))
+                    .roughness(0.9),
+                Draw::new(cube, Vec3::ZERO)
+                    .scaled(Vec3::new(0.3, 4.0, 8.0), Vec3::new(3.0, 1.5, 0.0))
+                    .colour(Vec3::ONE)
+                    .roughness(1.0),
+            ],
+            vec![SpotLightEntry {
+                intensity,
+                ..spot_at(Vec3::new(1.5, 1.5, 0.0), Vec3::new(3.0, 1.5, 0.0), 60.0)
+            }],
+        )
+    };
+    // The very first frame this surface draws bakes the probes.
+    let first = h.render(&room(60.0, Some(probes))).centre()[1] as i32;
+    // Warm: a frame without probes (the spot pass draws the map), then a
+    // bake; and the same with the light off, for the bake's own baseline.
+    h.render(&room(60.0, None));
+    let warm = h.render(&room(60.0, Some(probes))).centre()[1] as i32;
+    h.render(&room(0.0, None));
+    let dark = h.render(&room(0.0, Some(probes))).centre()[1] as i32;
+    assert!(
+        warm - dark > 10,
+        "premise: the warm bake carries the spot's bounce ({warm} vs {dark})"
+    );
+    assert!(
+        (first - warm).abs() <= 3,
+        "the first frame's bake matches it: {first} against {warm} (dark {dark})"
+    );
 }
 
 /// The shadow starts where the caster stands: a box resting on the floor,
@@ -191,38 +297,47 @@ fn a_shadow_starts_at_the_foot_of_its_caster() {
     );
 }
 
-/// Two spot lights have a map each: a block under the left one shades the
-/// floor under it, and the floor under the right one, with nothing over it,
-/// stays lit. Lights sharing a map -- every light reading the first -- would
-/// shade the right light's floor with the left light's block.
+/// Two spot lights have a map each: where their cones overlap, a block that
+/// shades one light's floor leaves the other's light on it. With two lights
+/// over the same floor, the point 0.8 from the left light's axis is in the
+/// left block's shadow and well inside the right light's cone: lit by the
+/// right light alone, exactly as much as when the right light is the only
+/// one. Every light reading the first light's map would shade it from both.
+///
+/// The cones must overlap for this. Side by side, a light reading the wrong
+/// map also reads it through the wrong matrix -- the layer picks both -- and
+/// its own floor lands outside that frustum, where everything reads lit.
 #[test]
 fn each_spot_light_has_its_own_shadow_map() {
     let mut h = Harness::new();
     let cube = h.cube();
-    let lights = || {
-        vec![
-            spot_at(Vec3::new(-2.0, 4.0, 0.0), Vec3::new(-2.0, 0.0, 0.0), 20.0),
-            spot_at(Vec3::new(2.0, 4.0, 0.0), Vec3::new(2.0, 0.0, 0.0), 20.0),
-        ]
-    };
-    let p = h.render(&overhead(
+    let left = spot_at(Vec3::new(-1.0, 4.0, 0.0), Vec3::new(-1.0, 0.0, 0.0), 30.0);
+    let right = spot_at(Vec3::new(1.0, 4.0, 0.0), Vec3::new(1.0, 0.0, 0.0), 30.0);
+    // Over the left light: its shadow spans x = -1 +- 1.2 on the floor, and
+    // the block's own top hides x = -1 +- 0.61 from the camera.
+    let draws = || {
         vec![
             floor(cube),
-            block(cube, Vec3::new(-2.0, 3.0, 0.0), Vec3::new(0.3, 0.05, 0.3)),
-        ],
-        lights(),
-    ));
-    // 0.8 out from each light's axis: inside its 20-degree cone (1.46 at
-    // the floor), inside the left block's shadow (1.2), past its top (0.31).
+            block(cube, Vec3::new(-1.0, 3.0, 0.0), Vec3::new(0.3, 0.05, 0.3)),
+        ]
+    };
+    let x = at_x(-0.2);
+    let both = h.render(&overhead(draws(), vec![left.clone(), right.clone()]));
+    let left_only = h.render(&overhead(draws(), vec![left]));
+    let right_only = h.render(&overhead(draws(), vec![right]));
     assert!(
-        red(&p, at_x(-2.8), CY) < 5,
-        "left, shadowed: {}",
-        red(&p, at_x(-2.8), CY)
+        red(&left_only, x, CY) < 5,
+        "premise: the left light's floor is shadowed there"
     );
     assert!(
-        red(&p, at_x(1.2), CY) > 40,
-        "right, lit: {}",
-        red(&p, at_x(1.2), CY)
+        red(&right_only, x, CY) > 40,
+        "premise: the right light reaches it"
+    );
+    assert!(
+        red(&both, x, CY).abs_diff(red(&right_only, x, CY)) <= 3,
+        "together, the right light's share is untouched: {} against {}",
+        red(&both, x, CY),
+        red(&right_only, x, CY)
     );
 }
 

@@ -272,6 +272,126 @@ fn the_picture_spans_the_cone() {
     );
 }
 
+/// Terrain has its own copy of the spot light loop, and takes the cookie in
+/// it: the same overhead light on a white terrain chunk lights only the
+/// cookie's white half.
+#[test]
+fn terrain_takes_the_cookie_too() {
+    let mut h = Harness::new();
+    let left_white = cookie(&mut h, WHITE, |x, _| x < 8);
+    let white = h.two_colour_texture(WHITE, WHITE);
+    let weight = h.two_colour_texture([255, 0, 0, 255], [255, 0, 0, 255]);
+    let cube = h.cube();
+    let down = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+    let mut render = |id| {
+        h.render(&Scene {
+            // The unit cube scaled flat: its top face at y = 0.5.
+            terrain: vec![(
+                cube,
+                glam::Mat4::from_scale(Vec3::new(20.0, 1.0, 20.0)),
+                [white; 4],
+                weight,
+            )],
+            camera_pos: Vec3::new(0.0, 6.5, 0.01),
+            look_at: Vec3::new(0.0, 0.5, 0.0),
+            ..scene(vec![], vec![spot(Vec3::new(0.0, 3.5, 0.0), down, 30.0, id)])
+        })
+    };
+    let plain = render(None);
+    assert!(
+        red(&plain, CX - OFF, CY) > 100 && red(&plain, CX + OFF, CY) > 100,
+        "premise: the plain cone lights the terrain on both sides ({} and {})",
+        red(&plain, CX - OFF, CY),
+        red(&plain, CX + OFF, CY)
+    );
+    let cookied = render(Some(left_white));
+    assert!(
+        red(&cookied, CX - OFF, CY) > 100,
+        "left: {}",
+        red(&cookied, CX - OFF, CY)
+    );
+    assert!(
+        red(&cookied, CX + OFF, CY) < 5,
+        "right: {}",
+        red(&cookied, CX + OFF, CY)
+    );
+}
+
+/// Light probes are baked with the cookie too: a white wall under a spot
+/// light with a red gel bounces red onto a white floor the light itself never
+/// reaches, where the same light without the gel bounces white. The probe
+/// capture shader has its own copy of the spot light loop, and a bake that
+/// skipped the cookie would light the room with a colour the light does not
+/// have.
+///
+/// Measured as a colour bias, as `pixels_light_probe` measures bounce: a
+/// broken bake can brighten a floor, but only a red wall can redden it.
+#[test]
+fn probes_are_baked_with_the_cookie() {
+    let mut h = Harness::new();
+    let red_gel = cookie(&mut h, [255, 0, 0, 255], |_, _| true);
+    let (plane, cube) = (h.plane(), h.cube());
+    let probes = bsengine_core::LightProbeVolume {
+        half_extents: Vec3::new(2.5, 1.5, 2.5).into(),
+        resolution: [4, 2, 4],
+    };
+    // Pointing +X, at the wall's face 1.35 units away.
+    let at_wall = Quat::from_rotation_y(-std::f32::consts::FRAC_PI_2);
+    let room = |id, volume| Scene {
+        draws: vec![
+            Draw::new(plane, Vec3::ZERO)
+                .scaled(Vec3::new(16.0, 1.0, 16.0), Vec3::new(0.0, -0.5, 0.0))
+                .roughness(0.9),
+            Draw::new(cube, Vec3::ZERO)
+                .scaled(Vec3::new(0.3, 4.0, 8.0), Vec3::new(3.0, 1.5, 0.0))
+                .colour(Vec3::ONE)
+                .roughness(1.0),
+        ],
+        camera_pos: Vec3::new(0.0, 2.0, 6.0),
+        look_at: Vec3::new(0.0, -0.5, 0.0),
+        light_probes: volume,
+        ..scene(
+            vec![],
+            vec![SpotLightEntry {
+                intensity: 60.0,
+                ..spot(Vec3::new(1.5, 1.5, 0.0), at_wall, 60.0, id)
+            }],
+        )
+    };
+    let bias = |p: &Pixels| {
+        let [r, g, b, _] = p.centre();
+        r as f32 - 0.5 * (g as f32 + b as f32)
+    };
+    // Each probe frame after a probe-less one: the bake reruns only when
+    // the volume changes, and a cookie is not the volume.
+    let mut baked = |id| {
+        let off = h.render(&room(id, None));
+        let on = h.render(&room(id, Some(probes.clone())));
+        (off, on)
+    };
+    let (plain_off, plain_on) = baked(None);
+    let (gel_off, gel_on) = baked(Some(red_gel));
+    assert_eq!(
+        plain_off.centre(),
+        gel_off.centre(),
+        "premise: the light does not reach the floor's centre directly"
+    );
+    assert!(
+        plain_on.centre()[1] > plain_off.centre()[1] + 10,
+        "premise: the plain light's bounce reaches the floor through the probes ({:?} -> {:?})",
+        plain_off.centre(),
+        plain_on.centre()
+    );
+    assert!(
+        bias(&gel_on) > bias(&plain_on) + 12.0,
+        "the gel's red should reach the floor through the bake: bias {} against {} ({:?} against {:?})",
+        bias(&gel_on),
+        bias(&plain_on),
+        gel_on.centre(),
+        plain_on.centre()
+    );
+}
+
 /// The cookie's colour, not just its brightness, multiplies the light: a red
 /// gel leaves red and takes green and blue.
 #[test]

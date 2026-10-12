@@ -4272,7 +4272,8 @@ impl WgpuSurface {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
             ..Default::default()
         });
-        let spot_shadow_layer_views: Vec<wgpu::TextureView> = (0..crate::spot_shadow::MAX_SPOT_SHADOWS)
+        let spot_shadow_layer_views: Vec<wgpu::TextureView> = (0
+            ..crate::spot_shadow::MAX_SPOT_SHADOWS)
             .map(|i| {
                 spot_shadow_texture.create_view(&wgpu::TextureViewDescriptor {
                     label: Some("spot shadow layer view"),
@@ -6998,7 +6999,8 @@ impl WgpuSurface {
                         &[batch.slot_base * std::mem::size_of::<u32>() as u32],
                     );
                     shadow_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                    shadow_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                    shadow_pass
+                        .set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                     shadow_pass.draw_indexed(0..mesh.index_count, 0, 0..batch.count);
                     frame_draw_calls += 1;
                     frame_objects_drawn += batch.count;
@@ -7015,7 +7017,8 @@ impl WgpuSurface {
                     let offset = (i as u64 * MODEL_STRIDE) as u32;
                     shadow_pass.set_bind_group(1, &self.model_bind_group, &[offset]);
                     shadow_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                    shadow_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                    shadow_pass
+                        .set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                     shadow_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
                     frame_draw_calls += 1;
                     frame_objects_drawn += 1;

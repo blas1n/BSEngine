@@ -32,7 +32,12 @@ pub const SPOT_SHADOW_MAP_SIZE: u32 = 512;
 /// The near plane is a hundredth of the range (at least 5 cm): close enough
 /// that a caster just in front of the light still casts, far enough that a
 /// 32-bit float depth keeps its precision across the rest.
-pub fn spot_shadow_view_proj(position: Vec3, direction: Vec3, outer_angle: f32, range: f32) -> Mat4 {
+pub fn spot_shadow_view_proj(
+    position: Vec3,
+    direction: Vec3,
+    outer_angle: f32,
+    range: f32,
+) -> Mat4 {
     let direction = direction.normalize_or(Vec3::NEG_Z);
     let (_, up) = crate::cookie::cookie_basis(direction);
     let fov = (2.0 * outer_angle).clamp(1e-3, std::f32::consts::PI - 1e-3);
@@ -124,7 +129,10 @@ mod tests {
     /// (or in its middle).
     #[test]
     fn the_cone_is_inscribed_in_the_map() {
-        let (position, direction) = (Vec3::new(1.0, 4.0, 2.0), Vec3::new(0.3, -1.0, 0.1).normalize());
+        let (position, direction) = (
+            Vec3::new(1.0, 4.0, 2.0),
+            Vec3::new(0.3, -1.0, 0.1).normalize(),
+        );
         let outer = 30f32.to_radians();
         let vp = spot_shadow_view_proj(position, direction, outer, 10.0);
         let (_, up) = crate::cookie::cookie_basis(direction);

@@ -32,7 +32,9 @@ fn floor(cube: u64) -> Draw {
 
 /// A box of half-size `half` centred at `at`.
 fn block(cube: u64, at: Vec3, half: Vec3) -> Draw {
-    Draw::new(cube, Vec3::ZERO).scaled(half * 2.0, at).colour(Vec3::ONE)
+    Draw::new(cube, Vec3::ZERO)
+        .scaled(half * 2.0, at)
+        .colour(Vec3::ONE)
 }
 
 /// A spot light at `position` pointing at `target`.
@@ -135,7 +137,11 @@ fn an_open_floor_has_no_shadow_acne() {
         }
     }
     for r in [0.5, 1.2, 2.0] {
-        let ring: Vec<u8> = samples.iter().filter(|(s, _)| *s == r).map(|(_, v)| *v).collect();
+        let ring: Vec<u8> = samples
+            .iter()
+            .filter(|(s, _)| *s == r)
+            .map(|(_, v)| *v)
+            .collect();
         let (lo, hi) = (*ring.iter().min().unwrap(), *ring.iter().max().unwrap());
         assert!(lo > 40, "premise and result: lit at radius {r} (min {lo})");
         assert!(hi - lo <= 6, "even at radius {r}: {lo}..{hi}");
@@ -151,7 +157,16 @@ fn an_open_floor_has_no_shadow_acne() {
 fn a_shadow_starts_at_the_foot_of_its_caster() {
     let mut h = Harness::new();
     let cube = h.cube();
-    let scene = |draws| overhead(draws, vec![spot_at(Vec3::new(3.0, 4.0, 0.0), Vec3::new(-0.5, 0.0, 0.0), 50.0)]);
+    let scene = |draws| {
+        overhead(
+            draws,
+            vec![spot_at(
+                Vec3::new(3.0, 4.0, 0.0),
+                Vec3::new(-0.5, 0.0, 0.0),
+                50.0,
+            )],
+        )
+    };
     let open = h.render(&scene(vec![floor(cube)]));
     let boxed = h.render(&scene(vec![
         floor(cube),
@@ -159,7 +174,10 @@ fn a_shadow_starts_at_the_foot_of_its_caster() {
     ]));
     // The box's top hides the floor out to 0.6 seen from overhead.
     for x in [-0.75, -1.4] {
-        assert!(red(&open, at_x(x), CY) > 40, "premise: lit at {x} without the box");
+        assert!(
+            red(&open, at_x(x), CY) > 40,
+            "premise: lit at {x} without the box"
+        );
         assert!(
             red(&boxed, at_x(x), CY) < 5,
             "shadowed at {x}, by its foot: {}",
@@ -196,8 +214,16 @@ fn each_spot_light_has_its_own_shadow_map() {
     ));
     // 0.8 out from each light's axis: inside its 20-degree cone (1.46 at
     // the floor), inside the left block's shadow (1.2), past its top (0.31).
-    assert!(red(&p, at_x(-2.8), CY) < 5, "left, shadowed: {}", red(&p, at_x(-2.8), CY));
-    assert!(red(&p, at_x(1.2), CY) > 40, "right, lit: {}", red(&p, at_x(1.2), CY));
+    assert!(
+        red(&p, at_x(-2.8), CY) < 5,
+        "left, shadowed: {}",
+        red(&p, at_x(-2.8), CY)
+    );
+    assert!(
+        red(&p, at_x(1.2), CY) > 40,
+        "right, lit: {}",
+        red(&p, at_x(1.2), CY)
+    );
 }
 
 /// Terrain has its own spot light loop, and takes the shadow in it too.
@@ -210,16 +236,39 @@ fn terrain_takes_spot_shadows() {
     let mut render = |draws: Vec<Draw>| {
         h.render(&Scene {
             // The unit cube scaled flat: its top at y = 0.5.
-            terrain: vec![(cube, glam::Mat4::from_scale(Vec3::new(20.0, 1.0, 20.0)), [white; 4], weight)],
+            terrain: vec![(
+                cube,
+                glam::Mat4::from_scale(Vec3::new(20.0, 1.0, 20.0)),
+                [white; 4],
+                weight,
+            )],
             camera_pos: Vec3::new(0.0, 6.5, 0.01),
             look_at: Vec3::new(0.0, 0.5, 0.0),
-            ..overhead(draws, vec![spot_at(Vec3::new(0.0, 4.5, 0.0), Vec3::new(0.0, 0.5, 0.0), 40.0)])
+            ..overhead(
+                draws,
+                vec![spot_at(
+                    Vec3::new(0.0, 4.5, 0.0),
+                    Vec3::new(0.0, 0.5, 0.0),
+                    40.0,
+                )],
+            )
         })
     };
     let open = render(vec![]);
-    let blocked = render(vec![block(cube, Vec3::new(0.0, 3.5, 0.0), Vec3::new(0.5, 0.1, 0.5))]);
-    assert!(red(&open, at_x(1.5), CY) > 80, "premise: the terrain is lit");
-    assert!(red(&blocked, at_x(1.5), CY) < 5, "and shaded under the block: {}", red(&blocked, at_x(1.5), CY));
+    let blocked = render(vec![block(
+        cube,
+        Vec3::new(0.0, 3.5, 0.0),
+        Vec3::new(0.5, 0.1, 0.5),
+    )]);
+    assert!(
+        red(&open, at_x(1.5), CY) > 80,
+        "premise: the terrain is lit"
+    );
+    assert!(
+        red(&blocked, at_x(1.5), CY) < 5,
+        "and shaded under the block: {}",
+        red(&blocked, at_x(1.5), CY)
+    );
 }
 
 /// Light probes are baked with spot shadows: a white wall lit by a spot
@@ -234,7 +283,7 @@ fn probes_are_baked_with_spot_shadows() {
         half_extents: Vec3::new(2.5, 1.5, 2.5).into(),
         resolution: [4, 2, 4],
     };
-    let room = |blocked: bool, volume| {
+    let room = |intensity: f32, blocked: bool, volume| {
         let mut draws = vec![
             Draw::new(plane, Vec3::ZERO)
                 .scaled(Vec3::new(16.0, 1.0, 16.0), Vec3::new(0.0, -0.5, 0.0))
@@ -259,19 +308,30 @@ fn probes_are_baked_with_spot_shadows() {
             ..overhead(
                 draws,
                 vec![SpotLightEntry {
-                    intensity: 60.0,
+                    intensity,
                     ..spot_at(Vec3::new(1.5, 1.5, 0.0), Vec3::new(3.0, 1.5, 0.0), 60.0)
                 }],
             )
         }
     };
-    let mut bounce = |blocked: bool| {
-        let off = h.render(&room(blocked, None));
-        let on = h.render(&room(blocked, Some(probes)));
+    // What the probes add to the floor with the light on, less what they add
+    // with it off: the bake lights the floor somewhat with no light at all
+    // (72 levels here), and only the rest is the spot light's bounce.
+    let mut probe_light = |intensity: f32, blocked: bool| {
+        let off = h.render(&room(intensity, blocked, None));
+        let on = h.render(&room(intensity, blocked, Some(probes)));
         on.centre()[1] as i32 - off.centre()[1] as i32
     };
+    let dark = probe_light(0.0, false);
+    let mut bounce = |blocked: bool| probe_light(60.0, blocked) - dark;
     let open = bounce(false);
-    assert!(open > 10, "premise: the lit wall bounces light onto the floor ({open})");
+    assert!(
+        open > 10,
+        "premise: the lit wall bounces light onto the floor ({open})"
+    );
     let blocked = bounce(true);
-    assert!(blocked < open / 4, "the shadowed wall bounces almost none: {blocked} against {open}");
+    assert!(
+        blocked < open / 4,
+        "the shadowed wall bounces almost none: {blocked} against {open}"
+    );
 }

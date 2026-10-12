@@ -948,6 +948,15 @@ struct VertOut {{
     /// `render()` hasn't been called yet -- every test using this calls
     /// `render()` first, so a `None` here would be a real bug, not an
     /// expected state to handle quietly.
+    /// A GPU emitter's particles as the GPU holds them: each slot's instance
+    /// (size 0 when dead) and velocity.
+    pub fn gpu_particles(
+        &self,
+        id: u64,
+    ) -> Option<Vec<(bsengine_rhi_wgpu::particles::ParticleInstance, Vec3)>> {
+        self.surface.read_gpu_particles(id)
+    }
+
     pub fn frame_stats(&self) -> bsengine_rhi_wgpu::profiler::FrameStats {
         self.surface
             .latest_frame_stats()

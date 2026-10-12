@@ -2635,6 +2635,11 @@ pub struct WgpuSurface {
     /// GPU-simulated emitters' buffers and the compute pass that steps them;
     /// drawn by `particles` in the same pass as the CPU ones.
     gpu_particles: crate::gpu_particles::GpuParticles,
+    /// The matrix the depth buffer was last drawn with, for the GPU
+    /// particles' depth collision; `None` while the depth buffer holds no
+    /// frame -- before the first, and after a resize replaces it with a
+    /// cleared one, whose zeros would read as a wall at the near plane.
+    particle_depth_view_proj: Option<glam::Mat4>,
     depth_texture: crate::profiler::TrackedTexture,
     depth_view: wgpu::TextureView,
     /// The decal buffer, its pipeline and its box geometry.
@@ -3073,8 +3078,18 @@ impl WgpuSurface {
     /// [`crate::gpu_particles`]) ahead of the next frame, which draws them.
     /// Every GPU emitter is named each frame; one not named has its buffers
     /// dropped.
+    ///
+    /// Colliding emitters bounce off the depth buffer the last frame drew.
     pub fn step_gpu_particles(&mut self, frames: &[crate::gpu_particles::GpuEmitterFrame]) {
-        self.gpu_particles.step(&self.device, &self.queue, frames);
+        let depth =
+            self.particle_depth_view_proj
+                .map(|view_proj| crate::gpu_particles::SceneDepth {
+                    view: &self.depth_view,
+                    view_proj,
+                    size: (self.output.width(), self.output.height()),
+                });
+        self.gpu_particles
+            .step(&self.device, &self.queue, frames, depth);
     }
 
     /// One GPU emitter's particles, read back from the GPU: each slot's
@@ -4933,6 +4948,7 @@ impl WgpuSurface {
             transparent_pipeline_msaa,
             particles,
             gpu_particles,
+            particle_depth_view_proj: None,
             depth_texture,
             depth_view,
             decals,
@@ -8333,6 +8349,10 @@ impl WgpuSurface {
         // the matrix.
         self.prev_unjittered_view_proj = unjittered_view_proj;
         self.prev_camera_pos = cam_pos;
+        // And the depth buffer this frame left behind is what the next GPU
+        // particle step collides with, seen through the matrix it was
+        // rasterised with -- jitter included, or every hit is a sub-pixel off.
+        self.particle_depth_view_proj = Some(raster_view_proj);
 
         Ok(clicked)
     }
@@ -8347,6 +8367,7 @@ impl WgpuSurface {
         let (depth_texture, depth_view) = Self::create_depth_texture(&self.device, width, height);
         self.depth_texture = depth_texture;
         self.depth_view = depth_view;
+        self.particle_depth_view_proj = None;
         self.post_process
             .resize_targets(&self.device, &self.depth_view, width, height);
         // Screen-sized, and its view is bound in group 2 -- so the light bind

@@ -67,6 +67,36 @@ fn rect_light_entry(
     }
 }
 
+/// One GPU emitter's next step, as the renderer's compute pass takes it: the
+/// step its tick recorded and the parameters that shape it.
+fn gpu_emitter_frame(
+    emitter: &bsengine_core::ParticleEmitter,
+    texture_id: Option<u64>,
+) -> bsengine_rhi_wgpu::gpu_particles::GpuEmitterFrame {
+    let step = emitter.gpu_step;
+    bsengine_rhi_wgpu::gpu_particles::GpuEmitterFrame {
+        id: step.id,
+        tick: step.tick,
+        spawn: step.spawn,
+        origin: step.origin,
+        dt: step.dt,
+        seed: step.seed,
+        capacity: emitter.max_particles,
+        lifetime: emitter.particle_lifetime,
+        speed: emitter.initial_speed,
+        spread_degrees: emitter.spread_degrees,
+        gravity: emitter.gravity,
+        start_size: emitter.start_size,
+        end_size: emitter.end_size,
+        start_color: emitter.start_color.to_array(),
+        end_color: emitter.end_color.to_array(),
+        texture_id,
+        collide: emitter.collision == bsengine_core::ParticleCollision::SceneDepth,
+        bounce: emitter.collision_bounce,
+        friction: emitter.collision_friction,
+    }
+}
+
 fn spot_light_entry(
     sl: &SpotLight,
     gt: Option<&GlobalTransform>,
@@ -1236,26 +1266,10 @@ fn render_frame(
             emitter.simulation == bsengine_core::ParticleSimulation::Gpu && emitter.gpu_step.id != 0
         })
         .map(|(emitter, texture)| {
-            let step = emitter.gpu_step;
-            bsengine_rhi_wgpu::gpu_particles::GpuEmitterFrame {
-                id: step.id,
-                tick: step.tick,
-                spawn: step.spawn,
-                origin: step.origin,
-                dt: step.dt,
-                seed: step.seed,
-                capacity: emitter.max_particles,
-                lifetime: emitter.particle_lifetime,
-                speed: emitter.initial_speed,
-                spread_degrees: emitter.spread_degrees,
-                gravity: emitter.gravity,
-                start_size: emitter.start_size,
-                end_size: emitter.end_size,
-                start_color: emitter.start_color.to_array(),
-                end_color: emitter.end_color.to_array(),
-                texture_id: texture
-                    .and_then(|t| texture_cache.as_deref().and_then(|c| c.id_for(&t.0))),
-            }
+            gpu_emitter_frame(
+                emitter,
+                texture.and_then(|t| texture_cache.as_deref().and_then(|c| c.id_for(&t.0))),
+            )
         })
         .collect();
     surface.0.step_gpu_particles(&gpu_emitters);
@@ -3468,6 +3482,26 @@ mod tests {
             .resource_mut::<bsengine_core::ShadowSettings>()
             .soft = true;
         assert!(soft(&mut app), "and on again");
+    }
+
+    /// An emitter's collision settings reach the compute pass: `SceneDepth`
+    /// turns collision on and `None` leaves it off, and the bounce and
+    /// friction go through as written. Distinct values, so a swap of the two
+    /// would show.
+    #[test]
+    fn a_gpu_emitters_collision_reaches_its_step() {
+        let emitter = |collision| bsengine_core::ParticleEmitter {
+            collision,
+            collision_bounce: 0.3,
+            collision_friction: 0.7,
+            ..Default::default()
+        };
+        let on =
+            super::gpu_emitter_frame(&emitter(bsengine_core::ParticleCollision::SceneDepth), None);
+        assert!(on.collide);
+        assert_eq!((on.bounce, on.friction), (0.3, 0.7));
+        let off = super::gpu_emitter_frame(&emitter(bsengine_core::ParticleCollision::None), None);
+        assert!(!off.collide);
     }
 
     /// An entity's GPU emitter reaches the renderer's compute pass: the step

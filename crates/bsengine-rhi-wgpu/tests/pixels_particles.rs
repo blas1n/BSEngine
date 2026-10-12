@@ -49,6 +49,9 @@ fn gpu_emitter(tick: u64, spawn: u32) -> bsengine_rhi_wgpu::gpu_particles::GpuEm
         start_color: [1.0, 0.9, 0.2],
         end_color: [1.0, 0.9, 0.2],
         texture_id: None,
+        collide: false,
+        bounce: 0.5,
+        friction: 0.0,
     }
 }
 
@@ -226,5 +229,58 @@ fn a_particles_alpha_thins_it_rather_than_hiding_it() {
         "a fainter particle should sit closer to the background: {} vs {}",
         distance(&faint),
         distance(&opaque)
+    );
+}
+
+/// GPU particles collide with what the renderer actually drew: dropped onto
+/// a floor, a colliding emitter's particles end the second on it, where the
+/// same emitter without collision -- the premise -- has dropped them through
+/// it. Through the real frame loop: each step reads the depth buffer the
+/// previous frame left, through the matrix that frame drew with.
+#[test]
+fn gpu_particles_land_on_the_floor_the_frame_drew() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    // Top face at y = -1, under the emitter at the origin and in view of the
+    // camera at (0, 0, 5).
+    let floor = || {
+        Draw::new(cube, Vec3::ZERO).scaled(Vec3::new(20.0, 0.2, 20.0), Vec3::new(0.0, -1.1, 0.0))
+    };
+    let mut lowest_after = |collide: bool| {
+        for tick in 1..=60 {
+            let emitter = bsengine_rhi_wgpu::gpu_particles::GpuEmitterFrame {
+                spawn: if tick == 1 { 50 } else { 0 },
+                dt: 0.02,
+                gravity: 10.0,
+                collide,
+                bounce: 0.2,
+                ..gpu_emitter(tick, 0)
+            };
+            h.render(&Scene {
+                draws: vec![floor()],
+                gpu_particles: vec![emitter],
+                ..Scene::default()
+            });
+        }
+        let particles = h.gpu_particles(1).expect("the emitter has buffers");
+        let live: Vec<f32> = particles
+            .iter()
+            .filter(|(i, _)| i.size > 0.0)
+            .map(|(i, _)| i.position[1])
+            .collect();
+        assert_eq!(live.len(), 50, "premise: all fifty still live");
+        // Dropped between frames so the next run starts from an empty ring.
+        h.render(&Scene::default());
+        live.into_iter().fold(f32::MAX, f32::min)
+    };
+    let without = lowest_after(false);
+    assert!(
+        without < -2.0,
+        "premise: without collision they fall through the floor ({without})"
+    );
+    let with = lowest_after(true);
+    assert!(
+        with > -1.05,
+        "with collision none sinks into it: lowest {with}"
     );
 }

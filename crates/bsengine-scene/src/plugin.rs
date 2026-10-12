@@ -91,7 +91,7 @@ impl Plugin for ScenePlugin {
             (move |world: &mut World| {
                 let content = bsengine_asset::pak_source::read_to_string(&path)
                     .unwrap_or_else(|e| panic!("Failed to read scene {path}: {e}"));
-                let scene: SceneDescriptor = ron::from_str(&content)
+                let scene: SceneDescriptor = crate::parse::parse_descriptor(&path, &content)
                     .unwrap_or_else(|e| panic!("Failed to parse scene {path}: {e}"));
                 spawn_scene_entities(world, &scene.entities);
                 if let Some(skybox_rel) = &scene.skybox {
@@ -232,8 +232,9 @@ pub fn instantiate_prefab_from_path(
     // `pak_source` documents why that is one function rather than two paths.
     let content = bsengine_asset::pak_source::read_to_string(prefab_path)
         .map_err(|e| format!("prefab '{prefab_path}' could not be read: {e}"))?;
-    let prefab: crate::types::PrefabDescriptor = ron::from_str(&content)
-        .map_err(|e| format!("prefab '{prefab_path}' failed to parse: {e}"))?;
+    let prefab: crate::types::PrefabDescriptor =
+        crate::parse::parse_descriptor(prefab_path, &content)
+            .map_err(|e| format!("prefab '{prefab_path}' failed to parse: {e}"))?;
 
     RESOLVING_PREFABS.with(|r| r.borrow_mut().insert(prefab_path.to_string()));
     // Guarantees the entry above is removed on every exit from this point on
@@ -1164,6 +1165,36 @@ mod tests {
         let path = std::env::temp_dir().join(filename);
         std::fs::write(&path, content).unwrap();
         path.to_str().unwrap().to_string()
+    }
+
+    /// A scene loaded by `ScenePlugin` -- how a game starts -- says which of
+    /// its keys were ignored, naming the file and the key; a clean scene says
+    /// nothing. The reporter itself is tested in `parse`; this is the claim
+    /// that the loader goes through it.
+    #[test]
+    fn loading_a_scene_warns_about_keys_it_ignores() {
+        let load = |file: &str, spot: &str| {
+            let path = write_temp_scene(
+                file,
+                &format!(
+                    r#"SceneDescriptor(entities: [EntityDescriptor(name: "S", spot_light: Some(({spot})))])"#
+                ),
+            );
+            let mut app = new_app();
+            app.add_plugins(ScenePlugin::from_file(&path));
+            let (_, logs) = bsengine_asset::test_support::capture_warnings(|| app.update());
+            (path, logs)
+        };
+        let (path, logs) = load("bsengine_unknown_key.ron", "inner_angle: 18.0");
+        assert!(
+            logs.contains("spot_light.?.inner_angle") && logs.contains(path.as_str()),
+            "the file and the key should be named: {logs}"
+        );
+        let (_, clean) = load("bsengine_known_key.ron", "inner_angle_degrees: 18.0");
+        assert!(
+            !clean.contains("not a field"),
+            "a clean scene warned: {clean}"
+        );
     }
 
     #[test]

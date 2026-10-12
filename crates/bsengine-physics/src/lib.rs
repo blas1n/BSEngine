@@ -25,7 +25,7 @@ pub use components::{
 };
 pub use plugin::PhysicsPlugin;
 pub use ragdoll::{plan_bones, pose_from_bones, BonePlan};
-pub use spring_arm::SpringArm;
+pub use spring_arm::{SpringArm, SpringArmLag};
 pub use world::PhysicsWorld;
 
 #[cfg(test)]

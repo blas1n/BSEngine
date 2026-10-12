@@ -129,14 +129,10 @@ struct SceneViewGpu {
     view_proj: [[f32; 4]; 4],
     inv_view_proj: [[f32; 4]; 4],
     size: [f32; 2],
-    /// 0 when there is no depth buffer to read yet: no frame drawn, or the
-    /// caller passed none. Collision is then skipped, never tested against
-    /// the dummy.
-    valid: u32,
-    _pad: u32,
+    _pad: [u32; 2],
 }
 
-/// One emitter's GPU state.)
+/// One emitter's GPU state.
 struct EmitterState {
     capacity: u32,
     instances: wgpu::Buffer,
@@ -158,7 +154,8 @@ pub struct GpuParticles {
     depth_layout: wgpu::BindGroupLayout,
     scene_view: wgpu::Buffer,
     /// Bound when there is no depth buffer, so the layout is always
-    /// satisfied; `valid` is 0 then and the shader never reads it.
+    /// satisfied. The scene view is all zeros then, which the shader reads
+    /// as "nothing to collide with" before it ever samples this.
     dummy_depth_view: wgpu::TextureView,
     emitters: HashMap<u64, EmitterState>,
 }
@@ -275,9 +272,10 @@ impl GpuParticles {
                 view_proj: d.view_proj.to_cols_array_2d(),
                 inv_view_proj: d.view_proj.inverse().to_cols_array_2d(),
                 size: [d.size.0 as f32, d.size.1 as f32],
-                valid: 1,
-                _pad: 0,
+                _pad: [0; 2],
             },
+            // All zeros: every point projects to `w = 0`, which `collide`
+            // rejects first -- no depth, nothing hit, with no flag to forget.
             None => <SceneViewGpu as bytemuck::Zeroable>::zeroed(),
         };
         queue.write_buffer(&self.scene_view, 0, bytemuck::bytes_of(&scene));
@@ -491,8 +489,7 @@ struct SceneView {
     view_proj: mat4x4<f32>,
     inv_view_proj: mat4x4<f32>,
     size: vec2<f32>,
-    valid: u32,
-    _pad: u32,
+    _pad: vec2<u32>,
 };
 // Laid out as `ParticleInstance`: position, size, colour.
 struct Instance {
@@ -545,6 +542,8 @@ fn nearer_step(centre: vec3<f32>, t: vec2<i32>, axis: vec2<i32>) -> vec3<f32> {
 // is the thickness Niagara's depth collision asks for, sized per step here.
 fn collide(position: ptr<function, vec3<f32>>, velocity: ptr<function, vec3<f32>>) {
     let clip = scene.view_proj * vec4<f32>(*position, 1.0);
+    // Behind the camera -- or no depth buffer at all, whose all-zero view
+    // puts every point here.
     if (clip.w <= 0.0) {
         return;
     }
@@ -555,7 +554,9 @@ fn collide(position: ptr<function, vec3<f32>>, velocity: ptr<function, vec3<f32>
     let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
     let t = vec2<i32>(uv * scene.size);
     let d = texel_depth(t);
-    // Nothing drawn there (the far plane), or the particle is in front.
+    // Nothing drawn there (the far plane: a particle fallen past it would
+    // otherwise be "just behind" the sky and land on it), or the particle
+    // is in front.
     if (d >= 1.0 || ndc.z <= d) {
         return;
     }
@@ -623,7 +624,7 @@ fn cs_step(@builtin(global_invocation_id) gid: vec3<u32>) {
         m.y = m.y - params.gravity * params.dt;
         position = position + m.xyz * params.dt;
         m.w = m.w - params.dt;
-        if (params.collide != 0u && scene.valid != 0u) {
+        if (params.collide != 0u) {
             var velocity = m.xyz;
             collide(&position, &velocity);
             m = vec4<f32>(velocity, m.w);
@@ -1161,6 +1162,23 @@ mod tests {
         assert!(
             fell(Vec3::new(8.0, 2.0, 0.0), Some((&floor, vp))),
             "off screen"
+        );
+        // The far plane is 40 from the camera at y = 10: dropped from just
+        // above it, the particle crosses it within a step and must keep going
+        // rather than land on the sky.
+        let past_far = drop_one(
+            Vec3::new(0.0, -29.9, 0.0),
+            (0.0, 0.0),
+            true,
+            0.0,
+            0.0,
+            Some((&sky, vp)),
+            50,
+        );
+        assert!(
+            past_far.last().unwrap().0.y < -33.0,
+            "the far plane is not a surface: {:?}",
+            past_far.last()
         );
     }
 

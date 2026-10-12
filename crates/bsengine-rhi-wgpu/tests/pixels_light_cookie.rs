@@ -366,7 +366,7 @@ fn probes_are_baked_with_the_cookie() {
     // the volume changes, and a cookie is not the volume.
     let mut baked = |id| {
         let off = h.render(&room(id, None));
-        let on = h.render(&room(id, Some(probes.clone())));
+        let on = h.render(&room(id, Some(probes)));
         (off, on)
     };
     let (plain_off, plain_on) = baked(None);

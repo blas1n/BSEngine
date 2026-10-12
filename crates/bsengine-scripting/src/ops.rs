@@ -947,6 +947,13 @@ pub enum ScriptCommand {
         /// Share of the leftover space; 0 keeps the widget's own size.
         weight: f32,
     },
+    /// Set whether a widget's text is translated automatically.
+    SetUiAutoTranslate {
+        /// Widget to set.
+        id: String,
+        /// Inherit, always or disabled.
+        mode: bsengine_core::UiAutoTranslate,
+    },
     /// Remove a UI widget by id.
     RemoveUiWidget {
         /// Identifier of the sound or UI widget to target.
@@ -5122,6 +5129,22 @@ pub fn bsengine_ui_set_fill(#[string] id: String, weight: f32) {
     });
 }
 
+/// Sets whether a widget's text is translated automatically (Godot's
+/// `auto_translate_mode`): 0 inherit, 1 always, 2 disabled. Anything else is
+/// inherit; the prelude turns names into these and rejects unknown ones.
+#[script_op(fast)]
+pub fn bsengine_ui_set_auto_translate(#[string] id: String, mode: u32) {
+    let mode = match mode {
+        1 => bsengine_core::UiAutoTranslate::Always,
+        2 => bsengine_core::UiAutoTranslate::Disabled,
+        _ => bsengine_core::UiAutoTranslate::Inherit,
+    };
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetUiAutoTranslate { id, mode });
+    });
+}
+
 /// Queue setting an existing widget's anchor.
 ///
 /// Normalised 0..1, `(0,0)` top-left and `(1,1)` bottom-right — the same
@@ -5697,6 +5720,7 @@ macro_rules! with_every_op {
             bsengine_ui_set_image,
             bsengine_ui_set_parent,
             bsengine_ui_set_fill,
+            bsengine_ui_set_auto_translate,
             bsengine_ui_set_button,
             bsengine_ui_set_panel,
             bsengine_ui_set_text_input,
@@ -8179,6 +8203,108 @@ JSON.stringify(received)
             err.to_string().contains("bottom-rihgt"),
             "the error must quote the bad name; got {err}"
         );
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    /// `opts.autoTranslate` reaches the command as Godot's mode: the names,
+    /// and `true`/`false` as always/disabled; an unknown name throws, quoting
+    /// it, rather than leaving the widget translated by a typo.
+    #[test]
+    fn auto_translate_option_queues_the_mode() {
+        use bsengine_core::UiAutoTranslate as M;
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        for (js, mode) in [
+            ("'disabled'", M::Disabled),
+            ("'always'", M::Always),
+            ("'inherit'", M::Inherit),
+            ("false", M::Disabled),
+            ("true", M::Always),
+        ] {
+            super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+            rt.eval(&format!(
+                r#"Bsengine.ui.setLabel("name", "Ada", 0, 0, 20, {{ autoTranslate: {js} }});"#
+            ))
+            .unwrap();
+            super::COMMAND_BUFFER.with(|c| {
+                let queued: Vec<M> = c
+                    .borrow()
+                    .iter()
+                    .filter_map(|cmd| match cmd {
+                        super::ScriptCommand::SetUiAutoTranslate { id, mode } if id == "name" => {
+                            Some(*mode)
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                assert_eq!(queued, vec![mode], "{js}");
+            });
+        }
+        let err = rt
+            .eval(r#"Bsengine.ui.setLabel("l", "x", 0, 0, 20, { autoTranslate: "disbled" });"#)
+            .expect_err("a typo'd mode must throw");
+        assert!(
+            err.to_string().contains("disbled"),
+            "quotes the bad name: {err}"
+        );
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    /// Every widget setter honours `opts.parent`, `opts.fill` and
+    /// `opts.autoTranslate`. Only the container and image setters used to, so
+    /// a label or a button could not be put in a container at all from a
+    /// script -- `{ parent: "menu" }` was dropped without a word.
+    #[test]
+    fn every_setter_applies_the_layout_options() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let o = r#"{ parent: "menu", fill: 2, autoTranslate: false }"#;
+        for (id, call) in [
+            (
+                "label",
+                format!(r#"Bsengine.ui.setLabel("label", "t", 0, 0, 20, {o});"#),
+            ),
+            (
+                "button",
+                format!(r#"Bsengine.ui.setButton("button", "t", 0, 0, 10, 10, {o});"#),
+            ),
+            (
+                "panel",
+                format!(r#"Bsengine.ui.setPanel("panel", "t", 0, 0, 10, 10, {o});"#),
+            ),
+            (
+                "input",
+                format!(r#"Bsengine.ui.setTextInput("input", "t", 0, 0, 10, {o});"#),
+            ),
+            (
+                "bar",
+                format!(r#"Bsengine.ui.setProgressBar("bar", 0, 0, 10, 10, 0.5, {o});"#),
+            ),
+            (
+                "image",
+                format!(r#"Bsengine.ui.setImage("image", "a.png", 0, 0, 10, 10, {o});"#),
+            ),
+            (
+                "box",
+                format!(r#"Bsengine.ui.setContainer("box", 0, 0, 10, 10, "vertical", {o});"#),
+            ),
+        ] {
+            super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+            rt.eval(&call).unwrap();
+            super::COMMAND_BUFFER.with(|c| {
+                let buf = c.borrow();
+                let parented = buf.iter().any(|cmd| {
+                    matches!(cmd, super::ScriptCommand::SetUiParent { id: i, parent } if i == id && parent == "menu")
+                });
+                let filled = buf.iter().any(|cmd| {
+                    matches!(cmd, super::ScriptCommand::SetUiFill { id: i, weight } if i == id && *weight == 2.0)
+                });
+                let switched_off = buf.iter().any(|cmd| {
+                    matches!(cmd, super::ScriptCommand::SetUiAutoTranslate { id: i, mode } if i == id && *mode == bsengine_core::UiAutoTranslate::Disabled)
+                });
+                assert!(parented && filled && switched_off, "{id}: parent {parented}, fill {filled}, autoTranslate {switched_off}");
+            });
+        }
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }
 

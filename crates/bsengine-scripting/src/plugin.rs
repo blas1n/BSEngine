@@ -2691,6 +2691,11 @@ fn run_scripts(world: &mut World) {
                     ui.set_fill(&id, weight);
                 }
             }
+            ScriptCommand::SetUiAutoTranslate { id, mode } => {
+                if let Some(mut ui) = world.get_resource_mut::<UiState>() {
+                    ui.set_auto_translate(&id, mode);
+                }
+            }
             ScriptCommand::SetUiAnchor {
                 id,
                 min_x,
@@ -6627,6 +6632,46 @@ mod tests {
             .expect("Hero entity with SaveData not found");
         assert_eq!(save.get("paused"), Some(b"true".as_slice()));
 
+        let _ = std::fs::remove_file(&script_path);
+    }
+
+    /// A script's layout and translation options reach `UiState`, through
+    /// the command buffer and the plugin that applies it: a button put in a
+    /// container and switched off, as a menu built from a script does.
+    #[test]
+    fn a_scripts_ui_options_reach_the_ui_state() {
+        let script_path = std::env::temp_dir().join(format!(
+            "bsengine_test_ui_options_{}.js",
+            std::process::id()
+        ));
+        std::fs::write(
+            &script_path,
+            "function onUpdate(name) {\n\
+                 Bsengine.ui.setContainer(\"menu\", 0, 0, 100, 100, \"vertical\");\n\
+                 Bsengine.ui.setButton(\"lang\", \"English\", 0, 0, 80, 20, { parent: \"menu\", autoTranslate: false });\n\
+             }",
+        )
+        .unwrap();
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: String::new(),
+        });
+        app.init_resource::<bsengine_core::UiState>();
+        app.world_mut().spawn((
+            Name("Menu".to_string()),
+            ScriptPath(script_path.to_string_lossy().to_string()),
+        ));
+        for _ in 0..3 {
+            app.update();
+        }
+        let ui = app.world().resource::<bsengine_core::UiState>();
+        assert!(
+            ui.widgets.iter().any(|w| w.id() == "lang"),
+            "premise: the script ran and made the button"
+        );
+        assert_eq!(ui.parents.get("lang").map(String::as_str), Some("menu"));
+        assert!(!ui.translates("lang"), "switched off");
         let _ = std::fs::remove_file(&script_path);
     }
 

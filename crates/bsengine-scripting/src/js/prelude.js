@@ -658,9 +658,15 @@ var Bsengine = {
         // Unreal's box slots and Godot's size flags all control the cross axis
         // by default.
         ALIGN: { 'stretch': 0, 'start': 1, 'center': 2, 'end': 3 },
-        // Applies `opts.parent` and `opts.fill` if present. Separate ops
-        // rather than more positional arguments, the same way `_applyAnchor`
-        // works and for the same reason.
+        // Godot's `auto_translate_mode` names, and the number each maps to.
+        AUTO_TRANSLATE: { 'inherit': 0, 'always': 1, 'disabled': 2 },
+        // Applies `opts.parent`, `opts.fill` and `opts.autoTranslate` if
+        // present. Separate ops rather than more positional arguments, the
+        // same way `_applyAnchor` works and for the same reason.
+        //
+        // Every setter calls this. Only `setContainer` and `setImage` used to,
+        // so `{ parent: 'menu' }` on a label or a button was dropped without a
+        // word and nothing but a container or an image could be put in one.
         _applyLayout: (id, opts) => {
             if (!opts) return;
             if (opts.parent !== undefined) {
@@ -668,6 +674,20 @@ var Bsengine = {
             }
             if (opts.fill !== undefined) {
                 Deno.core.ops.bsengine_ui_set_fill(id, opts.fill);
+            }
+            if (opts.autoTranslate !== undefined) {
+                const m = opts.autoTranslate;
+                // `true`/`false` are always/disabled, as Godot's older boolean
+                // `auto_translate` maps onto the modes, so a script need not
+                // learn the names to switch one widget off.
+                const mode = m === true ? 1 : m === false ? 2 : Bsengine.ui.AUTO_TRANSLATE[m];
+                if (mode === undefined) {
+                    throw new Error(
+                        'unknown autoTranslate "' + m + '"; expected one of ' +
+                        Object.keys(Bsengine.ui.AUTO_TRANSLATE).join(', ') +
+                        ', true or false');
+                }
+                Deno.core.ops.bsengine_ui_set_auto_translate(id, mode);
             }
         },
         // Direction names, and the number each maps to in the op.
@@ -727,22 +747,27 @@ var Bsengine = {
         setLabel:       (id, text, x, y, fontSize, opts) => {
             Deno.core.ops.bsengine_ui_set_label(id, String(text), x, y, fontSize ?? 20);
             Bsengine.ui._applyAnchor(id, opts);
+            Bsengine.ui._applyLayout(id, opts);
         },
         setButton:      (id, label, x, y, width, height, opts) => {
             Deno.core.ops.bsengine_ui_set_button(id, label, x, y, width, height);
             Bsengine.ui._applyAnchor(id, opts);
+            Bsengine.ui._applyLayout(id, opts);
         },
         setPanel:       (id, title, x, y, width, height, opts) => {
             Deno.core.ops.bsengine_ui_set_panel(id, title ?? '', x, y, width, height);
             Bsengine.ui._applyAnchor(id, opts);
+            Bsengine.ui._applyLayout(id, opts);
         },
         setTextInput:   (id, hint, x, y, width, opts) => {
             Deno.core.ops.bsengine_ui_set_text_input(id, hint ?? '', x, y, width);
             Bsengine.ui._applyAnchor(id, opts);
+            Bsengine.ui._applyLayout(id, opts);
         },
         setProgressBar: (id, x, y, width, height, fraction, opts) => {
             Deno.core.ops.bsengine_ui_set_progress_bar(id, x, y, width, height, fraction);
             Bsengine.ui._applyAnchor(id, opts);
+            Bsengine.ui._applyLayout(id, opts);
         },
         remove:         (id)                                => Deno.core.ops.bsengine_ui_remove_widget(id),
         clear:          ()                                  => Deno.core.ops.bsengine_ui_clear(),

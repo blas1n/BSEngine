@@ -3453,6 +3453,86 @@ mod tests {
         }
     }
 
+    /// A widget switched off (`UiAutoTranslate::Disabled`) is drawn as
+    /// written although its text is a key -- and so is a widget inside a
+    /// container switched off, unless it says always -- while the same key
+    /// on a widget left alone is drawn translated: the premise, in the same
+    /// frame. Checked against what egui laid out.
+    #[test]
+    fn a_widget_switched_off_is_drawn_as_written() {
+        use bsengine_core::{Localization, UiAnchor, UiAutoTranslate, UiState, UiWidget};
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::offscreen(256, 256, false));
+        app.add_plugins(RenderPlugin);
+        app.insert_resource(
+            Localization::from_csv_tables(
+                [(
+                    "ui.csv",
+                    "keys,en\nPLAY,Play\nQUIT,Quit\nHELP,Help\nBACK,Back\n",
+                )],
+                "en",
+            )
+            .unwrap(),
+        );
+        let mut ui = UiState::default();
+        let label = |id: &str, text: &str, y: f32| UiWidget::Label {
+            id: id.into(),
+            text: text.into(),
+            x: 10.0,
+            y,
+            font_size: 16.0,
+            anchor: UiAnchor::default(),
+        };
+        ui.set_widget(label("left_alone", "PLAY", 10.0));
+        ui.set_widget(label("switched_off", "QUIT", 40.0));
+        ui.set_auto_translate("switched_off", UiAutoTranslate::Disabled);
+        ui.set_widget(UiWidget::Container {
+            id: "menu".into(),
+            x: 120.0,
+            y: 10.0,
+            width: 120.0,
+            height: 120.0,
+            anchor: UiAnchor::default(),
+            direction: bsengine_core::UiDirection::Vertical,
+            spacing: 4.0,
+            padding: 0.0,
+            align: bsengine_core::UiAlign::default(),
+            scrollable: false,
+        });
+        ui.set_auto_translate("menu", UiAutoTranslate::Disabled);
+        ui.set_widget(label("inherits", "HELP", 0.0));
+        ui.set_parent("inherits", "menu");
+        ui.set_widget(label("always", "BACK", 0.0));
+        ui.set_parent("always", "menu");
+        ui.set_auto_translate("always", UiAutoTranslate::Always);
+        app.insert_resource(ui);
+
+        for _ in 0..3 {
+            app.update();
+        }
+        let drawn = app
+            .world()
+            .resource::<bsengine_rhi_wgpu::WgpuSurfaceResource>()
+            .0
+            .last_ui_texts()
+            .to_vec();
+        let has = |wanted: &str| drawn.iter().any(|t| t == wanted);
+        assert!(
+            has("Play"),
+            "premise: a key left alone is translated: {drawn:?}"
+        );
+        assert!(
+            has("QUIT") && !has("Quit"),
+            "switched off, as written: {drawn:?}"
+        );
+        assert!(
+            has("HELP") && !has("Help"),
+            "inside a switched-off container too: {drawn:?}"
+        );
+        assert!(has("Back"), "unless it says always: {drawn:?}");
+    }
+
     /// The project's soft-shadow setting reaches the renderer: on by default,
     /// off when `ShadowSettings` says so, and back on when it changes back.
     #[test]

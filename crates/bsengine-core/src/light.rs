@@ -71,6 +71,14 @@ pub struct SpotLight {
     pub inner_angle_degrees: ReflectDegrees,
     /// Outer cone half-angle (degrees) — zero brightness outside.
     pub outer_angle_degrees: ReflectDegrees,
+    /// Texture projected through the cone (a "cookie", as Unity calls it;
+    /// Godot's `light_projector`), as a path the way materials name theirs:
+    /// a window frame, leaves, a coloured gel. Its colour multiplies the
+    /// light's. The image is stretched over the cone's square and seen as a
+    /// slide projector shows it -- from behind the light, its top is the
+    /// light's local +Y -- so turning the light about its axis turns the
+    /// picture. Empty is a plain cone.
+    pub cookie: String,
 }
 
 impl Default for SpotLight {
@@ -81,6 +89,7 @@ impl Default for SpotLight {
             range: 10.0,
             inner_angle_degrees: 22.5.into(),
             outer_angle_degrees: 30.0.into(),
+            cookie: String::new(),
         }
     }
 }

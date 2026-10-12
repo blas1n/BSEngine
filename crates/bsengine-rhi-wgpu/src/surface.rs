@@ -64,14 +64,16 @@ struct PointLightEntry {
 };
 struct SpotLightEntry {
     position: vec3<f32>,
-    _pad0: f32,
+    // Roll about `direction` from `cookie_basis` (see `cookie.rs`).
+    cookie_roll: f32,
     direction: vec3<f32>,
     inner_cos: f32,
     color: vec3<f32>,
     outer_cos: f32,
     intensity: f32,
     range: f32,
-    _pad1: f32,
+    // Atlas layer of the light's cookie, or -1.0 for none.
+    cookie_layer: f32,
     _pad2: f32,
 };
 struct LightUniform {
@@ -574,7 +576,7 @@ fn fs_main(in: VertOut) -> SceneOut {
                 let f = fresnel_schlick(h_dot_v, f0);
                 let kd = (vec3<f32>(1.0, 1.0, 1.0) - f) * (1.0 - metallic);
                 let specular = (ndf * g * f) / (4.0 * n_dot_v * n_dot_l + 0.0001);
-                lo += (kd * albedo / PI + specular) * sl.color * (sl.intensity * t * t * spot_factor) * n_dot_l;
+                lo += (kd * albedo / PI + specular) * sl.color * spot_cookie(sl, in.world_pos) * (sl.intensity * t * t * spot_factor) * n_dot_l;
             }
         }
     }
@@ -666,7 +668,8 @@ fn fs_main(in: VertOut) -> SceneOut {
     return out;
 }
 "#,
-    crate::area_light::rect_light_wgsl!()
+    crate::area_light::rect_light_wgsl!(),
+    crate::cookie::cookie_wgsl!()
 );
 
 const TERRAIN_WGSL: &str = concat!(
@@ -709,14 +712,16 @@ struct PointLightEntry {
 };
 struct SpotLightEntry {
     position: vec3<f32>,
-    _pad0: f32,
+    // Roll about `direction` from `cookie_basis` (see `cookie.rs`).
+    cookie_roll: f32,
     direction: vec3<f32>,
     inner_cos: f32,
     color: vec3<f32>,
     outer_cos: f32,
     intensity: f32,
     range: f32,
-    _pad1: f32,
+    // Atlas layer of the light's cookie, or -1.0 for none.
+    cookie_layer: f32,
     _pad2: f32,
 };
 struct LightUniform {
@@ -1027,7 +1032,7 @@ fn fs_main(in: VertOut) -> SceneOut {
                 let f = fresnel_schlick(h_dot_v, f0);
                 let kd = (vec3<f32>(1.0, 1.0, 1.0) - f) * (1.0 - metallic);
                 let specular = (ndf * g * f) / (4.0 * n_dot_v * n_dot_l + 0.0001);
-                lo += (kd * albedo / PI + specular) * sl.color * (sl.intensity * t * t * spot_factor) * n_dot_l;
+                lo += (kd * albedo / PI + specular) * sl.color * spot_cookie(sl, in.world_pos) * (sl.intensity * t * t * spot_factor) * n_dot_l;
             }
         }
     }
@@ -1041,7 +1046,8 @@ fn fs_main(in: VertOut) -> SceneOut {
     return out;
 }
 "#,
-    crate::area_light::rect_light_wgsl!()
+    crate::area_light::rect_light_wgsl!(),
+    crate::cookie::cookie_wgsl!()
 );
 
 /// The instanced shadow shaders' view of the model buffer.
@@ -1224,7 +1230,8 @@ fn fs_sky(in: SkyOut) -> @location(0) vec4<f32> {
 ///
 /// `LightUniform` must stay byte-identical to the copies in [`MESH_WGSL`] and
 /// [`TERRAIN_WGSL`]: all three read the same `light_buffer`.
-const PROBE_CAPTURE_WGSL: &str = r#"
+const PROBE_CAPTURE_WGSL: &str = concat!(
+    r#"
 const MAX_POINT_LIGHTS: u32 = 8u;
 const MAX_SPOT_LIGHTS: u32 = 8u;
 const PI: f32 = 3.14159265358979323846;
@@ -1258,14 +1265,16 @@ struct PointLightEntry {
 };
 struct SpotLightEntry {
     position: vec3<f32>,
-    _pad0: f32,
+    // Roll about `direction` from `cookie_basis` (see `cookie.rs`).
+    cookie_roll: f32,
     direction: vec3<f32>,
     inner_cos: f32,
     color: vec3<f32>,
     outer_cos: f32,
     intensity: f32,
     range: f32,
-    _pad1: f32,
+    // Atlas layer of the light's cookie, or -1.0 for none.
+    cookie_layer: f32,
     _pad2: f32,
 };
 struct LightUniform {
@@ -1504,7 +1513,7 @@ fn fs_capture(in: VertOut) -> @location(0) vec4<f32> {
                 let f = fresnel_schlick(h_dot_v, f0);
                 let kd = (vec3<f32>(1.0, 1.0, 1.0) - f) * (1.0 - metallic);
                 let specular = (ndf * g * f) / (4.0 * n_dot_v * n_dot_l + 0.0001);
-                lo += (kd * albedo / PI + specular) * sl.color * (sl.intensity * t * t * spot_factor) * n_dot_l;
+                lo += (kd * albedo / PI + specular) * sl.color * spot_cookie(sl, in.world_pos) * (sl.intensity * t * t * spot_factor) * n_dot_l;
             }
         }
     }
@@ -1516,7 +1525,9 @@ fn fs_capture(in: VertOut) -> @location(0) vec4<f32> {
     let color = ambient_term + lo + model_data.emissive;
     return vec4<f32>(color, 1.0);
 }
-"#;
+"#,
+    crate::cookie::cookie_wgsl!()
+);
 
 /// The skybox, drawn as the background of every probe capture face.
 ///
@@ -2083,6 +2094,7 @@ pub struct PointLightEntry {
 }
 
 /// A single spot light entry for the GPU buffer.
+#[derive(Clone, Debug)]
 pub struct SpotLightEntry {
     /// World-space position of the light.
     pub position: Vec3,
@@ -2098,6 +2110,12 @@ pub struct SpotLightEntry {
     pub inner_angle: f32,
     /// Half-angle (radians) of the cone's outer falloff edge.
     pub outer_angle: f32,
+    /// The light's local +X in world space: which way is "right" in its
+    /// cookie. Only its component perpendicular to `direction` matters.
+    pub right: Vec3,
+    /// The registry id of the texture projected through the cone (see
+    /// `crate::cookie`), or `None` for a plain cone.
+    pub cookie: Option<u64>,
 }
 
 /// Light parameters passed per frame.
@@ -2147,14 +2165,18 @@ struct PointLightGpu {
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct SpotLightGpu {
     position: [f32; 3],
-    _pad0: f32,
+    /// What were two of this struct's padding floats carry the cookie, so
+    /// `LIGHT_UNIFORM_SIZE` stays 960: the roll that rebuilds the light's
+    /// right axis from `cookie::cookie_basis`, and the atlas layer.
+    cookie_roll: f32,
     direction: [f32; 3],
     inner_cos: f32,
     color: [f32; 3],
     outer_cos: f32,
     intensity: f32,
     range: f32,
-    _pad1: f32,
+    /// -1.0 for no cookie: the shader's test, not an index.
+    cookie_layer: f32,
     _pad2: f32,
 }
 
@@ -2496,6 +2518,8 @@ struct LightBindings<'a> {
     /// sampler their shading reads.
     rect_light_buffer: &'a wgpu::Buffer,
     ltc: &'a crate::area_light::LtcTables,
+    /// The spot lights' cookie atlas and sampler.
+    cookies: &'a crate::cookie::CookieAtlas,
 }
 
 /// Builds the light bind group. The single place the group-2 binding numbers
@@ -2581,6 +2605,14 @@ fn create_light_bind_group(
             wgpu::BindGroupEntry {
                 binding: 17,
                 resource: wgpu::BindingResource::Sampler(&bindings.ltc.sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 18,
+                resource: wgpu::BindingResource::TextureView(&bindings.cookies.array_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 19,
+                resource: wgpu::BindingResource::Sampler(&bindings.cookies.sampler),
             },
         ],
     })
@@ -2695,6 +2727,8 @@ pub struct WgpuSurface {
     rect_light_buffer: wgpu::Buffer,
     /// The LTC tables the rect lights' shading reads.
     ltc: crate::area_light::LtcTables,
+    /// The spot lights' cookies, redrawn every frame (see `crate::cookie`).
+    cookies: crate::cookie::CookieAtlas,
     /// Every captured reflection probe's prefiltered cube, six layers per
     /// slot, bound as a cube array at binding 13.
     reflection_cubes: crate::profiler::TrackedTexture,
@@ -3736,6 +3770,26 @@ impl WgpuSurface {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                // 18-19: the spot lights' cookie atlas and its sampler (see
+                // `crate::cookie`). Declared by every shader that lights with
+                // spot lights, the probe capture included: a probe baked
+                // under a cookied light must see the cookie's shadow.
+                wgpu::BindGroupLayoutEntry {
+                    binding: 18,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 19,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
         });
 
@@ -4123,6 +4177,7 @@ impl WgpuSurface {
             mapped_at_creation: false,
         });
         let ltc = crate::area_light::LtcTables::new(&device, &queue);
+        let cookies = crate::cookie::CookieAtlas::new(&device);
 
         // No skybox at construction, so the cube bindings get the dummy. Every
         // later rebuild goes through `rebuild_light_bind_group`, which binds
@@ -4147,6 +4202,7 @@ impl WgpuSurface {
                 reflection_cubes_view: &reflection_cubes_view,
                 rect_light_buffer: &rect_light_buffer,
                 ltc: &ltc,
+                cookies: &cookies,
             },
         );
 
@@ -4921,6 +4977,7 @@ impl WgpuSurface {
             reflection_probe_buffer,
             rect_light_buffer,
             ltc,
+            cookies,
             reflection_cubes,
             reflection_cubes_view,
             reflection_capture_texture,
@@ -5383,6 +5440,7 @@ impl WgpuSurface {
                 reflection_cubes_view: &self.reflection_cubes_view,
                 rect_light_buffer: &self.rect_light_buffer,
                 ltc: &self.ltc,
+                cookies: &self.cookies,
             },
         );
         self.light_bind_group = bind_group;
@@ -6215,28 +6273,37 @@ impl WgpuSurface {
         }
         let mut spot_lights_gpu = [SpotLightGpu {
             position: [0.0; 3],
-            _pad0: 0.0,
+            cookie_roll: 0.0,
             direction: [0.0, -1.0, 0.0],
             inner_cos: 0.0,
             color: [0.0; 3],
             outer_cos: 0.0,
             intensity: 0.0,
             range: 0.0,
-            _pad1: 0.0,
+            cookie_layer: -1.0,
             _pad2: 0.0,
         }; 8];
         let num_spot_lights = light.spot_lights.len().min(MAX_SPOT_LIGHTS) as u32;
-        for (i, sl) in light.spot_lights.iter().enumerate().take(MAX_SPOT_LIGHTS) {
+        // Before the probe bakes below, which light with these same cookies.
+        let shaded_spots = &light.spot_lights[..num_spot_lights as usize];
+        let cookie_layers = self.cookies.update(
+            &self.device,
+            &self.queue,
+            tex_registry,
+            &shaded_spots.iter().map(|sl| sl.cookie).collect::<Vec<_>>(),
+        );
+        for (i, sl) in shaded_spots.iter().enumerate() {
+            let direction = sl.direction.normalize();
             spot_lights_gpu[i] = SpotLightGpu {
                 position: sl.position.to_array(),
-                _pad0: 0.0,
-                direction: sl.direction.normalize().to_array(),
+                cookie_roll: crate::cookie::cookie_roll(direction, sl.right),
+                direction: direction.to_array(),
                 inner_cos: sl.inner_angle.cos(),
                 color: sl.color.to_array(),
                 outer_cos: sl.outer_angle.cos(),
                 intensity: sl.intensity,
                 range: sl.range,
-                _pad1: 0.0,
+                cookie_layer: cookie_layers[i],
                 _pad2: 0.0,
             };
         }

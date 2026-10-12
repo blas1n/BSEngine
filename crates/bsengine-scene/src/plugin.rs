@@ -688,6 +688,7 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                 range: sl.range,
                 inner_angle_degrees: sl.inner_angle_degrees.into(),
                 outer_angle_degrees: sl.outer_angle_degrees.into(),
+                cookie: sl.cookie.clone(),
             });
         }
 
@@ -1256,6 +1257,28 @@ mod tests {
             baseline.synced_ron, content,
             "the baseline must be the exact file text read at instantiation time"
         );
+    }
+
+    /// A game's scene file names a spot light's cookie in the light's own
+    /// block, and the light the runtime spawns carries it -- the path a
+    /// shipped game loads through, which the editor's save/load test does
+    /// not take.
+    #[test]
+    fn a_spot_lights_cookie_is_spawned_from_the_scene() {
+        let scene: crate::types::SceneDescriptor = ron::from_str(
+            r#"SceneDescriptor(entities: [EntityDescriptor(
+                name: "Spot",
+                spot_light: Some((cookie: "textures/window.png")),
+            )])"#,
+        )
+        .expect("the scene should parse");
+        let mut app = new_app();
+        super::register_gameplay_reflect_types(&mut app);
+        super::spawn_scene_entities(app.world_mut(), &scene.entities);
+        let mut q = app.world_mut().query::<&bsengine_core::SpotLight>();
+        let lights: Vec<_> = q.iter(app.world()).collect();
+        assert_eq!(lights.len(), 1, "premise: the light was spawned");
+        assert_eq!(lights[0].cookie, "textures/window.png");
     }
 
     #[test]

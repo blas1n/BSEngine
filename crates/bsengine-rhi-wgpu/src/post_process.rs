@@ -368,14 +368,16 @@ struct PointLightEntry {
 }
 struct SpotLightEntry {
     position: vec3<f32>,
-    _pad0: f32,
+    // Roll about `direction` from `cookie_basis` (see `cookie.rs`).
+    cookie_roll: f32,
     direction: vec3<f32>,
     inner_cos: f32,
     color: vec3<f32>,
     outer_cos: f32,
     intensity: f32,
     range: f32,
-    _pad1: f32,
+    // Atlas layer of the light's cookie, or -1.0 for none.
+    cookie_layer: f32,
     _pad2: f32,
 }
 // Must match `LightUniformData` in surface.rs field for field, padding

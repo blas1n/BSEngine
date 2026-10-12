@@ -386,10 +386,13 @@ fn camera_eye(
 /// An entity keeps its `TexturePath` afterwards -- it is the record of what was
 /// asked for, and the editor writes it back out when saving. The work is not
 /// repeated because a `Material` that already has an id is skipped.
+#[allow(clippy::too_many_arguments)] // Bevy system params
 pub fn resolve_texture_paths(
     mut cache: ResMut<TextureCache>,
     mut wanting: Query<(&TexturePath, &mut Material)>,
     ui_state: Option<Res<bsengine_core::UiState>>,
+    spot_lights: Query<&bsengine_core::SpotLight>,
+    decals: Query<&bsengine_core::Decal>,
     asset_server: Res<bevy_asset::AssetServer>,
     mut textures: ResMut<bevy_asset::Assets<TextureAsset>>,
     registry: Option<ResMut<GpuTextureRegistry>>,
@@ -427,6 +430,22 @@ pub fn resolve_texture_paths(
                     cache.upload(texture_path, &asset_server, &mut textures, &mut registry);
                 }
             }
+        }
+    }
+
+    // Spot light cookies and decals name textures the same way, and are
+    // looked up by path when the frame is built (`TextureCache::id_for`), so
+    // they too need someone to *request* the path. Decals had nobody: their
+    // texture appeared only when a material happened to share its path, and
+    // a decal with an image of its own drew nothing.
+    let named = spot_lights.iter().map(|sl| sl.cookie.as_str()).chain(
+        decals
+            .iter()
+            .flat_map(|d| [d.texture_path.as_str(), d.normal_map_path.as_str()]),
+    );
+    for path in named {
+        if !path.is_empty() {
+            cache.upload(path, &asset_server, &mut textures, &mut registry);
         }
     }
 }
@@ -1178,6 +1197,62 @@ mod tests {
             ids[0].is_some() && ids[0] == ids[1],
             "both should share one id, got {ids:?}"
         );
+    }
+
+    /// Whether `path` is on the GPU after a minute of frames with only
+    /// `bundle` -- no material -- naming it. Each consumer gets its own
+    /// test, so a path dropped from the list fails exactly its own.
+    fn uploaded_for(bundle: impl Bundle, path: &str) -> bool {
+        let mut app = test_app();
+        assert!(
+            app.world()
+                .resource::<TextureCache>()
+                .id_for(path)
+                .is_none(),
+            "premise: nothing has asked for {path} yet"
+        );
+        app.world_mut().spawn(bundle);
+        for _ in 0..60 {
+            app.update();
+        }
+        app.world()
+            .resource::<TextureCache>()
+            .id_for(path)
+            .is_some()
+    }
+
+    /// A spot light's cookie reaches the GPU on the light's say-so alone:
+    /// the frame looks it up by path, so something must request it.
+    #[test]
+    fn a_spot_lights_cookie_is_uploaded() {
+        let light = bsengine_core::SpotLight {
+            cookie: REAL_TEXTURE.into(),
+            ..Default::default()
+        };
+        assert!(uploaded_for(light, REAL_TEXTURE));
+    }
+
+    /// The same for a decal's colour texture -- which nothing requested
+    /// before cookies did: a decal drew its image only when a material
+    /// happened to share the path.
+    #[test]
+    fn a_decals_texture_is_uploaded() {
+        let decal = bsengine_core::Decal {
+            texture_path: REAL_TEXTURE.into(),
+            ..Default::default()
+        };
+        assert!(uploaded_for(decal, REAL_TEXTURE));
+    }
+
+    /// And its normal map, a path of its own.
+    #[test]
+    fn a_decals_normal_map_is_uploaded() {
+        const OTHER: &str = "../../games/scale-level/assets/textures/checker.png";
+        let decal = bsengine_core::Decal {
+            normal_map_path: OTHER.into(),
+            ..Default::default()
+        };
+        assert!(uploaded_for(decal, OTHER));
     }
 
     #[test]

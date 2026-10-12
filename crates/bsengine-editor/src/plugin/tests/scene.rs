@@ -430,6 +430,7 @@ fn mcp_save_load_scene_round_trip_preserves_camera_primitive_script_and_lights()
                 range: 20.0,
                 inner_angle_degrees: 15.0.into(),
                 outer_angle_degrees: 25.0.into(),
+                cookie: "assets/textures/window.png".to_string(),
             },
             Transform::from_position(Vec3::new(2.0, 4.0, 0.0)),
             bsengine_core::GlobalTransform::default(),
@@ -508,6 +509,9 @@ fn mcp_save_load_scene_round_trip_preserves_camera_primitive_script_and_lights()
         assert!((sl.range - 20.0).abs() < 1e-4);
         assert!((sl.inner_angle_degrees.0 - 15.0).abs() < 1e-2);
         assert!((sl.outer_angle_degrees.0 - 25.0).abs() < 1e-2);
+        // Through the descriptor's own field: `SpotLight` is excluded from
+        // the generic reflected list, so nothing else would carry it.
+        assert_eq!(sl.cookie, "assets/textures/window.png");
     }
 }
 

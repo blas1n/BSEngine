@@ -18,6 +18,8 @@
 /// Rectangular area lights, shaded with linearly transformed cosines.
 pub mod area_light;
 pub mod cache_sweep;
+/// Spot light cookies: a texture projected through the cone.
+pub mod cookie;
 /// Decals, accumulated into a buffer the opaque pass folds into its albedo.
 pub mod decals;
 pub mod froxel;

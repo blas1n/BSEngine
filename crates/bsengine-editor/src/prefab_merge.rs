@@ -100,6 +100,7 @@ pub(crate) fn snapshot_entity_as_descriptor(
             range: sl.range,
             inner_angle_degrees: sl.inner_angle_degrees.0,
             outer_angle_degrees: sl.outer_angle_degrees.0,
+            cookie: sl.cookie.clone(),
         }
     });
 
@@ -276,7 +277,7 @@ fn merge_point_light(
 }
 
 /// Same rationale and shape as `merge_point_light`, for `SpotLightDescriptor`'s
-/// five independently-tunable attributes.
+/// six independently-tunable attributes.
 fn merge_spot_light(
     live: &Option<bsengine_scene::SpotLightDescriptor>,
     baseline: &Option<bsengine_scene::SpotLightDescriptor>,
@@ -297,6 +298,7 @@ fn merge_spot_light(
                 &b.outer_angle_degrees,
                 &n.outer_angle_degrees,
             ),
+            cookie: resolve_field(&l.cookie, &b.cookie, &n.cookie),
         }),
         _ => resolve_field(live, baseline, new),
     }
@@ -664,6 +666,7 @@ pub(crate) fn apply_merged_descriptor(
                 range: sl.range,
                 inner_angle_degrees: sl.inner_angle_degrees.into(),
                 outer_angle_degrees: sl.outer_angle_degrees.into(),
+                cookie: sl.cookie.clone(),
             });
         }
         None => {
@@ -1594,6 +1597,7 @@ mod tests {
                     range: 8.0,
                     inner_angle_degrees: 20.0.into(),
                     outer_angle_degrees: 35.0.into(),
+                    cookie: "lights/gobo.png".to_string(),
                 },
             ))
             .id();
@@ -1610,6 +1614,7 @@ mod tests {
                 range: 8.0,
                 inner_angle_degrees: 20.0,
                 outer_angle_degrees: 35.0,
+                cookie: "lights/gobo.png".to_string(),
             })
         );
     }
@@ -2371,6 +2376,7 @@ mod tests {
                 range: 10.0,
                 inner_angle_degrees: 15.0,
                 outer_angle_degrees: 25.0,
+                cookie: String::new(),
             }),
             ..live.clone()
         };
@@ -3248,6 +3254,81 @@ mod tests {
             sl.range, 40.0,
             "unoverridden range must adopt the new file's value"
         );
+    }
+
+    /// The cookie merges like every other spot light attribute: an instance
+    /// that chose its own keeps it when the prefab's changes, and one that
+    /// did not takes the prefab's new one.
+    #[test]
+    fn resync_instance_merges_a_spot_lights_cookie_like_its_other_fields() {
+        let prefab = |cookie: &str| {
+            parse(&format!(
+                r#"PrefabDescriptor(entities: [
+                    EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                    EntityDescriptor(
+                        name: "Spot",
+                        parent: Some("Body"),
+                        spot_light: Some((cookie: "{cookie}")),
+                    ),
+                ])"#
+            ))
+        };
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/lamp.ron".to_string()]);
+        let resynced_cookie = |override_with: Option<&str>| {
+            let mut app = new_app();
+            bsengine_scene::register_gameplay_reflect_types(&mut app);
+            let baseline = prefab("a.png");
+            let root = bsengine_scene::instantiate_prefab(
+                app.world_mut(),
+                &baseline,
+                "assets/prefabs/lamp.ron",
+                Some("Lamp"),
+                None,
+                None,
+            )
+            .unwrap();
+            let spot = {
+                let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+                q.iter(app.world())
+                    .find(|(_, n)| n.0.starts_with("Spot#"))
+                    .map(|(e, _)| e)
+                    .unwrap()
+            };
+            assert_eq!(
+                app.world()
+                    .get::<bsengine_core::SpotLight>(spot)
+                    .unwrap()
+                    .cookie,
+                "a.png",
+                "premise: the instance starts with the prefab's cookie"
+            );
+            if let Some(mine) = override_with {
+                app.world_mut()
+                    .get_mut::<bsengine_core::SpotLight>(spot)
+                    .unwrap()
+                    .cookie = mine.to_string();
+            }
+            resync_instance(
+                app.world_mut(),
+                root,
+                &baseline,
+                &prefab("b.png"),
+                &own_source_paths,
+            )
+            .unwrap();
+            app.world()
+                .get::<bsengine_core::SpotLight>(spot)
+                .unwrap()
+                .cookie
+                .clone()
+        };
+        assert_eq!(
+            resynced_cookie(Some("mine.png")),
+            "mine.png",
+            "override kept"
+        );
+        assert_eq!(resynced_cookie(None), "b.png", "prefab's change adopted");
     }
 
     #[test]

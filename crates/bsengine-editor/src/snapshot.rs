@@ -52,6 +52,10 @@ pub struct EntityInfo {
     pub spot_inner_angle: Option<f32>,
     /// Outer cone angle in degrees, if the entity has a spot light.
     pub spot_outer_angle: Option<f32>,
+    /// Cookie texture path, if the entity has a spot light (empty for none).
+    /// Carried so a save writes it: `SpotLight` is captured through these
+    /// fields, not the generic reflected list.
+    pub spot_cookie: Option<String>,
     /// Vertical field of view in degrees, if the entity has a `Camera`.
     pub camera_fov: Option<f32>,
     /// PBR base color, if the entity has a `Material`.

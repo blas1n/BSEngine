@@ -63,6 +63,7 @@ pub(super) fn build_entity_descriptors(entities: &[EntityInfo]) -> Vec<EntityDes
                         range: e.light_range.unwrap_or(10.0),
                         inner_angle_degrees: e.spot_inner_angle.unwrap_or(22.5),
                         outer_angle_degrees: e.spot_outer_angle.unwrap_or(30.0),
+                        cookie: e.spot_cookie.clone().unwrap_or_default(),
                     })
                 } else {
                     None

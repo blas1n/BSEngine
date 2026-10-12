@@ -1,6 +1,10 @@
 //! Playing [`VideoPlayer`]s: a decoding thread per video, pictures paced to
 //! the sound.
 
+// The decoding-thread path below is the native one; a page plays through
+// `web.rs` instead (see `VideoPlugin::build`).
+#![cfg_attr(target_arch = "wasm32", allow(dead_code))]
+
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -31,7 +35,12 @@ impl Plugin for VideoPlugin {
         app.init_resource::<VideoFrames>();
         app.init_resource::<Playbacks>();
         app.register_type::<VideoPlayer>();
+        // A page plays through the browser's own video element (`web.rs`);
+        // everywhere else a decoding thread feeds the pacing below.
+        #[cfg(not(target_arch = "wasm32"))]
         app.add_systems(Update, drive_video_players);
+        #[cfg(target_arch = "wasm32")]
+        app.add_systems(Update, crate::web::drive_web_players);
     }
 }
 
@@ -40,7 +49,6 @@ const PICTURES_AHEAD: usize = 12;
 /// How much sound is kept queued for the mixer, in seconds.
 const SOUND_AHEAD: f64 = 0.5;
 
-#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 enum Message {
     Opened(VideoInfo),
     Failed(String),
@@ -82,6 +90,10 @@ pub struct Playbacks(HashMap<Entity, Playback>);
 impl Playbacks {
     /// Whether `entity`'s video is being played -- has a decoding thread.
     pub fn is_playing(&self, entity: Entity) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        if crate::web::is_playing(entity) {
+            return true;
+        }
         self.0.contains_key(&entity)
     }
 
@@ -134,16 +146,6 @@ fn start(project_dir: Option<&ProjectDir>, path: &str, looping: bool) -> Playbac
     let looping = Arc::new(AtomicBool::new(looping));
     let decoded_until = Arc::new(AtomicU64::new(0f64.to_bits()));
     let file = local_file(project_dir, path);
-    // A page has no threads to decode on, and no decoder of this crate's
-    // yet: the browser's own video element is the web backend still to come.
-    #[cfg(target_arch = "wasm32")]
-    {
-        let _ = (file, &stop, &looping, &decoded_until);
-        let _ = sender.send(Message::Failed(format!(
-            "cannot play {path}: video playback has no decoder in the browser yet"
-        )));
-    }
-    #[cfg(not(target_arch = "wasm32"))]
     {
         let (stop, looping, decoded) = (stop.clone(), looping.clone(), decoded_until.clone());
         std::thread::Builder::new()

@@ -127,7 +127,10 @@ impl LtcTables {
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
                     format: wgpu::TextureFormat::Rgba16Float,
-                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                    // COPY_SRC only so `each_table_is_its_own_layer` can read it back.
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::COPY_DST
+                        | wgpu::TextureUsages::COPY_SRC,
                     view_formats: &[],
                 },
                 wgpu::util::TextureDataOrder::LayerMajor,
@@ -397,3 +400,68 @@ fn rect_light_radiance(
     };
 }
 pub(crate) use rect_light_wgsl;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Each table is its own layer of the array, in order and intact: what
+    /// the GPU holds at layer 0 is `ltc_1.bin` byte for byte, and at layer 1
+    /// `ltc_2.bin`. Read back rather than rendered, because the rect light
+    /// pixel tests do not tell the tables apart -- reading the matrix from
+    /// the wrong layer passes all of them (a rough surface's matrix is close
+    /// to the identity, and the glossy test checks only the highlight's
+    /// shape).
+    #[test]
+    fn each_table_is_its_own_layer() {
+        let (device, queue) =
+            pollster::block_on(crate::surface::WgpuSurface::headless_device_for_testing());
+        let tables = LtcTables::new(&device, &queue);
+        let row = LTC_SIZE * 8; // Rgba16Float: 512 bytes, already 256-aligned.
+        for (layer, expected) in [(0, LTC_1), (1, LTC_2)] {
+            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("ltc read back"),
+                size: u64::from(row * LTC_SIZE),
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+            let mut encoder = device.create_command_encoder(&Default::default());
+            encoder.copy_texture_to_buffer(
+                wgpu::ImageCopyTexture {
+                    texture: &tables._tables,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: layer,
+                    },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::ImageCopyBuffer {
+                    buffer: &buffer,
+                    layout: wgpu::ImageDataLayout {
+                        offset: 0,
+                        bytes_per_row: Some(row),
+                        rows_per_image: Some(LTC_SIZE),
+                    },
+                },
+                wgpu::Extent3d {
+                    width: LTC_SIZE,
+                    height: LTC_SIZE,
+                    depth_or_array_layers: 1,
+                },
+            );
+            queue.submit(Some(encoder.finish()));
+            let slice = buffer.slice(..);
+            slice.map_async(wgpu::MapMode::Read, |_| {});
+            device.poll(wgpu::Maintain::Wait);
+            let got = slice.get_mapped_range().to_vec();
+            assert_eq!(
+                got.len(),
+                expected.len(),
+                "premise: one whole table per layer"
+            );
+            assert!(got == expected, "layer {layer} is not its table");
+        }
+    }
+}

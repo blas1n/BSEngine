@@ -1154,7 +1154,10 @@ mod tests {
                 .y
                 < -5.0
         };
-        assert!(fell(Vec3::new(0.0, 2.0, 0.0), None), "no depth buffer");
+        // Started inside the unit cube, where any non-zero stand-in view
+        // (an identity, say) would put it on screen in front of the dummy
+        // depth texture and collide it with garbage.
+        assert!(fell(Vec3::new(0.0, 0.9, 0.5), None), "no depth buffer");
         assert!(
             fell(Vec3::new(0.0, 2.0, 0.0), Some((&sky, vp))),
             "far plane only"

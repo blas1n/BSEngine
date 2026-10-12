@@ -6,6 +6,8 @@
 //! (`PointLightDescriptor`, `RigidBodyDesc`, `TransformDescriptor`, ...).
 #![warn(missing_docs)]
 
+/// Reading scene and prefab files, reporting the keys the format ignored.
+pub mod parse;
 /// `ScenePlugin` and the entity-spawning logic that turns a `SceneDescriptor` into ECS entities.
 pub mod plugin;
 /// Single-prefab instantiation: turns a `PrefabDescriptor` into spawned entities by
@@ -17,6 +19,7 @@ pub mod streaming;
 /// Serde/RON descriptor types that make up the on-disk scene file format.
 pub mod types;
 
+pub use parse::{parse_descriptor, parse_with_unknown_keys};
 pub use plugin::{
     instantiate_prefab_from_path, instantiate_prefab_reference, register_gameplay_reflect_types,
     resolve_asset_ref_for_field, spawn_scene_entities, Name, ScenePlugin,

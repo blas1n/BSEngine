@@ -614,7 +614,8 @@ pub(super) fn process_editor_commands(
                         continue;
                     }
                 };
-                let scene: SceneDescriptor = match ron::from_str(&content) {
+                let scene: SceneDescriptor = match bsengine_scene::parse_descriptor(&path, &content)
+                {
                     Ok(s) => s,
                     Err(e) => {
                         tracing::warn!("load_scene: failed to parse {path}: {e}");

@@ -493,7 +493,7 @@ fn read_scene(path: &str) -> Option<SceneDescriptor> {
             return None;
         }
     };
-    match ron::from_str(&content) {
+    match bsengine_scene::parse_descriptor(path, &content) {
         Ok(s) => Some(s),
         Err(e) => {
             tracing::error!("[scene] failed to parse {path}: {e}");
@@ -1213,6 +1213,33 @@ mod localization_section_tests {
             off.tr("PLAY"),
             "Play",
             "while scripts' own tr still translates"
+        );
+    }
+}
+
+#[cfg(test)]
+mod unknown_key_tests {
+    /// The reader every runtime scene load shares -- the entry scene, a
+    /// `loadScene` and a streamed level -- names a key the format ignores,
+    /// as the editor's loader and `ScenePlugin` do.
+    #[test]
+    fn read_scene_warns_about_keys_it_ignores() {
+        let path = std::env::temp_dir().join(format!(
+            "bsengine_runtime_unknown_key_{}.ron",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            r#"SceneDescriptor(entities: [EntityDescriptor(name: "S", spot_light: Some((outer_angle: 40.0)))])"#,
+        )
+        .unwrap();
+        let path = path.to_string_lossy().into_owned();
+        let (scene, logs) =
+            bsengine_asset::test_support::capture_warnings(|| super::read_scene(&path));
+        assert!(scene.is_some(), "premise: the scene still loads");
+        assert!(
+            logs.contains("spot_light.?.outer_angle"),
+            "the ignored key should be named: {logs}"
         );
     }
 }

@@ -238,7 +238,10 @@ pub(crate) fn resync_prefab_instances(world: &mut World, changed_source_path: &s
             return;
         }
     };
-    let prefab = match ron::from_str::<bsengine_scene::types::PrefabDescriptor>(&content) {
+    let prefab = match bsengine_scene::parse_descriptor::<bsengine_scene::types::PrefabDescriptor>(
+        &resolved_path,
+        &content,
+    ) {
         Ok(p) => p,
         Err(e) => {
             tracing::warn!(

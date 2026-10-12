@@ -487,6 +487,27 @@ impl UiWidget {
     }
 }
 
+/// Whether a widget's text is translated automatically: Godot 4.3's
+/// `auto_translate_mode`, three states and the same names.
+///
+/// Godot is the reference because it is the one engine whose UI translates
+/// text that is a key without being told to (Unity and Unreal bind a widget to
+/// a string-table entry explicitly instead), and so the one that needed a way
+/// to say "this text is not a key, even if it happens to look like one" -- a
+/// player's name that matches a key, a debug readout, a language picker that
+/// must show every language in its own words.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UiAutoTranslate {
+    /// Whatever the container it sits in does; a widget in no container
+    /// translates. What every widget is until told otherwise.
+    #[default]
+    Inherit,
+    /// Translated, even inside a container that is not.
+    Always,
+    /// Shown as written, and so is everything inside it that inherits.
+    Disabled,
+}
+
 /// Resource holding the current tree of immediate-mode UI widgets and their
 /// per-frame interaction state.
 #[derive(Resource, Default, Clone)]
@@ -519,6 +540,12 @@ pub struct UiState {
     /// proportion. This is Unity's `flexibleWidth`, Unreal's slot `Fill`
     /// weight and Godot's `stretch_ratio` under one name.
     pub fills: HashMap<String, f32>,
+    /// Each widget's [`UiAutoTranslate`], keyed by id; absent is `Inherit`.
+    ///
+    /// A side table for the reason `parents` and `fills` are, and because
+    /// the mode inherits through `parents`: a container switched off
+    /// switches off what is in it.
+    pub translate_modes: HashMap<String, UiAutoTranslate>,
 }
 
 impl UiState {
@@ -534,6 +561,9 @@ impl UiState {
     pub fn with_display_text(&self, translate: impl Fn(&str) -> Option<String>) -> UiState {
         let mut out = self.clone();
         for widget in &mut out.widgets {
+            if !self.translates(widget.id()) {
+                continue;
+            }
             let shown = match widget {
                 UiWidget::Label { text, .. } => text,
                 UiWidget::Button { label, .. } => label,
@@ -690,6 +720,35 @@ impl UiState {
         }
     }
 
+    /// Sets a widget's [`UiAutoTranslate`]. Stored whether or not the widget
+    /// exists yet, as `set_parent` is.
+    pub fn set_auto_translate(&mut self, id: &str, mode: UiAutoTranslate) {
+        if mode == UiAutoTranslate::Inherit {
+            self.translate_modes.remove(id);
+        } else {
+            self.translate_modes.insert(id.to_string(), mode);
+        }
+    }
+
+    /// Whether `id`'s text is translated: its own mode, or for `Inherit`
+    /// the nearest container's that says, or yes at the root. Bounded, as
+    /// the layout pass is, so a parent cycle cannot hang a frame.
+    pub fn translates(&self, id: &str) -> bool {
+        let mut current = id;
+        for _ in 0..64 {
+            match self.translate_modes.get(current) {
+                Some(UiAutoTranslate::Always) => return true,
+                Some(UiAutoTranslate::Disabled) => return false,
+                _ => {}
+            }
+            match self.parents.get(current) {
+                Some(parent) => current = parent,
+                None => return true,
+            }
+        }
+        true
+    }
+
     /// Removes all widgets and clears click/text-input state.
     pub fn clear(&mut self) {
         self.widgets.clear();
@@ -698,6 +757,7 @@ impl UiState {
         self.parents.clear();
         self.fills.clear();
         self.scroll_offsets.clear();
+        self.translate_modes.clear();
     }
 
     /// Resolves every widget to a screen rectangle.
@@ -1999,5 +2059,90 @@ mod anchor_tests {
         };
         assert!(a.stretches_x());
         assert!(!a.stretches_y());
+    }
+}
+
+#[cfg(test)]
+mod auto_translate_tests {
+    use super::*;
+
+    /// A copy of `ui` with every displayed text replaced by "T", so a test
+    /// reads which widgets were translated.
+    fn translated(ui: &UiState) -> Vec<(String, String)> {
+        ui.with_display_text(|_| Some("T".to_string()))
+            .widgets
+            .iter()
+            .filter_map(|w| match w {
+                UiWidget::Label { id, text, .. } => Some((id.clone(), text.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn label(ui: &mut UiState, id: &str) {
+        ui.set_widget(UiWidget::Label {
+            id: id.into(),
+            text: "KEY".into(),
+            x: 0.0,
+            y: 0.0,
+            font_size: 10.0,
+            anchor: UiAnchor::default(),
+        });
+    }
+
+    /// Godot's three modes: a widget left alone translates; one disabled
+    /// does not, nor does what it contains unless that says otherwise; one
+    /// set to always translates even inside a disabled container; and an
+    /// inheriting widget takes the *nearest* container that says.
+    #[test]
+    fn the_mode_is_the_widgets_own_or_the_nearest_containers() {
+        let mut ui = UiState::default();
+        for id in ["root", "off", "in_off", "always_in_off", "deep"] {
+            label(&mut ui, id);
+        }
+        ui.set_auto_translate("off", UiAutoTranslate::Disabled);
+        ui.set_auto_translate("menu", UiAutoTranslate::Disabled);
+        ui.set_parent("in_off", "menu");
+        ui.set_parent("always_in_off", "menu");
+        ui.set_auto_translate("always_in_off", UiAutoTranslate::Always);
+        // `deep` sits in `inner` (always) inside `menu` (disabled): the
+        // nearest says always.
+        ui.set_parent("deep", "inner");
+        ui.set_parent("inner", "menu");
+        ui.set_auto_translate("inner", UiAutoTranslate::Always);
+
+        let shown = translated(&ui);
+        let text = |id: &str| shown.iter().find(|(i, _)| i == id).unwrap().1.clone();
+        assert_eq!(text("root"), "T", "a widget left alone translates");
+        assert_eq!(text("off"), "KEY", "disabled is shown as written");
+        assert_eq!(text("in_off"), "KEY", "and so is what it contains");
+        assert_eq!(text("always_in_off"), "T", "unless that says always");
+        assert_eq!(text("deep"), "T", "the nearest container decides");
+
+        ui.set_auto_translate("off", UiAutoTranslate::Inherit);
+        assert_eq!(
+            translated(&ui).iter().find(|(i, _)| i == "off").unwrap().1,
+            "T",
+            "back to inherit at the root: translated again"
+        );
+    }
+
+    /// A parent cycle -- two widgets naming each other -- ends the walk
+    /// rather than the frame.
+    #[test]
+    fn a_parent_cycle_does_not_hang() {
+        let mut ui = UiState::default();
+        ui.set_parent("a", "b");
+        ui.set_parent("b", "a");
+        assert!(ui.translates("a"));
+    }
+
+    /// `clear` forgets the modes with the widgets, as it does parents.
+    #[test]
+    fn clear_forgets_the_modes() {
+        let mut ui = UiState::default();
+        ui.set_auto_translate("x", UiAutoTranslate::Disabled);
+        ui.clear();
+        assert!(ui.translates("x"));
     }
 }

@@ -250,7 +250,7 @@ pub use timer::Timer;
 pub use tone_map::{ToneMap, ToneMappingMode};
 pub use transform::Transform;
 pub use tween::{EasingFn, RepeatMode, Tween, TweenTarget};
-pub use ui_state::{UiAlign, UiAnchor, UiDirection, UiRect, UiState, UiWidget};
+pub use ui_state::{UiAlign, UiAnchor, UiAutoTranslate, UiDirection, UiRect, UiState, UiWidget};
 pub use video::{VideoFrameData, VideoFrames, VideoPlayer, VideoStatus};
 pub use visible::Visible;
 pub use volumetric_fog::VolumetricFog;

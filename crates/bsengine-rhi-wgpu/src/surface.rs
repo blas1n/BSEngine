@@ -580,7 +580,7 @@ fn fs_main(in: VertOut) -> SceneOut {
                 let f = fresnel_schlick(h_dot_v, f0);
                 let kd = (vec3<f32>(1.0, 1.0, 1.0) - f) * (1.0 - metallic);
                 let specular = (ndf * g * f) / (4.0 * n_dot_v * n_dot_l + 0.0001);
-                lo += (kd * albedo / PI + specular) * sl.color * spot_cookie(sl, in.world_pos) * spot_shadow(sl, in.world_pos, n, l, camera.shadow_filter) * (sl.intensity * t * t * spot_factor) * n_dot_l;
+                lo += (kd * albedo / PI + specular) * sl.color * spot_cookie(sl, in.world_pos) * spot_shadow(sl, in.world_pos, camera.shadow_filter) * (sl.intensity * t * t * spot_factor) * n_dot_l;
             }
         }
     }
@@ -1038,7 +1038,7 @@ fn fs_main(in: VertOut) -> SceneOut {
                 let f = fresnel_schlick(h_dot_v, f0);
                 let kd = (vec3<f32>(1.0, 1.0, 1.0) - f) * (1.0 - metallic);
                 let specular = (ndf * g * f) / (4.0 * n_dot_v * n_dot_l + 0.0001);
-                lo += (kd * albedo / PI + specular) * sl.color * spot_cookie(sl, in.world_pos) * spot_shadow(sl, in.world_pos, n, l, camera.shadow_filter) * (sl.intensity * t * t * spot_factor) * n_dot_l;
+                lo += (kd * albedo / PI + specular) * sl.color * spot_cookie(sl, in.world_pos) * spot_shadow(sl, in.world_pos, camera.shadow_filter) * (sl.intensity * t * t * spot_factor) * n_dot_l;
             }
         }
     }
@@ -1521,7 +1521,7 @@ fn fs_capture(in: VertOut) -> @location(0) vec4<f32> {
                 let f = fresnel_schlick(h_dot_v, f0);
                 let kd = (vec3<f32>(1.0, 1.0, 1.0) - f) * (1.0 - metallic);
                 let specular = (ndf * g * f) / (4.0 * n_dot_v * n_dot_l + 0.0001);
-                lo += (kd * albedo / PI + specular) * sl.color * spot_cookie(sl, in.world_pos) * spot_shadow(sl, in.world_pos, n, l, 0u) * (sl.intensity * t * t * spot_factor) * n_dot_l;
+                lo += (kd * albedo / PI + specular) * sl.color * spot_cookie(sl, in.world_pos) * spot_shadow(sl, in.world_pos, 0u) * (sl.intensity * t * t * spot_factor) * n_dot_l;
             }
         }
     }

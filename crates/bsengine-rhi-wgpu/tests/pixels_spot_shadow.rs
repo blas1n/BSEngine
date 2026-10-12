@@ -116,7 +116,9 @@ fn a_block_under_a_spot_light_shades_the_floor() {
 }
 
 /// A lit floor with nothing over it is lit smoothly -- no shadow acne, the
-/// speckle a too-small offset leaves where a surface shadows itself. Acne
+/// speckle a surface leaves where it shadows itself, which the shadow
+/// pipeline's rasterisation bias exists to prevent (without it, neighbours
+/// here differ by 20 levels). Acne
 /// lives on surfaces the light meets at an angle, where the map's depth
 /// changes across each texel, so the light here comes in obliquely; the
 /// floor's lighting then varies across the frame, but only gradually, and

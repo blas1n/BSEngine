@@ -58,14 +58,16 @@ pub(crate) struct SpotShadowUniform {
 /// with spot lights. `spot_shadow` returns how much of the light reaches
 /// `world_pos`: 1 lit, 0 shadowed, between at a filtered edge.
 ///
-/// The lookup is offset rather than biased in depth. The directional cascades
-/// subtract a constant 0.003 from the depth, which suits an orthographic map
-/// whose depth is linear; under this perspective a constant in depth is a
-/// world distance that grows with the square of the distance -- 0.74 units at
-/// 5 m with a 10 m range -- and would lift every shadow off its caster.
-/// Instead the point moves toward the light and off the surface by about a
-/// texel's width at its distance (more at grazing angles, where acne starts),
-/// which is a fixed fraction of the map wherever the point is.
+/// No bias here. The directional lookup subtracts a constant 0.003 from the
+/// depth, which suits an orthographic map whose depth is linear; under this
+/// perspective a constant in depth is a world distance that grows with the
+/// square of the distance -- 0.74 units at 5 m with a 10 m range -- and would
+/// lift every shadow off its caster. Acne is kept away by the shadow
+/// pipeline's rasterisation bias instead (constant and slope-scaled, so in
+/// the map's own depth units wherever the texel is), which the spot passes
+/// share with the cascades: without it an obliquely lit floor speckles
+/// (`an_open_floor_has_no_shadow_acne`). A normal-offset lookup was tried on
+/// top and changed nothing any test could see, so it is not here.
 macro_rules! spot_shadow_wgsl {
     () => {
         r#"
@@ -75,19 +77,13 @@ struct SpotShadowUniform {
 @group(2) @binding(20) var spot_shadow_map: texture_depth_2d_array;
 @group(2) @binding(21) var<uniform> spot_shadows: SpotShadowUniform;
 
-fn spot_shadow(sl: SpotLightEntry, world_pos: vec3<f32>, n: vec3<f32>, l: vec3<f32>, soft: u32) -> f32 {
+fn spot_shadow(sl: SpotLightEntry, world_pos: vec3<f32>, soft: u32) -> f32 {
     if (sl.shadow_layer < 0.0) {
         return 1.0;
     }
     let layer = i32(sl.shadow_layer);
     let size = vec2<f32>(textureDimensions(spot_shadow_map));
-    // One texel's width on a surface facing the light at this distance.
-    let along = max(dot(world_pos - sl.position, sl.direction), 0.0);
-    let tan_outer = sqrt(max(1.0 - sl.outer_cos * sl.outer_cos, 0.0)) / max(sl.outer_cos, 1e-4);
-    let texel = 2.0 * along * tan_outer / size.x;
-    let grazing = 1.0 - clamp(dot(n, l), 0.0, 1.0);
-    let p = world_pos + n * texel * (0.5 + 1.5 * grazing) + l * texel;
-    let lsp = spot_shadows.view_proj[layer] * vec4<f32>(p, 1.0);
+    let lsp = spot_shadows.view_proj[layer] * vec4<f32>(world_pos, 1.0);
     if (lsp.w <= 0.0) {
         return 1.0;
     }

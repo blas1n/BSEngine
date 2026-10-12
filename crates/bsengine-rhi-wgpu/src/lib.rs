@@ -63,6 +63,8 @@ pub mod shadow;
 pub mod skinning;
 /// SMAA 1x on the finished LDR frame.
 mod smaa;
+/// Spot light shadows: one perspective depth map per spot light.
+pub mod spot_shadow;
 /// Swapchain/frame lifecycle and the main scene render pass.
 pub mod surface;
 pub mod taa_jitter;

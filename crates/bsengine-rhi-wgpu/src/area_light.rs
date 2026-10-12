@@ -92,12 +92,21 @@ impl RectLightUniform {
     }
 }
 
-/// The two LTC tables and the sampler that reads them.
+/// The two LTC tables, as the two layers of one array texture, and the
+/// sampler that reads them.
+///
+/// One texture and not two because of WebGPU's 16 sampled textures per
+/// shader stage, which a pipeline layout is held to across all its bind
+/// groups: the terrain's pipeline -- group 2's lighting textures plus its own
+/// five layer and weight textures -- reached 17 when spot shadows were
+/// added, and the browser refused it. The tables share a size and a format,
+/// so one array of two layers costs nothing. (Native wgpu checks each bind
+/// group separately and accepted it; see
+/// `surface::tests::every_pipeline_fits_webgpus_sampled_texture_limit`.)
 pub(crate) struct LtcTables {
-    _ltc_1: crate::profiler::TrackedTexture,
-    pub ltc_1_view: wgpu::TextureView,
-    _ltc_2: crate::profiler::TrackedTexture,
-    pub ltc_2_view: wgpu::TextureView,
+    _tables: crate::profiler::TrackedTexture,
+    /// Layer 0 is the inverse matrix, layer 1 the magnitude and Fresnel.
+    pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
 }
 
@@ -112,26 +121,31 @@ impl LtcTables {
                     size: wgpu::Extent3d {
                         width: LTC_SIZE,
                         height: LTC_SIZE,
-                        depth_or_array_layers: 1,
+                        depth_or_array_layers: 2,
                     },
                     mip_level_count: 1,
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
                     format: wgpu::TextureFormat::Rgba16Float,
-                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                    // COPY_SRC only so `each_table_is_its_own_layer` can read it back.
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::COPY_DST
+                        | wgpu::TextureUsages::COPY_SRC,
                     view_formats: &[],
                 },
                 wgpu::util::TextureDataOrder::LayerMajor,
                 data,
             )
         };
-        let ltc_1 = table("ltc 1", LTC_1);
-        let ltc_2 = table("ltc 2", LTC_2);
+        // Layer-major: all of layer 0, then all of layer 1.
+        let tables = table("ltc tables", &[LTC_1, LTC_2].concat());
         Self {
-            ltc_1_view: ltc_1.create_view(&Default::default()),
-            _ltc_1: ltc_1,
-            ltc_2_view: ltc_2.create_view(&Default::default()),
-            _ltc_2: ltc_2,
+            view: tables.create_view(&wgpu::TextureViewDescriptor {
+                label: Some("ltc tables view"),
+                dimension: Some(wgpu::TextureViewDimension::D2Array),
+                ..Default::default()
+            }),
+            _tables: tables,
             sampler: device.create_sampler(&wgpu::SamplerDescriptor {
                 label: Some("ltc sampler"),
                 address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -168,8 +182,8 @@ struct RectLightUniform {
     lights: array<RectLightEntry, 4>,
 };
 @group(2) @binding(14) var<uniform> rect_lights: RectLightUniform;
-@group(2) @binding(15) var ltc_1: texture_2d<f32>;
-@group(2) @binding(16) var ltc_2: texture_2d<f32>;
+// Layer 0: the inverse LTC matrix; layer 1: magnitude and Fresnel.
+@group(2) @binding(15) var ltc_tables: texture_2d_array<f32>;
 @group(2) @binding(17) var ltc_sampler: sampler;
 
 // Where in the tables a surface's lobe is: parameterised by perceptual
@@ -347,8 +361,8 @@ fn rect_light_radiance(
     }
     let n_dot_v = clamp(dot(n, v), 0.0, 1.0);
     let uv = ltc_uv(n_dot_v, roughness);
-    let t1 = textureSampleLevel(ltc_1, ltc_sampler, uv, 0.0);
-    let t2 = textureSampleLevel(ltc_2, ltc_sampler, uv, 0.0);
+    let t1 = textureSampleLevel(ltc_tables, ltc_sampler, uv, 0, 0.0);
+    let t2 = textureSampleLevel(ltc_tables, ltc_sampler, uv, 1, 0.0);
     let m_inv = mat3x3<f32>(
         vec3<f32>(t1.x, 0.0, t1.y),
         vec3<f32>(0.0, 1.0, 0.0),
@@ -386,3 +400,68 @@ fn rect_light_radiance(
     };
 }
 pub(crate) use rect_light_wgsl;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Each table is its own layer of the array, in order and intact: what
+    /// the GPU holds at layer 0 is `ltc_1.bin` byte for byte, and at layer 1
+    /// `ltc_2.bin`. Read back rather than rendered, because the rect light
+    /// pixel tests do not tell the tables apart -- reading the matrix from
+    /// the wrong layer passes all of them (a rough surface's matrix is close
+    /// to the identity, and the glossy test checks only the highlight's
+    /// shape).
+    #[test]
+    fn each_table_is_its_own_layer() {
+        let (device, queue) =
+            pollster::block_on(crate::surface::WgpuSurface::headless_device_for_testing());
+        let tables = LtcTables::new(&device, &queue);
+        let row = LTC_SIZE * 8; // Rgba16Float: 512 bytes, already 256-aligned.
+        for (layer, expected) in [(0, LTC_1), (1, LTC_2)] {
+            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("ltc read back"),
+                size: u64::from(row * LTC_SIZE),
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+            let mut encoder = device.create_command_encoder(&Default::default());
+            encoder.copy_texture_to_buffer(
+                wgpu::ImageCopyTexture {
+                    texture: &tables._tables,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: layer,
+                    },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::ImageCopyBuffer {
+                    buffer: &buffer,
+                    layout: wgpu::ImageDataLayout {
+                        offset: 0,
+                        bytes_per_row: Some(row),
+                        rows_per_image: Some(LTC_SIZE),
+                    },
+                },
+                wgpu::Extent3d {
+                    width: LTC_SIZE,
+                    height: LTC_SIZE,
+                    depth_or_array_layers: 1,
+                },
+            );
+            queue.submit(Some(encoder.finish()));
+            let slice = buffer.slice(..);
+            slice.map_async(wgpu::MapMode::Read, |_| {});
+            device.poll(wgpu::Maintain::Wait);
+            let got = slice.get_mapped_range().to_vec();
+            assert_eq!(
+                got.len(),
+                expected.len(),
+                "premise: one whole table per layer"
+            );
+            assert!(got == expected, "layer {layer} is not its table");
+        }
+    }
+}

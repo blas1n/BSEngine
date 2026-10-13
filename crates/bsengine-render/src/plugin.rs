@@ -64,6 +64,7 @@ fn rect_light_entry(
         color: *rl.color,
         intensity: rl.intensity,
         range: rl.range,
+        shadows: rl.shadows,
     }
 }
 
@@ -3017,6 +3018,15 @@ mod tests {
             e.half_height.abs_diff_eq(Vec3::new(-0.25, 0.0, 0.0), 1e-5),
             "{:?}",
             e.half_height
+        );
+        assert!(!e.shadows, "no shadows unless asked");
+        let shadowed = bsengine_core::RectLight {
+            shadows: true,
+            ..rl
+        };
+        assert!(
+            super::rect_light_entry(&shadowed, Some(&gt), &Transform::default()).shadows,
+            "and the panel's own choice reaches the renderer"
         );
     }
 

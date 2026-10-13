@@ -137,6 +137,12 @@ pub struct RectLight {
     pub height: f32,
     /// Distance from the centre at which the light has faded to nothing.
     pub range: f32,
+    /// Whether the panel casts shadows. Off unless asked for, as Unity's API
+    /// has every light (`LightShadows.None`), and for a reason particular to
+    /// panels: the shadow is cast from the panel's centre, so a panel set
+    /// into a wall -- a light strip, a window -- whose centre sits behind
+    /// the wall's surface would shadow its own light out entirely.
+    pub shadows: bool,
 }
 
 impl Default for RectLight {
@@ -147,6 +153,7 @@ impl Default for RectLight {
             width: 1.0,
             height: 1.0,
             range: 10.0,
+            shadows: false,
         }
     }
 }

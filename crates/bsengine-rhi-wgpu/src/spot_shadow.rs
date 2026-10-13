@@ -17,11 +17,38 @@
 
 use glam::{Mat4, Vec3};
 
+/// Every shadow map's near plane, in world units, whatever the light's range.
+///
+/// Fixed, not a share of the range. It was first a hundredth of it, and a
+/// panel of range 100 then had its near plane a metre out: a block half a
+/// metre in front of it cast no shadow at all
+/// (`a_block_in_front_of_a_panel_shades_the_wall`). Precision does not need
+/// it: with 32-bit float depth, 5 cm to 100 m still resolves about 3 mm at
+/// 50 m.
+pub const SHADOW_NEAR: f32 = 0.05;
+
 /// How many spot lights cast shadows: every one the renderer shades.
 pub const MAX_SPOT_SHADOWS: usize = 8;
 
-/// Edge length of one spot light's shadow map, in texels. 8 x 512 x 512 x 4
-/// bytes is 8 MiB -- half what the directional cascades cost together.
+/// Rect lights' shadow maps follow the spot lights' in the same array: one
+/// each for the [`crate::area_light::MAX_RECT_LIGHTS`] the renderer shades.
+pub const MAX_RECT_SHADOWS: usize = crate::area_light::MAX_RECT_LIGHTS;
+
+/// The first rect light's layer.
+pub const RECT_SHADOW_BASE: usize = MAX_SPOT_SHADOWS;
+
+/// Every layer of the array: the spot lights', then the rect lights'.
+pub const SHADOW_LAYERS: usize = MAX_SPOT_SHADOWS + MAX_RECT_SHADOWS;
+
+/// How wide a rect light's shadow frustum is. A panel lights its whole
+/// front hemisphere, which no single perspective covers; 150 degrees keeps
+/// all but the last 15 degrees -- where the panel's cosine has fallen to a
+/// quarter -- at a resolution still worth having (`tan 75` = 3.7 texels' worth
+/// of spread per texel at the centre). Points outside it read as lit.
+pub const RECT_SHADOW_FOV_DEGREES: f32 = 150.0;
+
+/// Edge length of one light's shadow map, in texels. [`SHADOW_LAYERS`] (12)
+/// x 512 x 512 x 4 bytes is 12 MiB -- under the directional cascades' 16.
 pub const SPOT_SHADOW_MAP_SIZE: u32 = 512;
 
 /// The view-projection a spot light's shadow map is drawn and read with: from
@@ -29,9 +56,9 @@ pub const SPOT_SHADOW_MAP_SIZE: u32 = 512;
 /// cone's -- the cone is inscribed in it, so every point the light reaches is
 /// on the map -- out to `range`, where the light reaches nothing.
 ///
-/// The near plane is a hundredth of the range (at least 5 cm): close enough
-/// that a caster just in front of the light still casts, far enough that a
-/// 32-bit float depth keeps its precision across the rest.
+/// The near plane is [`SHADOW_NEAR`] whatever the range: a caster closer
+/// to the light than the near plane is clipped out of the map and casts
+/// nothing.
 pub fn spot_shadow_view_proj(
     position: Vec3,
     direction: Vec3,
@@ -42,7 +69,7 @@ pub fn spot_shadow_view_proj(
     let (_, up) = crate::cookie::cookie_basis(direction);
     let fov = (2.0 * outer_angle).clamp(1e-3, std::f32::consts::PI - 1e-3);
     let far = range.max(0.1);
-    let near = (far * 0.01).max(0.05).min(far * 0.5);
+    let near = SHADOW_NEAR.min(far * 0.5);
     Mat4::perspective_rh(fov, 1.0, near, far) * Mat4::look_at_rh(position, position + direction, up)
 }
 
@@ -51,7 +78,28 @@ pub fn spot_shadow_view_proj(
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct SpotShadowUniform {
-    pub(crate) view_proj: [[[f32; 4]; 4]; MAX_SPOT_SHADOWS],
+    pub(crate) view_proj: [[[f32; 4]; 4]; SHADOW_LAYERS],
+}
+
+/// The view-projection a rect light's shadow map is drawn and read with:
+/// from the panel's centre, out of its front (the side `half_width x
+/// half_height` points away from), [`RECT_SHADOW_FOV_DEGREES`] wide, to its
+/// range. Unity HDRP shadows its area lights the same way: one perspective
+/// map from the light's centre. The shadow is therefore the one a point at
+/// the centre would cast -- sharp where a real panel's would soften with its
+/// size -- which the soft filter blurs but does not widen.
+pub fn rect_shadow_view_proj(
+    position: Vec3,
+    half_width: Vec3,
+    half_height: Vec3,
+    range: f32,
+) -> Mat4 {
+    let direction = -half_width.cross(half_height).normalize_or(Vec3::Z);
+    let (_, up) = crate::cookie::cookie_basis(direction);
+    let far = range.max(0.1);
+    let near = SHADOW_NEAR.min(far * 0.5);
+    Mat4::perspective_rh(RECT_SHADOW_FOV_DEGREES.to_radians(), 1.0, near, far)
+        * Mat4::look_at_rh(position, position + direction, up)
 }
 
 /// The spot shadow map and its lookup, appended to every shader that lights
@@ -72,7 +120,7 @@ macro_rules! spot_shadow_wgsl {
     () => {
         r#"
 struct SpotShadowUniform {
-    view_proj: array<mat4x4<f32>, 8>,
+    view_proj: array<mat4x4<f32>, 12>,
 };
 @group(2) @binding(20) var spot_shadow_map: texture_depth_2d_array;
 @group(2) @binding(21) var<uniform> spot_shadows: SpotShadowUniform;
@@ -81,7 +129,12 @@ fn spot_shadow(sl: SpotLightEntry, world_pos: vec3<f32>, soft: u32) -> f32 {
     if (sl.shadow_layer < 0.0) {
         return 1.0;
     }
-    let layer = i32(sl.shadow_layer);
+    return shadow_layer_lookup(i32(sl.shadow_layer), world_pos, soft);
+}
+
+// One light's map -- a spot light's, or a rect light's past the spot
+// lights' -- at `world_pos`, through that layer's matrix.
+fn shadow_layer_lookup(layer: i32, world_pos: vec3<f32>, soft: u32) -> f32 {
     let size = vec2<f32>(textureDimensions(spot_shadow_map));
     let lsp = spot_shadows.view_proj[layer] * vec4<f32>(world_pos, 1.0);
     if (lsp.w <= 0.0) {
@@ -145,13 +198,13 @@ mod tests {
     #[test]
     fn depth_spans_the_range() {
         let vp = spot_shadow_view_proj(Vec3::ZERO, Vec3::NEG_Y, 0.5, 10.0);
-        assert!(vp.project_point3(Vec3::new(0.0, -0.11, 0.0)).z < 0.1);
+        assert!(vp.project_point3(Vec3::new(0.0, -0.06, 0.0)).z < 0.2);
         assert!((vp.project_point3(Vec3::new(0.0, -10.0, 0.0)).z - 1.0).abs() < 1e-4);
         assert!(vp.project_point3(Vec3::new(0.0, -10.5, 0.0)).z > 1.0);
     }
 
     #[test]
     fn the_uniform_matches_the_shader() {
-        assert_eq!(std::mem::size_of::<SpotShadowUniform>(), 8 * 64);
+        assert_eq!(std::mem::size_of::<SpotShadowUniform>(), 12 * 64);
     }
 }

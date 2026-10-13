@@ -586,7 +586,7 @@ fn fs_main(in: VertOut) -> SceneOut {
     }
     // Rect lights (see `crate::area_light`): their whole contribution,
     // diffuse and specular, already integrated over each rectangle.
-    lo += rect_light_radiance(n, v, in.world_pos, albedo, f0, metallic, roughness);
+    lo += rect_light_radiance(n, v, in.world_pos, albedo, f0, metallic, roughness, camera.shadow_filter);
     // With no skybox this is exactly the old flat-ambient term, evaluated by
     // exactly the old expression -- the branch is on a uniform, so every
     // no-skybox frame stays bit-for-bit what it was before IBL existed.
@@ -1044,7 +1044,7 @@ fn fs_main(in: VertOut) -> SceneOut {
     }
     // Rect lights (see `crate::area_light`): their whole contribution,
     // diffuse and specular, already integrated over each rectangle.
-    lo += rect_light_radiance(n, v, in.world_pos, albedo, f0, metallic, roughness);
+    lo += rect_light_radiance(n, v, in.world_pos, albedo, f0, metallic, roughness, camera.shadow_filter);
     let color = light.ambient * albedo + lo + model_data.emissive;
     var out: SceneOut;
     out.colour = vec4<f32>(color, model_data.opacity);
@@ -4099,7 +4099,7 @@ impl WgpuSurface {
             // The cascades, then one slot per spot shadow: the spot passes
             // draw with the same pipeline and bind group.
             size: CASCADE_STRIDE
-                * (crate::shadow::MAX_CASCADES + crate::spot_shadow::MAX_SPOT_SHADOWS) as u64,
+                * (crate::shadow::MAX_CASCADES + crate::spot_shadow::SHADOW_LAYERS) as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -4314,7 +4314,7 @@ impl WgpuSurface {
                 size: wgpu::Extent3d {
                     width: crate::spot_shadow::SPOT_SHADOW_MAP_SIZE,
                     height: crate::spot_shadow::SPOT_SHADOW_MAP_SIZE,
-                    depth_or_array_layers: crate::spot_shadow::MAX_SPOT_SHADOWS as u32,
+                    depth_or_array_layers: crate::spot_shadow::SHADOW_LAYERS as u32,
                 },
                 mip_level_count: 1,
                 sample_count: 1,
@@ -4331,7 +4331,7 @@ impl WgpuSurface {
             ..Default::default()
         });
         let spot_shadow_layer_views: Vec<wgpu::TextureView> = (0
-            ..crate::spot_shadow::MAX_SPOT_SHADOWS)
+            ..crate::spot_shadow::SHADOW_LAYERS)
             .map(|i| {
                 spot_shadow_texture.create_view(&wgpu::TextureViewDescriptor {
                     label: Some("spot shadow layer view"),
@@ -6460,25 +6460,52 @@ impl WgpuSurface {
         // shadow pipeline the spot passes share reads its matrix. Staged here,
         // before any pass is encoded, for the write_buffer ordering reason the
         // cascades give.
-        let spot_shadow_vps: Vec<Mat4> = shaded_spots
+        // The rect lights' maps follow, from `RECT_SHADOW_BASE`, in the order
+        // `RectLightUniform::new` gives them their layers.
+        let shadow_casters: Vec<(usize, Mat4)> = shaded_spots
             .iter()
-            .map(|sl| {
-                crate::spot_shadow::spot_shadow_view_proj(
-                    sl.position,
-                    sl.direction,
-                    sl.outer_angle,
-                    sl.range,
+            .enumerate()
+            .map(|(i, sl)| {
+                (
+                    i,
+                    crate::spot_shadow::spot_shadow_view_proj(
+                        sl.position,
+                        sl.direction,
+                        sl.outer_angle,
+                        sl.range,
+                    ),
                 )
             })
+            .chain(
+                light
+                    .rect_lights
+                    .iter()
+                    .take(crate::area_light::MAX_RECT_LIGHTS)
+                    .enumerate()
+                    // Layers by slot, so they match `RectLightUniform::new`;
+                    // a panel without shadows leaves its layer undrawn.
+                    .filter(|(_, rl)| rl.shadows)
+                    .map(|(i, rl)| {
+                        (
+                            crate::spot_shadow::RECT_SHADOW_BASE + i,
+                            crate::spot_shadow::rect_shadow_view_proj(
+                                rl.position,
+                                rl.half_width,
+                                rl.half_height,
+                                rl.range,
+                            ),
+                        )
+                    }),
+            )
             .collect();
         let mut spot_shadow_data = crate::spot_shadow::SpotShadowUniform {
-            view_proj: [Mat4::IDENTITY.to_cols_array_2d(); crate::spot_shadow::MAX_SPOT_SHADOWS],
+            view_proj: [Mat4::IDENTITY.to_cols_array_2d(); crate::spot_shadow::SHADOW_LAYERS],
         };
-        for (i, vp) in spot_shadow_vps.iter().enumerate() {
-            spot_shadow_data.view_proj[i] = vp.to_cols_array_2d();
+        for &(layer, vp) in &shadow_casters {
+            spot_shadow_data.view_proj[layer] = vp.to_cols_array_2d();
             self.queue.write_buffer(
                 &self.cascade_uniform_buffer,
-                (crate::shadow::MAX_CASCADES + i) as u64 * CASCADE_STRIDE,
+                (crate::shadow::MAX_CASCADES + layer) as u64 * CASCADE_STRIDE,
                 bytemuck::cast_slice(&[CascadeUniformData {
                     light_view_proj: vp.to_cols_array_2d(),
                 }]),
@@ -6960,12 +6987,9 @@ impl WgpuSurface {
         // The directional passes' pipeline and casters, one pass per shaded
         // spot light into its own layer, through the matrix staged above.
         // Cleared and left empty under `fast_render`, as the cascades are.
-        for (spot, layer_view) in self
-            .spot_shadow_layer_views
-            .iter()
-            .enumerate()
-            .take(spot_shadow_vps.len())
-        {
+        // Rect lights' layers too: the same pass for each.
+        for &(layer, _) in &shadow_casters {
+            let layer_view = &self.spot_shadow_layer_views[layer];
             let mut shadow_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("spot shadow pass"),
                 color_attachments: &[],
@@ -6987,7 +7011,7 @@ impl WgpuSurface {
             shadow_pass.set_bind_group(
                 0,
                 &self.cascade_bind_group,
-                &[((crate::shadow::MAX_CASCADES + spot) as u64 * CASCADE_STRIDE) as u32],
+                &[((crate::shadow::MAX_CASCADES + layer) as u64 * CASCADE_STRIDE) as u32],
             );
             if self.instancing_supported {
                 for batch in &directional_batches {

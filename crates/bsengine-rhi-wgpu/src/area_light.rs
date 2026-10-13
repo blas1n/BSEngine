@@ -47,6 +47,8 @@ pub struct RectLightEntry {
     pub intensity: f32,
     /// Distance from the centre at which the light has faded to nothing.
     pub range: f32,
+    /// Whether it casts a shadow (`RectLight::shadows`).
+    pub shadows: bool,
 }
 
 #[repr(C)]
@@ -55,7 +57,8 @@ struct RectLightGpu {
     position: [f32; 3],
     range: f32,
     half_width: [f32; 3],
-    _p0: f32,
+    /// The light's shadow map layer (`crate::spot_shadow`).
+    shadow_layer: f32,
     half_height: [f32; 3],
     _p1: f32,
     radiance: [f32; 3],
@@ -75,12 +78,17 @@ impl RectLightUniform {
     /// The first [`MAX_RECT_LIGHTS`] of `entries`.
     pub(crate) fn new(entries: &[RectLightEntry]) -> Self {
         let mut out = <Self as bytemuck::Zeroable>::zeroed();
-        for (slot, e) in out.lights.iter_mut().zip(entries) {
+        for (i, (slot, e)) in out.lights.iter_mut().zip(entries).enumerate() {
             *slot = RectLightGpu {
                 position: e.position.to_array(),
                 range: e.range,
                 half_width: e.half_width.to_array(),
-                _p0: 0.0,
+                // -1 for none: the shader's test, as the spot lights' is.
+                shadow_layer: if e.shadows {
+                    (crate::spot_shadow::RECT_SHADOW_BASE + i) as f32
+                } else {
+                    -1.0
+                },
                 half_height: e.half_height.to_array(),
                 _p1: 0.0,
                 radiance: (e.color * e.intensity).to_array(),
@@ -168,7 +176,8 @@ struct RectLightEntry {
     position: vec3<f32>,
     range: f32,
     half_width: vec3<f32>,
-    _p0: f32,
+    // Layer of the light's shadow map (`shadow_layer_lookup`).
+    shadow_layer: f32,
     half_height: vec3<f32>,
     _p1: f32,
     radiance: vec3<f32>,
@@ -350,7 +359,7 @@ fn ltc_evaluate(
 
 fn rect_light_radiance(
     n: vec3<f32>, v: vec3<f32>, p: vec3<f32>,
-    albedo: vec3<f32>, f0: vec3<f32>, metallic: f32, roughness: f32,
+    albedo: vec3<f32>, f0: vec3<f32>, metallic: f32, roughness: f32, soft: u32,
 ) -> vec3<f32> {
     var sum = vec3<f32>(0.0);
     // Capped on the Rust side (`RectLightUniform::new`), the one place that
@@ -390,9 +399,17 @@ fn rect_light_radiance(
         if window <= 0.0 {
             continue;
         }
+        // The panel's shadow, as its centre casts it (`rect_shadow_view_proj`).
+        var lit = 1.0;
+        if rl.shadow_layer >= 0.0 {
+            lit = shadow_layer_lookup(i32(rl.shadow_layer), p, soft);
+            if lit <= 0.0 {
+                continue;
+            }
+        }
         let spec = ltc_evaluate(n, v, p, m_inv, c0, c1, c2, c3);
         let diff = ltc_evaluate(n, v, p, identity, c0, c1, c2, c3);
-        sum += rl.radiance * window * (fresnel * spec + diffuse * diff);
+        sum += rl.radiance * (window * lit) * (fresnel * spec + diffuse * diff);
     }
     return sum;
 }

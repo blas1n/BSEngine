@@ -34,6 +34,7 @@ fn panel(width: f32, height: f32, distance: f32, intensity: f32, rotation: Quat)
         color: Vec3::ONE,
         intensity,
         range: 100.0,
+        shadows: false,
     }
 }
 
@@ -274,6 +275,7 @@ fn the_part_of_a_panel_below_the_horizon_does_not_light() {
         color: Vec3::ONE,
         intensity: 1.0,
         range: 100.0,
+        shadows: false,
     };
     // The frame's exact centre lies between four pixels (its size is even
     // both ways), and the light here changes fast with height -- the centre
@@ -357,6 +359,7 @@ fn every_way_a_panel_crosses_the_horizon_is_clipped_right() {
             color: Vec3::ONE,
             intensity: 1.0,
             range: 100.0,
+            shadows: false,
         };
         let p = h.render(&scene(vec![wall(cube, 1.0, 0.0)], vec![rect]));
         let (x, y) = CENTRE;
@@ -405,5 +408,137 @@ fn a_metal_has_no_diffuse_term() {
     assert!(
         metal > 0.0 && metal < dielectric * 0.5,
         "metal {metal} against dielectric {dielectric}"
+    );
+}
+
+/// A rect light casts a shadow: a block between the panel and the wall shades
+/// the wall behind it, where the same wall without the block is lit, and
+/// leaves the wall beside the shadow lit as before. The shadow is the one
+/// the panel's centre casts (`rect_shadow_view_proj`): the block, 0.5 in
+/// front of the panel and 0.2 in half-size, throws one 0.8 wide each side on
+/// the wall 2 away, which from the camera shows past the block's own face
+/// (0.24) -- 0.6 out is in it, 1.5 out is beyond it.
+#[test]
+fn a_block_in_front_of_a_panel_shades_the_wall() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let light = || {
+        vec![RectLightEntry {
+            shadows: true,
+            ..panel(0.5, 0.5, 2.0, 4.0, Quat::IDENTITY)
+        }]
+    };
+    let open = h.render(&scene(vec![wall(cube, 1.0, 0.0)], light()));
+    let blocked = h.render(&scene(
+        vec![
+            wall(cube, 1.0, 0.0),
+            Draw::new(cube, Vec3::ZERO).scaled(Vec3::splat(0.4), Vec3::new(0.0, 0.0, WALL_Z + 1.5)),
+        ],
+        light(),
+    ));
+    // Wall pixels per unit at the camera's distance (9.9).
+    let px = 75.0 / (9.9 * (30f32).to_radians().tan());
+    let at = |x: f32| (CENTRE.0 as f32 + x * px).round() as u32;
+    let (inside, outside) = (at(0.6), at(1.5));
+    assert!(
+        linear(&open, inside, CENTRE.1) > 0.01 && linear(&open, outside, CENTRE.1) > 0.002,
+        "premise: without the block both are lit ({}, {})",
+        linear(&open, inside, CENTRE.1),
+        linear(&open, outside, CENTRE.1)
+    );
+    assert!(
+        linear(&blocked, inside, CENTRE.1) < 0.1 * linear(&open, inside, CENTRE.1),
+        "behind the block, shadow: {} against {}",
+        linear(&blocked, inside, CENTRE.1),
+        linear(&open, inside, CENTRE.1)
+    );
+    assert!(
+        blocked.at(outside, CENTRE.1)[0].abs_diff(open.at(outside, CENTRE.1)[0]) <= 2,
+        "beside it, lit as before"
+    );
+}
+
+/// Shadows are opt-in: the same block in front of a panel that has not asked
+/// for them leaves the wall as lit as with no block at all. What keeps
+/// `every_way_a_panel_crosses_the_horizon_is_clipped_right` right: a panel
+/// sunk into the wall, its centre behind the surface, would otherwise shadow
+/// its own light out.
+#[test]
+fn a_panel_without_shadows_ignores_the_block() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let light = || vec![panel(0.5, 0.5, 2.0, 4.0, Quat::IDENTITY)];
+    let open = h.render(&scene(vec![wall(cube, 1.0, 0.0)], light()));
+    let blocked = h.render(&scene(
+        vec![
+            wall(cube, 1.0, 0.0),
+            Draw::new(cube, Vec3::ZERO).scaled(Vec3::splat(0.4), Vec3::new(0.0, 0.0, WALL_Z + 1.5)),
+        ],
+        light(),
+    ));
+    let px = 75.0 / (9.9 * (30f32).to_radians().tan());
+    let inside = (CENTRE.0 as f32 + 0.6 * px).round() as u32;
+    assert!(linear(&open, inside, CENTRE.1) > 0.01, "premise: lit");
+    assert!(
+        blocked.at(inside, CENTRE.1)[0].abs_diff(open.at(inside, CENTRE.1)[0]) <= 1,
+        "no shadow without asking"
+    );
+}
+
+/// A rect light's shadow takes the soft filter too: across the shadow's
+/// edge the soft setting leaves a gradient several pixels wide, the hard one
+/// a step. The edge is where the block's front face, 0.3 in front of the
+/// panel and 0.2 in half-size, projects onto the wall 2 away: x = 1.33; the
+/// camera looks at it from 1 unit, where the filter's few hundredths of a
+/// unit span several pixels.
+#[test]
+fn a_rect_lights_shadow_edge_is_softened() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    // Measured as the share of the light each pixel keeps -- the frame with
+    // the block over the frame without -- not as brightness: the panel's own
+    // light falls off steeply across this row, which puts plenty of pixels
+    // between any two brightness levels with no shadow edge at all. Only a
+    // filtered shadow leaves a share strictly between none and all.
+    let mut in_between = |soft: bool| {
+        let mut row = |block: bool| -> Vec<f32> {
+            let mut draws = vec![wall(cube, 1.0, 0.0)];
+            if block {
+                draws.push(
+                    Draw::new(cube, Vec3::ZERO)
+                        .scaled(Vec3::splat(0.4), Vec3::new(0.0, 0.0, WALL_Z + 1.5)),
+                );
+            }
+            let p = h.render(&Scene {
+                soft_shadows: soft,
+                camera_pos: Vec3::new(1.33, 0.0, WALL_Z + 1.0),
+                look_at: Vec3::new(1.33, 0.0, WALL_Z),
+                ..scene(
+                    draws,
+                    vec![RectLightEntry {
+                        shadows: true,
+                        ..panel(0.5, 0.5, 2.0, 4.0, Quat::IDENTITY)
+                    }],
+                )
+            });
+            (0..WIDTH).map(|x| linear(&p, x, CENTRE.1)).collect()
+        };
+        let (open, blocked) = (row(false), row(true));
+        let share: Vec<f32> = open
+            .iter()
+            .zip(&blocked)
+            .filter(|(o, _)| **o > 1e-3)
+            .map(|(o, b)| b / o)
+            .collect();
+        assert!(
+            share.iter().any(|&s| s < 0.05) && share.iter().any(|&s| s > 0.95),
+            "premise: the row crosses the edge (soft {soft})"
+        );
+        share.iter().filter(|&&s| s > 0.15 && s < 0.85).count()
+    };
+    let (soft, hard) = (in_between(true), in_between(false));
+    assert!(
+        soft >= hard + 2,
+        "soft {soft} partly shadowed pixels against hard {hard}"
     );
 }

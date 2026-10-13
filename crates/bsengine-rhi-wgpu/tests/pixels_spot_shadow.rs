@@ -452,3 +452,45 @@ fn probes_are_baked_with_spot_shadows() {
         "the shadowed wall bounces almost none: {blocked} against {open}"
     );
 }
+
+/// Rect lights' shadow maps follow the spot lights' in the same array, and
+/// take none of theirs: with a shadowed rect light in the scene too, the
+/// block under the spot light still shades the floor. A rect map drawn into
+/// the spot's layer would replace the spot's shadow with the panel's view.
+#[test]
+fn a_rect_lights_shadow_map_leaves_the_spot_lights_alone() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let p = h.render(&Scene {
+        light: common::Light {
+            color: Vec3::ZERO,
+            ambient: Vec3::ZERO,
+            spots: vec![spot_at(Vec3::new(0.0, 4.0, 0.0), Vec3::ZERO, 40.0)],
+            // Far off to the side, facing away from the floor in view: it
+            // lights nothing here, but draws its map.
+            rects: vec![bsengine_rhi_wgpu::area_light::RectLightEntry {
+                position: Vec3::new(30.0, 2.0, 0.0),
+                half_width: Vec3::new(0.0, 0.0, 0.5),
+                half_height: Vec3::new(0.0, 0.5, 0.0),
+                color: Vec3::ONE,
+                intensity: 1.0,
+                range: 10.0,
+                shadows: true,
+            }],
+            ..common::Light::default()
+        },
+        ..overhead(
+            vec![
+                floor(cube),
+                block(cube, Vec3::new(0.0, 3.0, 0.0), Vec3::new(0.5, 0.1, 0.5)),
+            ],
+            vec![],
+        )
+    });
+    assert!(
+        red(&p, at_x(1.5), CY) < 5,
+        "the spot light's shadow is still there: {}",
+        red(&p, at_x(1.5), CY)
+    );
+    assert!(red(&p, at_x(2.8), CY) > 40, "premise: and its light");
+}

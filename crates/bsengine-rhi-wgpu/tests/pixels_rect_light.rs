@@ -484,3 +484,47 @@ fn a_panel_without_shadows_ignores_the_block() {
         "no shadow without asking"
     );
 }
+
+/// A rect light's shadow takes the soft filter too: across the shadow's
+/// edge the soft setting leaves a gradient several pixels wide, the hard one
+/// a step. The edge is where the block's front face, 0.3 in front of the
+/// panel and 0.2 in half-size, projects onto the wall 2 away: x = 1.33; the
+/// camera looks at it from 1 unit, where the filter's few hundredths of a
+/// unit span several pixels.
+#[test]
+fn a_rect_lights_shadow_edge_is_softened() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let mut in_between = |soft: bool| {
+        let p = h.render(&Scene {
+            soft_shadows: soft,
+            camera_pos: Vec3::new(1.33, 0.0, WALL_Z + 1.0),
+            look_at: Vec3::new(1.33, 0.0, WALL_Z),
+            ..scene(
+                vec![
+                    wall(cube, 1.0, 0.0),
+                    Draw::new(cube, Vec3::ZERO)
+                        .scaled(Vec3::splat(0.4), Vec3::new(0.0, 0.0, WALL_Z + 1.5)),
+                ],
+                vec![RectLightEntry {
+                    shadows: true,
+                    ..panel(0.5, 0.5, 2.0, 4.0, Quat::IDENTITY)
+                }],
+            )
+        });
+        let row: Vec<f32> = (0..WIDTH).map(|x| linear(&p, x, CENTRE.1)).collect();
+        let lit = row.iter().cloned().fold(0.0, f32::max);
+        assert!(
+            lit > 0.01 && row.iter().cloned().fold(f32::MAX, f32::min) < lit * 0.05,
+            "premise: the row crosses the edge (soft {soft})"
+        );
+        row.iter()
+            .filter(|&&v| v > lit * 0.15 && v < lit * 0.85)
+            .count()
+    };
+    let (soft, hard) = (in_between(true), in_between(false));
+    assert!(
+        soft >= hard + 2,
+        "soft {soft} in-between pixels against hard {hard}"
+    );
+}

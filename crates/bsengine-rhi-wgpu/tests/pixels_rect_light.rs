@@ -495,36 +495,50 @@ fn a_panel_without_shadows_ignores_the_block() {
 fn a_rect_lights_shadow_edge_is_softened() {
     let mut h = Harness::new();
     let cube = h.cube();
+    // Measured as the share of the light each pixel keeps -- the frame with
+    // the block over the frame without -- not as brightness: the panel's own
+    // light falls off steeply across this row, which puts plenty of pixels
+    // between any two brightness levels with no shadow edge at all. Only a
+    // filtered shadow leaves a share strictly between none and all.
     let mut in_between = |soft: bool| {
-        let p = h.render(&Scene {
-            soft_shadows: soft,
-            camera_pos: Vec3::new(1.33, 0.0, WALL_Z + 1.0),
-            look_at: Vec3::new(1.33, 0.0, WALL_Z),
-            ..scene(
-                vec![
-                    wall(cube, 1.0, 0.0),
+        let mut row = |block: bool| -> Vec<f32> {
+            let mut draws = vec![wall(cube, 1.0, 0.0)];
+            if block {
+                draws.push(
                     Draw::new(cube, Vec3::ZERO)
                         .scaled(Vec3::splat(0.4), Vec3::new(0.0, 0.0, WALL_Z + 1.5)),
-                ],
-                vec![RectLightEntry {
-                    shadows: true,
-                    ..panel(0.5, 0.5, 2.0, 4.0, Quat::IDENTITY)
-                }],
-            )
-        });
-        let row: Vec<f32> = (0..WIDTH).map(|x| linear(&p, x, CENTRE.1)).collect();
-        let lit = row.iter().cloned().fold(0.0, f32::max);
+                );
+            }
+            let p = h.render(&Scene {
+                soft_shadows: soft,
+                camera_pos: Vec3::new(1.33, 0.0, WALL_Z + 1.0),
+                look_at: Vec3::new(1.33, 0.0, WALL_Z),
+                ..scene(
+                    draws,
+                    vec![RectLightEntry {
+                        shadows: true,
+                        ..panel(0.5, 0.5, 2.0, 4.0, Quat::IDENTITY)
+                    }],
+                )
+            });
+            (0..WIDTH).map(|x| linear(&p, x, CENTRE.1)).collect()
+        };
+        let (open, blocked) = (row(false), row(true));
+        let share: Vec<f32> = open
+            .iter()
+            .zip(&blocked)
+            .filter(|(o, _)| **o > 1e-3)
+            .map(|(o, b)| b / o)
+            .collect();
         assert!(
-            lit > 0.01 && row.iter().cloned().fold(f32::MAX, f32::min) < lit * 0.05,
+            share.iter().any(|&s| s < 0.05) && share.iter().any(|&s| s > 0.95),
             "premise: the row crosses the edge (soft {soft})"
         );
-        row.iter()
-            .filter(|&&v| v > lit * 0.15 && v < lit * 0.85)
-            .count()
+        share.iter().filter(|&&s| s > 0.15 && s < 0.85).count()
     };
     let (soft, hard) = (in_between(true), in_between(false));
     assert!(
         soft >= hard + 2,
-        "soft {soft} in-between pixels against hard {hard}"
+        "soft {soft} partly shadowed pixels against hard {hard}"
     );
 }

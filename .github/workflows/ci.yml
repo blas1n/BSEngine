@@ -251,6 +251,16 @@ jobs:
         run: |
           bash scripts/build_web.sh games/cube-evader "$RUNNER_TEMP/web" --debug
           WEBGPU_ADAPTER=swiftshader node scripts/web_smoke.mjs "$RUNNER_TEMP/web" --frames 10 --timeout 300
+      # And mini-arena, which assigns a custom shader from a script: that path
+      # blocked on a device promise and panicked on the first frame in every
+      # browser ("condvar wait not supported") while cube-evader, which has no
+      # custom shader, stayed green. The runtime's wasm is already built by
+      # the step above; this one adds the game's pak and a second page.
+      - name: Browser smoke test (mini-arena, headless Chrome)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          bash scripts/build_web.sh games/mini-arena "$RUNNER_TEMP/web-arena" --debug
+          WEBGPU_ADAPTER=swiftshader node scripts/web_smoke.mjs "$RUNNER_TEMP/web-arena" --frames 10 --timeout 300
 
       - name: Test
         env:

@@ -617,3 +617,129 @@ fn a_point_lights_cookie_patterns_the_fog_below_it() {
         "white below the lamp, fog as lit as without a cookie: {lit:.1} against {plain:.1}"
     );
 }
+
+/// A rect light where [`LAMP`] hangs, `width` by 4 units, facing straight
+/// down -- or up, `facing_up`. It lights out of its local -z, which is
+/// `half_width x half_height` pointing away: x by -z points up, so this one
+/// faces down.
+fn rect_lamp(
+    width: f32,
+    intensity: f32,
+    facing_up: bool,
+    shadows: bool,
+) -> bsengine_rhi_wgpu::area_light::RectLightEntry {
+    let depth = if facing_up { 2.0 } else { -2.0 };
+    bsengine_rhi_wgpu::area_light::RectLightEntry {
+        position: LAMP.position,
+        half_width: Vec3::new(width / 2.0, 0.0, 0.0),
+        half_height: Vec3::new(0.0, 0.0, depth),
+        color: Vec3::ONE,
+        intensity,
+        range: LAMP.range,
+        shadows,
+    }
+}
+
+/// [`point_scene`] with `rect` in place of the point lamp.
+fn rect_fog_luma(
+    h: &mut Harness,
+    cube: u64,
+    occluder: Option<Vec3>,
+    rect: bsengine_rhi_wgpu::area_light::RectLightEntry,
+) -> f32 {
+    h.render(&Scene {
+        light: Light {
+            direction: SUN,
+            color: Vec3::ZERO,
+            rects: vec![rect],
+            ..Light::default()
+        },
+        ..scene(cube, occluder, Some(shaft_fog()))
+    })
+    .centre_luma()
+}
+
+/// Rect lights light the fog, from the side they shine out of, by how much
+/// of the sky they fill. Until this the fog had no rect light term at all
+/// and a panel above it lit the floor and none of the haze between, so the
+/// first reading is the one that failed.
+#[test]
+fn a_rect_light_lights_the_fog_from_its_lit_side_by_its_size() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let lit = rect_fog_luma(&mut h, cube, None, rect_lamp(4.0, 60.0, false, false));
+    let backwards = rect_fog_luma(&mut h, cube, None, rect_lamp(4.0, 60.0, true, false));
+    // Twice the panel at half the brightness sends the fog the same light:
+    // it fills about twice the solid angle. The hard side: a fog that ignored
+    // the panel's size -- a point light at its centre -- reads half here.
+    let wide_dim = rect_fog_luma(&mut h, cube, None, rect_lamp(8.0, 30.0, false, false));
+    // The range fades it as it fades the panel's light on surfaces: at 20
+    // units the window has all but closed on the nearest froxels, 15 below
+    // the panel, and closed on the rest. Every other reading here has the
+    // same window, so this is the only one that sees it.
+    let short = rect_fog_luma(
+        &mut h,
+        cube,
+        None,
+        bsengine_rhi_wgpu::area_light::RectLightEntry {
+            range: 20.0,
+            ..rect_lamp(4.0, 60.0, false, false)
+        },
+    );
+    println!(
+        "rect fog: lit {lit:.1}, backwards {backwards:.1}, wide and dim {wide_dim:.1}, short range {short:.1}"
+    );
+    assert!(
+        (20.0..200.0).contains(&lit),
+        "premise: the panel lights the fog, short of saturating it ({lit:.1})"
+    );
+    assert!(
+        backwards < lit * 0.1,
+        "a panel facing away lights nothing below it: {backwards:.1} against {lit:.1}"
+    );
+    assert!(
+        (wide_dim - lit).abs() < lit * 0.1,
+        "twice the panel at half the brightness, the same fog: {wide_dim:.1} against {lit:.1}"
+    );
+    assert!(
+        short < lit * 0.5,
+        "a panel whose range ends just past the fog lights little of it: {short:.1} against {lit:.1}"
+    );
+}
+
+/// A rect light that casts a shadow (`RectLight::shadows`) casts it through
+/// the fog too, from the same map the floor reads: the slab between the
+/// panel and the fog takes its light away, and moved aside gives it back.
+#[test]
+fn an_occluder_under_a_shadowed_rect_light_darkens_the_fog() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let lamp = rect_lamp(4.0, 60.0, false, true);
+    let unshadowed = rect_fog_luma(&mut h, cube, None, lamp);
+    let shadowed = rect_fog_luma(&mut h, cube, Some(OVERHEAD), lamp);
+    let moved_aside = rect_fog_luma(&mut h, cube, Some(ASIDE), lamp);
+    // And without `shadows` the slab changes nothing: rect shadows are
+    // opt-in, and the fog keeps to that.
+    let unshadowing = rect_fog_luma(
+        &mut h,
+        cube,
+        Some(OVERHEAD),
+        rect_lamp(4.0, 60.0, false, false),
+    );
+    assert!(
+        unshadowed > 20.0,
+        "premise: the panel lights the fog ({unshadowed:.1})"
+    );
+    assert!(
+        shadowed < unshadowed * 0.3,
+        "the slab takes the panel's light out of the fog: {shadowed:.1} against {unshadowed:.1}"
+    );
+    assert!(
+        (moved_aside - unshadowed).abs() < 2.0,
+        "and moved aside gives it back: {moved_aside:.1} against {unshadowed:.1}"
+    );
+    assert!(
+        (unshadowing - unshadowed).abs() < 2.0,
+        "a panel that casts no shadow is not cut by the slab: {unshadowing:.1} against {unshadowed:.1}"
+    );
+}

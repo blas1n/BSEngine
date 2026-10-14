@@ -156,6 +156,8 @@ fn spot_light_entry(
         cookie: (!sl.cookie.is_empty())
             .then(|| textures?.id_for(&sl.cookie))
             .flatten(),
+        // An `.ies` cookie is a profile, read by direction (`bsengine_asset::ies`).
+        cookie_is_profile: bsengine_asset::ies::is_profile_path(&sl.cookie),
     }
 }
 
@@ -2985,6 +2987,16 @@ mod tests {
         let plain = super::spot_light_entry(&SpotLight::default(), None, &local, Some(&cache));
         assert_eq!(plain.cookie, None, "no path, no cookie");
         assert!(entry.shadows && plain.shadows, "shadowed by default");
+        // An `.ies` cookie is a profile, read by direction; a picture is not.
+        assert!(!entry.cookie_is_profile, "a picture is projected");
+        let profiled = SpotLight {
+            cookie: "assets/lights/downlight.IES".into(),
+            ..SpotLight::default()
+        };
+        assert!(
+            super::spot_light_entry(&profiled, None, &local, Some(&cache)).cookie_is_profile,
+            "an .ies cookie, in any case, is a profile"
+        );
         let dark = SpotLight {
             shadows: false,
             ..SpotLight::default()

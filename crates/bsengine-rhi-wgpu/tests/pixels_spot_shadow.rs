@@ -51,6 +51,7 @@ fn spot_at(position: Vec3, target: Vec3, outer_degrees: f32) -> SpotLightEntry {
         inner_angle: (outer_degrees - 1.0).to_radians(),
         outer_angle: outer_degrees.to_radians(),
         cookie: None,
+        cookie_is_profile: false,
         shadows: true,
     }
 }

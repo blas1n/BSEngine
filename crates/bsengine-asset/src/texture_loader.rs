@@ -31,6 +31,24 @@ impl AssetLoader for TextureAssetLoader {
             .await
             .map_err(|e| format!("read: {e}"))?;
         let settings = import_settings(load_context).await;
+        // An IES profile is a table of numbers, not an image: it becomes the
+        // equirectangular panorama a light cookie is (`crate::ies`).
+        if crate::ies::is_profile_path(&load_context.path().to_string_lossy()) {
+            let text = std::str::from_utf8(&bytes).map_err(|e| format!("IES profile: {e}"))?;
+            let profile =
+                crate::ies::IesProfile::parse(text).map_err(|e| format!("IES profile: {e}"))?;
+            return Ok(TextureAsset {
+                width: crate::ies::PANORAMA_WIDTH,
+                height: crate::ies::PANORAMA_HEIGHT,
+                data: profile.panorama(
+                    crate::ies::PANORAMA_WIDTH,
+                    crate::ies::PANORAMA_HEIGHT,
+                    settings.srgb,
+                ),
+                settings,
+                pixels_released: false,
+            });
+        }
         let img = image::load_from_memory(&bytes)
             .map_err(|e| format!("decode: {e}"))?
             .to_rgba8();
@@ -101,5 +119,44 @@ mod tests {
         let (w, h, data) = loaded.expect("texture did not finish loading within 200 frames");
         assert_eq!((w, h), (1, 1));
         assert_eq!(data, vec![10, 20, 30, 255]);
+    }
+
+    /// An `.ies` file, which the image decoder would refuse, loads as the
+    /// light profile's panorama: lit at the bottom (the nadir of a
+    /// downlight), dark at the top.
+    #[test]
+    fn an_ies_profile_loads_as_its_panorama() {
+        let path = std::env::temp_dir().join("bsengine_test_profile.ies");
+        std::fs::write(
+            &path,
+            "IESNA:LM-63-2002\nTILT=NONE\n1 1000 1 2 1 1 2 0 0 0\n1 1 50\n0 90\n0\n1000 0\n",
+        )
+        .unwrap();
+        let mut app = new_app();
+        app.add_plugins(crate::plugin::AssetPlugin);
+        let handle = {
+            let server = app.world().resource::<AssetServer>();
+            server.load::<TextureAsset>(path.to_str().unwrap().to_owned())
+        };
+        let mut loaded = None;
+        for _ in 0..200 {
+            app.update();
+            if let Some(tex) = app.world().resource::<Assets<TextureAsset>>().get(&handle) {
+                loaded = Some((tex.width, tex.height, tex.data.clone()));
+                break;
+            }
+        }
+        let (w, h, data) = loaded.expect("the profile did not finish loading within 200 frames");
+        assert_eq!(
+            (w, h),
+            (crate::ies::PANORAMA_WIDTH, crate::ies::PANORAMA_HEIGHT)
+        );
+        let at = |x: u32, y: u32| data[((y * w + x) * 4) as usize];
+        assert!(
+            at(w / 2, h - 1) > 240,
+            "the nadir is lit: {}",
+            at(w / 2, h - 1)
+        );
+        assert_eq!(at(w / 2, 0), 0, "the zenith is dark");
     }
 }

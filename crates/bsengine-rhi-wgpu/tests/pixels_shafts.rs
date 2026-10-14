@@ -482,6 +482,7 @@ fn spot_lamp(cookie: Option<u64>) -> bsengine_rhi_wgpu::SpotLightEntry {
         inner_angle: 69f32.to_radians(),
         outer_angle: 70f32.to_radians(),
         cookie,
+        cookie_is_profile: false,
         shadows: true,
     }
 }

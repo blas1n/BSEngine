@@ -1105,6 +1105,7 @@ fn undo_restores_a_deleted_lights_cookie_and_cone() {
                 inner_angle_degrees: 15.0.into(),
                 outer_angle_degrees: 25.0.into(),
                 cookie: "lights/window.png".into(),
+                shadows: false,
                 ..Default::default()
             },
         ))
@@ -1146,6 +1147,7 @@ fn undo_restores_a_deleted_lights_cookie_and_cone() {
         "{}",
         sl.outer_angle_degrees.0
     );
+    assert!(!sl.shadows, "and its shadow setting");
 }
 
 #[test]

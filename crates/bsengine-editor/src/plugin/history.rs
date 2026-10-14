@@ -155,6 +155,9 @@ pub(super) fn sync_entity_to_info(world: &mut World, entity: Entity, info: &Enti
                 if let Some(c) = &info.spot_cookie {
                     sl.cookie = c.clone();
                 }
+                if let Some(s) = info.spot_shadows {
+                    sl.shadows = s;
+                }
             }
         }
         _ => {
@@ -249,6 +252,7 @@ pub(super) fn spawn_entity_from_info(world: &mut World, info: &EntityInfo) -> En
                 inner_angle_degrees: info.spot_inner_angle.unwrap_or(22.5).into(),
                 outer_angle_degrees: info.spot_outer_angle.unwrap_or(30.0).into(),
                 cookie: info.spot_cookie.clone().unwrap_or_default(),
+                shadows: info.spot_shadows.unwrap_or(true),
             });
         }
         _ => {}

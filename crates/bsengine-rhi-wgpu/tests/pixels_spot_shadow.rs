@@ -516,9 +516,14 @@ fn a_spot_light_without_shadows_ignores_the_block() {
         ]
     };
     let x = at_x(1.5);
+    // The reference first, while the map is still clear: rendered after the
+    // shadowed frame, it would read whatever that frame left in the layer --
+    // and so would the frame under test, if a light without shadows read a
+    // map at all, and the two would agree in the dark.
+    let open = h.render(&overhead(vec![floor(cube)], light(false)));
     let shadowed = h.render(&overhead(blocked(), light(true)));
     let unshadowed = h.render(&overhead(blocked(), light(false)));
-    let open = h.render(&overhead(vec![floor(cube)], light(false)));
+    assert!(red(&open, x, CY) > 40, "premise: the open floor is lit");
     assert!(
         red(&shadowed, x, CY) < 5,
         "premise: with shadows, dark under the block"

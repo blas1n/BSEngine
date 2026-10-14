@@ -101,6 +101,7 @@ pub(crate) fn snapshot_entity_as_descriptor(
             inner_angle_degrees: sl.inner_angle_degrees.0,
             outer_angle_degrees: sl.outer_angle_degrees.0,
             cookie: sl.cookie.clone(),
+            shadows: sl.shadows,
         }
     });
 
@@ -299,6 +300,7 @@ fn merge_spot_light(
                 &n.outer_angle_degrees,
             ),
             cookie: resolve_field(&l.cookie, &b.cookie, &n.cookie),
+            shadows: resolve_field(&l.shadows, &b.shadows, &n.shadows),
         }),
         _ => resolve_field(live, baseline, new),
     }
@@ -667,6 +669,7 @@ pub(crate) fn apply_merged_descriptor(
                 inner_angle_degrees: sl.inner_angle_degrees.into(),
                 outer_angle_degrees: sl.outer_angle_degrees.into(),
                 cookie: sl.cookie.clone(),
+                shadows: sl.shadows,
             });
         }
         None => {
@@ -1598,6 +1601,7 @@ mod tests {
                     inner_angle_degrees: 20.0.into(),
                     outer_angle_degrees: 35.0.into(),
                     cookie: "lights/gobo.png".to_string(),
+                    shadows: true,
                 },
             ))
             .id();
@@ -1615,6 +1619,7 @@ mod tests {
                 inner_angle_degrees: 20.0,
                 outer_angle_degrees: 35.0,
                 cookie: "lights/gobo.png".to_string(),
+                shadows: true,
             })
         );
     }
@@ -2377,6 +2382,7 @@ mod tests {
                 inner_angle_degrees: 15.0,
                 outer_angle_degrees: 25.0,
                 cookie: String::new(),
+                shadows: true,
             }),
             ..live.clone()
         };
@@ -3329,6 +3335,81 @@ mod tests {
             "override kept"
         );
         assert_eq!(resynced_cookie(None), "b.png", "prefab's change adopted");
+    }
+
+    /// The shadow setting merges like every other spot light attribute. With
+    /// a bool an override cannot differ from both the old and the new file,
+    /// so the two halves are two cases: an instance left alone follows the
+    /// prefab when it switches shadows off; one that switched its own off
+    /// keeps it off when the prefab is resynced unchanged on that field (a
+    /// merge that simply took the file's value would turn it back on).
+    #[test]
+    fn resync_instance_merges_a_spot_lights_shadow_setting() {
+        let prefab = |shadows: bool| {
+            parse(&format!(
+                r#"PrefabDescriptor(entities: [
+                    EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                    EntityDescriptor(
+                        name: "Spot",
+                        parent: Some("Body"),
+                        spot_light: Some((shadows: {shadows})),
+                    ),
+                ])"#
+            ))
+        };
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/lamp.ron".to_string()]);
+        let resynced = |instance_off: bool, new_file: bool| {
+            let mut app = new_app();
+            bsengine_scene::register_gameplay_reflect_types(&mut app);
+            let baseline = prefab(true);
+            let root = bsengine_scene::instantiate_prefab(
+                app.world_mut(),
+                &baseline,
+                "assets/prefabs/lamp.ron",
+                Some("Lamp"),
+                None,
+                None,
+            )
+            .unwrap();
+            let spot = {
+                let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+                q.iter(app.world())
+                    .find(|(_, n)| n.0.starts_with("Spot#"))
+                    .map(|(e, _)| e)
+                    .unwrap()
+            };
+            assert!(
+                app.world()
+                    .get::<bsengine_core::SpotLight>(spot)
+                    .unwrap()
+                    .shadows,
+                "premise: the instance starts shadowed, as its prefab is"
+            );
+            if instance_off {
+                app.world_mut()
+                    .get_mut::<bsengine_core::SpotLight>(spot)
+                    .unwrap()
+                    .shadows = false;
+            }
+            resync_instance(
+                app.world_mut(),
+                root,
+                &baseline,
+                &prefab(new_file),
+                &own_source_paths,
+            )
+            .unwrap();
+            app.world()
+                .get::<bsengine_core::SpotLight>(spot)
+                .unwrap()
+                .shadows
+        };
+        assert!(
+            !resynced(false, false),
+            "left alone, it follows the prefab off"
+        );
+        assert!(!resynced(true, true), "switched off, it stays off");
     }
 
     #[test]

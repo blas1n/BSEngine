@@ -51,6 +51,7 @@ fn spot_at(position: Vec3, target: Vec3, outer_degrees: f32) -> SpotLightEntry {
         inner_angle: (outer_degrees - 1.0).to_radians(),
         outer_angle: outer_degrees.to_radians(),
         cookie: None,
+        shadows: true,
     }
 }
 
@@ -493,4 +494,44 @@ fn a_rect_lights_shadow_map_leaves_the_spot_lights_alone() {
         red(&p, at_x(1.5), CY)
     );
     assert!(red(&p, at_x(2.8), CY) > 40, "premise: and its light");
+}
+
+/// A spot light that casts no shadows lights the floor under the block as
+/// if the block were not there -- the same frame as the light with no block
+/// at all -- where the shadowed light leaves it dark (the premise).
+#[test]
+fn a_spot_light_without_shadows_ignores_the_block() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let light = |shadows: bool| {
+        vec![SpotLightEntry {
+            shadows,
+            ..spot_at(Vec3::new(0.0, 4.0, 0.0), Vec3::ZERO, 40.0)
+        }]
+    };
+    let blocked = || {
+        vec![
+            floor(cube),
+            block(cube, Vec3::new(0.0, 3.0, 0.0), Vec3::new(0.5, 0.1, 0.5)),
+        ]
+    };
+    let x = at_x(1.5);
+    // The reference first, while the map is still clear: rendered after the
+    // shadowed frame, it would read whatever that frame left in the layer --
+    // and so would the frame under test, if a light without shadows read a
+    // map at all, and the two would agree in the dark.
+    let open = h.render(&overhead(vec![floor(cube)], light(false)));
+    let shadowed = h.render(&overhead(blocked(), light(true)));
+    let unshadowed = h.render(&overhead(blocked(), light(false)));
+    assert!(red(&open, x, CY) > 40, "premise: the open floor is lit");
+    assert!(
+        red(&shadowed, x, CY) < 5,
+        "premise: with shadows, dark under the block"
+    );
+    assert!(
+        red(&unshadowed, x, CY).abs_diff(red(&open, x, CY)) <= 1,
+        "without, lit as if it were not there: {} against {}",
+        red(&unshadowed, x, CY),
+        red(&open, x, CY)
+    );
 }

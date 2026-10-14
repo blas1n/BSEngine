@@ -2125,6 +2125,8 @@ pub struct SpotLightEntry {
     /// The registry id of the texture projected through the cone (see
     /// `crate::cookie`), or `None` for a plain cone.
     pub cookie: Option<u64>,
+    /// Whether it casts a shadow (`SpotLight::shadows`).
+    pub shadows: bool,
 }
 
 /// Light parameters passed per frame.
@@ -6452,7 +6454,9 @@ impl WgpuSurface {
                 intensity: sl.intensity,
                 range: sl.range,
                 cookie_layer: cookie_layers[i],
-                shadow_layer: i as f32,
+                // -1 for none: a light without shadows has no map read, and
+                // none drawn either (`shadow_casters`).
+                shadow_layer: if sl.shadows { i as f32 } else { -1.0 },
             };
         }
         // Each shaded spot light's shadow view: into the lighting shaders'
@@ -6465,6 +6469,7 @@ impl WgpuSurface {
         let shadow_casters: Vec<(usize, Mat4)> = shaded_spots
             .iter()
             .enumerate()
+            .filter(|(_, sl)| sl.shadows)
             .map(|(i, sl)| {
                 (
                     i,

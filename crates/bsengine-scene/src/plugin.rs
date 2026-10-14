@@ -690,6 +690,7 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                 inner_angle_degrees: sl.inner_angle_degrees.into(),
                 outer_angle_degrees: sl.outer_angle_degrees.into(),
                 cookie: sl.cookie.clone(),
+                shadows: sl.shadows,
             });
         }
 
@@ -1299,7 +1300,7 @@ mod tests {
         let scene: crate::types::SceneDescriptor = ron::from_str(
             r#"SceneDescriptor(entities: [EntityDescriptor(
                 name: "Spot",
-                spot_light: Some((cookie: "textures/window.png")),
+                spot_light: Some((cookie: "textures/window.png", shadows: false)),
             )])"#,
         )
         .expect("the scene should parse");
@@ -1310,6 +1311,7 @@ mod tests {
         let lights: Vec<_> = q.iter(app.world()).collect();
         assert_eq!(lights.len(), 1, "premise: the light was spawned");
         assert_eq!(lights[0].cookie, "textures/window.png");
+        assert!(!lights[0].shadows, "and so is its shadow setting");
     }
 
     #[test]

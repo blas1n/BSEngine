@@ -51,6 +51,7 @@ fn spot(position: Vec3, rotation: Quat, outer_degrees: f32, cookie: Option<u64>)
         inner_angle: (outer_degrees - 1.0).to_radians(),
         outer_angle: outer_degrees.to_radians(),
         cookie,
+        shadows: true,
     }
 }
 

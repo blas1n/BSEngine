@@ -673,7 +673,22 @@ fn a_rect_light_lights_the_fog_from_its_lit_side_by_its_size() {
     // it fills about twice the solid angle. The hard side: a fog that ignored
     // the panel's size -- a point light at its centre -- reads half here.
     let wide_dim = rect_fog_luma(&mut h, cube, None, rect_lamp(8.0, 30.0, false, false));
-    println!("rect fog: lit {lit:.1}, backwards {backwards:.1}, wide and dim {wide_dim:.1}");
+    // The range fades it as it fades the panel's light on surfaces: at 20
+    // units the window has all but closed on the nearest froxels, 15 below
+    // the panel, and closed on the rest. Every other reading here has the
+    // same window, so this is the only one that sees it.
+    let short = rect_fog_luma(
+        &mut h,
+        cube,
+        None,
+        bsengine_rhi_wgpu::area_light::RectLightEntry {
+            range: 20.0,
+            ..rect_lamp(4.0, 60.0, false, false)
+        },
+    );
+    println!(
+        "rect fog: lit {lit:.1}, backwards {backwards:.1}, wide and dim {wide_dim:.1}, short range {short:.1}"
+    );
     assert!(
         (20.0..200.0).contains(&lit),
         "premise: the panel lights the fog, short of saturating it ({lit:.1})"
@@ -685,6 +700,10 @@ fn a_rect_light_lights_the_fog_from_its_lit_side_by_its_size() {
     assert!(
         (wide_dim - lit).abs() < lit * 0.1,
         "twice the panel at half the brightness, the same fog: {wide_dim:.1} against {lit:.1}"
+    );
+    assert!(
+        short < lit * 0.5,
+        "a panel whose range ends just past the fog lights little of it: {short:.1} against {lit:.1}"
     );
 }
 

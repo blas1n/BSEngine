@@ -93,15 +93,14 @@ impl Pair {
     /// Steps both apps until the client has a peer id, or fails loudly.
     ///
     /// A silent timeout here would make every later assertion fail for a reason
-    /// that has nothing to do with what it is testing.
+    /// that has nothing to do with what it is testing. Waited for in wall-clock
+    /// time ([`pump`]), not frames: two hundred frames take microseconds, which
+    /// is no time at all for a datagram the OS has not delivered yet.
     fn settle_handshake(&mut self) {
-        for _ in 0..200 {
+        pump(|| {
             self.step();
-            if self.client.world().resource::<NetworkSession>().connected {
-                return;
-            }
-        }
-        panic!("the client never completed its handshake with the server");
+            self.client.world().resource::<NetworkSession>().connected
+        });
     }
 
     /// One frame on each side, server first so the client sees this frame's
@@ -338,9 +337,10 @@ fn a_default_session_replicates_as_it_always_did() {
     let (on_server, on_client) = pair.spawn_replicated(1, Vec3::ZERO);
 
     pair.move_server_entity(on_server, Vec3::new(42.0, 0.0, 0.0));
-    for _ in 0..5 {
+    pump(|| {
         pair.step();
-    }
+        (pair.client_position(on_client).x - 42.0).abs() < 1e-3
+    });
 
     let x = pair.client_position(on_client).x;
     assert!(
@@ -374,9 +374,10 @@ fn a_predicted_entity_sends_input_rather_than_its_transform() {
         .world_mut()
         .insert_resource(bsengine_core::LocalHeldKeys(vec!["W".to_string()]));
 
-    for _ in 0..4 {
+    pump(|| {
         pair.step();
-    }
+        !pair.server.world().resource::<AppliedInputs>().0.is_empty()
+    });
 
     let applied = pair.server.world().resource::<AppliedInputs>();
     assert!(
@@ -415,10 +416,32 @@ fn a_client_authoritative_entity_still_sends_its_transform() {
             },
         ));
     }
+    // The client moves it, and the move reaching the server is the evidence
+    // that the client's messages arrive at all -- without it, "no input was
+    // applied" would hold just as well for a client whose datagrams the OS
+    // had not delivered yet.
+    let on_client = pair
+        .client
+        .world_mut()
+        .query::<(Entity, &NetworkId)>()
+        .iter(pair.client.world())
+        .find(|(_, id)| id.id == 2)
+        .map(|(e, _)| e)
+        .expect("spawned above");
+    pair.client
+        .world_mut()
+        .get_mut::<Transform>(on_client)
+        .unwrap()
+        .position = Vec3::new(5.0, 0.0, 0.0).into();
 
-    for _ in 0..4 {
+    pump(|| {
         pair.step();
-    }
+        let server = pair.server.world_mut();
+        server
+            .query::<(&NetworkId, &Transform)>()
+            .iter(server)
+            .any(|(id, t)| id.id == 2 && (t.position.0.x - 5.0).abs() < 1e-3)
+    });
 
     assert!(
         pair.server.world().resource::<AppliedInputs>().0.is_empty(),
@@ -460,9 +483,15 @@ fn a_correction_for_a_predicted_entity_is_emitted_to_the_scripting_layer() {
         Transform::default(),
     ));
 
-    for _ in 0..4 {
+    pump(|| {
         pair.step();
-    }
+        pair.client
+            .world()
+            .resource::<bsengine_core::PendingReplays>()
+            .0
+            .iter()
+            .any(|r| r.net_id == 1)
+    });
 
     let replays = pair
         .client
@@ -509,9 +538,18 @@ fn a_predicted_entity_is_corrected_rather_than_interpolated() {
         ));
     }
 
-    for _ in 0..4 {
+    // A correction arriving is the evidence that the server's word on this
+    // entity reaches the client; until it has, an empty interpolation buffer
+    // would say nothing.
+    pump(|| {
         pair.step();
-    }
+        pair.client
+            .world()
+            .resource::<bsengine_core::PendingReplays>()
+            .0
+            .iter()
+            .any(|r| r.net_id == 1)
+    });
 
     assert!(
         pair.client
@@ -556,11 +594,14 @@ fn every_reliable_call_arrives_exactly_once_and_in_order_under_loss() {
         pair.step();
     }
 
+    // Until all eight are in, then `pump`'s settling frames, in which a
+    // duplicate would show.
     let mut arrived = Vec::new();
-    for _ in 0..60 {
+    pump(|| {
         pair.step();
         Pair::collect(&mut pair.server, &mut arrived);
-    }
+        arrived.len() >= sent.len()
+    });
 
     let names: Vec<String> = arrived.iter().map(|c| c.name.clone()).collect();
     assert_eq!(
@@ -599,8 +640,18 @@ fn the_same_calls_sent_unreliably_do_not_all_arrive() {
         pair.step();
     }
 
+    // Until at least one is in -- otherwise "fewer than eight arrived" would
+    // hold for a link that delivered nothing, which is the OS being slow,
+    // not the simulator dropping -- and then sixty more frames, the window
+    // the reliable test above is given and more, for the rest.
     let mut arrived = Vec::new();
+    pump(|| {
+        pair.step();
+        Pair::collect(&mut pair.server, &mut arrived);
+        !arrived.is_empty()
+    });
     for _ in 0..60 {
+        std::thread::sleep(Duration::from_millis(1));
         pair.step();
         Pair::collect(&mut pair.server, &mut arrived);
     }
@@ -895,13 +946,11 @@ impl Room {
             );
             // Settled one at a time: peer ids are assigned in connection order,
             // and a test that says "the first client" has to be able to mean it.
-            for _ in 0..200 {
+            pump(|| {
                 server.update();
                 app.update();
-                if app.world().resource::<NetworkSession>().connected {
-                    break;
-                }
-            }
+                app.world().resource::<NetworkSession>().connected
+            });
             assert!(
                 app.world().resource::<NetworkSession>().connected,
                 "a client never completed its handshake"

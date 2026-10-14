@@ -632,7 +632,10 @@ fn cs_inject(@builtin(global_invocation_id) gid: vec3<u32>) {
             // lobe between the two kinds of light.
             let pt_phase = henyey_greenstein(dot(view_dir, l), fog.anisotropy);
             let pt_lit = point_shadow_factor(i, -to_light);
-            in_scatter += pl.color * (pl.intensity * t * t) * scattering * pt_phase * pt_lit;
+            // The cookie too, as the scene shader applies it: a lantern's cage
+            // casts its bars through the haze, not just on the walls.
+            in_scatter += pl.color * point_cookie(pl, world_pos) * (pl.intensity * t * t)
+                * scattering * pt_phase * pt_lit;
         }
     }
 

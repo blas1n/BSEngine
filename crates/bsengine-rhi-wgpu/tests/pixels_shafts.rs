@@ -550,3 +550,70 @@ fn a_black_cookie_takes_a_spot_lights_light_out_of_the_fog() {
         "black cookie, dark beam: {cookied:.1} against {plain:.1}"
     );
 }
+
+/// [`point_scene`]'s lamp wearing `cookie`, unturned.
+fn cookied_point_scene(cube: u64, cookie: u64) -> Scene {
+    Scene {
+        light: Light {
+            direction: SUN,
+            color: Vec3::ZERO,
+            point_entries: vec![bsengine_rhi_wgpu::surface::PointLightEntry {
+                position: LAMP.position,
+                color: LAMP.color,
+                intensity: LAMP.intensity,
+                range: LAMP.range,
+                rotation: glam::Quat::IDENTITY,
+                cookie: Some(cookie),
+            }],
+            ..Light::default()
+        },
+        ..scene(cube, None, Some(shaft_fog()))
+    }
+}
+
+/// A point light's cookie patterns the fog by direction, as it patterns
+/// walls. The lamp hangs above everything the camera sees, so the fog is in
+/// the lower half of its panorama: a cookie black below and white above
+/// darkens it, and the same cookie upside down does not. Two cookies rather
+/// than one black one: an all-black cookie would also pass a fog that sampled
+/// the cookie at the wrong point -- the light's own position, say -- since
+/// every direction reads black.
+#[test]
+fn a_point_lights_cookie_patterns_the_fog_below_it() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    // 4 wide, 16 tall: the fog's directions from the lamp lie 10-90 degrees
+    // below its horizon, all clear of the rows bilinear filtering blends
+    // across the halfway line.
+    let half = |top: [u8; 4], bottom: [u8; 4]| {
+        let mut px = top.repeat(4 * 8);
+        px.extend(bottom.repeat(4 * 8));
+        px
+    };
+    let white = [255, 255, 255, 255];
+    let black = [0, 0, 0, 255];
+    let settings = bsengine_core::TextureImportSettings::default;
+    let dark_below = h.texture_with(settings(), 4, 16, &half(white, black));
+    let lit_below = h.texture_with(settings(), 4, 16, &half(black, white));
+    let plain = h
+        .render(&point_scene(cube, None, Some(shaft_fog())))
+        .centre_luma();
+    let dark = h
+        .render(&cookied_point_scene(cube, dark_below))
+        .centre_luma();
+    let lit = h
+        .render(&cookied_point_scene(cube, lit_below))
+        .centre_luma();
+    assert!(
+        plain > 20.0,
+        "premise: the lamp lights the fog ({plain:.1})"
+    );
+    assert!(
+        dark < plain * 0.1,
+        "black below the lamp, dark fog: {dark:.1} against {plain:.1}"
+    );
+    assert!(
+        lit > plain * 0.9,
+        "white below the lamp, fog as lit as without a cookie: {lit:.1} against {plain:.1}"
+    );
+}

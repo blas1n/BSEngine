@@ -663,6 +663,27 @@ fn cs_inject(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
     }
 
+    // Rect lights: their radiance over the solid angle the panel fills
+    // (`rect_solid_angle`), with the scene shader's range window and, when the
+    // light casts one, its shadow. Without this a lit panel lit the floor
+    // under the fog and none of the fog between.
+    for (var k: u32 = 0u; k < rect_lights.count; k++) {
+        let rl = rect_lights.lights[k];
+        let d = length(rl.position - world_pos) / max(rl.range, 1e-4);
+        let w = clamp(1.0 - d * d * d * d, 0.0, 1.0);
+        let window = w * w;
+        if window <= 0.0 {
+            continue;
+        }
+        var lit = 1.0;
+        if rl.shadow_layer >= 0.0 {
+            lit = shadow_layer_lookup(i32(rl.shadow_layer), world_pos, 0u);
+        }
+        let solid_angle = rect_solid_angle(rl, world_pos);
+        let rl_phase = henyey_greenstein(dot(view_dir, normalize(rl.position - world_pos)), fog.anisotropy);
+        in_scatter += rl.radiance * (solid_angle * window * lit) * scattering * rl_phase;
+    }
+
     // Temporal accumulation. The dither above bought its way out of banding
     // with per-frame noise, and this is the half of the bargain that pays for
     // it: each froxel's value is an exponential average over the frames that
@@ -740,6 +761,45 @@ fn cs_integrate(@builtin(global_invocation_id) gid: vec3<u32>) {
 /// Full source of the injection shader: the generated grid constants, the fog
 /// uniform at group 0, the shared declarations, the group-2 shadow resources,
 /// then the pass itself.
+/// How much of a froxel's sky a rect light fills: what the injection pass
+/// multiplies a rect light's radiance by.
+///
+/// Fog in-scatters `radiance * phase` over every direction the panel covers.
+/// For a panel of uniform radiance that integral is the radiance times the
+/// panel's solid angle, exactly when the phase is isotropic and very nearly
+/// otherwise (the phase is taken toward the panel's centre). The scene
+/// shader's LTC is the same integral weighted by a surface's lobe, which fog
+/// has no normal for; with the phase function standing in for the BRDF, the
+/// solid angle is what is left of it. Unreal's and HDRP's rect lights both
+/// reach their volumetric fog.
+///
+/// Van Oosterom and Strackee's formula for a triangle's solid angle, over
+/// the rectangle's two halves. One-sided, as the panel lights surfaces: zero
+/// behind its plane.
+const FOG_RECT_WGSL: &str = r#"
+fn triangle_solid_angle(a: vec3<f32>, b: vec3<f32>, c: vec3<f32>) -> f32 {
+    let la = length(a);
+    let lb = length(b);
+    let lc = length(c);
+    let num = abs(dot(a, cross(b, c)));
+    let den = la * lb * lc + dot(a, b) * lc + dot(a, c) * lb + dot(b, c) * la;
+    return 2.0 * atan2(num, den);
+}
+
+fn rect_solid_angle(rl: RectLightEntry, p: vec3<f32>) -> f32 {
+    // The panel lights out of its local -z, which is `half_width x
+    // half_height` pointing away.
+    if dot(p - rl.position, cross(rl.half_width, rl.half_height)) >= 0.0 {
+        return 0.0;
+    }
+    let c0 = rl.position + rl.half_width - rl.half_height - p;
+    let c1 = rl.position - rl.half_width - rl.half_height - p;
+    let c2 = rl.position - rl.half_width + rl.half_height - p;
+    let c3 = rl.position + rl.half_width + rl.half_height - p;
+    return triangle_solid_angle(c0, c1, c2) + triangle_solid_angle(c0, c2, c3);
+}
+"#;
+
 fn fog_inject_wgsl() -> String {
     froxel_wgsl_preamble()
         + &fog_uniform_wgsl(0)
@@ -747,6 +807,8 @@ fn fog_inject_wgsl() -> String {
         + FROXEL_SHADOW_WGSL
         + crate::cookie::cookie_wgsl!()
         + crate::spot_shadow::spot_shadow_wgsl!()
+        + crate::area_light::rect_light_decl_wgsl!()
+        + FOG_RECT_WGSL
         + FOG_INJECT_WGSL
 }
 
@@ -2070,6 +2132,9 @@ pub struct FroxelShadowBindings<'a> {
     pub spot_shadow_view: &'a wgpu::TextureView,
     /// Every spot and rect shadow's view-projection.
     pub spot_shadow_buffer: &'a wgpu::Buffer,
+    /// The rect lights' uniform (`crate::area_light`), at 14 as in the scene
+    /// shader.
+    pub rect_light_buffer: &'a wgpu::Buffer,
 }
 
 struct PostProcessTargets {
@@ -2774,6 +2839,16 @@ impl PostProcessState {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 14,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
         let froxel_shadow_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -2811,6 +2886,10 @@ impl PostProcessState {
                 wgpu::BindGroupEntry {
                     binding: 21,
                     resource: shadow.spot_shadow_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 14,
+                    resource: shadow.rect_light_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -5364,6 +5443,7 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
         _spot_texture: crate::profiler::TrackedTexture,
         spot_view: wgpu::TextureView,
         spot_buffer: wgpu::Buffer,
+        rect_buffer: wgpu::Buffer,
     }
 
     impl TestShadowResources {
@@ -5453,6 +5533,12 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
                 usage: wgpu::BufferUsages::UNIFORM,
                 mapped_at_creation: false,
             });
+            let rect_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("test rect lights"),
+                size: std::mem::size_of::<crate::area_light::RectLightUniform>() as u64,
+                usage: wgpu::BufferUsages::UNIFORM,
+                mapped_at_creation: false,
+            });
             Self {
                 _shadow_texture: shadow_texture,
                 shadow_view,
@@ -5464,6 +5550,7 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
                 _spot_texture: spot_texture,
                 spot_view,
                 spot_buffer,
+                rect_buffer,
             }
         }
 
@@ -5477,6 +5564,7 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
                 cookie_sampler: &self.cookies.sampler,
                 spot_shadow_view: &self.spot_view,
                 spot_shadow_buffer: &self.spot_buffer,
+                rect_light_buffer: &self.rect_buffer,
             }
         }
     }

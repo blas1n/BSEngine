@@ -5083,6 +5083,7 @@ impl WgpuSurface {
                 cookie_sampler: &cookies.sampler,
                 spot_shadow_view: &spot_shadow_view,
                 spot_shadow_buffer: &spot_shadow_buffer,
+                rect_light_buffer: &rect_light_buffer,
             },
         );
 

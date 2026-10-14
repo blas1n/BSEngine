@@ -166,10 +166,11 @@ impl LtcTables {
     }
 }
 
-/// The rect lights' declarations and shading, appended to the mesh and
-/// terrain shaders (a macro so `concat!` can join it to their literals).
-/// `rect_light_radiance` returns what every rect light adds to a surface.
-macro_rules! rect_light_wgsl {
+/// The rect lights' uniform alone, at group 2 binding 14: what the
+/// volumetric fog's injection pass shares with the scene shaders. Split from
+/// [`rect_light_wgsl`] so the fog does not carry the LTC tables' bindings and
+/// functions, which have no meaning without a surface.
+macro_rules! rect_light_decl_wgsl {
     () => {
         r#"
 struct RectLightEntry {
@@ -191,6 +192,19 @@ struct RectLightUniform {
     lights: array<RectLightEntry, 4>,
 };
 @group(2) @binding(14) var<uniform> rect_lights: RectLightUniform;
+"#
+    };
+}
+pub(crate) use rect_light_decl_wgsl;
+
+/// The rect lights' declarations and shading, appended to the mesh and
+/// terrain shaders (a macro so `concat!` can join it to their literals).
+/// `rect_light_radiance` returns what every rect light adds to a surface.
+macro_rules! rect_light_wgsl {
+    () => {
+        concat!(
+            $crate::area_light::rect_light_decl_wgsl!(),
+            r#"
 // Layer 0: the inverse LTC matrix; layer 1: magnitude and Fresnel.
 @group(2) @binding(15) var ltc_tables: texture_2d_array<f32>;
 @group(2) @binding(17) var ltc_sampler: sampler;
@@ -414,6 +428,7 @@ fn rect_light_radiance(
     return sum;
 }
 "#
+        )
     };
 }
 pub(crate) use rect_light_wgsl;

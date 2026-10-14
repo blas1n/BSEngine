@@ -2951,6 +2951,18 @@ fn terrain_texture_bgl_entries() -> Vec<wgpu::BindGroupLayoutEntry> {
     ]
 }
 
+/// A custom shader compiled in a browser, waiting for the device's verdict
+/// on it (`WgpuSurface::compile_and_store_shader`).
+#[cfg(target_arch = "wasm32")]
+struct PendingCustomShader {
+    path: String,
+    pipeline: wgpu::RenderPipeline,
+    pipeline_msaa: Option<wgpu::RenderPipeline>,
+    /// Set once by the spawned error-scope future: `None` inside for
+    /// accepted, the device's message for rejected.
+    verdict: std::sync::Arc<std::sync::OnceLock<Option<String>>>,
+}
+
 /// Owns the render output target (a window's swapchain or an offscreen
 /// texture), all GPU pipelines/buffers for the main scene and shadow passes,
 /// the egui renderer, and per-frame render state.
@@ -3151,6 +3163,11 @@ pub struct WgpuSurface {
     custom_pipelines: std::collections::HashMap<String, wgpu::RenderPipeline>,
     /// Each custom shader's multisampled pipeline, alongside.
     custom_pipelines_msaa: std::collections::HashMap<String, wgpu::RenderPipeline>,
+    /// In a browser, custom shaders whose device verdict has not arrived:
+    /// see [`Self::compile_and_store_shader`] and
+    /// [`Self::settle_custom_shaders`].
+    #[cfg(target_arch = "wasm32")]
+    pending_custom_shaders: Vec<PendingCustomShader>,
     post_process: crate::post_process::PostProcessState,
     start_time: bsengine_core::clock::Instant,
     dock_state: Option<egui_dock::DockState<String>>,
@@ -5176,6 +5193,8 @@ impl WgpuSurface {
             terrain_bgl,
             custom_pipelines: std::collections::HashMap::new(),
             custom_pipelines_msaa: std::collections::HashMap::new(),
+            #[cfg(target_arch = "wasm32")]
+            pending_custom_shaders: Vec::new(),
             post_process,
             // No frame has been rendered yet, so there is no previous
             // view-projection. It is never read before the first frame
@@ -6354,6 +6373,10 @@ impl WgpuSurface {
     ) -> Result<std::collections::HashSet<String>, String> {
         // Wall-clock CPU time for this call, for `FrameStats::cpu_frame_time_ms`.
         let frame_start = bsengine_core::clock::Instant::now();
+        // In a browser, custom shaders whose device verdict arrived since the
+        // last frame start drawing from this one.
+        #[cfg(target_arch = "wasm32")]
+        self.settle_custom_shaders();
 
         // The sub-pixel TAA jitter belongs to *rasterization only*, so it is
         // applied here rather than by the caller, and only to the matrix the
@@ -8877,10 +8900,37 @@ impl WgpuSurface {
         };
         let pipeline = self.device.create_render_pipeline(&pipeline_desc);
         let pipeline_msaa = crate::msaa::variant(&self.device, &pipeline_desc, self.msaa_supported);
+        // In a browser the verdict is a JavaScript promise the page resolves
+        // later, and blocking on it is not possible: `pollster` waits on a
+        // condvar, which a wasm build without threads panics on ("condvar
+        // wait not supported") -- every game with a custom shader stopped on
+        // its first frame there. So the pipeline waits beside the others until
+        // the verdict lands (`settle_custom_shaders`), with the meaning native
+        // gives it: accepted, it replaces the old pipeline; rejected, the old
+        // one stays. `Ok` here means only that it was handed over.
+        #[cfg(target_arch = "wasm32")]
+        {
+            let verdict = std::sync::Arc::new(std::sync::OnceLock::new());
+            let sink = verdict.clone();
+            let scope = self.device.pop_error_scope();
+            wasm_bindgen_futures::spawn_local(async move {
+                let _ = sink.set(scope.await.map(|e| e.to_string()));
+            });
+            // A newer edit of the same file supersedes one still waiting.
+            self.pending_custom_shaders.retain(|p| p.path != path);
+            self.pending_custom_shaders.push(PendingCustomShader {
+                path: path.to_string(),
+                pipeline,
+                pipeline_msaa,
+                verdict,
+            });
+            Ok(())
+        }
         // `pop_error_scope`'s future is already resolved on every native
         // backend (wgpu-core reports validation errors synchronously into the
         // error sink and hands back a ready future), so this neither blocks nor
         // needs the device polled.
+        #[cfg(not(target_arch = "wasm32"))]
         if let Some(err) = pollster::block_on(self.device.pop_error_scope()) {
             let msg = err.to_string();
             tracing::warn!(
@@ -8888,6 +8938,20 @@ impl WgpuSurface {
             );
             return Err(msg);
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.store_custom_pipeline(path, pipeline, pipeline_msaa);
+            Ok(())
+        }
+    }
+
+    /// Puts a compiled custom shader's pipelines where the frame draws from.
+    fn store_custom_pipeline(
+        &mut self,
+        path: &str,
+        pipeline: wgpu::RenderPipeline,
+        pipeline_msaa: Option<wgpu::RenderPipeline>,
+    ) {
         self.custom_pipelines.insert(path.to_string(), pipeline);
         match pipeline_msaa {
             Some(p) => {
@@ -8897,10 +8961,30 @@ impl WgpuSurface {
                 self.custom_pipelines_msaa.remove(path);
             }
         }
-        Ok(())
+    }
+
+    /// In a browser: stores every waiting custom shader the device accepted,
+    /// and drops (with the warning native gives) every one it rejected.
+    /// Those still waiting keep waiting. Called at the start of each frame.
+    #[cfg(target_arch = "wasm32")]
+    fn settle_custom_shaders(&mut self) {
+        let (settled, waiting): (Vec<_>, Vec<_>) = std::mem::take(&mut self.pending_custom_shaders)
+            .into_iter()
+            .partition(|p| p.verdict.get().is_some());
+        self.pending_custom_shaders = waiting;
+        for p in settled {
+            match p.verdict.get().cloned().flatten() {
+                None => self.store_custom_pipeline(&p.path, p.pipeline, p.pipeline_msaa),
+                Some(msg) => tracing::warn!(
+                    "[custom_shader] the GPU device rejected '{}'; keeping the previously compiled pipeline: {msg}",
+                    p.path
+                ),
+            }
+        }
     }
 
     /// Whether a custom shader has already been compiled and stored for `path`.
+    /// In a browser, not until the device's verdict on it has arrived.
     pub fn has_custom_shader(&self, path: &str) -> bool {
         self.custom_pipelines.contains_key(path)
     }

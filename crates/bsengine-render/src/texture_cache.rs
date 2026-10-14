@@ -392,6 +392,7 @@ pub fn resolve_texture_paths(
     mut wanting: Query<(&TexturePath, &mut Material)>,
     ui_state: Option<Res<bsengine_core::UiState>>,
     spot_lights: Query<&bsengine_core::SpotLight>,
+    point_lights: Query<&bsengine_core::PointLight>,
     decals: Query<&bsengine_core::Decal>,
     asset_server: Res<bevy_asset::AssetServer>,
     mut textures: ResMut<bevy_asset::Assets<TextureAsset>>,
@@ -433,16 +434,22 @@ pub fn resolve_texture_paths(
         }
     }
 
-    // Spot light cookies and decals name textures the same way, and are
-    // looked up by path when the frame is built (`TextureCache::id_for`), so
-    // they too need someone to *request* the path. Decals had nobody: their
-    // texture appeared only when a material happened to share its path, and
-    // a decal with an image of its own drew nothing.
-    let named = spot_lights.iter().map(|sl| sl.cookie.as_str()).chain(
-        decals
-            .iter()
-            .flat_map(|d| [d.texture_path.as_str(), d.normal_map_path.as_str()]),
-    );
+    // Light cookies and decals name textures the same way, and are looked up
+    // by path when the frame is built (`TextureCache::id_for`), so they too
+    // need someone to *request* the path. Decals had nobody: their texture
+    // appeared only when a material happened to share its path, and a decal
+    // with an image of its own drew nothing. Point lights' cookies then
+    // repeated it: they were added to the frame but not to this list, and
+    // their tests set the texture into the cache by hand.
+    let named = spot_lights
+        .iter()
+        .map(|sl| sl.cookie.as_str())
+        .chain(point_lights.iter().map(|pl| pl.cookie.as_str()))
+        .chain(
+            decals
+                .iter()
+                .flat_map(|d| [d.texture_path.as_str(), d.normal_map_path.as_str()]),
+        );
     for path in named {
         if !path.is_empty() {
             cache.upload(path, &asset_server, &mut textures, &mut registry);
@@ -1226,6 +1233,16 @@ mod tests {
     #[test]
     fn a_spot_lights_cookie_is_uploaded() {
         let light = bsengine_core::SpotLight {
+            cookie: REAL_TEXTURE.into(),
+            ..Default::default()
+        };
+        assert!(uploaded_for(light, REAL_TEXTURE));
+    }
+
+    /// And a point light's, which the frame looks up the same way.
+    #[test]
+    fn a_point_lights_cookie_is_uploaded() {
+        let light = bsengine_core::PointLight {
             cookie: REAL_TEXTURE.into(),
             ..Default::default()
         };

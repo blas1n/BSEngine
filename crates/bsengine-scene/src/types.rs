@@ -530,6 +530,20 @@ pub struct SpotLightDescriptor {
     /// cookie would be dropped by every save.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub cookie: String,
+    /// Whether the light casts shadows (`SpotLight::shadows`). On when
+    /// absent, as every scene written before the setting existed was shadowed,
+    /// and written only when off, so a shadowed light writes the same text
+    /// it always did.
+    #[serde(default = "default_shadows", skip_serializing_if = "is_shadowed")]
+    pub shadows: bool,
+}
+
+fn default_shadows() -> bool {
+    true
+}
+
+fn is_shadowed(on: &bool) -> bool {
+    *on
 }
 
 /// Rigid body type for physics descriptors in scene files.
@@ -1450,6 +1464,24 @@ mod tests {
     /// A scene written before cookies reads as plain cones, a plain light
     /// still writes the text it always did, and a cookie survives the trip.
     #[test]
+    fn spot_light_shadows_default_on_and_are_written_only_when_off() {
+        let old = "(intensity: 1.0)";
+        let light: SpotLightDescriptor = ron::from_str(old).unwrap();
+        assert!(light.shadows, "a scene from before the setting is shadowed");
+        assert!(
+            !ron::to_string(&light).unwrap().contains("shadows"),
+            "on is not written"
+        );
+        let off = SpotLightDescriptor {
+            shadows: false,
+            ..light
+        };
+        let text = ron::to_string(&off).unwrap();
+        assert!(text.contains("shadows:false"), "{text}");
+        assert_eq!(ron::from_str::<SpotLightDescriptor>(&text).unwrap(), off);
+    }
+
+    #[test]
     fn spot_light_cookie_is_optional_in_the_file() {
         let old = "(color: (1.0, 1.0, 1.0), intensity: 1.0, range: 10.0, \
                    inner_angle_degrees: 15.0, outer_angle_degrees: 30.0)";
@@ -1477,6 +1509,7 @@ mod tests {
             inner_angle_degrees: 22.5,
             outer_angle_degrees: 30.0,
             cookie: String::new(),
+            shadows: true,
         };
         let b = a.clone();
         let c = SpotLightDescriptor {

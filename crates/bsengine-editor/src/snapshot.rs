@@ -56,6 +56,9 @@ pub struct EntityInfo {
     /// Carried so a save writes it: `SpotLight` is captured through these
     /// fields, not the generic reflected list.
     pub spot_cookie: Option<String>,
+    /// Whether the spot light casts shadows, if the entity has one. Carried
+    /// for the reason `spot_cookie` is.
+    pub spot_shadows: Option<bool>,
     /// Vertical field of view in degrees, if the entity has a `Camera`.
     pub camera_fov: Option<f32>,
     /// PBR base color, if the entity has a `Material`.

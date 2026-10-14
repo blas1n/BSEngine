@@ -79,6 +79,12 @@ pub struct SpotLight {
     /// light's local +Y -- so turning the light about its axis turns the
     /// picture. Empty is a plain cone.
     pub cookie: String,
+    /// Whether the light casts shadows: on by default, as Unreal's
+    /// `CastShadows` is (Unity's API and Godot default theirs off; on keeps
+    /// every spot light shadowed as it has been since spot shadows existed).
+    /// Off frees the light's shadow pass -- a draw of every caster -- for a
+    /// light whose shadow nobody would see.
+    pub shadows: bool,
 }
 
 impl Default for SpotLight {
@@ -90,6 +96,7 @@ impl Default for SpotLight {
             inner_angle_degrees: 22.5.into(),
             outer_angle_degrees: 30.0.into(),
             cookie: String::new(),
+            shadows: true,
         }
     }
 }

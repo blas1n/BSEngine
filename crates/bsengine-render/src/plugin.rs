@@ -125,6 +125,7 @@ fn spot_light_entry(
         outer_angle: sl.outer_angle_degrees.to_radians(),
         right,
         // Uploaded by `resolve_texture_paths`; until it arrives, a plain cone.
+        shadows: sl.shadows,
         cookie: (!sl.cookie.is_empty())
             .then(|| textures?.id_for(&sl.cookie))
             .flatten(),
@@ -2935,6 +2936,15 @@ mod tests {
 
         let plain = super::spot_light_entry(&SpotLight::default(), None, &local, Some(&cache));
         assert_eq!(plain.cookie, None, "no path, no cookie");
+        assert!(entry.shadows && plain.shadows, "shadowed by default");
+        let dark = SpotLight {
+            shadows: false,
+            ..SpotLight::default()
+        };
+        assert!(
+            !super::spot_light_entry(&dark, None, &local, Some(&cache)).shadows,
+            "the light's own choice reaches the renderer"
+        );
         assert!(plain.right.distance(Vec3::X) < 1e-6, "{}", plain.right);
     }
 

@@ -702,6 +702,7 @@ pub(super) fn process_editor_commands(
                             inner_angle_degrees: sl.inner_angle_degrees.into(),
                             outer_angle_degrees: sl.outer_angle_degrees.into(),
                             cookie: sl.cookie.clone(),
+                            shadows: sl.shadows,
                         });
                     }
                     if let Some(script) = &entity.script {

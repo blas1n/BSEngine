@@ -493,6 +493,16 @@ fn point_lit_wall(h: &mut Harness, rotation: Quat, cookie: Option<u64>) -> Pixel
     h.render(&Scene {
         light: Light {
             point_entries: vec![point_lamp(rotation, cookie)],
+            // A spot light too, aimed up and away from the wall, lighting
+            // nothing here: spot lights' cookie layers come first in the list
+            // the atlas is drawn from, so a point light reading the wrong end
+            // of it shows only with one present.
+            spots: vec![spot(
+                Vec3::new(0.0, 3.0, 2.0),
+                Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
+                10.0,
+                None,
+            )],
             ..scene(vec![], vec![]).light
         },
         ..scene(vec![wall(cube)], vec![])
@@ -561,4 +571,19 @@ fn a_point_lights_cookie_turns_with_it() {
         red(&p, CX + OFF, CY)
     );
     assert!(red(&p, CX - OFF, CY) < 5, "left: {}", red(&p, CX - OFF, CY));
+    // A quarter turn tells the rotation from its inverse, which a half turn
+    // cannot: turned a quarter about Y the light faces -X, so the wall
+    // straight ahead of the camera is on the light's right, three quarters
+    // round the panorama -- in the black half -- where the inverse turn would
+    // put it a quarter round, in the white.
+    let quarter = point_lit_wall(
+        &mut h,
+        Quat::from_rotation_y(std::f32::consts::FRAC_PI_2),
+        Some(left_white),
+    );
+    assert!(
+        red(&quarter, CX, CY) < 5,
+        "quarter turn, centre: {}",
+        red(&quarter, CX, CY)
+    );
 }

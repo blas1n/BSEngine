@@ -474,3 +474,91 @@ fn a_missing_cookie_texture_leaves_a_plain_cone() {
         missing.describe()
     );
 }
+
+/// A point light at the origin, between the camera and the wall, turned by
+/// `rotation`, with `cookie` wrapped around it.
+fn point_lamp(rotation: Quat, cookie: Option<u64>) -> bsengine_rhi_wgpu::surface::PointLightEntry {
+    bsengine_rhi_wgpu::surface::PointLightEntry {
+        position: Vec3::ZERO,
+        color: Vec3::ONE,
+        intensity: 3.0,
+        range: 20.0,
+        rotation,
+        cookie,
+    }
+}
+
+fn point_lit_wall(h: &mut Harness, rotation: Quat, cookie: Option<u64>) -> Pixels {
+    let cube = h.cube();
+    h.render(&Scene {
+        light: Light {
+            point_entries: vec![point_lamp(rotation, cookie)],
+            ..scene(vec![], vec![]).light
+        },
+        ..scene(vec![wall(cube)], vec![])
+    })
+}
+
+/// A point light's cookie is wrapped around it as a panorama with its centre
+/// straight ahead (local -Z): facing the wall, the texture's left half lands
+/// on the wall's left and its right half on the right, and its top above.
+/// The plain light lights all four samples (the premise).
+#[test]
+fn a_point_lights_cookie_wraps_round_it_facing_ahead() {
+    let mut h = Harness::new();
+    let left_white = cookie(&mut h, WHITE, |x, _| x < 8);
+    let top_white = cookie(&mut h, WHITE, |_, y| y < 8);
+    let plain = point_lit_wall(&mut h, Quat::IDENTITY, None);
+    for (x, y) in [
+        (CX - OFF, CY),
+        (CX + OFF, CY),
+        (CX, CY - OFF),
+        (CX, CY + OFF),
+    ] {
+        assert!(
+            red(&plain, x, y) > 100,
+            "premise: lit at ({x}, {y}): {}",
+            red(&plain, x, y)
+        );
+    }
+    let lr = point_lit_wall(&mut h, Quat::IDENTITY, Some(left_white));
+    assert!(
+        red(&lr, CX - OFF, CY) > 100,
+        "left: {}",
+        red(&lr, CX - OFF, CY)
+    );
+    assert!(
+        red(&lr, CX + OFF, CY) < 5,
+        "right: {}",
+        red(&lr, CX + OFF, CY)
+    );
+    let tb = point_lit_wall(&mut h, Quat::IDENTITY, Some(top_white));
+    assert!(
+        red(&tb, CX, CY - OFF) > 100,
+        "top: {}",
+        red(&tb, CX, CY - OFF)
+    );
+    assert!(
+        red(&tb, CX, CY + OFF) < 5,
+        "bottom: {}",
+        red(&tb, CX, CY + OFF)
+    );
+}
+
+/// The pattern turns with the light: turned half round, the wall is behind
+/// it, where the panorama's two edges meet -- its left edge now on the
+/// wall's right, so the left-white texture lights the right and leaves the
+/// left dark. The case the rotation in the light's spare floats exists for.
+#[test]
+fn a_point_lights_cookie_turns_with_it() {
+    let mut h = Harness::new();
+    let left_white = cookie(&mut h, WHITE, |x, _| x < 8);
+    let turned = Quat::from_rotation_y(std::f32::consts::PI);
+    let p = point_lit_wall(&mut h, turned, Some(left_white));
+    assert!(
+        red(&p, CX + OFF, CY) > 100,
+        "right: {}",
+        red(&p, CX + OFF, CY)
+    );
+    assert!(red(&p, CX - OFF, CY) < 5, "left: {}", red(&p, CX - OFF, CY));
+}

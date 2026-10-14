@@ -1075,6 +1075,79 @@ fn undo_restores_despawned_entity() {
     assert!((pos[2] - 3.0).abs() < 1e-5);
 }
 
+/// Undoing a light's deletion brings back the light as it was, not a default
+/// one: a point light's cookie, and a spot light's cone and cookie. The spot
+/// light's used to come back as `..SpotLight::default()` -- the default cone
+/// and no cookie -- whatever it had been.
+#[test]
+fn undo_restores_a_deleted_lights_cookie_and_cone() {
+    let mut app = new_app();
+    app.add_plugins(McpPlugin);
+    app.add_plugins(EditorPlugin);
+    let lamp = app
+        .world_mut()
+        .spawn((
+            Name("Lamp".to_string()),
+            Transform::default(),
+            bsengine_core::PointLight {
+                cookie: "lights/lantern.png".into(),
+                ..Default::default()
+            },
+        ))
+        .id()
+        .index() as u64;
+    let spot = app
+        .world_mut()
+        .spawn((
+            Name("Spot".to_string()),
+            Transform::default(),
+            bsengine_core::SpotLight {
+                inner_angle_degrees: 15.0.into(),
+                outer_angle_degrees: 25.0.into(),
+                cookie: "lights/window.png".into(),
+                ..Default::default()
+            },
+        ))
+        .id()
+        .index() as u64;
+    app.update();
+    for entity_id in [lamp, spot] {
+        app.world()
+            .resource::<EditorCommandQueueResource>()
+            .0
+            .lock()
+            .unwrap()
+            .push(EditorCommand::Despawn { entity_id });
+    }
+    app.update();
+    app.update();
+    let mut points = app.world_mut().query::<&bsengine_core::PointLight>();
+    assert_eq!(points.iter(app.world()).count(), 0, "premise: both deleted");
+
+    app.world_mut()
+        .resource_mut::<InspectorState>()
+        .request_undo = true;
+    app.update();
+    app.update();
+
+    let mut points = app.world_mut().query::<&bsengine_core::PointLight>();
+    let pl = points.single(app.world());
+    assert_eq!(pl.cookie, "lights/lantern.png");
+    let mut spots = app.world_mut().query::<&bsengine_core::SpotLight>();
+    let sl = spots.single(app.world());
+    assert_eq!(sl.cookie, "lights/window.png");
+    assert!(
+        (sl.inner_angle_degrees.0 - 15.0).abs() < 1e-4,
+        "{}",
+        sl.inner_angle_degrees.0
+    );
+    assert!(
+        (sl.outer_angle_degrees.0 - 25.0).abs() < 1e-4,
+        "{}",
+        sl.outer_angle_degrees.0
+    );
+}
+
 #[test]
 fn redo_reapplies_despawn_after_undo() {
     let mut app = new_app();

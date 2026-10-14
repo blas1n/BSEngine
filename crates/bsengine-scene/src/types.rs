@@ -500,6 +500,11 @@ pub struct PointLightDescriptor {
     /// Maximum distance the light reaches, in world units.
     #[serde(default = "default_range")]
     pub range: f32,
+    /// Texture projected around the light (`PointLight::cookie`). Empty, and
+    /// absent from the file, is a plain light; a field here for the reason
+    /// `SpotLightDescriptor::cookie` is one.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub cookie: String,
 }
 
 /// Cone-shaped light that falls off with distance and angle from the entity's forward direction.
@@ -1451,6 +1456,7 @@ mod tests {
             color: [1.0, 1.0, 1.0],
             intensity: 1.0,
             range: 10.0,
+            cookie: String::new(),
         };
         let b = a.clone();
         let c = PointLightDescriptor {
@@ -1463,6 +1469,24 @@ mod tests {
 
     /// A scene written before cookies reads as plain cones, a plain light
     /// still writes the text it always did, and a cookie survives the trip.
+    /// A point light written before cookies reads as plain, a plain one
+    /// writes the same text it did, and a cookie survives the trip.
+    #[test]
+    fn point_light_cookie_is_optional_in_the_file() {
+        let plain: PointLightDescriptor = ron::from_str("(intensity: 2.0)").unwrap();
+        assert_eq!(plain.cookie, "");
+        assert!(!ron::to_string(&plain).unwrap().contains("cookie"));
+        let cookied = PointLightDescriptor {
+            cookie: "lights/cage.png".into(),
+            ..plain
+        };
+        let text = ron::to_string(&cookied).unwrap();
+        assert_eq!(
+            ron::from_str::<PointLightDescriptor>(&text).unwrap(),
+            cookied
+        );
+    }
+
     #[test]
     fn spot_light_shadows_default_on_and_are_written_only_when_off() {
         let old = "(intensity: 1.0)";

@@ -159,6 +159,9 @@ pub struct Light {
     /// Spot lights, as the renderer takes them -- cookie ids included, so a
     /// test names a texture it uploaded through the registry.
     pub spots: Vec<bsengine_rhi_wgpu::SpotLightEntry>,
+    /// Point lights as the renderer takes them, after `points` -- for a test
+    /// that needs a cookie or a rotation, which `PointLight` does not carry.
+    pub point_entries: Vec<PointLightEntry>,
 }
 
 impl Default for Light {
@@ -170,6 +173,7 @@ impl Default for Light {
             points: Vec::new(),
             rects: Vec::new(),
             spots: Vec::new(),
+            point_entries: Vec::new(),
         }
     }
 }
@@ -188,7 +192,10 @@ impl Light {
                     color: p.color,
                     intensity: p.intensity,
                     range: p.range,
+                    rotation: Quat::IDENTITY,
+                    cookie: None,
                 })
+                .chain(self.point_entries.iter().cloned())
                 .collect(),
             spot_lights: self.spots.clone(),
             rect_lights: self.rects.clone(),

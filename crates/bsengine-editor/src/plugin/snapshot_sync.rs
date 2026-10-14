@@ -86,6 +86,7 @@ pub(super) fn update_editor_snapshot(
                     spot_outer_angle: spot.map(|l| l.outer_angle_degrees.0),
                     spot_cookie: spot.map(|l| l.cookie.clone()),
                     spot_shadows: spot.map(|l| l.shadows),
+                    point_cookie: pt.map(|l| l.cookie.clone()),
                     camera_fov: cam.map(|c| c.fov_y_degrees.0),
                     material_base_color: mat.map(|m| m.base_color.to_array()),
                     material_opacity: mat.map(|m| m.opacity),

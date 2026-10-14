@@ -114,6 +114,7 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
             color: Vec3::new(1.0, 0.5, 0.1).into(),
             intensity: 2.0,
             range: 8.0,
+            cookie: String::new(),
         },
         Transform::from_position(Vec3::new(0.0, 3.0, 1.0)),
         GlobalTransform::default(),

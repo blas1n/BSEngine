@@ -59,6 +59,9 @@ pub struct EntityInfo {
     /// Whether the spot light casts shadows, if the entity has one. Carried
     /// for the reason `spot_cookie` is.
     pub spot_shadows: Option<bool>,
+    /// Cookie texture path, if the entity has a point light. Carried for the
+    /// reason `spot_cookie` is: `PointLight` is captured through these fields.
+    pub point_cookie: Option<String>,
     /// Vertical field of view in degrees, if the entity has a `Camera`.
     pub camera_fov: Option<f32>,
     /// PBR base color, if the entity has a `Material`.

@@ -98,6 +98,33 @@ fn gpu_emitter_frame(
     }
 }
 
+/// A point light as the renderer takes it: where it is, which way its
+/// cookie faces -- the world rotation, so a parented light turns with its
+/// parent -- and the cookie's texture id once it is on the GPU.
+fn point_light_entry(
+    pl: &bsengine_core::PointLight,
+    gt: Option<&GlobalTransform>,
+    t: &Transform,
+    textures: Option<&crate::texture_cache::TextureCache>,
+) -> PointLightEntry {
+    let (rotation, position) = gt
+        .map(|g| {
+            let (_, r, p) = g.to_matrix().to_scale_rotation_translation();
+            (r, p)
+        })
+        .unwrap_or((t.rotation.0, t.position.0));
+    PointLightEntry {
+        position,
+        color: *pl.color,
+        intensity: pl.intensity,
+        range: pl.range,
+        rotation,
+        cookie: (!pl.cookie.is_empty())
+            .then(|| textures?.id_for(&pl.cookie))
+            .flatten(),
+    }
+}
+
 fn spot_light_entry(
     sl: &SpotLight,
     gt: Option<&GlobalTransform>,
@@ -1178,17 +1205,7 @@ fn render_frame(
     let collected_point_lights: Vec<PointLightEntry> = render_queries
         .p3()
         .iter()
-        .map(|(pl, gt, t)| {
-            let pos = gt
-                .map(|g| g.to_matrix().w_axis.truncate())
-                .unwrap_or(t.position.0);
-            PointLightEntry {
-                position: pos,
-                color: *pl.color,
-                intensity: pl.intensity,
-                range: pl.range,
-            }
-        })
+        .map(|(pl, gt, t)| point_light_entry(pl, gt, t, texture_cache.as_deref()))
         .collect();
 
     let collected_spot_lights: Vec<SpotLightEntry> = render_queries
@@ -2838,6 +2855,7 @@ mod tests {
                 color: Vec3::new(1.0, 0.5, 0.0).into(),
                 intensity: 2.0,
                 range: 5.0,
+                cookie: String::new(),
             },
             Transform::from_position(Vec3::new(0.0, 2.0, 0.0)),
         ));
@@ -2907,6 +2925,36 @@ mod tests {
     ///
     /// The cookie is a named picture (`set_frame`, how a video is shown),
     /// which is also the claim that a video can be a cookie.
+    /// A point light's cookie path becomes the texture cache's id, and its
+    /// rotation is the world one -- the `GlobalTransform`'s, where the local
+    /// `Transform` says something else on purpose.
+    #[test]
+    fn point_light_entry_carries_the_cookie_id_and_the_world_rotation() {
+        use bsengine_core::PointLight;
+        let surface = bsengine_rhi_wgpu::surface::WgpuSurface::offscreen_for_testing(16, 16)
+            .expect("this test needs an adapter; a skip here would look like a pass");
+        let mut registry =
+            bsengine_rhi_wgpu::GpuTextureRegistry::new(surface.device_arc(), surface.queue_arc());
+        let mut cache = crate::texture_cache::TextureCache::default();
+        let id = cache.set_frame("cage", 1, 1, &[255; 4], &mut registry);
+        let turned = glam::Quat::from_rotation_y(1.0);
+        let global = GlobalTransform(glam::Mat4::from_quat(turned).into());
+        let pl = PointLight {
+            cookie: "cage".into(),
+            ..PointLight::default()
+        };
+        let e = super::point_light_entry(&pl, Some(&global), &Transform::default(), Some(&cache));
+        assert_eq!(e.cookie, Some(id));
+        assert!(e.rotation.angle_between(turned) < 1e-5, "{}", e.rotation);
+        let plain = super::point_light_entry(
+            &PointLight::default(),
+            None,
+            &Transform::default(),
+            Some(&cache),
+        );
+        assert_eq!(plain.cookie, None, "no path, no cookie");
+    }
+
     #[test]
     fn spot_light_entry_carries_the_cookie_id_and_the_lights_right_axis() {
         use bsengine_core::SpotLight;

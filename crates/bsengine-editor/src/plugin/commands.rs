@@ -182,6 +182,7 @@ pub(super) fn process_editor_commands(
                         color: glam::Vec3::from(color).into(),
                         intensity,
                         range,
+                        ..PointLight::default()
                     },
                     Transform::from_position(glam::Vec3::from(position)),
                     GlobalTransform::default(),
@@ -592,6 +593,7 @@ pub(super) fn process_editor_commands(
                         color: glam::Vec3::from(color).into(),
                         intensity,
                         range,
+                        ..PointLight::default()
                     });
                 }
             }
@@ -692,6 +694,7 @@ pub(super) fn process_editor_commands(
                             color: glam::Vec3::from(pl.color).into(),
                             intensity: pl.intensity,
                             range: pl.range,
+                            cookie: pl.cookie.clone(),
                         });
                     }
                     if let Some(sl) = &entity.spot_light {

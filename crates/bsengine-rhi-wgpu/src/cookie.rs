@@ -59,6 +59,18 @@ pub fn cookie_basis(direction: Vec3) -> (Vec3, Vec3) {
     (right, up)
 }
 
+/// A point light's rotation as the shader gets it: three floats, `x y z`,
+/// with `w` recovered as the positive root -- so the quaternion is flipped to
+/// the hemisphere where `w >= 0`, which is the same rotation.
+pub fn point_cookie_rotation(rotation: glam::Quat) -> glam::Quat {
+    let q = rotation.normalize();
+    if q.w < 0.0 {
+        -q
+    } else {
+        q
+    }
+}
+
 /// The roll that turns [`cookie_basis`]'s right axis into the light's own
 /// (`right`, its local +X in world space): the angle the shader turns the
 /// basis by. `right` need not be exactly perpendicular to `direction`.
@@ -114,6 +126,26 @@ fn spot_cookie(sl: SpotLightEntry, world_pos: vec3<f32>) -> vec3<f32> {
     // An explicit level: this runs inside the light loop, under branches no
     // derivative is defined across, and every layer has only the one level.
     return textureSampleLevel(spot_cookies, spot_cookie_sampler, uv, i32(sl.cookie_layer), 0.0).rgb;
+}
+
+// A point light's cookie at `world_pos`: the texture wrapped around the light
+// as an equirectangular panorama -- u around the light's local Y axis with
+// its centre straight ahead (local -Z) and its left edge behind, v from
+// straight up (local +Y, the top row) to straight down. White without one.
+fn point_cookie(pl: PointLightEntry, world_pos: vec3<f32>) -> vec3<f32> {
+    if pl.cookie_layer < 0.0 {
+        return vec3<f32>(1.0);
+    }
+    let qv = vec3<f32>(pl.cookie_qx, pl.cookie_qy, pl.cookie_qz);
+    let qw = sqrt(max(1.0 - dot(qv, qv), 0.0));
+    let d = normalize(world_pos - pl.position);
+    // Into the light's own frame: rotated by the conjugate, `-qv`.
+    let iv = -qv;
+    let t = 2.0 * cross(iv, d);
+    let local = d + qw * t + cross(iv, t);
+    let u = 0.5 + atan2(local.x, -local.z) / 6.28318530718;
+    let v = acos(clamp(local.y, -1.0, 1.0)) / 3.14159265359;
+    return textureSampleLevel(spot_cookies, spot_cookie_sampler, vec2<f32>(u, v), i32(pl.cookie_layer), 0.0).rgb;
 }
 "#
     };
@@ -410,6 +442,26 @@ mod tests {
     /// same cross-product order. A drift in either turns every cookie by the
     /// angle between the two bases, which a pixel test with one light
     /// pointing straight down would not notice for the threshold.
+    /// The three floats the shader gets rebuild the light's rotation: `w` as
+    /// the positive root is right because the quaternion was flipped to the
+    /// `w >= 0` side first -- a turn past half a revolution included, whose
+    /// quaternion glam may hand over with `w < 0`.
+    #[test]
+    fn three_floats_rebuild_a_point_lights_rotation() {
+        for q in [
+            glam::Quat::from_rotation_y(0.3),
+            glam::Quat::from_rotation_y(2.0 * std::f32::consts::PI - 0.3),
+            glam::Quat::from_euler(glam::EulerRot::YXZ, 2.5, -1.0, 0.7),
+            -glam::Quat::from_rotation_x(1.0),
+        ] {
+            let p = point_cookie_rotation(q);
+            let w = (1.0 - p.x * p.x - p.y * p.y - p.z * p.z).max(0.0).sqrt();
+            let rebuilt = glam::Quat::from_xyzw(p.x, p.y, p.z, w);
+            let v = Vec3::new(0.2, -0.7, 0.4);
+            assert!((rebuilt * v).distance(q * v) < 1e-4, "{q}");
+        }
+    }
+
     #[test]
     fn the_wgsl_basis_matches_this_one() {
         let wgsl = cookie_wgsl!();

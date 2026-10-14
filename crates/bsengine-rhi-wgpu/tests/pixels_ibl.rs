@@ -41,6 +41,7 @@ fn ibl_only_light() -> Light {
         points: Vec::new(),
         rects: Vec::new(),
         spots: Vec::new(),
+        point_entries: Vec::new(),
     }
 }
 

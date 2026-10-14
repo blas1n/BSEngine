@@ -358,13 +358,15 @@ fn froxel_history_uvw(world_pos: vec3<f32>) -> vec4<f32> {
 const FROXEL_SHADOW_WGSL: &str = r#"
 struct PointLightEntry {
     position: vec3<f32>,
-    _pad0: f32,
+    // Atlas layer of the light's cookie, or -1.0 for none (`point_cookie`).
+    cookie_layer: f32,
     color: vec3<f32>,
     intensity: f32,
     range: f32,
-    _pad1: f32,
-    _pad2: f32,
-    _pad3: f32,
+    // The light's rotation as a quaternion's x, y, z; w is the positive root.
+    cookie_qx: f32,
+    cookie_qy: f32,
+    cookie_qz: f32,
 }
 struct SpotLightEntry {
     position: vec3<f32>,

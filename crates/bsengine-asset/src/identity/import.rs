@@ -28,7 +28,9 @@ use std::path::{Path, PathBuf};
 pub fn import_kind_for(asset: &Path) -> Option<&'static str> {
     let extension = asset.extension()?.to_str()?.to_ascii_lowercase();
     match extension.as_str() {
-        "png" | "jpg" | "jpeg" | "hdr" => Some("Texture"),
+        // An IES profile becomes a texture (`crate::ies`), and its sRGB
+        // setting decides how the panorama is encoded.
+        "png" | "jpg" | "jpeg" | "hdr" | "ies" => Some("Texture"),
         "glb" | "gltf" => Some("Model"),
         _ => None,
     }

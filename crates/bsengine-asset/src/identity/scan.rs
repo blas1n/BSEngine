@@ -155,7 +155,7 @@ pub(crate) const RECORDINGS_DIR: &str = "tests";
 const IDENTIFIED_EXTENSIONS: &[&str] = &[
     // Everything `bevy_asset` serves in this engine, mirroring
     // `watcher::RELOADABLE_EXTENSIONS` for the reasons above.
-    "glb", "gltf", "png", "jpg", "jpeg", "hdr", "wgsl", "wav", "ogg", "mp3", "flac",
+    "glb", "gltf", "png", "jpg", "jpeg", "hdr", "ies", "wgsl", "wav", "ogg", "mp3", "flac",
     // Referenced by path from plain text, which is what item 30 adds them for.
     // `js` is also in that list as of item 31 (scripts became assets); `ron` is
     // not, and is still loaded outside `bevy_asset` entirely.

@@ -136,6 +136,8 @@ const DEBOUNCE: Duration = Duration::from_millis(200);
 /// * `glb`, `gltf` — `bsengine_gltf::GltfSourceLoader`
 /// * `png`, `jpg`, `jpeg`, `hdr` — [`crate::TextureAssetLoader`] (the
 ///   workspace pins `image` to exactly the png+jpeg+hdr features)
+/// * `ies` — [`crate::TextureAssetLoader`] too, through [`crate::ies`]: a
+///   light profile imported as a cookie
 /// * `wgsl` — `bsengine_render::ShaderSourceLoader`
 /// * `wav`, `ogg`, `mp3`, `flac` — `bsengine_audio::AudioSourceLoader` (the
 ///   workspace pins `kira` to exactly those four codecs)
@@ -164,7 +166,7 @@ const DEBOUNCE: Duration = Duration::from_millis(200);
 /// docs. `js` moving into this list *is* the divergence they were kept
 /// separate for; `ron` is still in that one and not this one.
 const RELOADABLE_EXTENSIONS: &[&str] = &[
-    "glb", "gltf", "png", "jpg", "jpeg", "hdr", "wgsl", "wav", "ogg", "mp3", "flac", "js",
+    "glb", "gltf", "png", "jpg", "jpeg", "hdr", "ies", "wgsl", "wav", "ogg", "mp3", "flac", "js",
 ];
 
 /// Watches `<ProjectDir>/assets` and asks `AssetServer` to reload any asset

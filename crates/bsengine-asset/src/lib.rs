@@ -42,6 +42,8 @@ pub mod heightmap_loader;
 /// scan of them as an `AssetIndex`. Registered by all three hosts, and its
 /// docs explain why registering it is only half of making it work.
 pub mod identity;
+/// IES light profiles, imported as light cookies.
+pub mod ies;
 /// Chooses between synchronous (blocking, zero-latency) and asynchronous
 /// (`AssetServer`-driven) loading, plus the dispatch helper itself.
 pub mod load_mode;

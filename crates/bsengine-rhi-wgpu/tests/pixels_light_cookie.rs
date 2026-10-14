@@ -51,6 +51,7 @@ fn spot(position: Vec3, rotation: Quat, outer_degrees: f32, cookie: Option<u64>)
         inner_angle: (outer_degrees - 1.0).to_radians(),
         outer_angle: outer_degrees.to_radians(),
         cookie,
+        cookie_is_profile: false,
         shadows: true,
     }
 }
@@ -586,4 +587,82 @@ fn a_point_lights_cookie_turns_with_it() {
         "quarter turn, centre: {}",
         red(&quarter, CX, CY)
     );
+}
+
+/// An IES profile (`bsengine_asset::ies`) arrives as a panorama, and a spot
+/// light reads it by direction, as a point light reads its cookie: the
+/// nadir (the panorama's bottom) along the light's direction, C = 0 (the
+/// centre column) toward its local +Y, C = 90 (a quarter across) toward its
+/// local -X.
+///
+/// This panorama is lit only near the nadir, round C = 90 and round C = 0.
+/// Facing the wall, the wall's left and top are lit and its right and bottom
+/// are not -- two lit sides, so neither a mirrored C = 90 (left for right)
+/// nor a mirrored C = 0 (top for bottom) passes. A point light turned so its
+/// own nadir (local -Y) faces the wall shows the same.
+/// The hard side is the flag: the same texture *projected*, as a spot
+/// light's ordinary cookie is, reads the panorama's middle rows, which are
+/// black, and lights none of the four.
+#[test]
+fn an_ies_profile_on_a_spot_light_is_read_by_direction_as_on_a_point_light() {
+    let mut h = Harness::new();
+    // u in [0.125, 0.375) round C = 90 and [0.4375, 0.5625) round C = 0,
+    // v from 0.81 down to the nadir: the samples, 13 degrees off the axis,
+    // read v = 0.93 by direction, and projected the bottom one reads v = 0.70.
+    let profile = cookie(&mut h, WHITE, |x, y| {
+        ((2..6).contains(&x) || (7..9).contains(&x)) && y >= 13
+    });
+    let cube = h.cube();
+    let spot_wall = |h: &mut Harness, is_profile: bool| {
+        h.render(&scene(
+            vec![wall(cube)],
+            vec![SpotLightEntry {
+                cookie_is_profile: is_profile,
+                ..spot(Vec3::ZERO, Quat::IDENTITY, 30.0, Some(profile))
+            }],
+        ))
+    };
+    let plain = facing_wall(&mut h, Quat::IDENTITY, None);
+    let samples = [
+        ("left", CX - OFF, CY),
+        ("right", CX + OFF, CY),
+        ("top", CX, CY - OFF),
+        ("bottom", CX, CY + OFF),
+    ];
+    for (name, x, y) in samples {
+        assert!(
+            red(&plain, x, y) > 100,
+            "premise: the plain cone lights the {name}"
+        );
+    }
+    let by_direction = spot_wall(&mut h, true);
+    let point = point_lit_wall(
+        &mut h,
+        Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
+        Some(profile),
+    );
+    for (frame, light) in [(&by_direction, "spot"), (&point, "point")] {
+        for (name, x, y) in samples {
+            let v = red(frame, x, y);
+            if name == "left" || name == "top" {
+                assert!(
+                    v > 100,
+                    "{light}: the profile's C = 90 and C = 0 sides light the {name}: {v}"
+                );
+            } else {
+                assert!(
+                    v < 5,
+                    "{light}: the opposite sides are dark, but the {name} reads {v}"
+                );
+            }
+        }
+    }
+    let projected = spot_wall(&mut h, false);
+    for (name, x, y) in samples {
+        let v = red(&projected, x, y);
+        assert!(
+            v < 5,
+            "projected, the panorama's dark middle lands on the {name}: {v}"
+        );
+    }
 }

@@ -32,6 +32,14 @@ pub const MAX_COOKIES: usize = 8;
 /// downsampled into it (through its mips); smaller is stretched.
 pub const COOKIE_SIZE: u32 = 256;
 
+/// Added to a spot light's cookie layer when the cookie is an IES profile
+/// (`bsengine_asset::ies`): an equirectangular panorama to be read by
+/// direction round the light, as a point light's cookie is, rather than a
+/// picture projected through the cone. The light entry has no spare float for
+/// a flag, and layers stop at [`MAX_COOKIES`], so a layer at or past this is
+/// unambiguous. The WGSL `spot_cookie` uses the same number.
+pub const PROFILE_LAYER_OFFSET: f32 = 64.0;
+
 /// The format a layer is stored in: sRGB, so the dark end of a cookie -- most
 /// of a window frame's shadow -- keeps its precision through the copy.
 const ATLAS_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
@@ -105,6 +113,16 @@ fn cookie_basis(d: vec3<f32>) -> mat2x3<f32> {
     return mat2x3<f32>(right, up);
 }
 
+// Where direction `local`, in a light's own frame, falls on an
+// equirectangular cookie: u round the local Y axis with its centre straight
+// ahead (local -Z), v from straight up (local +Y, the top row) to straight
+// down. Point lights' cookies and IES profiles both use it.
+fn panorama_uv(local: vec3<f32>) -> vec2<f32> {
+    let u = 0.5 + atan2(local.x, -local.z) / 6.28318530718;
+    let v = acos(clamp(local.y, -1.0, 1.0)) / 3.14159265359;
+    return vec2<f32>(u, v);
+}
+
 fn spot_cookie(sl: SpotLightEntry, world_pos: vec3<f32>) -> vec3<f32> {
     if sl.cookie_layer < 0.0 {
         return vec3<f32>(1.0);
@@ -115,6 +133,16 @@ fn spot_cookie(sl: SpotLightEntry, world_pos: vec3<f32>) -> vec3<f32> {
     let right = basis[0] * c + basis[1] * s;
     let up = cross(right, sl.direction);
     let rel = world_pos - sl.position;
+    // An IES profile (`cookie::PROFILE_LAYER_OFFSET`): read by direction, its
+    // nadir along the light's direction and its C = 0 plane toward the
+    // light's local +Y -- the frame an unturned point light's local -Y and -Z
+    // are, so a spot aimed down shows the profile a point light hanging there
+    // would.
+    if sl.cookie_layer >= 64.0 {
+        let d = normalize(rel);
+        let local = vec3<f32>(dot(d, right), -dot(d, sl.direction), -dot(d, up));
+        return textureSampleLevel(spot_cookies, spot_cookie_sampler, panorama_uv(local), i32(sl.cookie_layer - 64.0), 0.0).rgb;
+    }
     let depth = dot(rel, sl.direction);
     if depth <= 0.0 {
         return vec3<f32>(0.0);
@@ -143,9 +171,7 @@ fn point_cookie(pl: PointLightEntry, world_pos: vec3<f32>) -> vec3<f32> {
     let iv = -qv;
     let t = 2.0 * cross(iv, d);
     let local = d + qw * t + cross(iv, t);
-    let u = 0.5 + atan2(local.x, -local.z) / 6.28318530718;
-    let v = acos(clamp(local.y, -1.0, 1.0)) / 3.14159265359;
-    return textureSampleLevel(spot_cookies, spot_cookie_sampler, vec2<f32>(u, v), i32(pl.cookie_layer), 0.0).rgb;
+    return textureSampleLevel(spot_cookies, spot_cookie_sampler, panorama_uv(local), i32(pl.cookie_layer), 0.0).rgb;
 }
 "#
     };

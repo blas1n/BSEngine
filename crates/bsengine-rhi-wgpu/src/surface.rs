@@ -2137,6 +2137,10 @@ pub struct SpotLightEntry {
     /// The registry id of the texture projected through the cone (see
     /// `crate::cookie`), or `None` for a plain cone.
     pub cookie: Option<u64>,
+    /// Whether the cookie is an IES profile's panorama, read by direction
+    /// round the light rather than projected through the cone
+    /// (`crate::cookie::PROFILE_LAYER_OFFSET`).
+    pub cookie_is_profile: bool,
     /// Whether it casts a shadow (`SpotLight::shadows`).
     pub shadows: bool,
 }
@@ -6513,7 +6517,13 @@ impl WgpuSurface {
                 outer_cos: sl.outer_angle.cos(),
                 intensity: sl.intensity,
                 range: sl.range,
-                cookie_layer: cookie_layers[i],
+                // A profile's layer is moved past `PROFILE_LAYER_OFFSET`, which
+                // is how the shader knows to read it by direction.
+                cookie_layer: if sl.cookie_is_profile && cookie_layers[i] >= 0.0 {
+                    cookie_layers[i] + crate::cookie::PROFILE_LAYER_OFFSET
+                } else {
+                    cookie_layers[i]
+                },
                 // -1 for none: a light without shadows has no map read, and
                 // none drawn either (`shadow_casters`).
                 shadow_layer: if sl.shadows { i as f32 } else { -1.0 },

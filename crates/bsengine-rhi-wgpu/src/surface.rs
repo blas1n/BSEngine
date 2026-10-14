@@ -5079,6 +5079,10 @@ impl WgpuSurface {
                 shadow_sampler: &shadow_comparison_sampler,
                 point_shadow_view: &point_shadow_color_full_view,
                 light_buffer: &light_buffer,
+                cookie_view: &cookies.array_view,
+                cookie_sampler: &cookies.sampler,
+                spot_shadow_view: &spot_shadow_view,
+                spot_shadow_buffer: &spot_shadow_buffer,
             },
         );
 

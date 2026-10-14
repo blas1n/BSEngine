@@ -638,10 +638,11 @@ fn cs_inject(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     // Spot lights, likewise mirroring the scene shader: the same cone
     // `smoothstep(outer_cos, inner_cos, cos_angle)` and the same
-    // `intensity * t * t * spot_factor`. No shadow term, for the same reason
-    // the scene shader has none -- spot lights have no shadow map at all in
-    // this renderer, so inventing one here would make the fog claim an
-    // occlusion the lit surfaces below it do not show.
+    // `intensity * t * t * spot_factor`, and the same shadow and cookie: the
+    // shaft a spot light throws through fog is cut by what cuts its light on
+    // the floor, and patterned by its cookie, or the fog would show a beam
+    // the lit surfaces below it do not. Hard shadow (`0u`): a froxel is far
+    // coarser than a shadow texel, and the temporal blend softens it anyway.
     for (var j: u32 = 0u; j < lights.num_spot_lights; j++) {
         let sl = lights.spot_lights[j];
         let to_light = sl.position - world_pos;
@@ -653,8 +654,8 @@ fn cs_inject(@builtin(global_invocation_id) gid: vec3<u32>) {
             if spot_factor > 0.0 {
                 let t = 1.0 - dist / sl.range;
                 let sp_phase = henyey_greenstein(dot(view_dir, l), fog.anisotropy);
-                in_scatter += sl.color * (sl.intensity * t * t * spot_factor)
-                    * scattering * sp_phase;
+                in_scatter += sl.color * spot_cookie(sl, world_pos) * spot_shadow(sl, world_pos, 0u)
+                    * (sl.intensity * t * t * spot_factor) * scattering * sp_phase;
             }
         }
     }
@@ -741,6 +742,8 @@ fn fog_inject_wgsl() -> String {
         + &fog_uniform_wgsl(0)
         + FROXEL_COMMON_WGSL
         + FROXEL_SHADOW_WGSL
+        + crate::cookie::cookie_wgsl!()
+        + crate::spot_shadow::spot_shadow_wgsl!()
         + FOG_INJECT_WGSL
 }
 
@@ -2054,6 +2057,16 @@ pub struct FroxelShadowBindings<'a> {
     /// The scene's light uniform buffer, shared rather than copied. See
     /// [`FROXEL_SHADOW_WGSL`].
     pub light_buffer: &'a wgpu::Buffer,
+    /// The spot lights' cookie atlas and its sampler (`crate::cookie`), at
+    /// the bindings the scene shader gives them, 18 and 19.
+    pub cookie_view: &'a wgpu::TextureView,
+    /// The cookie atlas's bilinear sampler.
+    pub cookie_sampler: &'a wgpu::Sampler,
+    /// The spot and rect lights' shadow maps and their matrices
+    /// (`crate::spot_shadow`), at 20 and 21, as in the scene shader.
+    pub spot_shadow_view: &'a wgpu::TextureView,
+    /// Every spot and rect shadow's view-projection.
+    pub spot_shadow_buffer: &'a wgpu::Buffer,
 }
 
 struct PostProcessTargets {
@@ -2718,6 +2731,46 @@ impl PostProcessState {
                     },
                     count: None,
                 },
+                // 18-21: the spot lights' cookies and the spot and rect
+                // lights' shadow maps, at the scene shader's own binding
+                // numbers so `cookie_wgsl!` and `spot_shadow_wgsl!` are
+                // included here unchanged.
+                wgpu::BindGroupLayoutEntry {
+                    binding: 18,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 19,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 20,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 21,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
         let froxel_shadow_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -2739,6 +2792,22 @@ impl PostProcessState {
                 wgpu::BindGroupEntry {
                     binding: 3,
                     resource: shadow.light_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 18,
+                    resource: wgpu::BindingResource::TextureView(shadow.cookie_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 19,
+                    resource: wgpu::BindingResource::Sampler(shadow.cookie_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 20,
+                    resource: wgpu::BindingResource::TextureView(shadow.spot_shadow_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 21,
+                    resource: shadow.spot_shadow_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -5288,6 +5357,10 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
         _point_texture: crate::profiler::TrackedTexture,
         point_view: wgpu::TextureView,
         light_buffer: wgpu::Buffer,
+        cookies: crate::cookie::CookieAtlas,
+        _spot_texture: crate::profiler::TrackedTexture,
+        spot_view: wgpu::TextureView,
+        spot_buffer: wgpu::Buffer,
     }
 
     impl TestShadowResources {
@@ -5353,6 +5426,30 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
+            let spot_texture = crate::profiler::create_tracked_texture(
+                device,
+                &wgpu::TextureDescriptor {
+                    label: Some("test spot shadow array"),
+                    size: one,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: crate::surface::DEPTH_FORMAT,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                },
+            );
+            let spot_view = spot_texture.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2Array),
+                ..Default::default()
+            });
+            let spot_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("test spot shadow matrices"),
+                size: std::mem::size_of::<crate::spot_shadow::SpotShadowUniform>() as u64,
+                usage: wgpu::BufferUsages::UNIFORM,
+                mapped_at_creation: false,
+            });
             Self {
                 _shadow_texture: shadow_texture,
                 shadow_view,
@@ -5360,6 +5457,10 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
                 _point_texture: point_texture,
                 point_view,
                 light_buffer,
+                cookies: crate::cookie::CookieAtlas::new(device),
+                _spot_texture: spot_texture,
+                spot_view,
+                spot_buffer,
             }
         }
 
@@ -5369,6 +5470,10 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
                 shadow_sampler: &self.shadow_sampler,
                 point_shadow_view: &self.point_view,
                 light_buffer: &self.light_buffer,
+                cookie_view: &self.cookies.array_view,
+                cookie_sampler: &self.cookies.sampler,
+                spot_shadow_view: &self.spot_view,
+                spot_shadow_buffer: &self.spot_buffer,
             }
         }
     }

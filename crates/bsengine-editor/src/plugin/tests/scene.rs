@@ -418,6 +418,7 @@ fn mcp_save_load_scene_round_trip_preserves_camera_primitive_script_and_lights()
                 color: Vec3::new(1.0, 0.5, 0.2).into(),
                 intensity: 2.5,
                 range: 15.0,
+                cookie: "assets/textures/lantern.png".to_string(),
             },
             Transform::from_position(Vec3::new(0.0, 3.0, 0.0)),
             bsengine_core::GlobalTransform::default(),
@@ -499,6 +500,9 @@ fn mcp_save_load_scene_round_trip_preserves_camera_primitive_script_and_lights()
         assert!((pl.range - 15.0).abs() < 1e-4);
         assert!((pl.color.x - 1.0).abs() < 1e-4);
         assert!((pl.color.y - 0.5).abs() < 1e-4);
+        // Through the descriptor's own field, for the reason the spot
+        // light's cookie is: `PointLight` is not in the generic list either.
+        assert_eq!(pl.cookie, "assets/textures/lantern.png");
 
         let mut sl_q = app
             .world_mut()

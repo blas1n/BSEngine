@@ -480,6 +480,7 @@ fn list_entities_includes_light_props_for_point_light() {
         color: glam::Vec3::new(0.5, 0.5, 0.5).into(),
         intensity: 3.5,
         range: 12.0,
+        cookie: String::new(),
     });
     app.update();
 

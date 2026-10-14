@@ -43,6 +43,14 @@ pub struct PointLight {
     pub intensity: f32,
     /// Distance at which the light's contribution falls off to zero.
     pub range: f32,
+    /// Texture projected all around the light, as a path: a lantern's
+    /// cage, a disco ball. An ordinary 2D image wrapped as a panorama --
+    /// equirectangular, its centre straight ahead along the light's local
+    /// -Z, its top straight up along +Y -- so turning the light turns the
+    /// pattern. Godot's omni-light projector takes a 2D texture the same way;
+    /// Unity's point cookies are cube maps instead, an asset type this engine
+    /// does not have. Empty is a plain light.
+    pub cookie: String,
 }
 
 impl Default for PointLight {
@@ -51,6 +59,7 @@ impl Default for PointLight {
             color: Vec3::ONE.into(),
             intensity: 1.0,
             range: 10.0,
+            cookie: String::new(),
         }
     }
 }

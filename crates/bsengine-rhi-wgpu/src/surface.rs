@@ -57,13 +57,15 @@ struct ModelUniform {
 };
 struct PointLightEntry {
     position: vec3<f32>,
-    _pad0: f32,
+    // Atlas layer of the light's cookie, or -1.0 for none (`point_cookie`).
+    cookie_layer: f32,
     color: vec3<f32>,
     intensity: f32,
     range: f32,
-    _pad1: f32,
-    _pad2: f32,
-    _pad3: f32,
+    // The light's rotation as a quaternion's x, y, z; w is the positive root.
+    cookie_qx: f32,
+    cookie_qy: f32,
+    cookie_qz: f32,
 };
 struct SpotLightEntry {
     position: vec3<f32>,
@@ -557,7 +559,7 @@ fn fs_main(in: VertOut) -> SceneOut {
             let kd = (vec3<f32>(1.0, 1.0, 1.0) - f) * (1.0 - metallic);
             let specular = (ndf * g * f) / (4.0 * n_dot_v * n_dot_l + 0.0001);
             let pt_lit = point_shadow_factor(i, -to_light);
-            lo += (kd * albedo / PI + specular) * pl.color * (pl.intensity * t * t) * n_dot_l * pt_lit;
+            lo += (kd * albedo / PI + specular) * pl.color * point_cookie(pl, in.world_pos) * (pl.intensity * t * t) * n_dot_l * pt_lit;
         }
     }
     for (var j: u32 = 0u; j < light.num_spot_lights; j++) {
@@ -707,13 +709,15 @@ struct ModelUniform {
 };
 struct PointLightEntry {
     position: vec3<f32>,
-    _pad0: f32,
+    // Atlas layer of the light's cookie, or -1.0 for none (`point_cookie`).
+    cookie_layer: f32,
     color: vec3<f32>,
     intensity: f32,
     range: f32,
-    _pad1: f32,
-    _pad2: f32,
-    _pad3: f32,
+    // The light's rotation as a quaternion's x, y, z; w is the positive root.
+    cookie_qx: f32,
+    cookie_qy: f32,
+    cookie_qz: f32,
 };
 struct SpotLightEntry {
     position: vec3<f32>,
@@ -1015,7 +1019,7 @@ fn fs_main(in: VertOut) -> SceneOut {
             let kd = (vec3<f32>(1.0, 1.0, 1.0) - f) * (1.0 - metallic);
             let specular = (ndf * g * f) / (4.0 * n_dot_v * n_dot_l + 0.0001);
             let pt_lit = point_shadow_factor(i, -to_light);
-            lo += (kd * albedo / PI + specular) * pl.color * (pl.intensity * t * t) * n_dot_l * pt_lit;
+            lo += (kd * albedo / PI + specular) * pl.color * point_cookie(pl, in.world_pos) * (pl.intensity * t * t) * n_dot_l * pt_lit;
         }
     }
     for (var j: u32 = 0u; j < light.num_spot_lights; j++) {
@@ -1262,13 +1266,15 @@ struct ModelUniform {
 };
 struct PointLightEntry {
     position: vec3<f32>,
-    _pad0: f32,
+    // Atlas layer of the light's cookie, or -1.0 for none (`point_cookie`).
+    cookie_layer: f32,
     color: vec3<f32>,
     intensity: f32,
     range: f32,
-    _pad1: f32,
-    _pad2: f32,
-    _pad3: f32,
+    // The light's rotation as a quaternion's x, y, z; w is the positive root.
+    cookie_qx: f32,
+    cookie_qy: f32,
+    cookie_qz: f32,
 };
 struct SpotLightEntry {
     position: vec3<f32>,
@@ -1498,7 +1504,7 @@ fn fs_capture(in: VertOut) -> @location(0) vec4<f32> {
             let kd = (vec3<f32>(1.0, 1.0, 1.0) - f) * (1.0 - metallic);
             let specular = (ndf * g * f) / (4.0 * n_dot_v * n_dot_l + 0.0001);
             let pt_lit = point_shadow_factor(i, -to_light);
-            lo += (kd * albedo / PI + specular) * pl.color * (pl.intensity * t * t) * n_dot_l * pt_lit;
+            lo += (kd * albedo / PI + specular) * pl.color * point_cookie(pl, in.world_pos) * (pl.intensity * t * t) * n_dot_l * pt_lit;
         }
     }
     for (var j: u32 = 0u; j < light.num_spot_lights; j++) {
@@ -2091,6 +2097,7 @@ const _: () = assert!(
 );
 
 /// A single point light entry for the GPU buffer.
+#[derive(Clone, Debug)]
 pub struct PointLightEntry {
     /// World-space position of the light.
     pub position: Vec3,
@@ -2100,6 +2107,11 @@ pub struct PointLightEntry {
     pub intensity: f32,
     /// Distance at which the light's contribution falls off to zero.
     pub range: f32,
+    /// The light's rotation: which way its cookie faces.
+    pub rotation: glam::Quat,
+    /// The registry id of the texture wrapped around the light (see
+    /// `crate::cookie`), or `None` for a plain light.
+    pub cookie: Option<u64>,
 }
 
 /// A single spot light entry for the GPU buffer.
@@ -2163,13 +2175,17 @@ impl Default for LightData {
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct PointLightGpu {
     position: [f32; 3],
-    _pad0: f32,
+    /// What were this struct's four padding floats carry the cookie, so
+    /// `LIGHT_UNIFORM_SIZE` stays 960: the atlas layer (-1 for none), and
+    /// the light's rotation as a quaternion whose `w` the shader recovers
+    /// as the positive root (`point_cookie_rotation` makes it positive).
+    cookie_layer: f32,
     color: [f32; 3],
     intensity: f32,
     range: f32,
-    _pad1: f32,
-    _pad2: f32,
-    _pad3: f32,
+    cookie_qx: f32,
+    cookie_qy: f32,
+    cookie_qz: f32,
 }
 
 #[repr(C)]
@@ -6398,27 +6414,49 @@ impl WgpuSurface {
         self.queue
             .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[camera_data]));
 
+        // Every shaded light's cookie, spot lights' then point lights', drawn
+        // into the atlas together: they share its layers. Before the probe
+        // bakes below, which light with these same cookies.
+        let shaded_spot_count = light.spot_lights.len().min(MAX_SPOT_LIGHTS);
+        let shaded_point_count = light.point_lights.len().min(MAX_POINT_LIGHTS);
+        let all_cookie_layers = self.cookies.update(
+            &self.device,
+            &self.queue,
+            tex_registry,
+            &light.spot_lights[..shaded_spot_count]
+                .iter()
+                .map(|sl| sl.cookie)
+                .chain(
+                    light.point_lights[..shaded_point_count]
+                        .iter()
+                        .map(|pl| pl.cookie),
+                )
+                .collect::<Vec<_>>(),
+        );
+        let (spot_cookie_layers, point_cookie_layers) =
+            all_cookie_layers.split_at(shaded_spot_count);
         let mut point_lights_gpu = [PointLightGpu {
             position: [0.0; 3],
-            _pad0: 0.0,
+            cookie_layer: -1.0,
             color: [0.0; 3],
             intensity: 0.0,
             range: 0.0,
-            _pad1: 0.0,
-            _pad2: 0.0,
-            _pad3: 0.0,
+            cookie_qx: 0.0,
+            cookie_qy: 0.0,
+            cookie_qz: 0.0,
         }; 8];
-        let num_point_lights = light.point_lights.len().min(MAX_POINT_LIGHTS) as u32;
+        let num_point_lights = shaded_point_count as u32;
         for (i, pl) in light.point_lights.iter().enumerate().take(MAX_POINT_LIGHTS) {
+            let q = crate::cookie::point_cookie_rotation(pl.rotation);
             point_lights_gpu[i] = PointLightGpu {
                 position: pl.position.to_array(),
-                _pad0: 0.0,
+                cookie_layer: point_cookie_layers[i],
                 color: pl.color.to_array(),
                 intensity: pl.intensity,
                 range: pl.range,
-                _pad1: 0.0,
-                _pad2: 0.0,
-                _pad3: 0.0,
+                cookie_qx: q.x,
+                cookie_qy: q.y,
+                cookie_qz: q.z,
             };
         }
         let mut spot_lights_gpu = [SpotLightGpu {
@@ -6434,14 +6472,8 @@ impl WgpuSurface {
             shadow_layer: -1.0,
         }; 8];
         let num_spot_lights = light.spot_lights.len().min(MAX_SPOT_LIGHTS) as u32;
-        // Before the probe bakes below, which light with these same cookies.
         let shaded_spots = &light.spot_lights[..num_spot_lights as usize];
-        let cookie_layers = self.cookies.update(
-            &self.device,
-            &self.queue,
-            tex_registry,
-            &shaded_spots.iter().map(|sl| sl.cookie).collect::<Vec<_>>(),
-        );
+        let cookie_layers = spot_cookie_layers;
         for (i, sl) in shaded_spots.iter().enumerate() {
             let direction = sl.direction.normalize();
             spot_lights_gpu[i] = SpotLightGpu {

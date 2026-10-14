@@ -52,6 +52,7 @@ pub(super) fn build_entity_descriptors(entities: &[EntityInfo]) -> Vec<EntityDes
                         color: e.light_color.unwrap_or([1.0, 1.0, 1.0]),
                         intensity: e.light_intensity.unwrap_or(1.0),
                         range: e.light_range.unwrap_or(10.0),
+                        cookie: e.point_cookie.clone().unwrap_or_default(),
                     })
                 } else {
                     None

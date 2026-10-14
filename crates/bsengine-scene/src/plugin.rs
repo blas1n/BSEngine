@@ -679,6 +679,7 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                 color: Vec3::from(pl.color).into(),
                 intensity: pl.intensity,
                 range: pl.range,
+                cookie: pl.cookie.clone(),
             });
         }
 
@@ -1295,6 +1296,25 @@ mod tests {
     /// block, and the light the runtime spawns carries it -- the path a
     /// shipped game loads through, which the editor's save/load test does
     /// not take.
+    /// The point light's cookie, from the light's own block in a game's scene.
+    #[test]
+    fn a_point_lights_cookie_is_spawned_from_the_scene() {
+        let scene: crate::types::SceneDescriptor = ron::from_str(
+            r#"SceneDescriptor(entities: [EntityDescriptor(
+                name: "Lamp",
+                point_light: Some((cookie: "textures/cage.png")),
+            )])"#,
+        )
+        .expect("the scene should parse");
+        let mut app = new_app();
+        super::register_gameplay_reflect_types(&mut app);
+        super::spawn_scene_entities(app.world_mut(), &scene.entities);
+        let mut q = app.world_mut().query::<&bsengine_core::PointLight>();
+        let lights: Vec<_> = q.iter(app.world()).collect();
+        assert_eq!(lights.len(), 1, "premise: the light was spawned");
+        assert_eq!(lights[0].cookie, "textures/cage.png");
+    }
+
     #[test]
     fn a_spot_lights_cookie_is_spawned_from_the_scene() {
         let scene: crate::types::SceneDescriptor = ron::from_str(

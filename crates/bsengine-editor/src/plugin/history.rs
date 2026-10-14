@@ -121,6 +121,7 @@ pub(super) fn sync_entity_to_info(world: &mut World, entity: Entity, info: &Enti
                 color: glam::Vec3::from(info.light_color.unwrap_or([1.0; 3])).into(),
                 intensity: info.light_intensity.unwrap_or(1.0),
                 range: info.light_range.unwrap_or(10.0),
+                cookie: info.point_cookie.clone().unwrap_or_default(),
             });
         }
         Some("directional") => {
@@ -144,6 +145,18 @@ pub(super) fn sync_entity_to_info(world: &mut World, entity: Entity, info: &Enti
                 }
                 if let Some(r) = info.light_range {
                     sl.range = r;
+                }
+                if let Some(a) = info.spot_inner_angle {
+                    sl.inner_angle_degrees = a.into();
+                }
+                if let Some(a) = info.spot_outer_angle {
+                    sl.outer_angle_degrees = a.into();
+                }
+                if let Some(c) = &info.spot_cookie {
+                    sl.cookie = c.clone();
+                }
+                if let Some(s) = info.spot_shadows {
+                    sl.shadows = s;
                 }
             }
         }
@@ -222,6 +235,7 @@ pub(super) fn spawn_entity_from_info(world: &mut World, info: &EntityInfo) -> En
                 color: glam::Vec3::from(info.light_color.unwrap_or([1.0; 3])).into(),
                 intensity: info.light_intensity.unwrap_or(1.0),
                 range: info.light_range.unwrap_or(10.0),
+                cookie: info.point_cookie.clone().unwrap_or_default(),
             });
         }
         Some("directional") => {
@@ -235,7 +249,10 @@ pub(super) fn spawn_entity_from_info(world: &mut World, info: &EntityInfo) -> En
                 color: glam::Vec3::from(info.light_color.unwrap_or([1.0; 3])).into(),
                 intensity: info.light_intensity.unwrap_or(1.0),
                 range: info.light_range.unwrap_or(10.0),
-                ..SpotLight::default()
+                inner_angle_degrees: info.spot_inner_angle.unwrap_or(22.5).into(),
+                outer_angle_degrees: info.spot_outer_angle.unwrap_or(30.0).into(),
+                cookie: info.spot_cookie.clone().unwrap_or_default(),
+                shadows: info.spot_shadows.unwrap_or(true),
             });
         }
         _ => {}

@@ -29,6 +29,8 @@ use bsengine_scripting::ScriptingPlugin;
 use bsengine_window::{WindowDescriptor, WindowPlugin};
 
 mod audio_occlusion;
+#[cfg(not(target_arch = "wasm32"))]
+mod bake;
 mod scene_systems;
 #[cfg(not(target_arch = "wasm32"))]
 mod test_mode;
@@ -65,6 +67,58 @@ fn main() {
             None => false,
         };
         std::process::exit(run_fixup(&project_dir, as_json));
+    }
+
+    // `--bake <project> [--scene <path>] [--backend cpu|auto] [--samples N]
+    // [--bounces N] [--texels-per-unit F]`: bakes the scene's lightmaps
+    // (see `bake`). Exits non-zero, with the reason, when it cannot.
+    if first_arg == "--bake" {
+        let project_dir = args.next().unwrap_or_else(|| ".".to_string());
+        let mut bake_args = bake::BakeArgs {
+            project_dir,
+            scene: None,
+            backend: "auto".into(),
+            samples: None,
+            bounces: None,
+            texels_per_unit: None,
+        };
+        while let Some(flag) = args.next() {
+            let mut value = || {
+                args.next()
+                    .unwrap_or_else(|| panic!("{flag} requires a value"))
+            };
+            match flag.as_str() {
+                "--scene" => bake_args.scene = Some(value()),
+                "--backend" => bake_args.backend = value(),
+                "--samples" => {
+                    bake_args.samples =
+                        Some(value().parse().expect("--samples expects a whole number"))
+                }
+                "--bounces" => {
+                    bake_args.bounces =
+                        Some(value().parse().expect("--bounces expects a whole number"))
+                }
+                "--texels-per-unit" => {
+                    bake_args.texels_per_unit =
+                        Some(value().parse().expect("--texels-per-unit expects a number"))
+                }
+                other => panic!("unknown --bake argument: {other}"),
+            }
+        }
+        bsengine_core::init_logging();
+        match bake::run_bake(&bake_args) {
+            Ok(report) => {
+                println!(
+                    "baked {} renderers into {} layer(s) at {:.1} texels/unit -> {}",
+                    report.renderers, report.layers, report.texels_per_unit, report.data_path
+                );
+                std::process::exit(0);
+            }
+            Err(e) => {
+                eprintln!("bake failed: {e}");
+                std::process::exit(1);
+            }
+        }
     }
 
     if first_arg == "--package" {

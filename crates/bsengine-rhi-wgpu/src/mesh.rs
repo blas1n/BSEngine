@@ -111,6 +111,11 @@ pub struct GpuMeshRegistry {
     /// Meshes `skin` has been asked to pose since the last
     /// `flush_skinning`, dispatched together in one submission.
     pub(crate) pending_skins: Vec<u64>,
+    /// CPU copies of every non-skinned mesh's vertices and indices, kept only
+    /// once [`Self::retain_cpu_copies`] is called -- by a lightmap bake, which
+    /// has to trace exactly the triangles (and `uv2`) the renderer draws. A
+    /// running game never calls it and keeps nothing.
+    pub(crate) cpu_copies: Option<HashMap<u64, (Vec<Vertex>, Vec<u32>)>>,
 }
 
 impl GpuMeshRegistry {
@@ -122,6 +127,29 @@ impl GpuMeshRegistry {
             next_id: 1,
             skinning: None,
             pending_skins: Vec::new(),
+            cpu_copies: None,
+        }
+    }
+
+    /// From now on, keep a CPU copy of every mesh registered or replaced (not
+    /// skinned ones, whose shape the GPU computes). Meshes registered before
+    /// the call have none.
+    pub fn retain_cpu_copies(&mut self) {
+        self.cpu_copies.get_or_insert_with(HashMap::new);
+    }
+
+    /// The CPU copy of a mesh's vertices and indices, if copies are kept and
+    /// this mesh has one.
+    pub fn cpu_mesh(&self, id: u64) -> Option<(&[Vertex], &[u32])> {
+        self.cpu_copies
+            .as_ref()?
+            .get(&id)
+            .map(|(v, i)| (v.as_slice(), i.as_slice()))
+    }
+
+    fn keep_copy(&mut self, id: u64, vertices: &[Vertex], indices: &[u32]) {
+        if let Some(copies) = self.cpu_copies.as_mut() {
+            copies.insert(id, (vertices.to_vec(), indices.to_vec()));
         }
     }
 
@@ -131,6 +159,7 @@ impl GpuMeshRegistry {
         self.next_id += 1;
         let mesh = self.build(vertices, indices);
         self.meshes.insert(id, mesh);
+        self.keep_copy(id, vertices, indices);
         id
     }
 
@@ -156,6 +185,7 @@ impl GpuMeshRegistry {
         }
         let mesh = self.build(vertices, indices);
         self.meshes.insert(id, mesh);
+        self.keep_copy(id, vertices, indices);
         true
     }
 
@@ -560,6 +590,36 @@ pub fn capsule_vertices() -> (Vec<Vertex>, Vec<u32>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_device() -> Arc<wgpu::Device> {
+        let (device, _queue) =
+            pollster::block_on(crate::surface::WgpuSurface::headless_device_for_testing());
+        device
+    }
+
+    /// Copies are off until asked for -- a game keeps nothing -- and once on,
+    /// a registered or replaced mesh's copy is exactly what was uploaded.
+    #[test]
+    fn cpu_copies_are_kept_only_when_asked_and_follow_a_replace() {
+        let mut registry = GpuMeshRegistry::new(test_device());
+        let (v, i) = cube_vertices();
+        let before = registry.register(&v, &i);
+        assert!(registry.cpu_mesh(before).is_none(), "off by default");
+
+        registry.retain_cpu_copies();
+        let id = registry.register(&v, &i);
+        let (cv, ci) = registry.cpu_mesh(id).expect("kept once asked");
+        assert_eq!((cv, ci), (v.as_slice(), i.as_slice()));
+        assert!(registry.cpu_mesh(before).is_none(), "not retroactive");
+
+        let (pv, pi) = plane_vertices();
+        assert!(registry.replace(id, &pv, &pi));
+        assert_eq!(
+            registry.cpu_mesh(id).unwrap().0,
+            pv.as_slice(),
+            "follows a replace"
+        );
+    }
 
     /// The layout every pipeline's `array_stride` and attribute offsets (and
     /// the compute skinning shader's float indices) are written against.

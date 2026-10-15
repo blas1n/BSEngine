@@ -80,7 +80,7 @@ pub use mesh::{
     capsule_vertices, cube_vertices, cylinder_vertices, plane_vertices, sphere_vertices,
     triangle_vertices, GpuMeshRegistry, Vertex,
 };
-pub use plugin::{GpuQueueResource, ShippedMipCacheResource, WgpuRHIPlugin};
+pub use plugin::{GpuQueueResource, RetainCpuMeshCopies, ShippedMipCacheResource, WgpuRHIPlugin};
 pub use skinning::{GpuVertexSkin, MorphDeltas};
 pub use surface::{
     LightData, MaterialParams, PointLightEntry, ProbeVolumeParams, ReflectionProbeParams,

@@ -94,6 +94,8 @@ impl Plugin for ScenePlugin {
                 let scene: SceneDescriptor = crate::parse::parse_descriptor(&path, &content)
                     .unwrap_or_else(|e| panic!("Failed to parse scene {path}: {e}"));
                 spawn_scene_entities(world, &scene.entities);
+                // After the spawn: the data names entities that now exist.
+                crate::lightmaps::apply(world, &path, &content);
                 if let Some(skybox_rel) = &scene.skybox {
                     let scene_dir = std::path::Path::new(&path)
                         .parent()

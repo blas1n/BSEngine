@@ -169,10 +169,20 @@ fn create_surface_system(world: &mut World, mode: SurfaceMode) {
     install_surface(world, surface);
 }
 
+/// Insert before the app's first update to have the mesh registry keep a CPU
+/// copy of every mesh ([`GpuMeshRegistry::retain_cpu_copies`]). The lightmap
+/// bake does; a running game does not, and pays nothing.
+#[derive(bevy_ecs::prelude::Resource, Default)]
+pub struct RetainCpuMeshCopies;
+
 /// The renderer's resources, made from a surface just created: the surface
 /// itself, its queue, and the mesh and texture registries on its device.
 fn install_surface(world: &mut World, surface: WgpuSurface) {
-    let registry = GpuMeshRegistry::new(surface.device.clone());
+    let mut registry = GpuMeshRegistry::new(surface.device.clone());
+    // Before any mesh exists, so every one the scene loads is copied.
+    if world.contains_resource::<RetainCpuMeshCopies>() {
+        registry.retain_cpu_copies();
+    }
     let mut tex_registry = GpuTextureRegistry::new(surface.device.clone(), surface.queue.clone());
     // Streamed textures' mip cache files go under the project, beside the
     // Asset Browser's thumbnail cache (`games/*/.bsengine_cache/` is

@@ -54,6 +54,10 @@ struct ModelUniform {
     base_color: vec3<f32>,
     opacity: f32,
     prev_model: mat4x4<f32>,
+    // Baked lighting: the rectangle of the lightmap this object owns
+    // (`uv2 * xy + zw`) and the array layer it reads, negative for none.
+    lightmap_scale_offset: vec4<f32>,
+    lightmap_layer: f32,
 };
 struct PointLightEntry {
     position: vec3<f32>,
@@ -175,6 +179,8 @@ struct VertIn {
     @location(1) col: vec3<f32>,
     @location(2) normal: vec3<f32>,
     @location(3) uv: vec2<f32>,
+    // The lightmap coordinates (`Vertex::uv2`).
+    @location(4) uv2: vec2<f32>,
 }
 struct VertOut {
     @builtin(position) clip_pos: vec4<f32>,
@@ -187,6 +193,9 @@ struct VertOut {
     // what keeps the velocity right across a triangle under perspective.
     @location(4) curr_clip: vec4<f32>,
     @location(5) prev_clip: vec4<f32>,
+    // This vertex's place in the lightmap, already moved into the rectangle
+    // its object owns.
+    @location(6) lm_uv: vec2<f32>,
 }
 @vertex
 fn vs_main(in: VertIn) -> VertOut {
@@ -204,6 +213,7 @@ fn vs_main(in: VertIn) -> VertOut {
     );
     out.world_normal = normalize(normal_matrix * in.normal);
     out.uv = in.uv;
+    out.lm_uv = in.uv2 * model_data.lightmap_scale_offset.xy + model_data.lightmap_scale_offset.zw;
     return out;
 }
 // The directional shadow lookup, filtered. `soft` is `camera.shadow_filter`
@@ -656,6 +666,18 @@ fn fs_main(in: VertOut) -> SceneOut {
         let probe_irradiance = eval_probe_sh(in.world_pos, n);
         diffuse_term = probe_irradiance * albedo * kd_ibl;
     }
+    if (model_data.lightmap_layer >= 0.0) {
+        // A baked lightmap REPLACES the diffuse ambient/IBL/probe term, the
+        // same way a probe replaces the sky's: the bake already holds the sky
+        // and every bounce, so adding it would count them twice. It wins over
+        // a probe volume because it is the more specific record -- baked for
+        // this very surface rather than interpolated between probes. The
+        // specular half stays whatever IBL or a reflection probe made it.
+        //
+        // The layer is the object's, a uniform: this branch is taken or
+        // skipped for the whole draw, so the sample is in uniform control flow.
+        diffuse_term = lightmap_irradiance(model_data.lightmap_layer, in.lm_uv) * albedo * kd_ibl;
+    }
     let ambient_term = diffuse_term + specular_ibl;
     let color = ambient_term + lo + model_data.emissive;
     var out: SceneOut;
@@ -676,6 +698,7 @@ fn fs_main(in: VertOut) -> SceneOut {
 "#,
     crate::area_light::rect_light_wgsl!(),
     crate::cookie::cookie_wgsl!(),
+    crate::lightmap::lightmap_wgsl!(),
     crate::spot_shadow::spot_shadow_wgsl!()
 );
 
@@ -1065,8 +1088,8 @@ fn fs_main(in: VertOut) -> SceneOut {
 ///
 /// `_tail` is load-bearing: a WGSL array's stride is its element size, and
 /// this array aliases the very buffer the main pass reads as a uniform at
-/// `MODEL_STRIDE` (256). `ModelUniformData` is 176 bytes, and
-/// 176 + 5 * 16 = 256, so the padding is what keeps the two views agreeing
+/// `MODEL_STRIDE` (256). `ModelUniformData` is 208 bytes, and
+/// 208 + 3 * 16 = 256, so the padding is what keeps the two views agreeing
 /// on where object N begins.
 const INSTANCED_MODEL_DECL: &str = r#"
 struct ModelEntry {
@@ -1080,7 +1103,9 @@ struct ModelEntry {
     base_color: vec3<f32>,
     opacity: f32,
     prev_model: mat4x4<f32>,
-    _tail: array<vec4<f32>, 5>,
+    lightmap_scale_offset: vec4<f32>,
+    lightmap_layer: vec4<f32>,
+    _tail: array<vec4<f32>, 3>,
 };
 @group(1) @binding(0) var<storage, read> models: array<ModelEntry>;
 @group(1) @binding(1) var<storage, read> slots: array<u32>;
@@ -2033,6 +2058,10 @@ pub struct MaterialParams {
     /// 1.0 = opaque. Below that the draw leaves the opaque pass for the sorted
     /// transparent one.
     pub opacity: f32,
+    /// The baked lightmap this draw is lit from, if any. It replaces the
+    /// diffuse ambient/IBL/probe term; a texture that is not on the GPU yet
+    /// is no lightmap, so the draw shades as it would without one.
+    pub lightmap: Option<crate::lightmap::LightmapParams>,
 }
 
 impl Default for MaterialParams {
@@ -2043,6 +2072,7 @@ impl Default for MaterialParams {
             emissive: Vec3::ZERO,
             base_color: Vec3::ONE,
             opacity: 1.0,
+            lightmap: None,
         }
     }
 }
@@ -2065,6 +2095,14 @@ struct ModelUniformData {
     /// `model` for anything that did not move. Fits inside `MODEL_STRIDE`
     /// (112 + 64 of its 256 bytes), so the buffer does not grow.
     prev_model: [[f32; 4]; 4],
+    /// `[scale_x, scale_y, offset_x, offset_y]` of this object's rectangle of
+    /// its lightmap layer; read as `uv2 * scale + offset`.
+    lightmap_scale_offset: [f32; 4],
+    /// Which lightmap atlas layer this object reads, `-1.0` for none (the
+    /// shader's "no lightmap"). Three floats of padding keep the struct a
+    /// multiple of 16 bytes. 208 of `MODEL_STRIDE`'s 256 bytes.
+    lightmap_layer: f32,
+    _lightmap_pad: [f32; 3],
 }
 
 #[repr(C)]
@@ -2555,6 +2593,9 @@ struct LightBindings<'a> {
     ltc: &'a crate::area_light::LtcTables,
     /// The spot lights' cookie atlas and sampler.
     cookies: &'a crate::cookie::CookieAtlas,
+    /// The baked lightmaps' array. Bound only in the group 2 the mesh
+    /// pipelines use, not the terrain's (`create_light_bind_group`).
+    lightmaps: &'a crate::lightmap::LightmapAtlas,
     /// The spot lights' shadow maps, as an array, and their matrices.
     spot_shadow_view: &'a wgpu::TextureView,
     spot_shadow_buffer: &'a wgpu::Buffer,
@@ -2567,96 +2608,108 @@ fn create_light_bind_group(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
     bindings: &LightBindings,
+    with_lightmap: bool,
 ) -> wgpu::BindGroup {
+    let mut entries = vec![
+        wgpu::BindGroupEntry {
+            binding: 0,
+            resource: bindings.light_buffer.as_entire_binding(),
+        },
+        wgpu::BindGroupEntry {
+            binding: 1,
+            resource: wgpu::BindingResource::Sampler(bindings.shadow_sampler),
+        },
+        wgpu::BindGroupEntry {
+            binding: 2,
+            resource: wgpu::BindingResource::TextureView(bindings.shadow_map_view),
+        },
+        wgpu::BindGroupEntry {
+            binding: 3,
+            resource: wgpu::BindingResource::Sampler(bindings.point_shadow_sampler),
+        },
+        wgpu::BindGroupEntry {
+            binding: 4,
+            resource: wgpu::BindingResource::TextureView(bindings.point_shadow_view),
+        },
+        wgpu::BindGroupEntry {
+            binding: 5,
+            resource: wgpu::BindingResource::TextureView(bindings.irradiance_view),
+        },
+        wgpu::BindGroupEntry {
+            binding: 6,
+            resource: wgpu::BindingResource::TextureView(bindings.prefilter_view),
+        },
+        wgpu::BindGroupEntry {
+            binding: 7,
+            resource: wgpu::BindingResource::TextureView(bindings.brdf_lut_view),
+        },
+        wgpu::BindGroupEntry {
+            binding: 8,
+            resource: wgpu::BindingResource::Sampler(bindings.ibl_sampler),
+        },
+        wgpu::BindGroupEntry {
+            binding: 9,
+            resource: bindings.probe_buffer.as_entire_binding(),
+        },
+        wgpu::BindGroupEntry {
+            binding: 10,
+            resource: wgpu::BindingResource::TextureView(bindings.decal_view),
+        },
+        wgpu::BindGroupEntry {
+            binding: 11,
+            resource: wgpu::BindingResource::TextureView(bindings.decal_normal_view),
+        },
+        wgpu::BindGroupEntry {
+            binding: 12,
+            resource: bindings.reflection_probe_buffer.as_entire_binding(),
+        },
+        wgpu::BindGroupEntry {
+            binding: 13,
+            resource: wgpu::BindingResource::TextureView(bindings.reflection_cubes_view),
+        },
+        wgpu::BindGroupEntry {
+            binding: 14,
+            resource: bindings.rect_light_buffer.as_entire_binding(),
+        },
+        wgpu::BindGroupEntry {
+            binding: 15,
+            resource: wgpu::BindingResource::TextureView(&bindings.ltc.view),
+        },
+        wgpu::BindGroupEntry {
+            binding: 17,
+            resource: wgpu::BindingResource::Sampler(&bindings.ltc.sampler),
+        },
+        wgpu::BindGroupEntry {
+            binding: 18,
+            resource: wgpu::BindingResource::TextureView(&bindings.cookies.array_view),
+        },
+        wgpu::BindGroupEntry {
+            binding: 19,
+            resource: wgpu::BindingResource::Sampler(&bindings.cookies.sampler),
+        },
+        wgpu::BindGroupEntry {
+            binding: 20,
+            resource: wgpu::BindingResource::TextureView(bindings.spot_shadow_view),
+        },
+        wgpu::BindGroupEntry {
+            binding: 21,
+            resource: bindings.spot_shadow_buffer.as_entire_binding(),
+        },
+    ];
+    // The lightmap array is the one binding the terrain's variant of this group
+    // leaves out: the terrain already binds five textures of its own, and with
+    // this one it would sit at 17 of the 16 sampled textures a pipeline may
+    // use. See `terrain_light_bgl_entries`.
+    if with_lightmap {
+        entries.push(wgpu::BindGroupEntry {
+            binding: LIGHTMAP_BINDING,
+            resource: wgpu::BindingResource::TextureView(&bindings.lightmaps.array_view),
+        });
+    }
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("light bg"),
         layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: bindings.light_buffer.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::Sampler(bindings.shadow_sampler),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: wgpu::BindingResource::TextureView(bindings.shadow_map_view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 3,
-                resource: wgpu::BindingResource::Sampler(bindings.point_shadow_sampler),
-            },
-            wgpu::BindGroupEntry {
-                binding: 4,
-                resource: wgpu::BindingResource::TextureView(bindings.point_shadow_view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 5,
-                resource: wgpu::BindingResource::TextureView(bindings.irradiance_view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 6,
-                resource: wgpu::BindingResource::TextureView(bindings.prefilter_view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 7,
-                resource: wgpu::BindingResource::TextureView(bindings.brdf_lut_view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 8,
-                resource: wgpu::BindingResource::Sampler(bindings.ibl_sampler),
-            },
-            wgpu::BindGroupEntry {
-                binding: 9,
-                resource: bindings.probe_buffer.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 10,
-                resource: wgpu::BindingResource::TextureView(bindings.decal_view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 11,
-                resource: wgpu::BindingResource::TextureView(bindings.decal_normal_view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 12,
-                resource: bindings.reflection_probe_buffer.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 13,
-                resource: wgpu::BindingResource::TextureView(bindings.reflection_cubes_view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 14,
-                resource: bindings.rect_light_buffer.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 15,
-                resource: wgpu::BindingResource::TextureView(&bindings.ltc.view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 17,
-                resource: wgpu::BindingResource::Sampler(&bindings.ltc.sampler),
-            },
-            wgpu::BindGroupEntry {
-                binding: 18,
-                resource: wgpu::BindingResource::TextureView(&bindings.cookies.array_view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 19,
-                resource: wgpu::BindingResource::Sampler(&bindings.cookies.sampler),
-            },
-            wgpu::BindGroupEntry {
-                binding: 20,
-                resource: wgpu::BindingResource::TextureView(bindings.spot_shadow_view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 21,
-                resource: bindings.spot_shadow_buffer.as_entire_binding(),
-            },
-        ],
+        entries: &entries,
     })
 }
 
@@ -2892,7 +2945,35 @@ fn light_bgl_entries() -> Vec<wgpu::BindGroupLayoutEntry> {
             },
             count: None,
         },
+        // 22: the baked lightmaps (see `crate::lightmap`), read through the
+        // cookie atlas's sampler at binding 19.
+        wgpu::BindGroupLayoutEntry {
+            binding: LIGHTMAP_BINDING,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2Array,
+                multisampled: false,
+            },
+            count: None,
+        },
     ]
+}
+
+/// The binding of the lightmap array in group 2.
+const LIGHTMAP_BINDING: u32 = 22;
+
+/// Group 2 as the terrain pipeline sees it: [`light_bgl_entries`] without the
+/// lightmap array. The terrain's own group 3 binds five sampled textures, so
+/// the full group (eleven before the lightmaps) already put it at the limit of
+/// sixteen; terrain has no `uv2` and takes no lightmap, so it simply leaves
+/// that one out. The bind group built against this layout holds the same
+/// buffers and views as the full one.
+fn terrain_light_bgl_entries() -> Vec<wgpu::BindGroupLayoutEntry> {
+    light_bgl_entries()
+        .into_iter()
+        .filter(|e| e.binding != LIGHTMAP_BINDING)
+        .collect()
 }
 
 /// The terrain's group 3: four layer textures, the weight texture and their
@@ -3015,10 +3096,14 @@ pub struct WgpuSurface {
     model_bind_group: wgpu::BindGroup,
     light_buffer: wgpu::Buffer,
     light_bind_group: wgpu::BindGroup,
+    /// [`Self::light_bind_group`] without the lightmap array, for the terrain
+    /// pipeline (see `terrain_light_bgl_entries`). Rebuilt with it.
+    light_bind_group_terrain: wgpu::BindGroup,
     /// Kept because `light_bind_group` is rebuilt whenever the skybox changes:
     /// a bind group is immutable, so swapping the dummy IBL maps for real ones
     /// (or back) means building a new one against this same layout.
     light_bgl: wgpu::BindGroupLayout,
+    light_bgl_terrain: wgpu::BindGroupLayout,
     _white_texture: crate::profiler::TrackedTexture,
     _sampler: wgpu::Sampler,
     default_texture_bind_group: wgpu::BindGroup,
@@ -3086,6 +3171,8 @@ pub struct WgpuSurface {
     ltc: crate::area_light::LtcTables,
     /// The spot lights' cookies, redrawn every frame (see `crate::cookie`).
     cookies: crate::cookie::CookieAtlas,
+    /// The baked lightmaps' array (`crate::lightmap`).
+    lightmaps: crate::lightmap::LightmapAtlas,
     /// The spot lights' shadow maps (see `crate::spot_shadow`): kept alive
     /// for the views.
     _spot_shadow_texture: crate::profiler::TrackedTexture,
@@ -3413,6 +3500,14 @@ impl WgpuSurface {
     /// has run, and always empty under `fast_render`, which never captures.
     pub fn reflection_probes_captured(&self) -> &[ReflectionProbeParams] {
         &self.captured_reflection_probes
+    }
+
+    /// How many lightmap layers have been drawn since this surface was made:
+    /// a diagnostic, for checking that a steady scene redraws none. A layer is
+    /// drawn when its texture first arrives and again only when the texture
+    /// behind it is rebuilt.
+    pub fn lightmap_layers_drawn(&self) -> u64 {
+        self.lightmaps.blit_count()
     }
 
     /// The `ColorGrading` the last frame was rendered with, as
@@ -3960,6 +4055,11 @@ impl WgpuSurface {
             label: Some("light bgl"),
             entries: &light_bgl_entries(),
         });
+        // The terrain's own variant: the same group minus the lightmap array.
+        let light_bgl_terrain = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("light bgl (terrain)"),
+            entries: &terrain_light_bgl_entries(),
+        });
 
         // Bound at 5 and 6 whenever no skybox is loaded. 1x1x6 and cleared to
         // black: the shader never samples it (`ibl_enabled` is 0 in that case),
@@ -4420,31 +4520,32 @@ impl WgpuSurface {
         // No skybox at construction, so the cube bindings get the dummy. Every
         // later rebuild goes through `rebuild_light_bind_group`, which binds
         // the same way from the same struct.
-        let light_bind_group = create_light_bind_group(
-            &device,
-            &light_bgl,
-            &LightBindings {
-                light_buffer: &light_buffer,
-                shadow_sampler: &shadow_comparison_sampler,
-                shadow_map_view: &shadow_map_view,
-                point_shadow_sampler: &point_shadow_sampler,
-                point_shadow_view: &point_shadow_color_full_view,
-                ibl_sampler: &ibl_sampler,
-                irradiance_view: &dummy_ibl_cube_view,
-                prefilter_view: &dummy_ibl_cube_view,
-                brdf_lut_view: &brdf_lut_view,
-                probe_buffer: &probe_buffer,
-                decal_view: &decals.view,
-                decal_normal_view: &decals.normal_view,
-                reflection_probe_buffer: &reflection_probe_buffer,
-                reflection_cubes_view: &reflection_cubes_view,
-                rect_light_buffer: &rect_light_buffer,
-                ltc: &ltc,
-                cookies: &cookies,
-                spot_shadow_view: &spot_shadow_view,
-                spot_shadow_buffer: &spot_shadow_buffer,
-            },
-        );
+        let lightmaps = crate::lightmap::LightmapAtlas::new(&device);
+        let light_bindings = LightBindings {
+            light_buffer: &light_buffer,
+            shadow_sampler: &shadow_comparison_sampler,
+            shadow_map_view: &shadow_map_view,
+            point_shadow_sampler: &point_shadow_sampler,
+            point_shadow_view: &point_shadow_color_full_view,
+            ibl_sampler: &ibl_sampler,
+            irradiance_view: &dummy_ibl_cube_view,
+            prefilter_view: &dummy_ibl_cube_view,
+            brdf_lut_view: &brdf_lut_view,
+            probe_buffer: &probe_buffer,
+            decal_view: &decals.view,
+            decal_normal_view: &decals.normal_view,
+            reflection_probe_buffer: &reflection_probe_buffer,
+            reflection_cubes_view: &reflection_cubes_view,
+            rect_light_buffer: &rect_light_buffer,
+            ltc: &ltc,
+            cookies: &cookies,
+            lightmaps: &lightmaps,
+            spot_shadow_view: &spot_shadow_view,
+            spot_shadow_buffer: &spot_shadow_buffer,
+        };
+        let light_bind_group = create_light_bind_group(&device, &light_bgl, &light_bindings, true);
+        let light_bind_group_terrain =
+            create_light_bind_group(&device, &light_bgl_terrain, &light_bindings, false);
 
         let vertex_buffer_layout = wgpu::VertexBufferLayout {
             array_stride: VERTEX_STRIDE,
@@ -4469,6 +4570,14 @@ impl WgpuSurface {
                     format: wgpu::VertexFormat::Float32x2,
                     offset: 36,
                     shader_location: 3,
+                },
+                // The lightmap coordinates. The mesh shader reads them; the
+                // shaders that share this layout and do not declare a location
+                // 4 are unaffected (an attribute a shader leaves out is legal).
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x2,
+                    offset: 44,
+                    shader_location: 4,
                 },
             ],
         };
@@ -5022,7 +5131,7 @@ impl WgpuSurface {
         let terrain_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("terrain pipeline layout"),
-                bind_group_layouts: &[&camera_bgl, &model_bgl, &light_bgl, &terrain_bgl],
+                bind_group_layouts: &[&camera_bgl, &model_bgl, &light_bgl_terrain, &terrain_bgl],
                 push_constant_ranges: &[],
             });
         let terrain_desc = wgpu::RenderPipelineDescriptor {
@@ -5134,7 +5243,9 @@ impl WgpuSurface {
             model_bind_group,
             light_buffer,
             light_bind_group,
+            light_bind_group_terrain,
             light_bgl,
+            light_bgl_terrain,
             _white_texture: white_texture,
             _sampler: sampler,
             default_texture_bind_group,
@@ -5167,6 +5278,7 @@ impl WgpuSurface {
             rect_light_buffer,
             ltc,
             cookies,
+            lightmaps,
             _spot_shadow_texture: spot_shadow_texture,
             spot_shadow_view,
             spot_shadow_layer_views,
@@ -5615,32 +5727,33 @@ impl WgpuSurface {
             Some(maps) => (&maps.irradiance_view, &maps.prefilter_view),
             None => (&self.dummy_ibl_cube_view, &self.dummy_ibl_cube_view),
         };
-        let bind_group = create_light_bind_group(
-            &self.device,
-            &self.light_bgl,
-            &LightBindings {
-                light_buffer: &self.light_buffer,
-                shadow_sampler: &self.shadow_comparison_sampler,
-                shadow_map_view: &self.shadow_map_view,
-                point_shadow_sampler: &self.point_shadow_sampler,
-                point_shadow_view: &self.point_shadow_color_full_view,
-                ibl_sampler: &self.ibl_sampler,
-                irradiance_view,
-                prefilter_view,
-                brdf_lut_view: &self.brdf_lut_view,
-                probe_buffer: &self.probe_buffer,
-                decal_view: &self.decals.view,
-                decal_normal_view: &self.decals.normal_view,
-                reflection_probe_buffer: &self.reflection_probe_buffer,
-                reflection_cubes_view: &self.reflection_cubes_view,
-                rect_light_buffer: &self.rect_light_buffer,
-                ltc: &self.ltc,
-                cookies: &self.cookies,
-                spot_shadow_view: &self.spot_shadow_view,
-                spot_shadow_buffer: &self.spot_shadow_buffer,
-            },
-        );
+        let bindings = LightBindings {
+            light_buffer: &self.light_buffer,
+            shadow_sampler: &self.shadow_comparison_sampler,
+            shadow_map_view: &self.shadow_map_view,
+            point_shadow_sampler: &self.point_shadow_sampler,
+            point_shadow_view: &self.point_shadow_color_full_view,
+            ibl_sampler: &self.ibl_sampler,
+            irradiance_view,
+            prefilter_view,
+            brdf_lut_view: &self.brdf_lut_view,
+            probe_buffer: &self.probe_buffer,
+            decal_view: &self.decals.view,
+            decal_normal_view: &self.decals.normal_view,
+            reflection_probe_buffer: &self.reflection_probe_buffer,
+            reflection_cubes_view: &self.reflection_cubes_view,
+            rect_light_buffer: &self.rect_light_buffer,
+            ltc: &self.ltc,
+            cookies: &self.cookies,
+            lightmaps: &self.lightmaps,
+            spot_shadow_view: &self.spot_shadow_view,
+            spot_shadow_buffer: &self.spot_shadow_buffer,
+        };
+        let bind_group = create_light_bind_group(&self.device, &self.light_bgl, &bindings, true);
+        let terrain_bind_group =
+            create_light_bind_group(&self.device, &self.light_bgl_terrain, &bindings, false);
         self.light_bind_group = bind_group;
+        self.light_bind_group_terrain = terrain_bind_group;
     }
 
     /// Whether a skybox is currently loaded and will be rendered.
@@ -6630,6 +6743,18 @@ impl WgpuSurface {
         // Sized to the actual object count, not `MAX_OBJECTS`, so a small scene
         // does not allocate for a large one.
         let staged_count = draw_calls.len().min(MAX_OBJECTS);
+        // Each draw's lightmap layer, drawn into the array first: the layer is
+        // written into the model entry below. A draw whose lightmap texture is
+        // not on the GPU yet gets -1, i.e. shades without one.
+        let lightmap_layers = self.lightmaps.update(
+            &self.device,
+            &self.queue,
+            tex_registry,
+            &draw_calls[..staged_count]
+                .iter()
+                .map(|(_, _, _, mat, _)| mat.lightmap.map(|l| l.texture_id))
+                .collect::<Vec<_>>(),
+        );
         let mut staging = vec![0u8; staged_count * MODEL_STRIDE as usize];
         for (i, (_, model, _, mat, _)) in draw_calls.iter().enumerate() {
             if i >= MAX_OBJECTS {
@@ -6649,6 +6774,11 @@ impl WgpuSurface {
                 _pad2: 0.0,
                 base_color: mat.base_color.to_array(),
                 opacity: mat.opacity,
+                lightmap_scale_offset: mat
+                    .lightmap
+                    .map_or([1.0, 1.0, 0.0, 0.0], |l| l.scale_offset),
+                lightmap_layer: lightmap_layers[i],
+                _lightmap_pad: [0.0; 3],
             };
             let base = i * MODEL_STRIDE as usize;
             staging[base..base + std::mem::size_of::<ModelUniformData>()]
@@ -7353,6 +7483,10 @@ impl WgpuSurface {
                 _pad2: 0.0,
                 base_color: [1.0, 1.0, 1.0],
                 opacity: 1.0,
+                // Terrain has no lightmap UVs; its pipeline does not read these.
+                lightmap_scale_offset: [1.0, 1.0, 0.0, 0.0],
+                lightmap_layer: -1.0,
+                _lightmap_pad: [0.0; 3],
             };
             self.queue.write_buffer(
                 &self.model_buffer,
@@ -7642,6 +7776,11 @@ impl WgpuSurface {
             // is capped the same way `draw_calls` is: once it reaches
             // `MAX_OBJECTS` further terrain chunks are skipped rather than
             // overrunning `model_buffer`.
+            // The terrain's pipeline was built against the lighting group
+            // without the lightmap array (`terrain_light_bgl_entries`), so it
+            // draws with the matching bind group; the full one goes back for
+            // everything after it.
+            pass.set_bind_group(2, &self.light_bind_group_terrain, &[]);
             for &(i, terrain_slot) in &terrain_plan {
                 let (mesh_id, _, layer_ids, weight_id) = &terrain_draw_calls[i];
                 // Every lookup below already succeeded when `terrain_plan` was
@@ -7707,6 +7846,7 @@ impl WgpuSurface {
                 frame_objects_drawn += 1;
                 frame_triangles += (mesh.index_count / 3) as u64;
             }
+            pass.set_bind_group(2, &self.light_bind_group, &[]);
 
             for &i in &opaque {
                 let (mesh_id, _, tex_id, _, custom_path) = &draw_calls[i];
@@ -9636,10 +9776,18 @@ mod tests {
         };
         let limit = wgpu::Limits::default().max_sampled_textures_per_shader_stage as usize;
         let lighting = textures(&light_bgl_entries());
-        let terrain = lighting + textures(&terrain_texture_bgl_entries());
+        // The terrain's group 2 leaves the lightmap array out
+        // (`terrain_light_bgl_entries`): with it the terrain would bind one
+        // more than the limit allows.
+        let terrain =
+            textures(&terrain_light_bgl_entries()) + textures(&terrain_texture_bgl_entries());
         assert!(
             terrain <= limit,
             "the terrain pipeline binds {terrain} sampled textures; WebGPU allows {limit}"
+        );
+        assert!(
+            lighting + textures(&terrain_texture_bgl_entries()) > limit,
+            "premise: with the lightmap array the terrain WOULD be over the limit,              so the variant is what keeps it under -- if this fails the variant is              no longer needed and should go"
         );
         // Mesh, transparent and custom-shader pipelines: group 3 is one
         // texture and its sampler.
@@ -9980,6 +10128,7 @@ mod tests {
                     // its emissive and only its emissive.
                     base_color: Vec3::ZERO,
                     opacity: 1.0,
+                    lightmap: None,
                 },
                 None,
             )];
@@ -10019,6 +10168,7 @@ mod tests {
                     emissive,
                     base_color: Vec3::ZERO,
                     opacity: 1.0,
+                    lightmap: None,
                 },
                 None,
             ));
@@ -10129,6 +10279,10 @@ mod tests {
                     _pad2: 0.0,
                     base_color: mat.base_color.to_array(),
                     opacity: mat.opacity,
+                    // Zero would mean "layer 0" to the shader, not "none".
+                    lightmap_scale_offset: [1.0, 1.0, 0.0, 0.0],
+                    lightmap_layer: -1.0,
+                    _lightmap_pad: [0.0; 3],
                 };
                 self.surface.queue.write_buffer(
                     &self.surface.model_buffer,

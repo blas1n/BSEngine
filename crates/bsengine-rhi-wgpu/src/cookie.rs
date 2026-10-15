@@ -179,7 +179,7 @@ fn point_cookie(pl: PointLightEntry, world_pos: vec3<f32>) -> vec3<f32> {
 pub(crate) use cookie_wgsl;
 
 /// Draws one texture into one layer: a fullscreen triangle sampling it.
-const BLIT_WGSL: &str = r#"
+pub(crate) const BLIT_WGSL: &str = r#"
 @group(0) @binding(0) var src: texture_2d<f32>;
 @group(0) @binding(1) var src_sampler: sampler;
 

@@ -2458,6 +2458,7 @@ mod tests {
                 color: [1.0, 1.0, 1.0],
                 normal: [0.0, 1.0, 0.0],
                 uv: [0.0, 0.0],
+                uv2: [0.0, 0.0],
             }],
             skin: vec![VertexSkin {
                 joints: [3, 0, 0, 0],
@@ -2580,6 +2581,7 @@ mod tests {
             color: [1.0, 1.0, 1.0],
             normal: [0.0, 1.0, 0.0],
             uv: [0.0, 0.0],
+            uv2: [0.0, 0.0],
         }];
         let skin = vec![VertexSkin {
             joints: [0, 0, 0, 0],

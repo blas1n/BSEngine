@@ -164,6 +164,8 @@ pub fn grid(columns: u32, rows: u32, spacing: f32) -> Option<(Vec<Vertex>, Vec<u
                     column as f32 / (columns - 1) as f32,
                     row as f32 / (rows - 1) as f32,
                 ],
+                // Cloth is dynamic: nothing bakes it, so it has no lightmap UVs.
+                uv2: [0.0, 0.0],
             });
         }
     }

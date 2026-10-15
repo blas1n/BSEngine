@@ -79,6 +79,8 @@ pub fn load_thumbnail_mesh(path: &Path) -> Option<ThumbnailMesh> {
                 color: [1.0, 1.0, 1.0],
                 normal,
                 uv,
+                // A thumbnail never samples a lightmap.
+                uv2: [0.0, 0.0],
             })
             .collect();
 
@@ -310,7 +312,7 @@ pub fn render_thumbnail(
         push_constant_ranges: &[],
     });
     let vertex_buffer_layout = wgpu::VertexBufferLayout {
-        array_stride: 44,
+        array_stride: std::mem::size_of::<Vertex>() as u64,
         step_mode: wgpu::VertexStepMode::Vertex,
         attributes: &[
             wgpu::VertexAttribute {

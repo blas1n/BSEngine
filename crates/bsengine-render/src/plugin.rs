@@ -3114,6 +3114,7 @@ mod tests {
             color: [1.0, 1.0, 1.0],
             normal: [0.0, 0.0, 1.0],
             uv: [0.0, 0.0],
+            uv2: [0.0, 0.0],
         };
         let mesh_id = app.world_mut().resource_mut::<GpuMeshRegistry>().register(
             &[
@@ -3175,6 +3176,7 @@ mod tests {
             color: [1.0, 1.0, 1.0],
             normal: [0.0, 0.0, 1.0],
             uv: [0.0, 0.0],
+            uv2: [0.0, 0.0],
         };
         let mesh_id = app.world_mut().resource_mut::<GpuMeshRegistry>().register(
             &[
@@ -3253,18 +3255,21 @@ mod tests {
                         color: [1.0, 1.0, 1.0],
                         normal: [0.0, 1.0, 0.0],
                         uv: [0.0, 0.0],
+                        uv2: [0.0, 0.0],
                     },
                     Vertex {
                         position: [1.0, 0.0, 0.0],
                         color: [1.0, 1.0, 1.0],
                         normal: [0.0, 1.0, 0.0],
                         uv: [1.0, 0.0],
+                        uv2: [0.0, 0.0],
                     },
                     Vertex {
                         position: [0.0, 1.0, 0.0],
                         color: [1.0, 1.0, 1.0],
                         normal: [0.0, 1.0, 0.0],
                         uv: [0.0, 1.0],
+                        uv2: [0.0, 0.0],
                     },
                 ],
                 &[0, 1, 2],
@@ -3885,18 +3890,21 @@ mod tests {
                         color: [1.0, 1.0, 1.0],
                         normal: [0.0, 1.0, 0.0],
                         uv: [0.0, 0.0],
+                        uv2: [0.0, 0.0],
                     },
                     Vertex {
                         position: [1.0, 0.0, 0.0],
                         color: [1.0, 1.0, 1.0],
                         normal: [0.0, 1.0, 0.0],
                         uv: [1.0, 0.0],
+                        uv2: [0.0, 0.0],
                     },
                     Vertex {
                         position: [0.0, 1.0, 0.0],
                         color: [1.0, 1.0, 1.0],
                         normal: [0.0, 1.0, 0.0],
                         uv: [0.0, 1.0],
+                        uv2: [0.0, 0.0],
                     },
                 ],
                 &[0, 1, 2],

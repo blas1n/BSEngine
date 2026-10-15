@@ -32,6 +32,8 @@ pub mod gpu_particles;
 pub mod ibl;
 /// Grouping draw calls into instanced batches.
 pub mod instancing;
+/// Automatic lightmap UV unwrap (`Vertex::uv2`).
+pub mod lightmap_uv;
 /// GPU mesh generation and the mesh registry.
 pub mod mesh;
 /// Minimal glTF parsing + a small dedicated render pipeline for the Asset

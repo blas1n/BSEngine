@@ -457,18 +457,48 @@ impl GltfLoader {
                     }
                 };
 
+                // The lightmap UV set. Absent is `[0, 0]` for every vertex, not an
+                // error: most models are never baked, and a mesh that is baked
+                // without one is unwrapped later (`lightmap_uv::unwrap`) rather
+                // than here, where a skinned mesh's parallel arrays forbid it.
+                let uv2s: Option<Vec<[f32; 2]>> =
+                    reader.read_tex_coords(1).map(|t| t.into_f32().collect());
+
                 let vertices: Vec<Vertex> = positions
                     .into_iter()
                     .zip(colors)
                     .zip(normals)
                     .zip(uvs)
-                    .map(|(((position, color), normal), uv)| Vertex {
+                    .enumerate()
+                    .map(|(i, (((position, color), normal), uv))| Vertex {
                         position,
                         color,
                         normal,
                         uv,
+                        uv2: uv2s
+                            .as_ref()
+                            .and_then(|u| u.get(i).copied())
+                            .unwrap_or([0.0, 0.0]),
                     })
                     .collect();
+
+                // A static mesh that did not bring its own lightmap UVs gets
+                // them generated, as Unity, Godot and Unreal all do at import.
+                // Not a skinned or morphed one: the unwrap duplicates vertices
+                // on chart borders, and the skin weights and morph deltas are
+                // arrays parallel to the vertices -- it would leave them
+                // pointing at the wrong ones. Those keep `uv2 = [0, 0]`; a
+                // lightmap is for static geometry.
+                let (vertices, indices) =
+                    if uv2s.is_none() && skin.is_none() && morph_targets.is_empty() {
+                        bsengine_rhi_wgpu::lightmap_uv::unwrap(
+                            &vertices,
+                            &indices,
+                            &bsengine_rhi_wgpu::lightmap_uv::UnwrapSettings::default(),
+                        )
+                    } else {
+                        (vertices, indices)
+                    };
 
                 meshes.push(MeshData {
                     name: name.clone(),
@@ -590,6 +620,30 @@ fn gltf_pixels_to_rgba(pixels: &[u8], format: GltfFormat, width: u32, height: u3
     }
 }
 
+/// Standard base64, for the data-URI buffers the hand-written test fixtures
+/// carry (so they load from bytes or from a file alike).
+#[cfg(test)]
+pub(crate) fn base64(bytes: &[u8]) -> String {
+    const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for chunk in bytes.chunks(3) {
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
+        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(T[((n >> (18 - 6 * i)) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
 /// A self-contained glTF for morph-target tests: one triangle
 /// (0,0,0) (1,0,0) (0,1,0) with a single target named "smile" that moves
 /// vertex 0 by +1 Z and bends its normal by +1 Y, and a default weight of
@@ -607,26 +661,6 @@ pub(crate) fn morph_triangle_gltf() -> String {
 pub(crate) fn morph_triangle_gltf_with(animated: bool) -> String {
     fn f32s(values: &[f32]) -> Vec<u8> {
         values.iter().flat_map(|v| v.to_le_bytes()).collect()
-    }
-    fn base64(bytes: &[u8]) -> String {
-        const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        let mut out = String::new();
-        for chunk in bytes.chunks(3) {
-            let b = [
-                chunk[0],
-                *chunk.get(1).unwrap_or(&0),
-                *chunk.get(2).unwrap_or(&0),
-            ];
-            let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
-            for i in 0..4 {
-                if i <= chunk.len() {
-                    out.push(T[((n >> (18 - 6 * i)) & 63) as usize] as char);
-                } else {
-                    out.push('=');
-                }
-            }
-        }
-        out
     }
     let mut buffer = f32s(&[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
     buffer.extend(f32s(&[0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]));
@@ -685,6 +719,96 @@ mod tests {
     /// model, the normals not (a normal offset is a direction). A target
     /// the scale missed would stretch a smile on a centimetre model a
     /// hundredfold.
+    /// A hand-written one-triangle glTF with both UV sets, the second
+    /// distinct from the first -- and a second triangle-less variant with only
+    /// `TEXCOORD_0` -- so `uv2` must come from `TEXCOORD_1` and from nowhere
+    /// else (not a copy of `uv`, not zero when the set is present).
+    fn two_uv_sets_gltf(with_second_set: bool) -> String {
+        fn f32s(values: &[f32]) -> Vec<u8> {
+            values.iter().flat_map(|v| v.to_le_bytes()).collect()
+        }
+        let mut buffer = f32s(&[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
+        buffer.extend(f32s(&[0.0, 0.0, 1.0, 0.0, 0.0, 1.0]));
+        buffer.extend(f32s(&[0.1, 0.2, 0.3, 0.4, 0.5, 0.6]));
+        let second = if with_second_set {
+            ", \"TEXCOORD_1\": 2"
+        } else {
+            ""
+        };
+        format!(
+            r#"{{
+  "asset": {{"version": "2.0"}},
+  "scene": 0,
+  "scenes": [{{"nodes": [0]}}],
+  "nodes": [{{"mesh": 0}}],
+  "meshes": [{{"primitives": [{{"attributes": {{"POSITION": 0, "TEXCOORD_0": 1{second}}}}}]}}],
+  "buffers": [{{"byteLength": 84, "uri": "data:application/octet-stream;base64,{}"}}],
+  "bufferViews": [
+    {{"buffer": 0, "byteOffset": 0, "byteLength": 36}},
+    {{"buffer": 0, "byteOffset": 36, "byteLength": 24}},
+    {{"buffer": 0, "byteOffset": 60, "byteLength": 24}}
+  ],
+  "accessors": [
+    {{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3", "min": [0, 0, 0], "max": [1, 1, 0]}},
+    {{"bufferView": 1, "componentType": 5126, "count": 3, "type": "VEC2"}},
+    {{"bufferView": 2, "componentType": 5126, "count": 3, "type": "VEC2"}}
+  ]
+}}"#,
+            base64(&buffer)
+        )
+    }
+
+    #[test]
+    fn texcoord_1_loads_into_uv2_and_a_missing_set_is_zero() {
+        let load = |with: bool| {
+            GltfLoader::load_full_from_slice(
+                two_uv_sets_gltf(with).as_bytes(),
+                &ModelImportSettings::default(),
+            )
+            .expect("the fixture loads")
+        };
+        let with = load(true);
+        let v = &with.meshes[0].vertices;
+        assert_eq!(v.len(), 3);
+        // Premise: the two sets in the file really differ, so equality with
+        // the right one cannot be a copy of the other.
+        assert_ne!(v[1].uv, v[1].uv2);
+        assert_eq!(v[0].uv, [0.0, 0.0]);
+        assert_eq!(v[1].uv, [1.0, 0.0]);
+        assert_eq!(v[2].uv, [0.0, 1.0]);
+        assert_eq!(v[0].uv2, [0.1, 0.2]);
+        assert_eq!(v[1].uv2, [0.3, 0.4]);
+        assert_eq!(v[2].uv2, [0.5, 0.6]);
+
+        // Without TEXCOORD_1 a static mesh is unwrapped: the triangle keeps
+        // its positions and `uv`, and gets a valid, non-degenerate `uv2`.
+        let without = load(false);
+        let mesh = &without.meshes[0];
+        assert_eq!(mesh.indices.len(), 3);
+        assert_eq!(mesh.vertices[1].uv, [1.0, 0.0], "uv unaffected");
+        assert!(
+            bsengine_rhi_wgpu::lightmap_uv::uv2_is_valid(&mesh.vertices, &mesh.indices),
+            "the generated uv2 is a valid parameterisation"
+        );
+        assert_ne!(mesh.vertices[0].uv2, mesh.vertices[1].uv2, "not all zero");
+    }
+
+    /// A morphed mesh has deltas parallel to its vertices, so unwrapping it
+    /// (which duplicates vertices on chart borders) would misalign them: it
+    /// keeps its vertex count and a zero `uv2`.
+    #[test]
+    fn a_morphed_mesh_without_texcoord_1_is_not_unwrapped() {
+        let loaded = GltfLoader::load_full_from_slice(
+            morph_triangle_gltf().as_bytes(),
+            &ModelImportSettings::default(),
+        )
+        .expect("the fixture loads");
+        let mesh = &loaded.meshes[0];
+        assert!(!mesh.morph_targets.is_empty(), "premise: it is morphed");
+        assert_eq!(mesh.vertices.len(), mesh.morph_targets[0].positions.len());
+        assert!(mesh.vertices.iter().all(|v| v.uv2 == [0.0, 0.0]));
+    }
+
     #[test]
     fn morph_targets_load_with_their_names_weights_and_the_import_scale() {
         let json = morph_triangle_gltf();

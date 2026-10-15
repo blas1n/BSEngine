@@ -1745,8 +1745,11 @@ const _: () = assert!(
     std::mem::size_of::<LightUniformData>() as u64 == LIGHT_UNIFORM_SIZE,
     "LightUniformData must stay exactly LIGHT_UNIFORM_SIZE bytes"
 );
-// Vertex stride: position(12) + color(12) + normal(12) + uv(8) = 44 bytes
-const VERTEX_STRIDE: u64 = 44;
+// Vertex stride: position(12) + color(12) + normal(12) + uv(8) + uv2(8) = 52 bytes.
+// The attributes below read only the first 44: `uv2` (offset 44) gets a shader
+// location in the change that first samples a lightmap.
+const VERTEX_STRIDE: u64 = std::mem::size_of::<crate::mesh::Vertex>() as u64;
+const _: () = assert!(VERTEX_STRIDE == 52);
 /// Edge length of one directional shadow cascade, in texels.
 ///
 /// 1024 across [`crate::shadow::MAX_CASCADES`] layers is 4 x 1024 x 1024 x 4
@@ -9961,6 +9964,7 @@ mod tests {
                     color: [1.0, 1.0, 1.0],
                     normal: normal.to_array(),
                     uv: [0.0, 0.0],
+                    uv2: [0.0, 0.0],
                 })
                 .collect();
             let mesh_id = registry.register(&vertices, &[0, 1, 2, 0, 2, 3]);
@@ -10001,6 +10005,7 @@ mod tests {
                     color: [1.0, 1.0, 1.0],
                     normal: normal.to_array(),
                     uv: [0.0, 0.0],
+                    uv2: [0.0, 0.0],
                 })
                 .collect();
             let mesh_id = self.registry.register(&vertices, &[0, 1, 2, 0, 2, 3]);

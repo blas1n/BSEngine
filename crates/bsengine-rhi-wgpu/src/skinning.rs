@@ -27,7 +27,7 @@
 //!
 //! # Layout
 //!
-//! The rest vertices and the output share [`Vertex`]'s layout -- 11 floats,
+//! The rest vertices and the output share [`Vertex`]'s layout -- 13 floats,
 //! no padding -- and the shader addresses them as `array<f32>` by index
 //! rather than as a struct, because a `vec3<f32>` inside a storage-buffer
 //! struct is padded to 16 bytes in WGSL and the `Vertex` the render passes
@@ -71,13 +71,13 @@ impl MorphDeltas<'_> {
     };
 }
 
-/// Floats per [`Vertex`], which the shader hardcodes as `11u`: this is the
+/// Floats per [`Vertex`], which the shader hardcodes as `13u`: this is the
 /// check that keeps the two in step, since a `Vertex` that grew a field
 /// would otherwise skin every vertex out of the wrong floats with no error.
 const FLOATS_PER_VERTEX: u64 = (std::mem::size_of::<Vertex>() / 4) as u64;
 const _: () = assert!(
-    FLOATS_PER_VERTEX == 11,
-    "the compute skinning shader hardcodes 11 floats per Vertex"
+    FLOATS_PER_VERTEX == 13,
+    "the compute skinning shader hardcodes 13 floats per Vertex"
 );
 /// Threads per workgroup, matching `@workgroup_size` in the shader.
 const WORKGROUP: u32 = 64;
@@ -122,11 +122,11 @@ struct Params {
 @group(0) @binding(4) var<uniform> params: Params;
 // Morph target deltas live at the end of `rest`, after the V rest vertices:
 // six floats per vertex per target -- position xyz then normal xyz --
-// target-major, so target t's vertex i starts at V * 11 + (t * V + i) * 6.
+// target-major, so target t's vertex i starts at V * 13 + (t * V + i) * 6.
 // In `rest` rather than a buffer of their own because this pass already uses
 // the four storage buffers per stage the WebGPU baseline guarantees.
 
-const FLOATS_PER_VERTEX: u32 = 11u;
+const FLOATS_PER_VERTEX: u32 = 13u;
 
 @compute @workgroup_size(64, 1, 1)
 fn cs_skin(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -187,6 +187,8 @@ fn cs_skin(@builtin(global_invocation_id) gid: vec3<u32>) {
     out[base + 8u] = nrm.z;
     out[base + 9u] = rest[base + 9u];
     out[base + 10u] = rest[base + 10u];
+    out[base + 11u] = rest[base + 11u];
+    out[base + 12u] = rest[base + 12u];
 }
 "#;
 
@@ -712,6 +714,9 @@ mod tests {
             color: [0.25, 0.5, 0.75],
             normal,
             uv: [0.125, 0.875],
+            // Nonzero and unlike `uv`, so a pass that copies the wrong
+            // floats (or drops these two) cannot read as correct.
+            uv2: [0.3125, 0.6875],
         }
     }
 
@@ -780,6 +785,7 @@ mod tests {
         for v in &out {
             assert_eq!(v.color, [0.25, 0.5, 0.75], "colour passes through");
             assert_eq!(v.uv, [0.125, 0.875], "uv passes through");
+            assert_eq!(v.uv2, [0.3125, 0.6875], "uv2 passes through");
         }
     }
 

@@ -58,7 +58,7 @@ impl World<'_> {
         let samples = self.settings.samples.max(1);
         let mut sum = Vec3::ZERO;
         for _ in 0..samples {
-            let dir = cosine_hemisphere(n, rng.next(), rng.next());
+            let dir = cosine_hemisphere(n, rng.next_f32(), rng.next_f32());
             sum += self.incoming(origin, dir, 1, rng);
         }
         let mut result = sum / samples as f32;
@@ -96,7 +96,7 @@ impl World<'_> {
         }
         let mut reflected = e_direct / PI;
         if depth < self.settings.bounces {
-            let next = cosine_hemisphere(ng, rng.next(), rng.next());
+            let next = cosine_hemisphere(ng, rng.next_f32(), rng.next_f32());
             reflected += self.incoming(y, next, depth + 1, rng);
         }
         tri.emissive + tri.albedo * reflected

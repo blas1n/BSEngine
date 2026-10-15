@@ -185,8 +185,8 @@ pub(crate) fn irradiance(light: &BakeLight, p: Vec3, n: Vec3, bvh: &Bvh, rng: &m
             let mut sum = 0.0;
             for i in 0..RECT_SAMPLES {
                 for j in 0..RECT_SAMPLES {
-                    let u = (i as f32 + rng.next()) / RECT_SAMPLES as f32 * 2.0 - 1.0;
-                    let v = (j as f32 + rng.next()) / RECT_SAMPLES as f32 * 2.0 - 1.0;
+                    let u = (i as f32 + rng.next_f32()) / RECT_SAMPLES as f32 * 2.0 - 1.0;
+                    let v = (j as f32 + rng.next_f32()) / RECT_SAMPLES as f32 * 2.0 - 1.0;
                     let q = position + half_width * u + half_height * v;
                     let to = q - p;
                     let r2 = to.length_squared();

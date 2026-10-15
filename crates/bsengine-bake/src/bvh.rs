@@ -289,9 +289,10 @@ mod tests {
     fn random_tris(n: usize, rng: &mut Rng) -> Vec<Tri> {
         (0..n)
             .map(|_| {
-                let c = Vec3::new(rng.next(), rng.next(), rng.next()) * 20.0 - 10.0;
-                let corner =
-                    |rng: &mut Rng| c + Vec3::new(rng.next(), rng.next(), rng.next()) * 2.0 - 1.0;
+                let c = Vec3::new(rng.next_f32(), rng.next_f32(), rng.next_f32()) * 20.0 - 10.0;
+                let corner = |rng: &mut Rng| {
+                    c + Vec3::new(rng.next_f32(), rng.next_f32(), rng.next_f32()) * 2.0 - 1.0
+                };
                 [corner(rng), corner(rng), corner(rng)]
             })
             .collect()
@@ -309,8 +310,9 @@ mod tests {
         assert!(bvh.nodes.len() > 1, "premise: the tree actually split");
         let mut hits = 0;
         for _ in 0..1000 {
-            let origin = Vec3::new(rng.next(), rng.next(), rng.next()) * 30.0 - 15.0;
-            let dir = (Vec3::new(rng.next(), rng.next(), rng.next()) * 2.0 - 1.0).normalize();
+            let origin = Vec3::new(rng.next_f32(), rng.next_f32(), rng.next_f32()) * 30.0 - 15.0;
+            let dir =
+                (Vec3::new(rng.next_f32(), rng.next_f32(), rng.next_f32()) * 2.0 - 1.0).normalize();
             let brute = tris
                 .iter()
                 .enumerate()

@@ -532,8 +532,12 @@ pub fn capsule_vertices() -> (Vec<Vertex>, Vec<u32>) {
         );
     }
 
+    // `2 * CAP_STACKS + 2` rings were pushed above (both hemispheres, equator
+    // to equator inclusive), so there are one fewer rows of quads between them.
+    // Looping over the ring count itself read a ring past the end of the vertex
+    // buffer: 24 indices out of range on the last row.
     let total_rings = 2 * CAP_STACKS + 2;
-    for i in 0..total_rings {
+    for i in 0..total_rings - 1 {
         for j in 0..SLICES {
             let a = i * row + j;
             let b = a + row;
@@ -553,6 +557,33 @@ mod tests {
     /// `uv2` last keeps offsets 0..44 and shader locations 0..=3 what they
     /// were, so a custom shader written before lightmaps still reads the
     /// right bytes.
+    /// Every primitive's indices point at vertices that exist, and every
+    /// vertex is used. The capsule once indexed 24 vertices past its own
+    /// buffer (a ring count used as a row count), which a GPU reads as zeros
+    /// or clamps rather than failing, so nothing noticed.
+    #[test]
+    fn every_primitive_indexes_only_its_own_vertices_and_uses_all_of_them() {
+        let primitives = [
+            ("triangle", triangle_vertices()),
+            ("cube", cube_vertices()),
+            ("sphere", sphere_vertices()),
+            ("plane", plane_vertices()),
+            ("cylinder", cylinder_vertices()),
+            ("capsule", capsule_vertices()),
+        ];
+        for (name, (vertices, indices)) in primitives {
+            assert_eq!(indices.len() % 3, 0, "{name}: whole triangles");
+            let max = *indices.iter().max().expect("has indices") as usize;
+            assert!(max < vertices.len(), "{name}: index {max} of {}", vertices.len());
+            let mut used = vec![false; vertices.len()];
+            for &i in &indices {
+                used[i as usize] = true;
+            }
+            let unused = used.iter().filter(|u| !**u).count();
+            assert_eq!(unused, 0, "{name}: {unused} vertices no triangle uses");
+        }
+    }
+
     #[test]
     fn vertex_is_52_bytes_with_uv2_last() {
         assert_eq!(std::mem::size_of::<Vertex>(), 52);

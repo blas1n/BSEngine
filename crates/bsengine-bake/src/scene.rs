@@ -261,26 +261,63 @@ mod tests {
     }
 
     /// The point light's falloff is the shader's `(1 - d/range)^2`, not an
-    /// inverse square: at half the range a quarter of the intensity, facing it.
+    /// inverse square. At distance 1 of range 4 the two differ (0.5625 against
+    /// 1): a first version measured at distance 2, where both are 0.25, and
+    /// an inverse-square mutation passed it.
     #[test]
     fn a_point_light_falls_off_as_the_shader_does() {
         let light = BakeLight::Point {
-            position: Vec3::new(0.0, 2.0, 0.0),
+            position: Vec3::new(0.0, 1.0, 0.0),
             color: Vec3::ONE,
             intensity: 3.0,
             range: 4.0,
             contribution: Contribution::Indirect,
         };
         let e = irradiance(&light, Vec3::ZERO, Vec3::Y, &nothing(), &mut Rng::new(0));
-        assert!((e.x - 3.0 * 0.25).abs() < 1e-5, "{e}");
+        assert!((e.x - 3.0 * 0.5625).abs() < 1e-5, "{e}");
         let beyond = irradiance(
             &light,
-            Vec3::new(0.0, -3.0, 0.0),
+            Vec3::new(0.0, -4.0, 0.0),
             Vec3::Y,
             &nothing(),
             &mut Rng::new(0),
         );
         assert_eq!(beyond, Vec3::ZERO, "past the range, nothing");
+    }
+
+    /// A spot light lights its axis fully, nothing outside its outer cone,
+    /// and blends between the two with the shader's smoothstep.
+    #[test]
+    fn a_spot_light_lights_inside_its_cone_only() {
+        let light = BakeLight::Spot {
+            position: Vec3::new(0.0, 1.0, 0.0),
+            direction: Vec3::NEG_Y,
+            color: Vec3::ONE,
+            intensity: 2.0,
+            range: 4.0,
+            inner_cos: 20f32.to_radians().cos(),
+            outer_cos: 30f32.to_radians().cos(),
+            contribution: Contribution::Indirect,
+        };
+        let e = |x: f32| {
+            irradiance(
+                &light,
+                Vec3::new(x, 0.0, 0.0),
+                Vec3::Y,
+                &nothing(),
+                &mut Rng::new(0),
+            )
+        };
+        let axis = e(0.0);
+        assert!((axis.x - 2.0 * 0.5625).abs() < 1e-5, "on the axis: {axis}");
+        // tan(40 deg) ~= 0.84: well outside the 30-degree cone.
+        assert_eq!(e(0.84), Vec3::ZERO, "outside the cone");
+        // tan(25 deg) ~= 0.466: between inner and outer, partly lit.
+        let rim = e(0.466);
+        assert!(
+            rim.x > 0.0 && rim.x < axis.x * 0.9,
+            "the rim blends: {rim} vs {axis}"
+        );
     }
 
     /// Closed form: a small square panel of side `s` straight above a patch

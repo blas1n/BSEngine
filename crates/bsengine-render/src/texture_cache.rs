@@ -380,6 +380,24 @@ fn camera_eye(
     Some((pos, (cam.fov_y_degrees.to_radians() * 0.5).tan()))
 }
 
+/// What a draw is lit from, given its `Lightmap` component and the cache.
+///
+/// `None` for no component, an unset path, and a path whose texture has not
+/// finished uploading -- the last on purpose: a lightmap that is still loading
+/// (or never will) shades the entity as it shaded before it had one, rather
+/// than leaving it dark until the file arrives.
+pub(crate) fn lightmap_params(
+    lightmap: Option<&bsengine_core::Lightmap>,
+    cache: Option<&TextureCache>,
+) -> Option<bsengine_rhi_wgpu::LightmapParams> {
+    let lightmap = lightmap.filter(|l| l.is_set())?;
+    let texture_id = cache?.id_for(&lightmap.texture_path)?;
+    Some(bsengine_rhi_wgpu::LightmapParams {
+        texture_id,
+        scale_offset: lightmap.scale_offset,
+    })
+}
+
 /// Requests, polls and uploads the textures entities are waiting for, then
 /// writes the resulting id onto their `Material`.
 ///
@@ -1277,6 +1295,62 @@ mod tests {
             ..Default::default()
         };
         assert!(uploaded_for(decal, OTHER));
+    }
+
+    /// A lightmap's atlas reaches the GPU on the component's say-so alone:
+    /// the frame looks it up by path, so something must request it.
+    #[test]
+    fn a_lightmaps_texture_is_uploaded() {
+        assert!(uploaded_for(
+            bsengine_core::Lightmap::new(REAL_TEXTURE),
+            REAL_TEXTURE
+        ));
+    }
+
+    /// What reaches the draw call: the uploaded texture's id and the
+    /// component's rectangle -- and nothing for any of the ways a lightmap is
+    /// not usable yet, so the entity keeps shading as it did.
+    #[test]
+    fn a_draw_gets_its_lightmap_only_once_the_texture_is_on_the_gpu() {
+        let mut app = test_app();
+        let lightmap = bsengine_core::Lightmap {
+            texture_path: REAL_TEXTURE.into(),
+            scale_offset: [0.25, 0.5, 0.125, 0.75],
+        };
+        let params = |app: &bevy_app::App, l: Option<&bsengine_core::Lightmap>| {
+            lightmap_params(l, app.world().get_resource::<TextureCache>())
+        };
+
+        assert_eq!(params(&app, None), None, "no component, no lightmap");
+        assert_eq!(
+            params(&app, Some(&bsengine_core::Lightmap::default())),
+            None,
+            "an unset path names nothing"
+        );
+        assert_eq!(
+            params(&app, Some(&lightmap)),
+            None,
+            "premise: before the upload the path has no id"
+        );
+        assert_eq!(lightmap_params(Some(&lightmap), None), None, "no cache");
+
+        app.world_mut().spawn(lightmap.clone());
+        for _ in 0..60 {
+            app.update();
+        }
+        let id = app
+            .world()
+            .resource::<TextureCache>()
+            .id_for(REAL_TEXTURE)
+            .expect("the lightmap's texture was uploaded");
+        assert_eq!(
+            params(&app, Some(&lightmap)),
+            Some(bsengine_rhi_wgpu::LightmapParams {
+                texture_id: id,
+                scale_offset: [0.25, 0.5, 0.125, 0.75],
+            }),
+            "the draw carries the texture's id and the component's rectangle"
+        );
     }
 
     #[test]

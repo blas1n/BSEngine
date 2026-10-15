@@ -1159,18 +1159,10 @@ fn render_frame(
                     lightmap: None,
                 })
                 .unwrap_or_default();
-            // The baked lightmap, once its texture is on the GPU. A path that
-            // has not finished uploading (or never will) is no lightmap, so
-            // the entity shades as it did before it had one rather than
-            // waiting dark.
-            mat_params.lightmap = lightmap.filter(|l| l.is_set()).and_then(|l| {
-                cache_for_lightmaps
-                    .and_then(|c| c.id_for(&l.texture_path))
-                    .map(|texture_id| bsengine_rhi_wgpu::LightmapParams {
-                        texture_id,
-                        scale_offset: l.scale_offset,
-                    })
-            });
+            // The baked lightmap, once its texture is on the GPU; see
+            // `lightmap_params` for the cases that mean none.
+            mat_params.lightmap =
+                crate::texture_cache::lightmap_params(lightmap, cache_for_lightmaps);
             // First seen this frame: it has not moved yet.
             let prev_model = prev_by_entity.get(&entity).copied().unwrap_or(model);
             (

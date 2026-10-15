@@ -25,6 +25,15 @@ pub struct Vertex {
     pub uv2: [f32; 2],
 }
 
+/// The built-in primitives carry lightmap UVs like any imported static mesh:
+/// a scene that bakes its floor (a plane) or its crates (cubes) should not
+/// need a model file for it. Unwrapping splits vertices on chart borders, so
+/// the vertex counts below are what the unwrap produced, not the hand-written
+/// grids; the triangles are unchanged.
+fn with_lightmap_uvs(vertices: Vec<Vertex>, indices: Vec<u32>) -> (Vec<Vertex>, Vec<u32>) {
+    crate::lightmap_uv::unwrap(&vertices, &indices, &Default::default())
+}
+
 /// Computes a bounding sphere (center, radius) in local mesh space.
 pub fn compute_bounding_sphere(vertices: &[Vertex]) -> (Vec3, f32) {
     if vertices.is_empty() {
@@ -271,7 +280,7 @@ pub fn triangle_vertices() -> (Vec<Vertex>, Vec<u32>) {
         },
     ];
     let indices = vec![0, 1, 2];
-    (vertices, indices)
+    with_lightmap_uvs(vertices, indices)
 }
 
 /// Vertices/indices for a unit cube, with one distinctly colored face per axis
@@ -324,7 +333,7 @@ pub fn cube_vertices() -> (Vec<Vertex>, Vec<u32>) {
             [b, b + 1, b + 2, b, b + 2, b + 3]
         })
         .collect();
-    (vertices, indices)
+    with_lightmap_uvs(vertices, indices)
 }
 
 /// Vertices/indices for a UV sphere of unit diameter, built as a stack/slice grid.
@@ -363,7 +372,7 @@ pub fn sphere_vertices() -> (Vec<Vertex>, Vec<u32>) {
         }
     }
 
-    (verts, idx)
+    with_lightmap_uvs(verts, idx)
 }
 
 /// Vertices/indices for a flat unit-sized quad in the XZ plane, facing +Y.
@@ -399,7 +408,7 @@ pub fn plane_vertices() -> (Vec<Vertex>, Vec<u32>) {
         },
     ];
     let idx = vec![0, 2, 1, 0, 3, 2];
-    (verts, idx)
+    with_lightmap_uvs(verts, idx)
 }
 
 /// A closed cylinder, Y-axis aligned, sized to match [`capsule_vertices`] so
@@ -474,7 +483,7 @@ pub fn cylinder_vertices() -> (Vec<Vertex>, Vec<u32>) {
         }
     }
 
-    (verts, idx)
+    with_lightmap_uvs(verts, idx)
 }
 
 /// Vertices/indices for a capsule: a cylindrical body capped with two
@@ -545,7 +554,7 @@ pub fn capsule_vertices() -> (Vec<Vertex>, Vec<u32>) {
         }
     }
 
-    (verts, idx)
+    with_lightmap_uvs(verts, idx)
 }
 
 #[cfg(test)]

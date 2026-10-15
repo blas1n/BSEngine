@@ -394,7 +394,7 @@ fn mcp_save_load_scene_round_trip_preserves_camera_primitive_script_and_lights()
         .to_string_lossy()
         .to_string();
 
-    // Save: a camera, a primitive+scripted cube, a point light, and a spot light.
+    // Save: a camera, a primitive+scripted cube, a point light, a sun and a spot light.
     {
         let mut app = new_app();
         app.add_plugins(McpPlugin);
@@ -463,7 +463,7 @@ fn mcp_save_load_scene_round_trip_preserves_camera_primitive_script_and_lights()
             .execute("save_scene", json!({"path": path}))
             .unwrap();
         assert!(r.is_ok(), "{:?}", r.error);
-        assert_eq!(r.content["entity_count"], 4);
+        assert_eq!(r.content["entity_count"], 5, "camera, crate, lamp, sun, spot");
     }
 
     // Load in a fresh app and verify every component round-tripped.

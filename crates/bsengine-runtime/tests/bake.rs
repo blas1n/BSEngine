@@ -32,6 +32,11 @@ impl Probe {
     /// ball beside them that is not; an overcast sky (the sun's ambient) and
     /// a sun. `extra` is appended to the entity list.
     fn create(extra: &str) -> Self {
+        Self::create_with("Indirect", extra)
+    }
+
+    /// [`Self::create`] with the sun's `bake_mode`.
+    fn create_with(sun_mode: &str, extra: &str) -> Self {
         static N: AtomicU32 = AtomicU32::new(0);
         let dir = std::env::temp_dir().join(format!(
             "bsengine-bake-cli-{}-{}",
@@ -48,7 +53,7 @@ impl Probe {
             &format!(
                 r#"SceneDescriptor(entities: [
     EntityDescriptor(name: "Camera", camera: true, transform: Some((position: (0.0, 6.0, 10.0))), look_at: Some((0.0, 0.0, 0.0))),
-    EntityDescriptor(name: "Sun", directional_light: Some((direction: (-0.3, -1.0, -0.2), color: (1.0, 1.0, 1.0), ambient: (0.5, 0.5, 0.5)))),
+    EntityDescriptor(name: "Sun", directional_light: Some((direction: (-0.3, -1.0, -0.2), color: (1.0, 1.0, 1.0), ambient: (0.5, 0.5, 0.5), bake_mode: {sun_mode}))),
     EntityDescriptor(name: "Floor", primitive: Some(Plane), transform: Some((position: (0.0, 0.0, 0.0), scale: (8.0, 1.0, 8.0))), {STATIC}),
     EntityDescriptor(name: "Crate", primitive: Some(Cube), transform: Some((position: (0.0, 0.5, 0.0))), {STATIC}),
     EntityDescriptor(name: "Ball", primitive: Some(Sphere), transform: Some((position: (3.0, 0.5, 0.0)))),
@@ -174,4 +179,38 @@ fn duplicate_static_names_are_refused() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("Crate"), "the message names it: {stderr}");
     assert!(!probe.0.join("assets/scenes/main.lightmaps").exists());
+}
+
+/// A `Baked` sun's direct light is in the lightmap, an `Indirect` one's is
+/// not: on the open floor the first stores the sky plus the sun's E / pi, the
+/// second the sky alone (0.5, the ambient). The sun's cosine on the floor is
+/// 1 / |(-0.3, -1, -0.2)| ~= 0.94, so the difference is about 0.94 / pi.
+#[test]
+fn a_baked_suns_direct_light_is_in_the_lightmap() {
+    let open_floor = |probe: &Probe| {
+        let out = probe.bake();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let data = probe.data();
+        let floor = data.entries.iter().find(|e| e.entity == "Floor").unwrap();
+        let img = image::open(probe.0.join(&floor.texture))
+            .unwrap()
+            .to_rgba8();
+        let [sx, sy, ox, oy] = floor.scale_offset;
+        texel(&img, ox + 0.06 * sx, oy + 0.06 * sy)
+    };
+    let indirect = open_floor(&Probe::create_with("Indirect", ""));
+    let baked = open_floor(&Probe::create_with("Baked", ""));
+    assert!(
+        (indirect - 0.5).abs() < 0.05,
+        "premise: the sky alone: {indirect}"
+    );
+    let sun = 1.0 / (0.3f32 * 0.3 + 1.0 + 0.2 * 0.2).sqrt() / std::f32::consts::PI;
+    assert!(
+        (baked - indirect - sun).abs() < 0.05,
+        "the baked sun adds its E / pi ({sun}): {baked} vs {indirect}"
+    );
 }

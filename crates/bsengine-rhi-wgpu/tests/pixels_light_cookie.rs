@@ -42,6 +42,7 @@ fn wall(cube: u64) -> Draw {
 /// entry from a transform.
 fn spot(position: Vec3, rotation: Quat, outer_degrees: f32, cookie: Option<u64>) -> SpotLightEntry {
     SpotLightEntry {
+        baked: false,
         position,
         direction: rotation * Vec3::NEG_Z,
         right: rotation * Vec3::X,
@@ -480,6 +481,7 @@ fn a_missing_cookie_texture_leaves_a_plain_cone() {
 /// `rotation`, with `cookie` wrapped around it.
 fn point_lamp(rotation: Quat, cookie: Option<u64>) -> bsengine_rhi_wgpu::surface::PointLightEntry {
     bsengine_rhi_wgpu::surface::PointLightEntry {
+        baked: false,
         position: Vec3::ZERO,
         color: Vec3::ONE,
         intensity: 3.0,

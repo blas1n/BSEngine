@@ -473,6 +473,7 @@ fn an_occluder_between_a_point_light_and_the_volume_darkens_the_fog() {
 /// most of the centre ray -- with the slab between it and the near half.
 fn spot_lamp(cookie: Option<u64>) -> bsengine_rhi_wgpu::SpotLightEntry {
     bsengine_rhi_wgpu::SpotLightEntry {
+        baked: false,
         position: LAMP.position,
         direction: Vec3::NEG_Y,
         right: Vec3::X,
@@ -559,6 +560,7 @@ fn cookied_point_scene(cube: u64, cookie: u64) -> Scene {
             direction: SUN,
             color: Vec3::ZERO,
             point_entries: vec![bsengine_rhi_wgpu::surface::PointLightEntry {
+                baked: false,
                 position: LAMP.position,
                 color: LAMP.color,
                 intensity: LAMP.intensity,
@@ -631,6 +633,7 @@ fn rect_lamp(
 ) -> bsengine_rhi_wgpu::area_light::RectLightEntry {
     let depth = if facing_up { 2.0 } else { -2.0 };
     bsengine_rhi_wgpu::area_light::RectLightEntry {
+        baked: false,
         position: LAMP.position,
         half_width: Vec3::new(width / 2.0, 0.0, 0.0),
         half_height: Vec3::new(0.0, 0.0, depth),

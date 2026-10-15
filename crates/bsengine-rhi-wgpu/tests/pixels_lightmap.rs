@@ -290,3 +290,100 @@ fn a_lightmap_that_has_not_loaded_is_no_lightmap() {
         "an id the registry does not hold changes nothing"
     );
 }
+
+/// The four light kinds a scene can bake.
+#[derive(Clone, Copy, Debug)]
+enum Kind {
+    Sun,
+    Point,
+    Spot,
+    Rect,
+}
+
+/// One light of `kind` in front of the quad, shining at it, flagged `baked`
+/// or not, on a scene with no ambient.
+fn lit_by(kind: Kind, baked: bool, draws: Vec<Draw>) -> Scene {
+    let mut scene = scene(draws, Vec3::ZERO);
+    let ahead = Vec3::new(0.0, 0.0, 2.0);
+    match kind {
+        Kind::Sun => {
+            scene.light.direction = Vec3::NEG_Z;
+            scene.light.color = Vec3::ONE;
+            scene.light.sun_baked = baked;
+        }
+        Kind::Point => scene
+            .light
+            .point_entries
+            .push(bsengine_rhi_wgpu::PointLightEntry {
+                position: ahead,
+                color: Vec3::ONE,
+                intensity: 3.0,
+                range: 10.0,
+                rotation: glam::Quat::IDENTITY,
+                cookie: None,
+                baked,
+            }),
+        Kind::Spot => scene.light.spots.push(bsengine_rhi_wgpu::SpotLightEntry {
+            position: ahead,
+            direction: Vec3::NEG_Z,
+            right: Vec3::X,
+            color: Vec3::ONE,
+            intensity: 3.0,
+            range: 10.0,
+            inner_angle: 40f32.to_radians(),
+            outer_angle: 45f32.to_radians(),
+            cookie: None,
+            cookie_is_profile: false,
+            shadows: false,
+            baked,
+        }),
+        // half_width x half_height = X x Y = +Z, so it shines out of -Z: at
+        // the quad.
+        Kind::Rect => scene
+            .light
+            .rects
+            .push(bsengine_rhi_wgpu::area_light::RectLightEntry {
+                position: ahead,
+                half_width: Vec3::X * 0.5,
+                half_height: Vec3::Y * 0.5,
+                color: Vec3::ONE,
+                intensity: 4.0,
+                range: 10.0,
+                shadows: false,
+                baked,
+            }),
+    }
+    scene
+}
+
+/// `full` mode at run time: a lightmapped surface skips every light whose
+/// direct light is baked -- its lightmap already holds it -- while a surface
+/// without a lightmap is still lit by that light, and a lightmapped one is
+/// still lit by a light whose direct light is not baked. For each kind, as
+/// each has its own flag and its own loop in the shader. The lightmap here is
+/// black, so a lightmapped quad that skipped the light is black.
+#[test]
+fn a_lightmapped_surface_skips_baked_lights_and_only_those() {
+    let mut h = Harness::new();
+    let mesh = quad(&mut h);
+    let black = atlas(&mut h, [0.0; 3], [0.0; 3]);
+    for kind in [Kind::Sun, Kind::Point, Kind::Spot, Kind::Rect] {
+        let plain = white_quad(mesh);
+        let baked_map = || white_quad(mesh).lightmapped(black, [1.0, 1.0, 0.0, 0.0]);
+        let unmapped = rgb(&h.render(&lit_by(kind, true, vec![plain])), CX, CY)[0];
+        let realtime = rgb(&h.render(&lit_by(kind, false, vec![baked_map()])), CX, CY)[0];
+        let skipped = rgb(&h.render(&lit_by(kind, true, vec![baked_map()])), CX, CY)[0];
+        assert!(
+            unmapped > 40,
+            "{kind:?}: premise -- the light lights a surface with no lightmap: {unmapped}"
+        );
+        assert!(
+            realtime > 40,
+            "{kind:?}: a lightmapped surface is still lit by a light that is not baked: {realtime}"
+        );
+        assert!(
+            skipped < 8,
+            "{kind:?}: a lightmapped surface skips a baked light: {skipped}"
+        );
+    }
+}

@@ -43,6 +43,13 @@ fn sphere_visible_in_frustum(view_proj: Mat4, world_center: Vec3, world_radius: 
     true
 }
 
+/// Whether a light's direct light is in the lightmaps, so that lightmapped
+/// draws skip it (`LightBakeMode::Baked`). The one place the four light kinds
+/// ask, so they cannot disagree about which mode that is.
+fn bakes_direct(mode: bsengine_core::LightBakeMode) -> bool {
+    mode == bsengine_core::LightBakeMode::Baked
+}
+
 /// A rect light at its world position and orientation. Rotation only: the
 /// panel's size is `width` and `height`, and a scaled parent would otherwise
 /// stretch it a second time.
@@ -65,6 +72,7 @@ fn rect_light_entry(
         intensity: rl.intensity,
         range: rl.range,
         shadows: rl.shadows,
+        baked: bakes_direct(rl.bake_mode),
     }
 }
 
@@ -122,6 +130,7 @@ fn point_light_entry(
         cookie: (!pl.cookie.is_empty())
             .then(|| textures?.id_for(&pl.cookie))
             .flatten(),
+        baked: bakes_direct(pl.bake_mode),
     }
 }
 
@@ -158,6 +167,7 @@ fn spot_light_entry(
             .flatten(),
         // An `.ies` cookie is a profile, read by direction (`bsengine_asset::ies`).
         cookie_is_profile: bsengine_asset::ies::is_profile_path(&sl.cookie),
+        baked: bakes_direct(sl.bake_mode),
     }
 }
 
@@ -1242,6 +1252,7 @@ fn render_frame(
             point_lights: collected_point_lights,
             spot_lights: collected_spot_lights,
             rect_lights: collected_rect_lights,
+            sun_baked: bakes_direct(l.bake_mode),
         }
     } else {
         LightData {
@@ -2941,6 +2952,47 @@ mod tests {
     /// A point light's cookie path becomes the texture cache's id, and its
     /// rotation is the world one -- the `GlobalTransform`'s, where the local
     /// `Transform` says something else on purpose.
+    /// Each light kind's entry says it is baked exactly when its mode is
+    /// `Baked`: an `Indirect` light (the default) is drawn on lightmapped
+    /// surfaces, a `Realtime` one too. The pixel tests drive the surface with
+    /// entries made by hand, so without this nothing checks that a component's
+    /// mode reaches them.
+    #[test]
+    fn a_lights_entry_is_baked_exactly_when_its_mode_is_baked() {
+        use bsengine_core::LightBakeMode::{Baked, Indirect, Realtime};
+        let t = Transform::default();
+        for (mode, want) in [(Baked, true), (Indirect, false), (Realtime, false)] {
+            let pl = bsengine_core::PointLight {
+                bake_mode: mode,
+                ..Default::default()
+            };
+            assert_eq!(
+                super::point_light_entry(&pl, None, &t, None).baked,
+                want,
+                "point {mode:?}"
+            );
+            let sl = bsengine_core::SpotLight {
+                bake_mode: mode,
+                ..Default::default()
+            };
+            assert_eq!(
+                super::spot_light_entry(&sl, None, &t, None).baked,
+                want,
+                "spot {mode:?}"
+            );
+            let rl = bsengine_core::RectLight {
+                bake_mode: mode,
+                ..Default::default()
+            };
+            assert_eq!(
+                super::rect_light_entry(&rl, None, &t).baked,
+                want,
+                "rect {mode:?}"
+            );
+            assert_eq!(super::bakes_direct(mode), want, "sun {mode:?}");
+        }
+    }
+
     #[test]
     fn point_light_entry_carries_the_cookie_id_and_the_world_rotation() {
         use bsengine_core::PointLight;

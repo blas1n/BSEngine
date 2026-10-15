@@ -42,6 +42,7 @@ fn spot_at(position: Vec3, target: Vec3, outer_degrees: f32) -> SpotLightEntry {
     let direction = (target - position).normalize();
     let rotation = Quat::from_rotation_arc(Vec3::NEG_Z, direction);
     SpotLightEntry {
+        baked: false,
         position,
         direction,
         right: rotation * Vec3::X,
@@ -471,6 +472,7 @@ fn a_rect_lights_shadow_map_leaves_the_spot_lights_alone() {
             // Far off to the side, facing away from the floor in view: it
             // lights nothing here, but draws its map.
             rects: vec![bsengine_rhi_wgpu::area_light::RectLightEntry {
+                baked: false,
                 position: Vec3::new(30.0, 2.0, 0.0),
                 half_width: Vec3::new(0.0, 0.0, 0.5),
                 half_height: Vec3::new(0.0, 0.5, 0.0),

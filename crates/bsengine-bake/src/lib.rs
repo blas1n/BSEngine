@@ -1,0 +1,463 @@
+//! Offline lightmap baking.
+//!
+//! Given a scene's static triangles, its lights and its sky, a
+//! [`LightmapBaker`] packs one rectangle per renderer into atlas layers and
+//! fills every texel with the light it receives. The result is the input
+//! `bsengine_rhi_wgpu::lightmap` reads: `E / PI` per texel, to be stored RGBM
+//! ([`encode_rgbm`]), with each renderer's `scale_offset`.
+//!
+//! The trait exists because there is more than one way to compute the same
+//! texels: [`CpuBaker`] here (deterministic, runs anywhere, including a
+//! headless CI with no GPU, and the reference the others are checked against),
+//! and a GPU compute backend later. Front ends pick one per platform.
+
+pub mod bvh;
+pub mod pack;
+pub mod sample;
+pub mod scene;
+pub mod trace;
+
+pub use pack::{Packing, Placement};
+pub use scene::{BakeLight, BakeTriangle, Contribution, Sky};
+pub use trace::TraceSettings;
+
+use bvh::Bvh;
+use glam::{Vec2, Vec3};
+use rayon::prelude::*;
+use sample::Rng;
+
+/// What one renderer asks of the bake, besides its triangles.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RendererInfo {
+    /// Multiplies its texel density (`LightmapStatic::resolution_scale`).
+    pub resolution_scale: f32,
+}
+
+/// Everything a bake reads.
+pub struct BakeInput<'a> {
+    /// Every static triangle; each names its renderer.
+    pub triangles: &'a [BakeTriangle],
+    /// One entry per renderer, indexed by [`BakeTriangle::renderer`].
+    pub renderers: &'a [RendererInfo],
+    /// Lights that take part in the bake (realtime-only ones left out).
+    pub lights: &'a [BakeLight],
+    pub sky: &'a Sky,
+}
+
+/// How a bake is run.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BakeSettings {
+    pub trace: TraceSettings,
+    /// Texels per world unit, before each renderer's `resolution_scale`.
+    pub texels_per_unit: f32,
+    /// Side of one atlas layer, in texels (the runtime's `LIGHTMAP_SIZE`).
+    pub layer_size: u32,
+    /// Most layers a bake may fill (the runtime's `MAX_LIGHTMAPS`).
+    pub max_layers: u32,
+    /// Whether `Baked` lights' direct light goes into the atlas. Only once
+    /// the runtime skips those lights on lightmapped surfaces; before that it
+    /// would be drawn twice.
+    pub bake_direct: bool,
+}
+
+impl Default for BakeSettings {
+    fn default() -> Self {
+        Self {
+            trace: TraceSettings::default(),
+            texels_per_unit: 16.0,
+            layer_size: 1024,
+            max_layers: 4,
+            bake_direct: false,
+        }
+    }
+}
+
+/// A finished bake.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BakeOutput {
+    pub layer_size: u32,
+    /// One image per layer, row-major, `E / PI` linear.
+    pub layers: Vec<Vec<Vec3>>,
+    /// Where each renderer went, by renderer index.
+    pub placements: Vec<Placement>,
+    /// The density the scene was packed at (lower than asked if it overflowed).
+    pub texels_per_unit: f32,
+}
+
+/// A way of computing a bake.
+pub trait LightmapBaker {
+    /// For logs and the `--backend` switch.
+    fn name(&self) -> &'static str;
+    fn bake(&self, input: &BakeInput, settings: &BakeSettings) -> BakeOutput;
+}
+
+/// The path tracer, on every CPU core.
+pub struct CpuBaker;
+
+/// One texel to compute: where it is in the atlas and on the surface.
+struct Job {
+    layer: u32,
+    x: u32,
+    y: u32,
+    position: Vec3,
+    normal: Vec3,
+}
+
+impl LightmapBaker for CpuBaker {
+    fn name(&self) -> &'static str {
+        "cpu"
+    }
+
+    fn bake(&self, input: &BakeInput, settings: &BakeSettings) -> BakeOutput {
+        let size = settings.layer_size;
+        let mut areas = vec![0.0f32; input.renderers.len()];
+        for t in input.triangles {
+            let [a, b, c] = t.positions;
+            areas[t.renderer as usize] += 0.5 * (b - a).cross(c - a).length();
+        }
+        let scales: Vec<f32> = input.renderers.iter().map(|r| r.resolution_scale).collect();
+        let packing = pack::pack(
+            &areas,
+            &scales,
+            settings.texels_per_unit,
+            size,
+            settings.max_layers,
+        );
+
+        let mut covered = vec![vec![false; (size * size) as usize]; packing.layers as usize];
+        let jobs = rasterise(input.triangles, &packing.placements, size, &mut covered);
+
+        let bvh = Bvh::build(
+            &input
+                .triangles
+                .iter()
+                .map(|t| t.positions)
+                .collect::<Vec<_>>(),
+        );
+        let world = trace::World {
+            bvh: &bvh,
+            triangles: input.triangles,
+            lights: input.lights,
+            sky: input.sky,
+            settings: settings.trace,
+        };
+        // Each texel seeds its own generator, so the order rayon runs them in
+        // changes nothing: the bake is the same bytes on any core count.
+        let values: Vec<Vec3> = jobs
+            .par_iter()
+            .map(|j| {
+                let mut rng = Rng::for_texel(settings.trace.seed, j.layer, j.x, j.y);
+                world.texel(j.position, j.normal, settings.bake_direct, &mut rng)
+            })
+            .collect();
+
+        let mut layers = vec![vec![Vec3::ZERO; (size * size) as usize]; packing.layers as usize];
+        for (j, v) in jobs.iter().zip(values) {
+            layers[j.layer as usize][(j.y * size + j.x) as usize] = v;
+        }
+        for (image, mask) in layers.iter_mut().zip(&covered) {
+            dilate(image, mask, size, pack::PADDING + 1);
+        }
+        BakeOutput {
+            layer_size: size,
+            layers,
+            placements: packing.placements,
+            texels_per_unit: packing.texels_per_unit,
+        }
+    }
+}
+
+/// Every texel whose centre a renderer's triangle covers, with the world
+/// position and normal there. The first triangle to cover a texel keeps it:
+/// two triangles of one chart share an edge, and a texel centre exactly on it
+/// would otherwise be computed twice.
+fn rasterise(
+    triangles: &[BakeTriangle],
+    placements: &[Placement],
+    size: u32,
+    covered: &mut [Vec<bool>],
+) -> Vec<Job> {
+    let mut jobs = Vec::new();
+    for t in triangles {
+        let pl = placements[t.renderer as usize];
+        let origin = Vec2::new(pl.x as f32, pl.y as f32);
+        let q = t.uv2.map(|uv| origin + uv * pl.side as f32);
+        let area = (q[1] - q[0]).perp_dot(q[2] - q[0]);
+        if area.abs() < 1e-12 {
+            continue;
+        }
+        let lo = q[0].min(q[1]).min(q[2]).floor().max(Vec2::ZERO);
+        let hi = q[0]
+            .max(q[1])
+            .max(q[2])
+            .ceil()
+            .min(Vec2::splat(size as f32));
+        for y in lo.y as u32..hi.y as u32 {
+            for x in lo.x as u32..hi.x as u32 {
+                let c = Vec2::new(x as f32 + 0.5, y as f32 + 0.5);
+                let w0 = (q[1] - c).perp_dot(q[2] - c) / area;
+                let w1 = (q[2] - c).perp_dot(q[0] - c) / area;
+                let w2 = 1.0 - w0 - w1;
+                if w0 < -1e-5 || w1 < -1e-5 || w2 < -1e-5 {
+                    continue;
+                }
+                let cell = &mut covered[pl.layer as usize][(y * size + x) as usize];
+                if *cell {
+                    continue;
+                }
+                *cell = true;
+                let position = t.positions[0] * w0 + t.positions[1] * w1 + t.positions[2] * w2;
+                let normal =
+                    (t.normals[0] * w0 + t.normals[1] * w1 + t.normals[2] * w2).normalize_or_zero();
+                if normal == Vec3::ZERO {
+                    continue;
+                }
+                jobs.push(Job {
+                    layer: pl.layer,
+                    x,
+                    y,
+                    position,
+                    normal,
+                });
+            }
+        }
+    }
+    jobs
+}
+
+/// Spreads each covered texel's value into the empty texels beside it, one
+/// ring per pass. Bilinear sampling at a chart's edge reads the texel outside
+/// it; left black, that texel darkens the edge into a visible seam.
+fn dilate(image: &mut [Vec3], covered: &[bool], size: u32, passes: u32) {
+    let mut mask = covered.to_vec();
+    let s = size as i32;
+    for _ in 0..passes {
+        let mut next = mask.clone();
+        let mut out = image.to_vec();
+        for y in 0..s {
+            for x in 0..s {
+                let i = (y * s + x) as usize;
+                if mask[i] {
+                    continue;
+                }
+                let (mut sum, mut n) = (Vec3::ZERO, 0);
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        let (nx, ny) = (x + dx, y + dy);
+                        if nx < 0 || ny < 0 || nx >= s || ny >= s {
+                            continue;
+                        }
+                        let j = (ny * s + nx) as usize;
+                        if mask[j] {
+                            sum += image[j];
+                            n += 1;
+                        }
+                    }
+                }
+                if n > 0 {
+                    out[i] = sum / n as f32;
+                    next[i] = true;
+                }
+            }
+        }
+        image.copy_from_slice(&out);
+        mask = next;
+    }
+}
+
+/// `E / PI` texels as RGBM bytes: `rgb / (m * range)` and `m = max / range`,
+/// `m` rounded *up* to the next byte so no channel overflows. The runtime
+/// decodes `rgb * a * range`; `range` is `bsengine_core::LIGHTMAP_RGBM_RANGE`.
+pub fn encode_rgbm(texels: &[Vec3], range: f32) -> Vec<u8> {
+    let mut out = Vec::with_capacity(texels.len() * 4);
+    for v in texels {
+        let v = v.max(Vec3::ZERO);
+        let m = ((v.max_element() / range).clamp(1.0 / 255.0, 1.0) * 255.0).ceil() / 255.0;
+        let channel = |c: f32| ((c / (m * range)).clamp(0.0, 1.0) * 255.0).round() as u8;
+        out.extend_from_slice(&[
+            channel(v.x),
+            channel(v.y),
+            channel(v.z),
+            (m * 255.0).round() as u8,
+        ]);
+    }
+    out
+}
+
+/// The inverse of [`encode_rgbm`], as the shader computes it.
+pub fn decode_rgbm(rgba: [u8; 4], range: f32) -> Vec3 {
+    let [r, g, b, a] = rgba.map(|c| c as f32 / 255.0);
+    Vec3::new(r, g, b) * a * range
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A unit floor quad facing +Y, `uv2` spanning `[0,1]²`.
+    fn floor(renderer: u32, at: Vec3, albedo: Vec3) -> [BakeTriangle; 2] {
+        let p = [
+            at,
+            at + Vec3::X,
+            at + Vec3::X + Vec3::NEG_Z,
+            at + Vec3::NEG_Z,
+        ];
+        let uv = [
+            Vec2::new(0.0, 0.0),
+            Vec2::new(1.0, 0.0),
+            Vec2::new(1.0, 1.0),
+            Vec2::new(0.0, 1.0),
+        ];
+        let tri = |a: usize, b: usize, c: usize| BakeTriangle {
+            positions: [p[a], p[b], p[c]],
+            normals: [Vec3::Y; 3],
+            uv2: [uv[a], uv[b], uv[c]],
+            albedo,
+            emissive: Vec3::ZERO,
+            renderer,
+        };
+        [tri(0, 1, 2), tri(0, 2, 3)]
+    }
+
+    fn settings() -> BakeSettings {
+        BakeSettings {
+            trace: TraceSettings {
+                samples: 8,
+                bounces: 2,
+                seed: 11,
+            },
+            texels_per_unit: 16.0,
+            layer_size: 64,
+            max_layers: 4,
+            bake_direct: false,
+        }
+    }
+
+    fn at(out: &BakeOutput, layer: u32, x: u32, y: u32) -> Vec3 {
+        out.layers[layer as usize][(y * out.layer_size + x) as usize]
+    }
+
+    /// End to end on the closed form: an open floor under a uniform sky
+    /// stores the sky's radiance in every texel of its rectangle -- and the
+    /// rectangle the placement names is where those texels are.
+    #[test]
+    fn an_open_floor_bakes_the_sky_into_its_rectangle() {
+        let tris = floor(0, Vec3::ZERO, Vec3::splat(0.5));
+        let sky = Sky::Uniform(Vec3::new(0.3, 0.6, 0.9));
+        let out = CpuBaker.bake(
+            &BakeInput {
+                triangles: &tris,
+                renderers: &[RendererInfo {
+                    resolution_scale: 1.0,
+                }],
+                lights: &[],
+                sky: &sky,
+            },
+            &settings(),
+        );
+        let pl = out.placements[0];
+        assert_eq!(pl.side, 16, "1 m² at 16 texels per unit");
+        let mut checked = 0;
+        for y in pl.y..pl.y + pl.side {
+            for x in pl.x..pl.x + pl.side {
+                let v = at(&out, pl.layer, x, y);
+                assert!(
+                    (v - Vec3::new(0.3, 0.6, 0.9)).length() < 1e-4,
+                    "({x}, {y}): {v}"
+                );
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 256);
+        // Far from any rectangle the layer is black: the bake wrote only
+        // where a renderer is (plus the dilated rim).
+        assert_eq!(at(&out, 0, 63, 63), Vec3::ZERO);
+    }
+
+    /// The rim around a rectangle carries the edge's value, so bilinear
+    /// sampling at the edge does not pull in black.
+    #[test]
+    fn dilation_fills_the_rim_around_a_rectangle() {
+        let tris = floor(0, Vec3::ZERO, Vec3::splat(0.5));
+        let sky = Sky::Uniform(Vec3::ONE);
+        let out = CpuBaker.bake(
+            &BakeInput {
+                triangles: &tris,
+                renderers: &[RendererInfo {
+                    resolution_scale: 1.0,
+                }],
+                lights: &[],
+                sky: &sky,
+            },
+            &settings(),
+        );
+        let pl = out.placements[0];
+        assert!(
+            pl.x >= 1,
+            "premise: there is a column left of the rectangle"
+        );
+        let rim = at(&out, pl.layer, pl.x - 1, pl.y + 3);
+        assert!(
+            (rim - Vec3::ONE).length() < 1e-4,
+            "the rim is the edge's value: {rim}"
+        );
+    }
+
+    /// Two floors side by side, one shadowing nothing: each gets its own
+    /// rectangle, and the bake is the same bytes twice.
+    #[test]
+    fn two_bakes_of_one_scene_are_identical() {
+        let mut tris = floor(0, Vec3::ZERO, Vec3::splat(0.8)).to_vec();
+        tris.extend(floor(1, Vec3::new(0.0, 0.5, 0.0), Vec3::splat(0.8)));
+        let sky = Sky::Uniform(Vec3::ONE);
+        let input = BakeInput {
+            triangles: &tris,
+            renderers: &[
+                RendererInfo {
+                    resolution_scale: 1.0,
+                },
+                RendererInfo {
+                    resolution_scale: 1.0,
+                },
+            ],
+            lights: &[],
+            sky: &sky,
+        };
+        let a = CpuBaker.bake(&input, &settings());
+        let b = CpuBaker.bake(&input, &settings());
+        assert_ne!(
+            a.placements[0], a.placements[1],
+            "each renderer has its own place"
+        );
+        let bits = |o: &BakeOutput| -> Vec<u32> {
+            o.layers
+                .iter()
+                .flatten()
+                .flat_map(|v| v.to_array().map(f32::to_bits))
+                .collect()
+        };
+        assert_eq!(bits(&a), bits(&b));
+        // And the lower floor really is shadowed by the upper one: a premise
+        // that the scene is not trivially uniform.
+        let pl = a.placements[0];
+        let under = at(&a, pl.layer, pl.x + pl.side / 2, pl.y + pl.side / 2);
+        assert!(
+            under.x < 0.9,
+            "the lower floor is shaded by the upper: {under}"
+        );
+    }
+
+    #[test]
+    fn rgbm_round_trips_within_a_percent_up_to_the_range() {
+        for v in [0.01f32, 0.1, 0.5, 1.0, 2.5, 7.9] {
+            let c = Vec3::new(v, v * 0.5, v * 0.25);
+            let rgba = encode_rgbm(&[c], 8.0);
+            let back = decode_rgbm([rgba[0], rgba[1], rgba[2], rgba[3]], 8.0);
+            assert!(
+                (back - c).length() <= c.length() * 0.01 + 1e-3,
+                "{c} -> {rgba:?} -> {back}"
+            );
+        }
+        assert_eq!(encode_rgbm(&[Vec3::ZERO], 8.0)[..3], [0, 0, 0]);
+    }
+}

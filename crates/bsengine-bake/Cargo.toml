@@ -1,0 +1,12 @@
+[package]
+name = "bsengine-bake"
+description = "Offline lightmap baking: a BVH, a deterministic CPU path tracer and the atlas it fills"
+version.workspace = true
+edition.workspace = true
+
+# No ECS, no GPU: the baker takes plain triangles, lights and a sky and returns
+# images, so it can be tested against closed-form answers in isolation and run
+# from any front end (the runtime's `--bake`, later the editor and MCP).
+[dependencies]
+glam.workspace = true
+rayon.workspace = true

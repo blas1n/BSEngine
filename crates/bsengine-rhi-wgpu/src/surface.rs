@@ -9776,10 +9776,18 @@ mod tests {
         };
         let limit = wgpu::Limits::default().max_sampled_textures_per_shader_stage as usize;
         let lighting = textures(&light_bgl_entries());
-        let terrain = lighting + textures(&terrain_texture_bgl_entries());
+        // The terrain's group 2 leaves the lightmap array out
+        // (`terrain_light_bgl_entries`): with it the terrain would bind one
+        // more than the limit allows.
+        let terrain =
+            textures(&terrain_light_bgl_entries()) + textures(&terrain_texture_bgl_entries());
         assert!(
             terrain <= limit,
             "the terrain pipeline binds {terrain} sampled textures; WebGPU allows {limit}"
+        );
+        assert!(
+            lighting + textures(&terrain_texture_bgl_entries()) > limit,
+            "premise: with the lightmap array the terrain WOULD be over the limit,              so the variant is what keeps it under -- if this fails the variant is              no longer needed and should go"
         );
         // Mesh, transparent and custom-shader pipelines: group 3 is one
         // texture and its sampler.
@@ -10120,6 +10128,7 @@ mod tests {
                     // its emissive and only its emissive.
                     base_color: Vec3::ZERO,
                     opacity: 1.0,
+                    lightmap: None,
                 },
                 None,
             )];
@@ -10159,6 +10168,7 @@ mod tests {
                     emissive,
                     base_color: Vec3::ZERO,
                     opacity: 1.0,
+                    lightmap: None,
                 },
                 None,
             ));
@@ -10269,6 +10279,10 @@ mod tests {
                     _pad2: 0.0,
                     base_color: mat.base_color.to_array(),
                     opacity: mat.opacity,
+                    // Zero would mean "layer 0" to the shader, not "none".
+                    lightmap_scale_offset: [1.0, 1.0, 0.0, 0.0],
+                    lightmap_layer: -1.0,
+                    _lightmap_pad: [0.0; 3],
                 };
                 self.surface.queue.write_buffer(
                     &self.surface.model_buffer,

@@ -286,6 +286,10 @@ struct ModelUniform {
     base_color: vec3<f32>,
     opacity: f32,
     prev_model: mat4x4<f32>,
+    // Baked lighting: the rectangle of the lightmap this object owns
+    // (`uv2 * xy + zw`) and the array layer it reads, negative for none.
+    lightmap_scale_offset: vec4<f32>,
+    lightmap_layer: f32,
 };
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
 @group(1) @binding(0) var<uniform> model_data: ModelUniform;

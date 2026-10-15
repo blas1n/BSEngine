@@ -303,7 +303,6 @@ impl LightmapAtlas {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use bsengine_core::LIGHTMAP_RGBM_RANGE;
 
     /// The shader's range and the core's are one number, written twice

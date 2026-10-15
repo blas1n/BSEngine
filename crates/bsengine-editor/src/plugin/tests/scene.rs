@@ -425,6 +425,18 @@ fn mcp_save_load_scene_round_trip_preserves_camera_primitive_script_and_lights()
             Transform::from_position(Vec3::new(0.0, 3.0, 0.0)),
             bsengine_core::GlobalTransform::default(),
         ));
+        // A sun with a mode that is not the default: the directional light is
+        // the one whose save path a mutation once dropped unobserved, as the
+        // fixture had no directional light at all.
+        app.world_mut().spawn((
+            Name("Sun".to_string()),
+            bsengine_core::DirectionalLight {
+                bake_mode: bsengine_core::LightBakeMode::Baked,
+                ..Default::default()
+            },
+            Transform::default(),
+            bsengine_core::GlobalTransform::default(),
+        ));
         app.world_mut().spawn((
             Name("Spot".to_string()),
             bsengine_core::SpotLight {
@@ -524,6 +536,14 @@ fn mcp_save_load_scene_round_trip_preserves_camera_primitive_script_and_lights()
         assert_eq!(sl.cookie, "assets/textures/window.png");
         assert!(!sl.shadows, "the light that casts none still casts none");
         assert_eq!(sl.bake_mode, bsengine_core::LightBakeMode::Baked);
+        let mut sun_q = app
+            .world_mut()
+            .query::<(&Name, &bsengine_core::DirectionalLight)>();
+        let (_, sun) = sun_q
+            .iter(app.world())
+            .find(|(n, _)| n.0 == "Sun")
+            .expect("Sun not found after load");
+        assert_eq!(sun.bake_mode, bsengine_core::LightBakeMode::Baked);
     }
 }
 

@@ -603,6 +603,30 @@ fn gltf_pixels_to_rgba(pixels: &[u8], format: GltfFormat, width: u32, height: u3
     }
 }
 
+/// Standard base64, for the data-URI buffers the hand-written test fixtures
+/// carry (so they load from bytes or from a file alike).
+#[cfg(test)]
+pub(crate) fn base64(bytes: &[u8]) -> String {
+    const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for chunk in bytes.chunks(3) {
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
+        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(T[((n >> (18 - 6 * i)) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
 /// A self-contained glTF for morph-target tests: one triangle
 /// (0,0,0) (1,0,0) (0,1,0) with a single target named "smile" that moves
 /// vertex 0 by +1 Z and bends its normal by +1 Y, and a default weight of
@@ -620,26 +644,6 @@ pub(crate) fn morph_triangle_gltf() -> String {
 pub(crate) fn morph_triangle_gltf_with(animated: bool) -> String {
     fn f32s(values: &[f32]) -> Vec<u8> {
         values.iter().flat_map(|v| v.to_le_bytes()).collect()
-    }
-    fn base64(bytes: &[u8]) -> String {
-        const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        let mut out = String::new();
-        for chunk in bytes.chunks(3) {
-            let b = [
-                chunk[0],
-                *chunk.get(1).unwrap_or(&0),
-                *chunk.get(2).unwrap_or(&0),
-            ];
-            let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
-            for i in 0..4 {
-                if i <= chunk.len() {
-                    out.push(T[((n >> (18 - 6 * i)) & 63) as usize] as char);
-                } else {
-                    out.push('=');
-                }
-            }
-        }
-        out
     }
     let mut buffer = f32s(&[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
     buffer.extend(f32s(&[0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]));
@@ -698,6 +702,70 @@ mod tests {
     /// model, the normals not (a normal offset is a direction). A target
     /// the scale missed would stretch a smile on a centimetre model a
     /// hundredfold.
+    /// A hand-written one-triangle glTF with both UV sets, the second
+    /// distinct from the first -- and a second triangle-less variant with only
+    /// `TEXCOORD_0` -- so `uv2` must come from `TEXCOORD_1` and from nowhere
+    /// else (not a copy of `uv`, not zero when the set is present).
+    fn two_uv_sets_gltf(with_second_set: bool) -> String {
+        fn f32s(values: &[f32]) -> Vec<u8> {
+            values.iter().flat_map(|v| v.to_le_bytes()).collect()
+        }
+        let mut buffer = f32s(&[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
+        buffer.extend(f32s(&[0.0, 0.0, 1.0, 0.0, 0.0, 1.0]));
+        buffer.extend(f32s(&[0.1, 0.2, 0.3, 0.4, 0.5, 0.6]));
+        let second = if with_second_set { ", \"TEXCOORD_1\": 2" } else { "" };
+        format!(
+            r#"{{
+  "asset": {{"version": "2.0"}},
+  "scene": 0,
+  "scenes": [{{"nodes": [0]}}],
+  "nodes": [{{"mesh": 0}}],
+  "meshes": [{{"primitives": [{{"attributes": {{"POSITION": 0, "TEXCOORD_0": 1{second}}}}}]}}],
+  "buffers": [{{"byteLength": 84, "uri": "data:application/octet-stream;base64,{}"}}],
+  "bufferViews": [
+    {{"buffer": 0, "byteOffset": 0, "byteLength": 36}},
+    {{"buffer": 0, "byteOffset": 36, "byteLength": 24}},
+    {{"buffer": 0, "byteOffset": 60, "byteLength": 24}}
+  ],
+  "accessors": [
+    {{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3", "min": [0, 0, 0], "max": [1, 1, 0]}},
+    {{"bufferView": 1, "componentType": 5126, "count": 3, "type": "VEC2"}},
+    {{"bufferView": 2, "componentType": 5126, "count": 3, "type": "VEC2"}}
+  ]
+}}"#,
+            base64(&buffer)
+        )
+    }
+
+    #[test]
+    fn texcoord_1_loads_into_uv2_and_a_missing_set_is_zero() {
+        let load = |with: bool| {
+            GltfLoader::load_full_from_slice(
+                two_uv_sets_gltf(with).as_bytes(),
+                &ModelImportSettings::default(),
+            )
+            .expect("the fixture loads")
+        };
+        let with = load(true);
+        let v = &with.meshes[0].vertices;
+        assert_eq!(v.len(), 3);
+        // Premise: the two sets in the file really differ, so equality with
+        // the right one cannot be a copy of the other.
+        assert_ne!(v[1].uv, v[1].uv2);
+        assert_eq!(v[0].uv, [0.0, 0.0]);
+        assert_eq!(v[1].uv, [1.0, 0.0]);
+        assert_eq!(v[2].uv, [0.0, 1.0]);
+        assert_eq!(v[0].uv2, [0.1, 0.2]);
+        assert_eq!(v[1].uv2, [0.3, 0.4]);
+        assert_eq!(v[2].uv2, [0.5, 0.6]);
+
+        let without = load(false);
+        for vertex in &without.meshes[0].vertices {
+            assert_eq!(vertex.uv2, [0.0, 0.0], "no TEXCOORD_1, no uv2");
+        }
+        assert_eq!(without.meshes[0].vertices[1].uv, [1.0, 0.0], "uv unaffected");
+    }
+
     #[test]
     fn morph_targets_load_with_their_names_weights_and_the_import_scale() {
         let json = morph_triangle_gltf();

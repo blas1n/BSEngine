@@ -394,6 +394,7 @@ pub fn resolve_texture_paths(
     spot_lights: Query<&bsengine_core::SpotLight>,
     point_lights: Query<&bsengine_core::PointLight>,
     decals: Query<&bsengine_core::Decal>,
+    lightmaps: Query<&bsengine_core::Lightmap>,
     asset_server: Res<bevy_asset::AssetServer>,
     mut textures: ResMut<bevy_asset::Assets<TextureAsset>>,
     registry: Option<ResMut<GpuTextureRegistry>>,
@@ -449,7 +450,12 @@ pub fn resolve_texture_paths(
             decals
                 .iter()
                 .flat_map(|d| [d.texture_path.as_str(), d.normal_map_path.as_str()]),
-        );
+        )
+        // Lightmaps are looked up by path when the frame is built, like decals,
+        // so they too need someone to request the path. Two of the earlier
+        // path-named fields (decals', then point lights' cookies) shipped
+        // without this and drew nothing.
+        .chain(lightmaps.iter().map(|l| l.texture_path.as_str()));
     for path in named {
         if !path.is_empty() {
             cache.upload(path, &asset_server, &mut textures, &mut registry);

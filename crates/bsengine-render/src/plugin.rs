@@ -679,6 +679,7 @@ fn render_frame(
             Option<&Visible>,
             Option<&CustomShader>,
             Option<&mut LodLevels>,
+            Option<&bsengine_core::Lightmap>,
         )>,
         Query<(&DirectionalLight, Option<&GlobalTransform>, &Transform)>,
         Query<(&PointLight, Option<&GlobalTransform>, &Transform)>,
@@ -1078,6 +1079,9 @@ fn render_frame(
         Occluded,
     }
     let prev_by_entity = &*prev_models_by_entity;
+    // A plain reference, which the parallel closure below can share; the
+    // `Option<Res<..>>` it comes from need not be `Sync` to be read here.
+    let cache_for_lightmaps: Option<&crate::texture_cache::TextureCache> = texture_cache.as_deref();
     type DrawCall = (u64, Mat4, Option<u64>, MaterialParams, Option<String>);
     let mut mesh_query = render_queries.p1();
     let candidates: Vec<_> = mesh_query.iter_mut().collect();
@@ -1088,7 +1092,7 @@ fn render_frame(
     // would make every variant as large as the largest.
     let culled: Vec<(Option<(Entity, Mat4)>, Culled, Mat4)> = candidates
         .into_par_iter()
-        .map(|(entity, mr, t, gt, mat, vis, cs, mut lod)| {
+        .map(|(entity, mr, t, gt, mat, vis, cs, mut lod, lightmap)| {
             if !vis.map(|v| v.is_visible).unwrap_or(true) {
                 return (None, Culled::Hidden, Mat4::IDENTITY);
             }
@@ -1145,15 +1149,28 @@ fn render_frame(
                 mr.mesh_id
             };
             let tex_id = mat.and_then(|m| m.texture_id);
-            let mat_params = mat
+            let mut mat_params = mat
                 .map(|m| MaterialParams {
                     metallic: m.metallic,
                     roughness: m.roughness,
                     emissive: *m.emissive,
                     base_color: *m.base_color,
                     opacity: m.opacity,
+                    lightmap: None,
                 })
                 .unwrap_or_default();
+            // The baked lightmap, once its texture is on the GPU. A path that
+            // has not finished uploading (or never will) is no lightmap, so
+            // the entity shades as it did before it had one rather than
+            // waiting dark.
+            mat_params.lightmap = lightmap.filter(|l| l.is_set()).and_then(|l| {
+                cache_for_lightmaps
+                    .and_then(|c| c.id_for(&l.texture_path))
+                    .map(|texture_id| bsengine_rhi_wgpu::LightmapParams {
+                        texture_id,
+                        scale_offset: l.scale_offset,
+                    })
+            });
             // First seen this frame: it has not moved yet.
             let prev_model = prev_by_entity.get(&entity).copied().unwrap_or(model);
             (
@@ -1452,6 +1469,7 @@ impl Plugin for RenderPlugin {
         app.register_type::<LodLevels>();
         app.register_type::<Occluder>();
         app.register_type::<bsengine_core::Decal>();
+        app.register_type::<bsengine_core::Lightmap>();
         app.register_type::<bsengine_core::ScreenSpaceReflections>();
         app.init_asset::<crate::shader_asset::ShaderSource>()
             .register_asset_loader(crate::shader_asset::ShaderSourceLoader)

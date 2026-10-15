@@ -32,6 +32,8 @@ pub mod gpu_particles;
 pub mod ibl;
 /// Grouping draw calls into instanced batches.
 pub mod instancing;
+/// Baked lightmaps on the GPU: the array every lightmapped renderer reads.
+pub mod lightmap;
 /// Automatic lightmap UV unwrap (`Vertex::uv2`).
 pub mod lightmap_uv;
 /// GPU mesh generation and the mesh registry.
@@ -73,6 +75,7 @@ pub mod taa_jitter;
 /// GPU texture loading and the texture registry.
 pub mod texture;
 pub mod theme;
+pub use lightmap::LightmapParams;
 pub use mesh::{
     capsule_vertices, cube_vertices, cylinder_vertices, plane_vertices, sphere_vertices,
     triangle_vertices, GpuMeshRegistry, Vertex,

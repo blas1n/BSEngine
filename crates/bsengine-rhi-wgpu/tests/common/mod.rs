@@ -42,6 +42,9 @@ pub struct Draw {
     /// Where the object was last frame, for the velocity output; `None`
     /// means it did not move.
     pub previous: Option<Mat4>,
+    /// The baked lightmap it is lit from: a texture id from the registry and
+    /// the `[scale_x, scale_y, offset_x, offset_y]` rectangle it owns.
+    pub lightmap: Option<(u64, [f32; 4])>,
 }
 
 impl Draw {
@@ -57,7 +60,14 @@ impl Draw {
             opacity: 1.0,
             custom_shader: None,
             previous: None,
+            lightmap: None,
         }
+    }
+
+    /// Lit from `texture`'s `scale_offset` rectangle instead of the ambient.
+    pub fn lightmapped(mut self, texture: u64, scale_offset: [f32; 4]) -> Self {
+        self.lightmap = Some((texture, scale_offset));
+        self
     }
 
     pub fn colour(mut self, rgb: Vec3) -> Self {
@@ -134,6 +144,12 @@ impl Draw {
             emissive: self.emissive,
             base_color: self.base_color,
             opacity: self.opacity,
+            lightmap: self.lightmap.map(|(texture_id, scale_offset)| {
+                bsengine_rhi_wgpu::LightmapParams {
+                    texture_id,
+                    scale_offset,
+                }
+            }),
         }
     }
 }
@@ -493,6 +509,18 @@ impl Harness {
         let accepted = self.registry.skin(&queue, id, joints);
         self.registry.flush_skinning(&queue);
         accepted
+    }
+
+    /// Registers a mesh exactly as given -- for a test that needs a vertex
+    /// layout the built-in primitives do not have, such as a `uv2` that
+    /// differs from `uv`.
+    pub fn mesh(&mut self, vertices: &[bsengine_rhi_wgpu::Vertex], indices: &[u32]) -> u64 {
+        self.registry.register(vertices, indices)
+    }
+
+    /// How many lightmap layers the surface has drawn so far.
+    pub fn lightmap_layers_drawn(&self) -> u64 {
+        self.surface.lightmap_layers_drawn()
     }
 
     pub fn plane(&mut self) -> u64 {

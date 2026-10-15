@@ -510,6 +510,13 @@ fn read_scene(path: &str) -> Option<SceneDescriptor> {
 fn spawn_and_record(world: &mut World, path: &str, scene: &SceneDescriptor) {
     let before: std::collections::HashSet<Entity> = world.iter_entities().map(|e| e.id()).collect();
     spawn_scene_entities(world, &scene.entities);
+    // A changed-to or streamed-in scene gets its baked lightmaps exactly as the
+    // entry scene does (`ScenePlugin`). The text again rather than threading it
+    // through: the data's fingerprint is of the file, and reading it twice
+    // costs one small read per scene load.
+    if let Ok(text) = bsengine_asset::pak_source::read_to_string(path) {
+        bsengine_scene::lightmaps::apply(world, path, &text);
+    }
     let added: Vec<Entity> = world
         .iter_entities()
         .map(|e| e.id())

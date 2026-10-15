@@ -39,6 +39,9 @@ tracing         = { workspace = true }
 # The editor overlay a desktop run carries; a browser build has none.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 bsengine-editor    = { workspace = true }
+# `--bake`: the lightmap baker, and the math its scene conversion is written in.
+bsengine-bake      = { workspace = true }
+glam               = { workspace = true }
 
 # The browser build's entry point (src/web.rs): fetching the archive, the
 # page, and the console.

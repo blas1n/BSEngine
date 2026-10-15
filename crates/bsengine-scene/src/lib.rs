@@ -7,6 +7,8 @@
 #![warn(missing_docs)]
 
 /// Reading scene and prefab files, reporting the keys the format ignored.
+/// Baked lightmap assignments kept beside a scene (`<scene>.lightmaps`).
+pub mod lightmaps;
 pub mod parse;
 /// `ScenePlugin` and the entity-spawning logic that turns a `SceneDescriptor` into ECS entities.
 pub mod plugin;

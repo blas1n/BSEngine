@@ -1172,6 +1172,7 @@ dependencies = [
  "bsengine-app",
  "bsengine-asset",
  "bsengine-audio",
+ "bsengine-bake",
  "bsengine-core",
  "bsengine-ecs",
  "bsengine-editor",

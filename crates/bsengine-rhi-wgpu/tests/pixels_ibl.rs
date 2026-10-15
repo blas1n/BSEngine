@@ -35,6 +35,7 @@ const OVERHEAD: Vec3 = Vec3::new(0.0, 6.0, 0.01);
 /// swamp the IBL term and none of the measurements below mean anything.
 fn ibl_only_light() -> Light {
     Light {
+        sun_baked: false,
         direction: Vec3::new(0.0, -1.0, 0.0),
         color: Vec3::ZERO,
         ambient: Vec3::splat(0.2),

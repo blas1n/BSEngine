@@ -178,6 +178,8 @@ pub struct Light {
     /// Point lights as the renderer takes them, after `points` -- for a test
     /// that needs a cookie or a rotation, which `PointLight` does not carry.
     pub point_entries: Vec<PointLightEntry>,
+    /// The sun's direct light is baked: lightmapped draws skip it.
+    pub sun_baked: bool,
 }
 
 impl Default for Light {
@@ -190,6 +192,7 @@ impl Default for Light {
             rects: Vec::new(),
             spots: Vec::new(),
             point_entries: Vec::new(),
+            sun_baked: false,
         }
     }
 }
@@ -210,11 +213,13 @@ impl Light {
                     range: p.range,
                     rotation: Quat::IDENTITY,
                     cookie: None,
+                    baked: false,
                 })
                 .chain(self.point_entries.iter().cloned())
                 .collect(),
             spot_lights: self.spots.clone(),
             rect_lights: self.rects.clone(),
+            sun_baked: self.sun_baked,
         }
     }
 }

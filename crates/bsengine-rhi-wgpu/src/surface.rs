@@ -88,9 +88,13 @@ struct SpotLightEntry {
 };
 struct LightUniform {
     direction: vec3<f32>,
-    _pad0: f32,
+    // The lights whose direct light is in the lightmaps: a lightmapped draw
+    // skips them (`LightBakeMode::Baked`). The sun's flag, then one bit per
+    // point light; the spot lights' bits are `spot_baked_mask` below. These
+    // took padding slots, so the other shaders' `_pad` spellings still match.
+    sun_baked: u32,
     color: vec3<f32>,
-    _pad1: f32,
+    point_baked_mask: u32,
     ambient: vec3<f32>,
     num_point_lights: u32,
     point_lights: array<PointLightEntry, 8>,
@@ -100,7 +104,7 @@ struct LightUniform {
     // -- even the terrain shader, which does not sample IBL.
     ibl_enabled: u32,
     ibl_max_mip: f32,
-    _pad4: f32,
+    spot_baked_mask: u32,
     spot_lights: array<SpotLightEntry, 8>,
 };
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
@@ -539,7 +543,13 @@ fn fs_main(in: VertOut) -> SceneOut {
     let lit = shadow_factor(in.world_pos);
 
     var lo = vec3<f32>(0.0, 0.0, 0.0);
-    {
+    // A lightmapped draw has every `Baked` light's direct light and shadow in
+    // its lightmap already, so it skips those lights here; drawing them too
+    // would light it twice. Everything else -- a moving object, a surface with
+    // no lightmap -- is lit by them as before. `lightmap_layer` is the draw's,
+    // so every branch below is uniform across it.
+    let lightmapped = model_data.lightmap_layer >= 0.0;
+    if !(lightmapped && light.sun_baked != 0u) {
         let l = normalize(-light.direction);
         let h = normalize(v + l);
         let n_dot_l = max(dot(n, l), 0.0);
@@ -553,6 +563,9 @@ fn fs_main(in: VertOut) -> SceneOut {
         lo += (kd * albedo / PI + specular) * light.color * n_dot_l * lit;
     }
     for (var i: u32 = 0u; i < light.num_point_lights; i++) {
+        if lightmapped && ((light.point_baked_mask >> i) & 1u) != 0u {
+            continue;
+        }
         let pl = light.point_lights[i];
         let to_light = pl.position - in.world_pos;
         let dist = length(to_light);
@@ -573,6 +586,9 @@ fn fs_main(in: VertOut) -> SceneOut {
         }
     }
     for (var j: u32 = 0u; j < light.num_spot_lights; j++) {
+        if lightmapped && ((light.spot_baked_mask >> j) & 1u) != 0u {
+            continue;
+        }
         let sl = light.spot_lights[j];
         let to_light = sl.position - in.world_pos;
         let dist = length(to_light);
@@ -598,7 +614,10 @@ fn fs_main(in: VertOut) -> SceneOut {
     }
     // Rect lights (see `crate::area_light`): their whole contribution,
     // diffuse and specular, already integrated over each rectangle.
-    lo += rect_light_radiance(n, v, in.world_pos, albedo, f0, metallic, roughness, camera.shadow_filter);
+    lo += rect_light_radiance(
+        n, v, in.world_pos, albedo, f0, metallic, roughness, camera.shadow_filter,
+        select(0u, rect_lights.baked_mask, lightmapped),
+    );
     // With no skybox this is exactly the old flat-ambient term, evaluated by
     // exactly the old expression -- the branch is on a uniform, so every
     // no-skybox frame stays bit-for-bit what it was before IBL existed.
@@ -1071,7 +1090,7 @@ fn fs_main(in: VertOut) -> SceneOut {
     }
     // Rect lights (see `crate::area_light`): their whole contribution,
     // diffuse and specular, already integrated over each rectangle.
-    lo += rect_light_radiance(n, v, in.world_pos, albedo, f0, metallic, roughness, camera.shadow_filter);
+    lo += rect_light_radiance(n, v, in.world_pos, albedo, f0, metallic, roughness, camera.shadow_filter, 0u);
     let color = light.ambient * albedo + lo + model_data.emissive;
     var out: SceneOut;
     out.colour = vec4<f32>(color, model_data.opacity);
@@ -2153,6 +2172,9 @@ pub struct PointLightEntry {
     /// The registry id of the texture wrapped around the light (see
     /// `crate::cookie`), or `None` for a plain light.
     pub cookie: Option<u64>,
+    /// Its direct light is in the lightmaps (`LightBakeMode::Baked`): a
+    /// lightmapped draw skips it, everything else is lit by it as usual.
+    pub baked: bool,
 }
 
 /// A single spot light entry for the GPU buffer.
@@ -2184,6 +2206,9 @@ pub struct SpotLightEntry {
     pub cookie_is_profile: bool,
     /// Whether it casts a shadow (`SpotLight::shadows`).
     pub shadows: bool,
+    /// Its direct light is in the lightmaps (`LightBakeMode::Baked`): a
+    /// lightmapped draw skips it, everything else is lit by it as usual.
+    pub baked: bool,
 }
 
 /// Light parameters passed per frame.
@@ -2201,6 +2226,9 @@ pub struct LightData {
     /// Active rect lights this frame (the first
     /// [`crate::area_light::MAX_RECT_LIGHTS`] are shaded).
     pub rect_lights: Vec<crate::area_light::RectLightEntry>,
+    /// The sun's direct light is in the lightmaps (`LightBakeMode::Baked`):
+    /// lightmapped draws skip it.
+    pub sun_baked: bool,
 }
 
 impl Default for LightData {
@@ -2212,6 +2240,7 @@ impl Default for LightData {
             point_lights: Vec::new(),
             spot_lights: Vec::new(),
             rect_lights: Vec::new(),
+            sun_baked: false,
         }
     }
 }
@@ -2257,9 +2286,13 @@ struct SpotLightGpu {
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct LightUniformData {
     direction: [f32; 3],
-    _pad0: f32,
+    /// Non-zero when the sun is baked (`LightData::sun_baked`). Took
+    /// `_pad0`'s slot; 4 bytes either way, so `LIGHT_UNIFORM_SIZE` holds.
+    sun_baked: u32,
     color: [f32; 3],
-    _pad1: f32,
+    /// Bit `i` set when point light `i` is baked. Took `_pad1`'s slot: eight
+    /// lights, eight bits.
+    point_baked_mask: u32,
     ambient: [f32; 3],
     num_point_lights: u32,
     point_lights: [PointLightGpu; 8],
@@ -2274,7 +2307,8 @@ struct LightUniformData {
     /// Highest mip index of the prefiltered specular cube, i.e. the mip the
     /// shader samples at `roughness == 1`. Took `_pad3`'s slot.
     ibl_max_mip: f32,
-    _pad4: f32,
+    /// Bit `j` set when spot light `j` is baked. Took `_pad4`'s slot.
+    spot_baked_mask: u32,
     spot_lights: [SpotLightGpu; 8],
 }
 
@@ -6707,11 +6741,23 @@ impl WgpuSurface {
             0,
             bytemuck::bytes_of(&spot_shadow_data),
         );
+        // One bit per shaded light, in the slot order the shader loops in.
+        let mask = |baked: &mut dyn Iterator<Item = bool>| {
+            baked
+                .enumerate()
+                .fold(0u32, |m, (i, b)| m | (u32::from(b) << i))
+        };
         let light_data = LightUniformData {
             direction: light.direction.normalize().to_array(),
-            _pad0: 0.0,
+            sun_baked: u32::from(light.sun_baked),
             color: light.color.to_array(),
-            _pad1: 0.0,
+            point_baked_mask: mask(
+                &mut light
+                    .point_lights
+                    .iter()
+                    .take(MAX_POINT_LIGHTS)
+                    .map(|p| p.baked),
+            ),
             ambient: light.ambient.to_array(),
             num_point_lights,
             point_lights: point_lights_gpu,
@@ -6720,7 +6766,13 @@ impl WgpuSurface {
             // can never sample dummy cubemaps as if they were an environment.
             ibl_enabled: u32::from(self.ibl.is_some()),
             ibl_max_mip: (crate::ibl::PREFILTER_MIP_LEVELS - 1) as f32,
-            _pad4: 0.0,
+            spot_baked_mask: mask(
+                &mut light
+                    .spot_lights
+                    .iter()
+                    .take(MAX_SPOT_LIGHTS)
+                    .map(|l| l.baked),
+            ),
             spot_lights: spot_lights_gpu,
         };
         self.queue

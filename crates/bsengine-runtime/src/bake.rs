@@ -119,9 +119,10 @@ pub fn run_bake(args: &BakeArgs) -> Result<BakeReport, String> {
         texels_per_unit: args.texels_per_unit.unwrap_or(defaults.texels_per_unit),
         layer_size: bsengine_rhi_wgpu::lightmap::LIGHTMAP_SIZE,
         max_layers: bsengine_rhi_wgpu::lightmap::MAX_LIGHTMAPS as u32,
-        // Until the runtime skips `Baked` lights on lightmapped surfaces, a
-        // `Baked` light's direct light stays the runtime's to draw.
-        bake_direct: false,
+        // `Baked` lights' direct light and shadows go into the atlas: the mesh
+        // shader skips those lights on every lightmapped draw, so they are not
+        // drawn twice. (`Indirect` lights stay the runtime's to draw.)
+        bake_direct: true,
     };
     let started = std::time::Instant::now();
     let output = baker.bake(

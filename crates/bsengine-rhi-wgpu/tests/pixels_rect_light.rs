@@ -28,6 +28,7 @@ fn wall(cube: u64, roughness: f32, metallic: f32) -> Draw {
 /// (its local -z is the world's -z), turned by `rotation` about its centre.
 fn panel(width: f32, height: f32, distance: f32, intensity: f32, rotation: Quat) -> RectLightEntry {
     RectLightEntry {
+        baked: false,
         position: Vec3::new(0.0, 0.0, WALL_Z + distance),
         half_width: rotation * Vec3::X * (width * 0.5),
         half_height: rotation * Vec3::Y * (height * 0.5),
@@ -269,6 +270,7 @@ fn the_part_of_a_panel_below_the_horizon_does_not_light() {
     // Local -z turned to face down, local y running into the wall.
     let down = Quat::from_rotation_x(-PI / 2.0);
     let flat = |z_centre: f32, depth: f32| RectLightEntry {
+        baked: false,
         position: Vec3::new(0.0, 0.5, z_centre),
         half_width: down * Vec3::X * 0.5,
         half_height: down * Vec3::Y * (depth * 0.5),
@@ -353,6 +355,7 @@ fn every_way_a_panel_crosses_the_horizon_is_clipped_right() {
     for (turn, offset) in cases {
         let rot = Quat::from_rotation_y(turn);
         let rect = RectLightEntry {
+            baked: false,
             position: Vec3::new(0.0, 0.5, WALL_Z + offset),
             half_width: rot * Vec3::X * 0.5,
             half_height: rot * Vec3::NEG_Z * 0.5,

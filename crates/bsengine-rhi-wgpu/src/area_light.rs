@@ -49,6 +49,9 @@ pub struct RectLightEntry {
     pub range: f32,
     /// Whether it casts a shadow (`RectLight::shadows`).
     pub shadows: bool,
+    /// Its direct light is in the lightmaps (`LightBakeMode::Baked`): a
+    /// lightmapped draw skips it, everything else is lit by it as usual.
+    pub baked: bool,
 }
 
 #[repr(C)]
@@ -70,7 +73,9 @@ struct RectLightGpu {
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct RectLightUniform {
     count: u32,
-    _pad: [u32; 3],
+    /// Bit `i` set when rect light `i` is baked; a lightmapped draw skips it.
+    baked_mask: u32,
+    _pad: [u32; 2],
     lights: [RectLightGpu; MAX_RECT_LIGHTS],
 }
 
@@ -96,6 +101,11 @@ impl RectLightUniform {
             };
         }
         out.count = entries.len().min(MAX_RECT_LIGHTS) as u32;
+        out.baked_mask = entries
+            .iter()
+            .take(MAX_RECT_LIGHTS)
+            .enumerate()
+            .fold(0, |m, (i, e)| m | (u32::from(e.baked) << i));
         out
     }
 }
@@ -186,7 +196,7 @@ struct RectLightEntry {
 };
 struct RectLightUniform {
     count: u32,
-    _q0: u32,
+    baked_mask: u32,
     _q1: u32,
     _q2: u32,
     lights: array<RectLightEntry, 4>,
@@ -371,9 +381,13 @@ fn ltc_evaluate(
     return max(sum, 0.0);
 }
 
+// `skip` has bit `i` set for each panel this draw must leave out: the mesh
+// shader passes the baked panels' bits for a lightmapped draw, every other
+// caller 0.
 fn rect_light_radiance(
     n: vec3<f32>, v: vec3<f32>, p: vec3<f32>,
     albedo: vec3<f32>, f0: vec3<f32>, metallic: f32, roughness: f32, soft: u32,
+    skip: u32,
 ) -> vec3<f32> {
     var sum = vec3<f32>(0.0);
     // Capped on the Rust side (`RectLightUniform::new`), the one place that
@@ -400,6 +414,9 @@ fn rect_light_radiance(
     let fresnel = f0 * t2.x + (vec3<f32>(1.0) - f0) * t2.y;
     let diffuse = albedo * (1.0 - metallic);
     for (var i = 0u; i < count; i++) {
+        if ((skip >> i) & 1u) != 0u {
+            continue;
+        }
         let rl = rect_lights.lights[i];
         let c0 = rl.position + rl.half_width - rl.half_height;
         let c1 = rl.position - rl.half_width - rl.half_height;

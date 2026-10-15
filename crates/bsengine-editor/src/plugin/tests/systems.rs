@@ -1150,6 +1150,88 @@ fn undo_restores_a_deleted_lights_cookie_and_cone() {
     assert!(!sl.shadows, "and its shadow setting");
 }
 
+/// Undoing a light's deletion brings back its bake mode, for all three kinds
+/// the snapshot captures -- the directional light especially, whose restore
+/// was written as `..DirectionalLight::default()` and so compiled happily
+/// while resetting the mode to the default on every undo.
+#[test]
+fn undo_restores_a_deleted_lights_bake_mode() {
+    use bsengine_core::LightBakeMode;
+    let mut app = new_app();
+    app.add_plugins(McpPlugin);
+    app.add_plugins(EditorPlugin);
+    let spawn = |app: &mut bevy_app::App,
+                 name: &str,
+                 bundle: Box<dyn FnOnce(&mut bevy_ecs::world::EntityWorldMut)>| {
+        let mut e = app
+            .world_mut()
+            .spawn((Name(name.to_string()), Transform::default()));
+        bundle(&mut e);
+        e.id().index() as u64
+    };
+    let ids = [
+        spawn(
+            &mut app,
+            "Lamp",
+            Box::new(|e| {
+                e.insert(bsengine_core::PointLight {
+                    bake_mode: LightBakeMode::Realtime,
+                    ..Default::default()
+                });
+            }),
+        ),
+        spawn(
+            &mut app,
+            "Spot",
+            Box::new(|e| {
+                e.insert(bsengine_core::SpotLight {
+                    bake_mode: LightBakeMode::Baked,
+                    ..Default::default()
+                });
+            }),
+        ),
+        spawn(
+            &mut app,
+            "Sun",
+            Box::new(|e| {
+                e.insert(bsengine_core::DirectionalLight {
+                    bake_mode: LightBakeMode::Baked,
+                    ..Default::default()
+                });
+            }),
+        ),
+    ];
+    app.update();
+    for entity_id in ids {
+        app.world()
+            .resource::<EditorCommandQueueResource>()
+            .0
+            .lock()
+            .unwrap()
+            .push(EditorCommand::Despawn { entity_id });
+    }
+    app.update();
+    app.update();
+    let mut suns = app.world_mut().query::<&bsengine_core::DirectionalLight>();
+    assert_eq!(suns.iter(app.world()).count(), 0, "premise: all deleted");
+
+    app.world_mut()
+        .resource_mut::<InspectorState>()
+        .request_undo = true;
+    app.update();
+    app.update();
+
+    let mut points = app.world_mut().query::<&bsengine_core::PointLight>();
+    assert_eq!(
+        points.single(app.world()).bake_mode,
+        LightBakeMode::Realtime
+    );
+    let mut spots = app.world_mut().query::<&bsengine_core::SpotLight>();
+    assert_eq!(spots.single(app.world()).bake_mode, LightBakeMode::Baked);
+    let mut suns = app.world_mut().query::<&bsengine_core::DirectionalLight>();
+    assert_eq!(suns.single(app.world()).bake_mode, LightBakeMode::Baked);
+}
+
 #[test]
 fn redo_reapplies_despawn_after_undo() {
     let mut app = new_app();

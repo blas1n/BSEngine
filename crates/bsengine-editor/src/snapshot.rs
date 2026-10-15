@@ -59,6 +59,11 @@ pub struct EntityInfo {
     /// Whether the spot light casts shadows, if the entity has one. Carried
     /// for the reason `spot_cookie` is.
     pub spot_shadows: Option<bool>,
+    /// The light's `LightBakeMode`, if the entity has a directional, point or
+    /// spot light. Carried for the reason `spot_cookie` is: those lights are
+    /// captured through these fields, and a save or an undo that did not
+    /// carry it would quietly put every light back to the default.
+    pub light_bake_mode: Option<bsengine_core::LightBakeMode>,
     /// Cookie texture path, if the entity has a point light. Carried for the
     /// reason `spot_cookie` is: `PointLight` is captured through these fields.
     pub point_cookie: Option<String>,

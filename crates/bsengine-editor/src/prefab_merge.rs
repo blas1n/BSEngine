@@ -91,6 +91,7 @@ pub(crate) fn snapshot_entity_as_descriptor(
             intensity: pl.intensity,
             range: pl.range,
             cookie: pl.cookie.clone(),
+            bake_mode: pl.bake_mode,
         }
     });
 
@@ -103,6 +104,7 @@ pub(crate) fn snapshot_entity_as_descriptor(
             outer_angle_degrees: sl.outer_angle_degrees.0,
             cookie: sl.cookie.clone(),
             shadows: sl.shadows,
+            bake_mode: sl.bake_mode,
         }
     });
 
@@ -118,6 +120,7 @@ pub(crate) fn snapshot_entity_as_descriptor(
             direction: [0.0, 0.0, -1.0],
             color: dl.color.0.to_array(),
             ambient: dl.ambient.0.to_array(),
+            bake_mode: dl.bake_mode,
         });
 
     // `look_at` (like `direction` above) has no live counterpart -- it
@@ -274,6 +277,7 @@ fn merge_point_light(
             intensity: resolve_field(&l.intensity, &b.intensity, &n.intensity),
             range: resolve_field(&l.range, &b.range, &n.range),
             cookie: resolve_field(&l.cookie, &b.cookie, &n.cookie),
+            bake_mode: resolve_field(&l.bake_mode, &b.bake_mode, &n.bake_mode),
         }),
         _ => resolve_field(live, baseline, new),
     }
@@ -303,6 +307,7 @@ fn merge_spot_light(
             ),
             cookie: resolve_field(&l.cookie, &b.cookie, &n.cookie),
             shadows: resolve_field(&l.shadows, &b.shadows, &n.shadows),
+            bake_mode: resolve_field(&l.bake_mode, &b.bake_mode, &n.bake_mode),
         }),
         _ => resolve_field(live, baseline, new),
     }
@@ -331,6 +336,7 @@ fn resolve_directional_light(
             direction: n.direction,
             color: resolve_field(&l.color, &b.color, &n.color),
             ambient: resolve_field(&l.ambient, &b.ambient, &n.ambient),
+            bake_mode: resolve_field(&l.bake_mode, &b.bake_mode, &n.bake_mode),
         }),
         (None, None, _) => new.clone(),
         _ => live.clone(),
@@ -654,6 +660,7 @@ pub(crate) fn apply_merged_descriptor(
                 intensity: pl.intensity,
                 range: pl.range,
                 cookie: pl.cookie.clone(),
+                bake_mode: pl.bake_mode,
             });
         }
         None => {
@@ -673,6 +680,7 @@ pub(crate) fn apply_merged_descriptor(
                 outer_angle_degrees: sl.outer_angle_degrees.into(),
                 cookie: sl.cookie.clone(),
                 shadows: sl.shadows,
+                bake_mode: sl.bake_mode,
             });
         }
         None => {
@@ -694,6 +702,7 @@ pub(crate) fn apply_merged_descriptor(
                 .insert(bsengine_core::DirectionalLight {
                     color: glam::Vec3::from(dl.color).into(),
                     ambient: glam::Vec3::from(dl.ambient).into(),
+                    bake_mode: dl.bake_mode,
                 });
         }
         None => {
@@ -1562,6 +1571,7 @@ mod tests {
             .spawn((
                 bsengine_scene::Name("Lamp".to_string()),
                 bsengine_core::PointLight {
+                    bake_mode: Default::default(),
                     color: glam::Vec3::new(1.0, 0.5, 0.25).into(),
                     intensity: 2.0,
                     range: 15.0,
@@ -1577,6 +1587,7 @@ mod tests {
         assert_eq!(
             desc.point_light,
             Some(bsengine_scene::PointLightDescriptor {
+                bake_mode: Default::default(),
                 color: [1.0, 0.5, 0.25],
                 intensity: 2.0,
                 range: 15.0,
@@ -1600,6 +1611,7 @@ mod tests {
             .spawn((
                 bsengine_scene::Name("Spot".to_string()),
                 bsengine_core::SpotLight {
+                    bake_mode: Default::default(),
                     color: glam::Vec3::ONE.into(),
                     intensity: 1.5,
                     range: 8.0,
@@ -1618,6 +1630,7 @@ mod tests {
         assert_eq!(
             desc.spot_light,
             Some(bsengine_scene::SpotLightDescriptor {
+                bake_mode: Default::default(),
                 color: [1.0, 1.0, 1.0],
                 intensity: 1.5,
                 range: 8.0,
@@ -1638,6 +1651,7 @@ mod tests {
             .spawn((
                 bsengine_scene::Name("Sun".to_string()),
                 bsengine_core::DirectionalLight {
+                    bake_mode: Default::default(),
                     color: glam::Vec3::new(1.0, 0.9, 0.8).into(),
                     ambient: glam::Vec3::splat(0.1).into(),
                 },
@@ -2093,6 +2107,7 @@ mod tests {
         let baseline = bsengine_scene::EntityDescriptor {
             name: "Lamp".to_string(),
             point_light: Some(bsengine_scene::PointLightDescriptor {
+                bake_mode: Default::default(),
                 color: [1.0, 1.0, 1.0],
                 intensity: 1.0,
                 range: 10.0,
@@ -2103,6 +2118,7 @@ mod tests {
         let new = bsengine_scene::EntityDescriptor {
             name: "Lamp".to_string(),
             point_light: Some(bsengine_scene::PointLightDescriptor {
+                bake_mode: Default::default(),
                 color: [1.0, 1.0, 1.0],
                 intensity: 1.0,
                 range: 25.0, // author widened the range, unoverridden
@@ -2113,6 +2129,7 @@ mod tests {
         let live = bsengine_scene::EntityDescriptor {
             name: "Lamp".to_string(),
             point_light: Some(bsengine_scene::PointLightDescriptor {
+                bake_mode: Default::default(),
                 color: [1.0, 1.0, 1.0],
                 intensity: 3.0, // user tuned intensity -> override
                 range: 10.0,    // matches baseline -> adopt new
@@ -2137,17 +2154,20 @@ mod tests {
     #[test]
     fn resolve_directional_light_compares_only_color_and_ambient() {
         let baseline = Some(bsengine_scene::DirectionalLightDescriptor {
+            bake_mode: Default::default(),
             direction: [0.0, 0.0, -1.0],
             color: [1.0, 1.0, 1.0],
             ambient: [0.1, 0.1, 0.1],
         });
         let new = Some(bsengine_scene::DirectionalLightDescriptor {
+            bake_mode: Default::default(),
             direction: [1.0, 0.0, 0.0], // changed, but must have zero effect on the decision
             color: [1.0, 1.0, 1.0],     // unchanged -> adopt
             ambient: [0.2, 0.2, 0.2],   // unchanged... wait see below
         });
         // live's color diverges from baseline -> override; ambient matches baseline -> adopt.
         let live = Some(bsengine_scene::DirectionalLightDescriptor {
+            bake_mode: Default::default(),
             direction: [0.0, 0.0, -1.0],
             color: [0.5, 0.0, 0.0],   // user recolored the sun -> override
             ambient: [0.1, 0.1, 0.1], // matches baseline -> adopt new's ambient
@@ -2342,6 +2362,7 @@ mod tests {
         let live = snapshot_entity_as_descriptor(app.world(), &reg, entity);
         let merged = bsengine_scene::EntityDescriptor {
             point_light: Some(bsengine_scene::PointLightDescriptor {
+                bake_mode: Default::default(),
                 color: [1.0, 0.0, 0.0],
                 intensity: 2.0,
                 range: 12.0,
@@ -2385,6 +2406,7 @@ mod tests {
         let live = snapshot_entity_as_descriptor(app.world(), &reg, entity);
         let merged = bsengine_scene::EntityDescriptor {
             spot_light: Some(bsengine_scene::SpotLightDescriptor {
+                bake_mode: Default::default(),
                 color: [1.0, 1.0, 1.0],
                 intensity: 1.0,
                 range: 10.0,
@@ -2421,6 +2443,7 @@ mod tests {
         let live = snapshot_entity_as_descriptor(app.world(), &reg, entity);
         let merged = bsengine_scene::EntityDescriptor {
             directional_light: Some(bsengine_scene::DirectionalLightDescriptor {
+                bake_mode: Default::default(),
                 direction: [1.0, 0.0, 0.0], // must have no effect on Transform
                 color: [1.0, 0.8, 0.6],
                 ambient: [0.2, 0.2, 0.2],
@@ -3419,6 +3442,108 @@ mod tests {
             "left alone, it follows the prefab off"
         );
         assert!(!resynced(true, true), "switched off, it stays off");
+    }
+
+    /// A light's bake mode merges like its other attributes, in each of the
+    /// three merge functions (point, spot, directional each have their own).
+    /// Three modes give the case a bool cannot: an instance that chose its own
+    /// mode keeps it when the prefab changes to a *third*, and one left alone
+    /// takes the prefab's new mode.
+    #[test]
+    fn resync_instance_merges_each_lights_bake_mode() {
+        use bsengine_core::LightBakeMode::{self, Baked, Indirect, Realtime};
+        // (light field as the file writes it, with `{mode}` for the mode)
+        let kinds = [
+            "point_light: Some((bake_mode: {mode}))",
+            "spot_light: Some((bake_mode: {mode}))",
+            "directional_light: Some((direction: (0.0, -1.0, 0.0), bake_mode: {mode}))",
+        ];
+        let mode_of = |world: &World, e: Entity| -> LightBakeMode {
+            world
+                .get::<bsengine_core::PointLight>(e)
+                .map(|l| l.bake_mode)
+                .or_else(|| {
+                    world
+                        .get::<bsengine_core::SpotLight>(e)
+                        .map(|l| l.bake_mode)
+                })
+                .or_else(|| {
+                    world
+                        .get::<bsengine_core::DirectionalLight>(e)
+                        .map(|l| l.bake_mode)
+                })
+                .expect("the entity has a light")
+        };
+        let set_mode = |world: &mut World, e: Entity, m: LightBakeMode| {
+            if let Some(mut l) = world.get_mut::<bsengine_core::PointLight>(e) {
+                l.bake_mode = m;
+            } else if let Some(mut l) = world.get_mut::<bsengine_core::SpotLight>(e) {
+                l.bake_mode = m;
+            } else if let Some(mut l) = world.get_mut::<bsengine_core::DirectionalLight>(e) {
+                l.bake_mode = m;
+            }
+        };
+        for kind in kinds {
+            let prefab = |mode: LightBakeMode| {
+                let light = kind.replace("{mode}", &format!("{mode:?}"));
+                parse(&format!(
+                    r#"PrefabDescriptor(entities: [
+                        EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                        EntityDescriptor(name: "Light", parent: Some("Body"), {light}),
+                    ])"#
+                ))
+            };
+            let own_source_paths =
+                std::collections::HashSet::from(["assets/prefabs/lamp.ron".to_string()]);
+            let resynced = |instance: Option<LightBakeMode>, new_file: LightBakeMode| {
+                let mut app = new_app();
+                bsengine_scene::register_gameplay_reflect_types(&mut app);
+                let baseline = prefab(Indirect);
+                let root = bsengine_scene::instantiate_prefab(
+                    app.world_mut(),
+                    &baseline,
+                    "assets/prefabs/lamp.ron",
+                    Some("Lamp"),
+                    None,
+                    None,
+                )
+                .unwrap();
+                let light = {
+                    let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+                    q.iter(app.world())
+                        .find(|(_, n)| n.0.starts_with("Light#"))
+                        .map(|(e, _)| e)
+                        .unwrap()
+                };
+                assert_eq!(
+                    mode_of(app.world(), light),
+                    Indirect,
+                    "premise ({kind}): the instance starts as its prefab is"
+                );
+                if let Some(m) = instance {
+                    set_mode(app.world_mut(), light, m);
+                }
+                resync_instance(
+                    app.world_mut(),
+                    root,
+                    &baseline,
+                    &prefab(new_file),
+                    &own_source_paths,
+                )
+                .unwrap();
+                mode_of(app.world(), light)
+            };
+            assert_eq!(
+                resynced(None, Baked),
+                Baked,
+                "{kind}: left alone, it follows the prefab"
+            );
+            assert_eq!(
+                resynced(Some(Realtime), Baked),
+                Realtime,
+                "{kind}: chosen by the instance, it is kept over the prefab's change"
+            );
+        }
     }
 
     /// The cookie merges like every other point light attribute: an instance

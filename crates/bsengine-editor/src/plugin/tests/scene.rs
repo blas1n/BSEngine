@@ -415,6 +415,8 @@ fn mcp_save_load_scene_round_trip_preserves_camera_primitive_script_and_lights()
         app.world_mut().spawn((
             Name("Lamp".to_string()),
             bsengine_core::PointLight {
+                // Not the default, so the round trip has to carry it.
+                bake_mode: bsengine_core::LightBakeMode::Realtime,
                 color: Vec3::new(1.0, 0.5, 0.2).into(),
                 intensity: 2.5,
                 range: 15.0,
@@ -426,6 +428,7 @@ fn mcp_save_load_scene_round_trip_preserves_camera_primitive_script_and_lights()
         app.world_mut().spawn((
             Name("Spot".to_string()),
             bsengine_core::SpotLight {
+                bake_mode: bsengine_core::LightBakeMode::Baked,
                 color: Vec3::new(0.2, 0.8, 1.0).into(),
                 intensity: 3.0,
                 range: 20.0,
@@ -503,6 +506,7 @@ fn mcp_save_load_scene_round_trip_preserves_camera_primitive_script_and_lights()
         // Through the descriptor's own field, for the reason the spot
         // light's cookie is: `PointLight` is not in the generic list either.
         assert_eq!(pl.cookie, "assets/textures/lantern.png");
+        assert_eq!(pl.bake_mode, bsengine_core::LightBakeMode::Realtime);
 
         let mut sl_q = app
             .world_mut()
@@ -519,6 +523,7 @@ fn mcp_save_load_scene_round_trip_preserves_camera_primitive_script_and_lights()
         // the generic reflected list, so nothing else would carry it.
         assert_eq!(sl.cookie, "assets/textures/window.png");
         assert!(!sl.shadows, "the light that casts none still casts none");
+        assert_eq!(sl.bake_mode, bsengine_core::LightBakeMode::Baked);
     }
 }
 

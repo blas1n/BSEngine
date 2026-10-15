@@ -486,6 +486,14 @@ pub struct DirectionalLightDescriptor {
     /// Ambient light color added uniformly to unlit surfaces, as [r, g, b].
     #[serde(default = "default_ambient")]
     pub ambient: [f32; 3],
+    /// What a lightmap bake takes from the light (`LightBakeMode`). Absent
+    /// is the default, `Indirect`, and the default is not written, so every
+    /// scene from before baking existed reads and writes the same text.
+    #[serde(
+        default,
+        skip_serializing_if = "bsengine_core::LightBakeMode::is_default"
+    )]
+    pub bake_mode: bsengine_core::LightBakeMode,
 }
 
 /// Omnidirectional light that falls off with distance from the entity's position.
@@ -505,6 +513,14 @@ pub struct PointLightDescriptor {
     /// `SpotLightDescriptor::cookie` is one.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub cookie: String,
+    /// What a lightmap bake takes from the light (`LightBakeMode`). Absent
+    /// is the default, `Indirect`, and the default is not written, so every
+    /// scene from before baking existed reads and writes the same text.
+    #[serde(
+        default,
+        skip_serializing_if = "bsengine_core::LightBakeMode::is_default"
+    )]
+    pub bake_mode: bsengine_core::LightBakeMode,
 }
 
 /// Cone-shaped light that falls off with distance and angle from the entity's forward direction.
@@ -541,6 +557,14 @@ pub struct SpotLightDescriptor {
     /// it always did.
     #[serde(default = "default_shadows", skip_serializing_if = "is_shadowed")]
     pub shadows: bool,
+    /// What a lightmap bake takes from the light (`LightBakeMode`). Absent
+    /// is the default, `Indirect`, and the default is not written, so every
+    /// scene from before baking existed reads and writes the same text.
+    #[serde(
+        default,
+        skip_serializing_if = "bsengine_core::LightBakeMode::is_default"
+    )]
+    pub bake_mode: bsengine_core::LightBakeMode,
 }
 
 fn default_shadows() -> bool {
@@ -1453,6 +1477,7 @@ mod tests {
     #[test]
     fn point_light_descriptor_supports_equality_comparison() {
         let a = PointLightDescriptor {
+            bake_mode: Default::default(),
             color: [1.0, 1.0, 1.0],
             intensity: 1.0,
             range: 10.0,
@@ -1505,6 +1530,54 @@ mod tests {
         assert_eq!(ron::from_str::<SpotLightDescriptor>(&text).unwrap(), off);
     }
 
+    /// Every light descriptor reads a scene from before baking as the
+    /// default mode and writes nothing for it, and a non-default mode
+    /// survives the trip -- for each of the three, since each has its own
+    /// field and its own serde attributes.
+    #[test]
+    fn light_bake_mode_is_optional_in_the_file_and_round_trips() {
+        use bsengine_core::LightBakeMode;
+        let point: PointLightDescriptor = ron::from_str("(intensity: 1.0)").unwrap();
+        let spot: SpotLightDescriptor = ron::from_str("(intensity: 1.0)").unwrap();
+        let sun: DirectionalLightDescriptor =
+            ron::from_str("(direction: (0.0, -1.0, 0.0))").unwrap();
+        assert_eq!(point.bake_mode, LightBakeMode::Indirect);
+        assert_eq!(spot.bake_mode, LightBakeMode::Indirect);
+        assert_eq!(sun.bake_mode, LightBakeMode::Indirect);
+        for text in [
+            ron::to_string(&point).unwrap(),
+            ron::to_string(&spot).unwrap(),
+            ron::to_string(&sun).unwrap(),
+        ] {
+            assert!(
+                !text.contains("bake_mode"),
+                "the default is not written: {text}"
+            );
+        }
+
+        let baked_point = PointLightDescriptor {
+            bake_mode: LightBakeMode::Baked,
+            ..point
+        };
+        let back: PointLightDescriptor =
+            ron::from_str(&ron::to_string(&baked_point).unwrap()).unwrap();
+        assert_eq!(back.bake_mode, LightBakeMode::Baked);
+        let realtime_spot = SpotLightDescriptor {
+            bake_mode: LightBakeMode::Realtime,
+            ..spot
+        };
+        let back: SpotLightDescriptor =
+            ron::from_str(&ron::to_string(&realtime_spot).unwrap()).unwrap();
+        assert_eq!(back.bake_mode, LightBakeMode::Realtime);
+        let baked_sun = DirectionalLightDescriptor {
+            bake_mode: LightBakeMode::Baked,
+            ..sun
+        };
+        let back: DirectionalLightDescriptor =
+            ron::from_str(&ron::to_string(&baked_sun).unwrap()).unwrap();
+        assert_eq!(back.bake_mode, LightBakeMode::Baked);
+    }
+
     #[test]
     fn spot_light_cookie_is_optional_in_the_file() {
         let old = "(color: (1.0, 1.0, 1.0), intensity: 1.0, range: 10.0, \
@@ -1527,6 +1600,7 @@ mod tests {
     #[test]
     fn spot_light_descriptor_supports_equality_comparison() {
         let a = SpotLightDescriptor {
+            bake_mode: Default::default(),
             color: [1.0, 1.0, 1.0],
             intensity: 1.0,
             range: 10.0,

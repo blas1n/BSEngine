@@ -43,6 +43,7 @@ pub(super) fn build_entity_descriptors(entities: &[EntityInfo]) -> Vec<EntityDes
                         direction: dir.to_array(),
                         color: e.light_color.unwrap_or([1.0, 1.0, 1.0]),
                         ambient: e.light_ambient.unwrap_or([0.1, 0.1, 0.1]),
+                        bake_mode: e.light_bake_mode.unwrap_or_default(),
                     })
                 } else {
                     None
@@ -53,6 +54,7 @@ pub(super) fn build_entity_descriptors(entities: &[EntityInfo]) -> Vec<EntityDes
                         intensity: e.light_intensity.unwrap_or(1.0),
                         range: e.light_range.unwrap_or(10.0),
                         cookie: e.point_cookie.clone().unwrap_or_default(),
+                        bake_mode: e.light_bake_mode.unwrap_or_default(),
                     })
                 } else {
                     None
@@ -66,6 +68,7 @@ pub(super) fn build_entity_descriptors(entities: &[EntityInfo]) -> Vec<EntityDes
                         outer_angle_degrees: e.spot_outer_angle.unwrap_or(30.0),
                         cookie: e.spot_cookie.clone().unwrap_or_default(),
                         shadows: e.spot_shadows.unwrap_or(true),
+                        bake_mode: e.light_bake_mode.unwrap_or_default(),
                     })
                 } else {
                     None

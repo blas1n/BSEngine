@@ -199,6 +199,7 @@ pub(super) fn process_editor_commands(
                     DirectionalLight {
                         color: glam::Vec3::from(color).into(),
                         ambient: glam::Vec3::from(ambient).into(),
+                        bake_mode: Default::default(),
                     },
                     Transform {
                         rotation: rotation.into(),
@@ -669,6 +670,7 @@ pub(super) fn process_editor_commands(
                         eb.insert(DirectionalLight {
                             color: glam::Vec3::from(dl.color).into(),
                             ambient: glam::Vec3::from(dl.ambient).into(),
+                            bake_mode: dl.bake_mode,
                         });
                         // Direction lives on Transform.rotation (rotation * -Z), same
                         // as SpotLight; reuse translation/scale from the scene file's
@@ -695,6 +697,7 @@ pub(super) fn process_editor_commands(
                             intensity: pl.intensity,
                             range: pl.range,
                             cookie: pl.cookie.clone(),
+                            bake_mode: pl.bake_mode,
                         });
                     }
                     if let Some(sl) = &entity.spot_light {
@@ -706,6 +709,7 @@ pub(super) fn process_editor_commands(
                             outer_angle_degrees: sl.outer_angle_degrees.into(),
                             cookie: sl.cookie.clone(),
                             shadows: sl.shadows,
+                            bake_mode: sl.bake_mode,
                         });
                     }
                     if let Some(script) = &entity.script {

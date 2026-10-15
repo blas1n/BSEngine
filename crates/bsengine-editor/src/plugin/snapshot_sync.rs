@@ -64,6 +64,10 @@ pub(super) fn update_editor_snapshot(
                     .map(|l| l.intensity)
                     .or_else(|| spot.map(|l| l.intensity));
                 let light_range = pt.map(|l| l.range).or_else(|| spot.map(|l| l.range));
+                let light_bake_mode = pt
+                    .map(|l| l.bake_mode)
+                    .or_else(|| dir.map(|l| l.bake_mode))
+                    .or_else(|| spot.map(|l| l.bake_mode));
                 EntityInfo {
                     id: e.index() as u64,
                     name: name.map(|n| n.0.clone()),
@@ -86,6 +90,7 @@ pub(super) fn update_editor_snapshot(
                     spot_outer_angle: spot.map(|l| l.outer_angle_degrees.0),
                     spot_cookie: spot.map(|l| l.cookie.clone()),
                     spot_shadows: spot.map(|l| l.shadows),
+                    light_bake_mode,
                     point_cookie: pt.map(|l| l.cookie.clone()),
                     camera_fov: cam.map(|c| c.fov_y_degrees.0),
                     material_base_color: mat.map(|m| m.base_color.to_array()),

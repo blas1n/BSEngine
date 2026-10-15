@@ -62,6 +62,8 @@ pub mod light;
 pub mod light_probe;
 /// Baked lighting for a static renderer (an RGBM atlas read by `uv2`).
 pub mod lightmap;
+/// Marks a renderer as static geometry for a lightmap bake.
+pub mod lightmap_static;
 /// Translated strings by key from CSV string tables, a current locale and a fallback.
 pub mod localization;
 /// Engine-wide logging initialization.
@@ -202,9 +204,10 @@ pub use inspector::{
     PRIMITIVE_KINDS,
 };
 pub use lifetime::Lifetime;
-pub use light::{DirectionalLight, PointLight, RectLight, SpotLight};
+pub use light::{DirectionalLight, LightBakeMode, PointLight, RectLight, SpotLight};
 pub use light_probe::{LightProbeVolume, MAX_PROBES};
 pub use lightmap::{Lightmap, LIGHTMAP_RGBM_RANGE};
+pub use lightmap_static::LightmapStatic;
 pub use localization::Localization;
 pub use logging::init_logging;
 pub use material::{Material, TexturePath};

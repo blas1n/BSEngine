@@ -483,6 +483,24 @@ impl GltfLoader {
                     })
                     .collect();
 
+                // A static mesh that did not bring its own lightmap UVs gets
+                // them generated, as Unity, Godot and Unreal all do at import.
+                // Not a skinned or morphed one: the unwrap duplicates vertices
+                // on chart borders, and the skin weights and morph deltas are
+                // arrays parallel to the vertices -- it would leave them
+                // pointing at the wrong ones. Those keep `uv2 = [0, 0]`; a
+                // lightmap is for static geometry.
+                let (vertices, indices) =
+                    if uv2s.is_none() && skin.is_none() && morph_targets.is_empty() {
+                        bsengine_rhi_wgpu::lightmap_uv::unwrap(
+                            &vertices,
+                            &indices,
+                            &bsengine_rhi_wgpu::lightmap_uv::UnwrapSettings::default(),
+                        )
+                    } else {
+                        (vertices, indices)
+                    };
+
                 meshes.push(MeshData {
                     name: name.clone(),
                     vertices,
@@ -759,11 +777,33 @@ mod tests {
         assert_eq!(v[1].uv2, [0.3, 0.4]);
         assert_eq!(v[2].uv2, [0.5, 0.6]);
 
+        // Without TEXCOORD_1 a static mesh is unwrapped: the triangle keeps
+        // its positions and `uv`, and gets a valid, non-degenerate `uv2`.
         let without = load(false);
-        for vertex in &without.meshes[0].vertices {
-            assert_eq!(vertex.uv2, [0.0, 0.0], "no TEXCOORD_1, no uv2");
-        }
-        assert_eq!(without.meshes[0].vertices[1].uv, [1.0, 0.0], "uv unaffected");
+        let mesh = &without.meshes[0];
+        assert_eq!(mesh.indices.len(), 3);
+        assert_eq!(mesh.vertices[1].uv, [1.0, 0.0], "uv unaffected");
+        assert!(
+            bsengine_rhi_wgpu::lightmap_uv::uv2_is_valid(&mesh.vertices, &mesh.indices),
+            "the generated uv2 is a valid parameterisation"
+        );
+        assert_ne!(mesh.vertices[0].uv2, mesh.vertices[1].uv2, "not all zero");
+    }
+
+    /// A morphed mesh has deltas parallel to its vertices, so unwrapping it
+    /// (which duplicates vertices on chart borders) would misalign them: it
+    /// keeps its vertex count and a zero `uv2`.
+    #[test]
+    fn a_morphed_mesh_without_texcoord_1_is_not_unwrapped() {
+        let loaded = GltfLoader::load_full_from_slice(
+            morph_triangle_gltf().as_bytes(),
+            &ModelImportSettings::default(),
+        )
+        .expect("the fixture loads");
+        let mesh = &loaded.meshes[0];
+        assert!(!mesh.morph_targets.is_empty(), "premise: it is morphed");
+        assert_eq!(mesh.vertices.len(), mesh.morph_targets[0].positions.len());
+        assert!(mesh.vertices.iter().all(|v| v.uv2 == [0.0, 0.0]));
     }
 
     #[test]

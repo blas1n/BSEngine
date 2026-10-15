@@ -394,7 +394,7 @@ fn mcp_save_load_scene_round_trip_preserves_camera_primitive_script_and_lights()
         .to_string_lossy()
         .to_string();
 
-    // Save: a camera, a primitive+scripted cube, a point light, and a spot light.
+    // Save: a camera, a primitive+scripted cube, a point light, a sun and a spot light.
     {
         let mut app = new_app();
         app.add_plugins(McpPlugin);
@@ -415,6 +415,8 @@ fn mcp_save_load_scene_round_trip_preserves_camera_primitive_script_and_lights()
         app.world_mut().spawn((
             Name("Lamp".to_string()),
             bsengine_core::PointLight {
+                // Not the default, so the round trip has to carry it.
+                bake_mode: bsengine_core::LightBakeMode::Realtime,
                 color: Vec3::new(1.0, 0.5, 0.2).into(),
                 intensity: 2.5,
                 range: 15.0,
@@ -423,9 +425,22 @@ fn mcp_save_load_scene_round_trip_preserves_camera_primitive_script_and_lights()
             Transform::from_position(Vec3::new(0.0, 3.0, 0.0)),
             bsengine_core::GlobalTransform::default(),
         ));
+        // A sun with a mode that is not the default: the directional light is
+        // the one whose save path a mutation once dropped unobserved, as the
+        // fixture had no directional light at all.
+        app.world_mut().spawn((
+            Name("Sun".to_string()),
+            bsengine_core::DirectionalLight {
+                bake_mode: bsengine_core::LightBakeMode::Baked,
+                ..Default::default()
+            },
+            Transform::default(),
+            bsengine_core::GlobalTransform::default(),
+        ));
         app.world_mut().spawn((
             Name("Spot".to_string()),
             bsengine_core::SpotLight {
+                bake_mode: bsengine_core::LightBakeMode::Baked,
                 color: Vec3::new(0.2, 0.8, 1.0).into(),
                 intensity: 3.0,
                 range: 20.0,
@@ -448,7 +463,10 @@ fn mcp_save_load_scene_round_trip_preserves_camera_primitive_script_and_lights()
             .execute("save_scene", json!({"path": path}))
             .unwrap();
         assert!(r.is_ok(), "{:?}", r.error);
-        assert_eq!(r.content["entity_count"], 4);
+        assert_eq!(
+            r.content["entity_count"], 5,
+            "camera, crate, lamp, sun, spot"
+        );
     }
 
     // Load in a fresh app and verify every component round-tripped.
@@ -503,6 +521,7 @@ fn mcp_save_load_scene_round_trip_preserves_camera_primitive_script_and_lights()
         // Through the descriptor's own field, for the reason the spot
         // light's cookie is: `PointLight` is not in the generic list either.
         assert_eq!(pl.cookie, "assets/textures/lantern.png");
+        assert_eq!(pl.bake_mode, bsengine_core::LightBakeMode::Realtime);
 
         let mut sl_q = app
             .world_mut()
@@ -519,6 +538,15 @@ fn mcp_save_load_scene_round_trip_preserves_camera_primitive_script_and_lights()
         // the generic reflected list, so nothing else would carry it.
         assert_eq!(sl.cookie, "assets/textures/window.png");
         assert!(!sl.shadows, "the light that casts none still casts none");
+        assert_eq!(sl.bake_mode, bsengine_core::LightBakeMode::Baked);
+        let mut sun_q = app
+            .world_mut()
+            .query::<(&Name, &bsengine_core::DirectionalLight)>();
+        let (_, sun) = sun_q
+            .iter(app.world())
+            .find(|(n, _)| n.0 == "Sun")
+            .expect("Sun not found after load");
+        assert_eq!(sun.bake_mode, bsengine_core::LightBakeMode::Baked);
     }
 }
 

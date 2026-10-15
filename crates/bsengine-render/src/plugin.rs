@@ -2864,6 +2864,7 @@ mod tests {
         app.add_plugins(RenderPlugin);
         app.world_mut().spawn((
             PointLight {
+                bake_mode: Default::default(),
                 color: Vec3::new(1.0, 0.5, 0.0).into(),
                 intensity: 2.0,
                 range: 5.0,

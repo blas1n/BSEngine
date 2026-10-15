@@ -477,6 +477,7 @@ fn list_entities_includes_light_props_for_point_light() {
     app.add_plugins(McpPlugin);
     app.add_plugins(EditorPlugin);
     app.world_mut().spawn(bsengine_core::PointLight {
+        bake_mode: Default::default(),
         color: glam::Vec3::new(0.5, 0.5, 0.5).into(),
         intensity: 3.5,
         range: 12.0,

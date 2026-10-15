@@ -111,6 +111,7 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
     // Orange point light above the scene
     commands.spawn((
         PointLight {
+            bake_mode: Default::default(),
             color: Vec3::new(1.0, 0.5, 0.1).into(),
             intensity: 2.0,
             range: 8.0,

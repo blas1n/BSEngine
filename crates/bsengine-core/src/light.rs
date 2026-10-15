@@ -6,6 +6,42 @@ use bevy_reflect::prelude::ReflectDefault;
 use bevy_reflect::Reflect;
 use glam::Vec3;
 
+/// What a light gives a lightmap bake.
+///
+/// The three states every reference engine has, under three sets of names:
+/// Unity's `Realtime` / `Mixed` / `Baked`, Godot's `Disabled` / `Dynamic` /
+/// `Static`, Unreal's `Movable` / `Stationary` / `Static`.
+///
+/// The default is [`Indirect`](Self::Indirect), as Godot's is: a scene that
+/// never thinks about baking keeps every light drawn exactly as it always was,
+/// and a first bake still gets their bounced light instead of the sky alone.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Reflect, serde::Serialize, serde::Deserialize,
+)]
+#[reflect(Default)]
+pub enum LightBakeMode {
+    /// Left out of the bake entirely: no bounce either. A light that moves
+    /// or switches at run time, whose bounce baked in place would be wrong
+    /// the moment it changed.
+    Realtime,
+    /// Its bounced light is baked; its direct light and shadows are still
+    /// drawn every frame.
+    #[default]
+    Indirect,
+    /// Direct light and shadows are baked too, and on lightmapped surfaces
+    /// the light is not drawn at run time. Moving objects are still lit by it
+    /// in real time.
+    Baked,
+}
+
+impl LightBakeMode {
+    /// For `skip_serializing_if`: the default is not written, so a light that
+    /// says nothing about baking writes the text it always did.
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 // Direction is intentionally not stored here: it's derived from the
 // entity's Transform.rotation (rotation * -Z), the same way SpotLight
 // already derives its cone direction. This keeps a single source of truth
@@ -21,6 +57,8 @@ pub struct DirectionalLight {
     pub color: ReflectColor,
     /// Constant ambient light color added regardless of surface orientation.
     pub ambient: ReflectColor,
+    /// What a lightmap bake takes from this light ([`LightBakeMode`]).
+    pub bake_mode: LightBakeMode,
 }
 
 impl Default for DirectionalLight {
@@ -28,6 +66,7 @@ impl Default for DirectionalLight {
         Self {
             color: Vec3::ONE.into(),
             ambient: Vec3::splat(0.15).into(),
+            bake_mode: LightBakeMode::default(),
         }
     }
 }
@@ -51,6 +90,8 @@ pub struct PointLight {
     /// Unity's point cookies are cube maps instead, an asset type this engine
     /// does not have. Empty is a plain light.
     pub cookie: String,
+    /// What a lightmap bake takes from this light ([`LightBakeMode`]).
+    pub bake_mode: LightBakeMode,
 }
 
 impl Default for PointLight {
@@ -60,6 +101,7 @@ impl Default for PointLight {
             intensity: 1.0,
             range: 10.0,
             cookie: String::new(),
+            bake_mode: LightBakeMode::default(),
         }
     }
 }
@@ -94,6 +136,8 @@ pub struct SpotLight {
     /// Off frees the light's shadow pass -- a draw of every caster -- for a
     /// light whose shadow nobody would see.
     pub shadows: bool,
+    /// What a lightmap bake takes from this light ([`LightBakeMode`]).
+    pub bake_mode: LightBakeMode,
 }
 
 impl Default for SpotLight {
@@ -106,6 +150,7 @@ impl Default for SpotLight {
             outer_angle_degrees: 30.0.into(),
             cookie: String::new(),
             shadows: true,
+            bake_mode: LightBakeMode::default(),
         }
     }
 }
@@ -159,6 +204,8 @@ pub struct RectLight {
     /// into a wall -- a light strip, a window -- whose centre sits behind
     /// the wall's surface would shadow its own light out entirely.
     pub shadows: bool,
+    /// What a lightmap bake takes from this light ([`LightBakeMode`]).
+    pub bake_mode: LightBakeMode,
 }
 
 impl Default for RectLight {
@@ -170,6 +217,7 @@ impl Default for RectLight {
             height: 1.0,
             range: 10.0,
             shadows: false,
+            bake_mode: LightBakeMode::default(),
         }
     }
 }

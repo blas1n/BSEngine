@@ -38,6 +38,7 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>, mut 
     let dir = Vec3::new(-0.5, -1.0, -0.5).normalize();
     commands.spawn((
         DirectionalLight {
+            bake_mode: Default::default(),
             color: Vec3::ONE.into(),
             ambient: Vec3::splat(0.15).into(),
         },

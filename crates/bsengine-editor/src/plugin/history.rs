@@ -122,6 +122,7 @@ pub(super) fn sync_entity_to_info(world: &mut World, entity: Entity, info: &Enti
                 intensity: info.light_intensity.unwrap_or(1.0),
                 range: info.light_range.unwrap_or(10.0),
                 cookie: info.point_cookie.clone().unwrap_or_default(),
+                bake_mode: info.light_bake_mode.unwrap_or_default(),
             });
         }
         Some("directional") => {
@@ -130,6 +131,9 @@ pub(super) fn sync_entity_to_info(world: &mut World, entity: Entity, info: &Enti
             if let Some(mut dl) = e.get_mut::<DirectionalLight>() {
                 if let Some(c) = info.light_color {
                     dl.color = glam::Vec3::from(c).into();
+                }
+                if let Some(m) = info.light_bake_mode {
+                    dl.bake_mode = m;
                 }
             }
         }
@@ -157,6 +161,9 @@ pub(super) fn sync_entity_to_info(world: &mut World, entity: Entity, info: &Enti
                 }
                 if let Some(s) = info.spot_shadows {
                     sl.shadows = s;
+                }
+                if let Some(m) = info.light_bake_mode {
+                    sl.bake_mode = m;
                 }
             }
         }
@@ -236,11 +243,15 @@ pub(super) fn spawn_entity_from_info(world: &mut World, info: &EntityInfo) -> En
                 intensity: info.light_intensity.unwrap_or(1.0),
                 range: info.light_range.unwrap_or(10.0),
                 cookie: info.point_cookie.clone().unwrap_or_default(),
+                bake_mode: info.light_bake_mode.unwrap_or_default(),
             });
         }
         Some("directional") => {
             e.insert(DirectionalLight {
                 color: glam::Vec3::from(info.light_color.unwrap_or([1.0; 3])).into(),
+                // Explicit: `..default()` alone would compile and quietly reset
+                // the mode on every restore.
+                bake_mode: info.light_bake_mode.unwrap_or_default(),
                 ..DirectionalLight::default()
             });
         }
@@ -253,6 +264,7 @@ pub(super) fn spawn_entity_from_info(world: &mut World, info: &EntityInfo) -> En
                 outer_angle_degrees: info.spot_outer_angle.unwrap_or(30.0).into(),
                 cookie: info.spot_cookie.clone().unwrap_or_default(),
                 shadows: info.spot_shadows.unwrap_or(true),
+                bake_mode: info.light_bake_mode.unwrap_or_default(),
             });
         }
         _ => {}

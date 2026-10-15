@@ -653,6 +653,7 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
             builder.insert(DirectionalLight {
                 color: Vec3::from(dl.color).into(),
                 ambient: Vec3::from(dl.ambient).into(),
+                bake_mode: dl.bake_mode,
             });
             // Direction lives on Transform.rotation (rotation * -Z), same as
             // SpotLight; reuse any explicit translation/scale from the scene
@@ -680,6 +681,7 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                 intensity: pl.intensity,
                 range: pl.range,
                 cookie: pl.cookie.clone(),
+                bake_mode: pl.bake_mode,
             });
         }
 
@@ -692,6 +694,7 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                 outer_angle_degrees: sl.outer_angle_degrees.into(),
                 cookie: sl.cookie.clone(),
                 shadows: sl.shadows,
+                bake_mode: sl.bake_mode,
             });
         }
 
@@ -963,6 +966,8 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     app.register_type::<bsengine_core::DirectionalLight>();
     app.register_type::<bsengine_core::SpotLight>();
     app.register_type::<bsengine_core::RectLight>();
+    app.register_type::<bsengine_core::LightBakeMode>();
+    app.register_type::<bsengine_core::LightmapStatic>();
     app.register_type::<bsengine_core::Material>();
     app.register_type::<bsengine_core::TexturePath>();
     app.register_type::<bsengine_core::ParticleEmitter>();
@@ -1313,6 +1318,43 @@ mod tests {
         let lights: Vec<_> = q.iter(app.world()).collect();
         assert_eq!(lights.len(), 1, "premise: the light was spawned");
         assert_eq!(lights[0].cookie, "textures/cage.png");
+    }
+
+    /// Each light kind is spawned with the mode its descriptor names -- not
+    /// the default, which a loader that forgot the field would give.
+    #[test]
+    fn a_lights_bake_mode_is_spawned_from_the_scene() {
+        use bsengine_core::LightBakeMode;
+        let scene: crate::types::SceneDescriptor = ron::from_str(
+            r#"SceneDescriptor(entities: [
+                EntityDescriptor(name: "Sun", directional_light: Some((direction: (0.0, -1.0, 0.0), bake_mode: Baked))),
+                EntityDescriptor(name: "Lamp", point_light: Some((bake_mode: Realtime))),
+                EntityDescriptor(name: "Spot", spot_light: Some((bake_mode: Baked))),
+            ])"#,
+        )
+        .expect("the scene should parse");
+        let mut app = new_app();
+        super::register_gameplay_reflect_types(&mut app);
+        super::spawn_scene_entities(app.world_mut(), &scene.entities);
+        let world = app.world_mut();
+        let sun: Vec<_> = world
+            .query::<&bsengine_core::DirectionalLight>()
+            .iter(world)
+            .map(|l| l.bake_mode)
+            .collect();
+        let lamp: Vec<_> = world
+            .query::<&bsengine_core::PointLight>()
+            .iter(world)
+            .map(|l| l.bake_mode)
+            .collect();
+        let spot: Vec<_> = world
+            .query::<&bsengine_core::SpotLight>()
+            .iter(world)
+            .map(|l| l.bake_mode)
+            .collect();
+        assert_eq!(sun, vec![LightBakeMode::Baked]);
+        assert_eq!(lamp, vec![LightBakeMode::Realtime]);
+        assert_eq!(spot, vec![LightBakeMode::Baked]);
     }
 
     #[test]

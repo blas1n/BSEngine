@@ -503,6 +503,7 @@ mod tests {
                     if i % 2 == 0 { uv_extent } else { 0.0 },
                     if i < 3 { uv_extent } else { 0.0 },
                 ],
+                uv2: [0.0, 0.0],
             })
             .collect();
         (vertices, vec![0, 2, 4, 1, 3, 5])

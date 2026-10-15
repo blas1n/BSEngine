@@ -457,16 +457,29 @@ impl GltfLoader {
                     }
                 };
 
+                // The lightmap UV set. Absent is `[0, 0]` for every vertex, not an
+                // error: most models are never baked, and a mesh that is baked
+                // without one is unwrapped later (`lightmap_uv::unwrap`) rather
+                // than here, where a skinned mesh's parallel arrays forbid it.
+                let uv2s: Option<Vec<[f32; 2]>> = reader
+                    .read_tex_coords(1)
+                    .map(|t| t.into_f32().collect());
+
                 let vertices: Vec<Vertex> = positions
                     .into_iter()
                     .zip(colors)
                     .zip(normals)
                     .zip(uvs)
-                    .map(|(((position, color), normal), uv)| Vertex {
+                    .enumerate()
+                    .map(|(i, (((position, color), normal), uv))| Vertex {
                         position,
                         color,
                         normal,
                         uv,
+                        uv2: uv2s
+                            .as_ref()
+                            .and_then(|u| u.get(i).copied())
+                            .unwrap_or([0.0, 0.0]),
                     })
                     .collect();
 

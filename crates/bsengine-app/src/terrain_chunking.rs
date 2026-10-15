@@ -327,6 +327,8 @@ pub fn generate_chunks_with_splatmap(
                             lx as f32 / lod_texels_x as f32,
                             lz as f32 / lod_texels_z as f32,
                         ],
+                        // Terrain gets its own (planar) lightmap UVs in a later change.
+                        uv2: [0.0, 0.0],
                     });
                 }
             }

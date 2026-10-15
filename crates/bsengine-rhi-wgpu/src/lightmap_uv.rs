@@ -280,9 +280,8 @@ fn chart_overlaps(chart: &Chart, triangles: &[[Vec3; 3]]) -> bool {
     let scale = (n as f32 - 1.0) / extent;
     let mut owner = vec![u32::MAX; n * n];
     for &t in &chart.triangles {
-        let p = triangles[t].map(|v| {
-            (Vec2::new(v.dot(chart.tangent), v.dot(chart.bitangent)) - chart.min) * scale
-        });
+        let p = triangles[t]
+            .map(|v| (Vec2::new(v.dot(chart.tangent), v.dot(chart.bitangent)) - chart.min) * scale);
         let area = (p[1] - p[0]).perp_dot(p[2] - p[0]);
         if area.abs() < 1e-9 {
             continue;
@@ -370,7 +369,14 @@ fn pack(charts: &[Chart], settings: &UnwrapSettings) -> (f32, Vec<Vec2>, f32) {
         .iter()
         .map(|c| c.size.x.max(c.size.y))
         .fold(0.0f32, f32::max);
-    let (mut lo, mut hi) = (0.0f32, if largest > 0.0 { (1.0 - 2.0 * gutter) / largest } else { 1.0 });
+    let (mut lo, mut hi) = (
+        0.0f32,
+        if largest > 0.0 {
+            (1.0 - 2.0 * gutter) / largest
+        } else {
+            1.0
+        },
+    );
     if largest > 0.0 {
         for _ in 0..40 {
             let mid = 0.5 * (lo + hi);
@@ -483,7 +489,10 @@ mod tests {
         for (name, (vertices, indices)) in primitives() {
             let (out_v, out_i) = unwrap(&vertices, &indices, &UnwrapSettings::default());
             assert_eq!(out_i.len(), indices.len(), "{name}: triangle count");
-            assert!(out_v.len() >= vertices.len(), "{name}: only ever splits vertices");
+            assert!(
+                out_v.len() >= vertices.len(),
+                "{name}: only ever splits vertices"
+            );
             for t in 0..indices.len() / 3 {
                 assert_eq!(
                     triangle_positions(&out_v, &out_i, t),
@@ -493,9 +502,16 @@ mod tests {
             }
             for (v, source) in out_i.iter().zip(&indices) {
                 let (o, s) = (&out_v[*v as usize], &vertices[*source as usize]);
-                assert_eq!((o.color, o.normal, o.uv), (s.color, s.normal, s.uv), "{name}");
+                assert_eq!(
+                    (o.color, o.normal, o.uv),
+                    (s.color, s.normal, s.uv),
+                    "{name}"
+                );
             }
-            assert!(uv2_is_valid(&out_v, &out_i), "{name}: uv2 overlaps or leaves [0,1]");
+            assert!(
+                uv2_is_valid(&out_v, &out_i),
+                "{name}: uv2 overlaps or leaves [0,1]"
+            );
         }
     }
 
@@ -511,7 +527,10 @@ mod tests {
         // Every triangle stacked on one spot: overlap.
         let stacked: Vec<Vertex> = v
             .iter()
-            .map(|x| Vertex { uv2: [0.1, 0.1], ..*x })
+            .map(|x| Vertex {
+                uv2: [0.1, 0.1],
+                ..*x
+            })
             .collect();
         // All-equal uv2 makes zero-area triangles, which cover no texel, so
         // give the first triangle of two different faces (different charts, so
@@ -521,7 +540,10 @@ mod tests {
             overlapped[i[k] as usize].uv2 = [[0.1, 0.1], [0.3, 0.1], [0.1, 0.3]][k];
             overlapped[i[6 + k] as usize].uv2 = [[0.1, 0.1], [0.3, 0.1], [0.1, 0.3]][k];
         }
-        assert!(!uv2_is_valid(&overlapped, &i), "two stacked triangles overlap");
+        assert!(
+            !uv2_is_valid(&overlapped, &i),
+            "two stacked triangles overlap"
+        );
 
         v[i[0] as usize].uv2 = [1.5, 0.5];
         assert!(!uv2_is_valid(&v, &i), "a coordinate past 1 is out of range");
@@ -534,7 +556,11 @@ mod tests {
         let (mut vertices, mut indices) = plane_vertices();
         let offset = vertices.len() as u32;
         for mut v in plane_vertices().0 {
-            v.position = [v.position[0] * 2.0 + 3.0, v.position[1], v.position[2] * 2.0];
+            v.position = [
+                v.position[0] * 2.0 + 3.0,
+                v.position[1],
+                v.position[2] * 2.0,
+            ];
             vertices.push(v);
         }
         indices.extend(plane_vertices().1.iter().map(|i| i + offset));
@@ -548,9 +574,15 @@ mod tests {
         // unwrap (every chart filling its slot) would show different ratios.
         let big = world_area(&out_v, &out_i, triangles - 1);
         let small = world_area(&out_v, &out_i, 0);
-        assert!((big / small - 4.0).abs() < 1e-3, "premise: {big} vs {small}");
+        assert!(
+            (big / small - 4.0).abs() < 1e-3,
+            "premise: {big} vs {small}"
+        );
         for r in &ratios {
-            assert!((r / ratios[0] - 1.0).abs() < 0.01, "densities differ: {ratios:?}");
+            assert!(
+                (r / ratios[0] - 1.0).abs() < 0.01,
+                "densities differ: {ratios:?}"
+            );
         }
     }
 
@@ -583,9 +615,19 @@ mod tests {
             }
             count
         };
-        assert_eq!(touching(&UnwrapSettings::default()), 0, "gutter keeps charts apart");
-        let none = UnwrapSettings { gutter_texels: 0.0, ..UnwrapSettings::default() };
-        assert!(touching(&none) > 0, "premise: with no gutter the charts do touch");
+        assert_eq!(
+            touching(&UnwrapSettings::default()),
+            0,
+            "gutter keeps charts apart"
+        );
+        let none = UnwrapSettings {
+            gutter_texels: 0.0,
+            ..UnwrapSettings::default()
+        };
+        assert!(
+            touching(&none) > 0,
+            "premise: with no gutter the charts do touch"
+        );
     }
 
     #[test]

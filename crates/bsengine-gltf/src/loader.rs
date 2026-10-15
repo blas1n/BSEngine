@@ -461,9 +461,8 @@ impl GltfLoader {
                 // error: most models are never baked, and a mesh that is baked
                 // without one is unwrapped later (`lightmap_uv::unwrap`) rather
                 // than here, where a skinned mesh's parallel arrays forbid it.
-                let uv2s: Option<Vec<[f32; 2]>> = reader
-                    .read_tex_coords(1)
-                    .map(|t| t.into_f32().collect());
+                let uv2s: Option<Vec<[f32; 2]>> =
+                    reader.read_tex_coords(1).map(|t| t.into_f32().collect());
 
                 let vertices: Vec<Vertex> = positions
                     .into_iter()
@@ -731,7 +730,11 @@ mod tests {
         let mut buffer = f32s(&[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
         buffer.extend(f32s(&[0.0, 0.0, 1.0, 0.0, 0.0, 1.0]));
         buffer.extend(f32s(&[0.1, 0.2, 0.3, 0.4, 0.5, 0.6]));
-        let second = if with_second_set { ", \"TEXCOORD_1\": 2" } else { "" };
+        let second = if with_second_set {
+            ", \"TEXCOORD_1\": 2"
+        } else {
+            ""
+        };
         format!(
             r#"{{
   "asset": {{"version": "2.0"}},

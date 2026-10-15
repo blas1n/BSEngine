@@ -583,7 +583,11 @@ mod tests {
         for (name, (vertices, indices)) in primitives {
             assert_eq!(indices.len() % 3, 0, "{name}: whole triangles");
             let max = *indices.iter().max().expect("has indices") as usize;
-            assert!(max < vertices.len(), "{name}: index {max} of {}", vertices.len());
+            assert!(
+                max < vertices.len(),
+                "{name}: index {max} of {}",
+                vertices.len()
+            );
             let mut used = vec![false; vertices.len()];
             for &i in &indices {
                 used[i as usize] = true;

@@ -214,3 +214,52 @@ fn a_baked_suns_direct_light_is_in_the_lightmap() {
         "the baked sun adds its E / pi ({sun}): {baked} vs {indirect}"
     );
 }
+
+/// A baked scene's lightmaps ship with it: a packaged build (both a loose
+/// copy and a single archive) carries the data file and every layer it
+/// names, each with the sidecar that says it is linear -- without which the
+/// layer would load as an sRGB colour and every texel would decode wrong.
+/// Nothing in the scene names any of them, which is why this can break.
+#[test]
+fn a_package_carries_the_scenes_lightmaps() {
+    let probe = Probe::create("");
+    assert!(probe.bake().status.success());
+    let layer = probe.data().entries[0].texture.clone();
+    let package = |mode: &str| {
+        let out = probe.0.join(format!("build-{mode}"));
+        let status = Command::new(env!("CARGO_BIN_EXE_bsengine-runtime"))
+            .arg("--package")
+            .arg(&probe.0)
+            .arg("--out")
+            .arg(&out)
+            .arg("--mode")
+            .arg(mode)
+            .status()
+            .expect("run --package");
+        assert!(status.success(), "packaging as {mode} failed");
+        out
+    };
+
+    let loose = package("loose");
+    for file in [
+        "assets/scenes/main.lightmaps",
+        layer.as_str(),
+        &format!("{layer}.meta"),
+    ] {
+        assert!(loose.join(file).is_file(), "the loose build has {file}");
+    }
+
+    let pak = package("pak");
+    let archive = bsengine_asset::pak::Pak::open(pak.join(bsengine_asset::cook::PAK_FILE_NAME))
+        .expect("the archive opens");
+    for file in ["assets/scenes/main.lightmaps", layer.as_str()] {
+        assert!(archive.get(file).is_some(), "the archive has {file}");
+    }
+    let meta = archive
+        .get(&format!("{layer}.meta"))
+        .expect("the layer's sidecar is archived");
+    assert!(
+        String::from_utf8_lossy(meta).contains("srgb: false"),
+        "and it still says linear"
+    );
+}

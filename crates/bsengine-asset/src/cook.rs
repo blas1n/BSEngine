@@ -22,6 +22,11 @@ use super::identity::{scan, AssetIndex};
 const SCENE_EXTENSION: &str = "ron";
 /// Extension of the files the walk scans for quoted paths.
 const SCRIPT_EXTENSION: &str = "js";
+/// A baked scene's lightmap data (`bsengine_scene::lightmaps`), kept beside
+/// the scene as `<scene>.lightmaps`. Not `.ron`, although it is RON: every
+/// `.ron` here is a scene or a prefab, and this is neither. Defined here, the
+/// lower crate, so the scene crate that writes and reads it uses this one.
+pub const LIGHTMAP_DATA_EXTENSION: &str = "lightmaps";
 
 /// One reference that names nothing the engine could load.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
@@ -341,6 +346,38 @@ pub fn cook(
                 collect_rootless_references(&value, project_dir, &mut found);
                 for Reference { path: next, .. } in found {
                     queue.push((next, resolved.clone()));
+                }
+                // A baked scene's lightmaps: nothing in the scene names them --
+                // the data lives beside it so a bake never rewrites the file a
+                // person wrote -- so without this a packaged build loads the
+                // scene and draws it unlit by its bake, silently.
+                let data = std::path::Path::new(&resolved)
+                    .with_extension(LIGHTMAP_DATA_EXTENSION)
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                if project_dir.join(&data).is_file() {
+                    queue.push((data, resolved.clone()));
+                }
+            }
+            Some(LIGHTMAP_DATA_EXTENSION) => {
+                // Its atlas layers, which it names as `assets/...` paths: the
+                // same collector a scene's references go through, so a layer
+                // the bake removed and the data still names is a missing
+                // reference like any other.
+                let parsed = std::fs::read_to_string(&on_disk)
+                    .map_err(|e| e.to_string())
+                    .and_then(|text| ron::from_str::<ron::Value>(&text).map_err(|e| e.to_string()));
+                match parsed {
+                    Ok(value) => {
+                        let mut found = Vec::new();
+                        collect_references(&value, &mut found);
+                        for Reference { path: next, .. } in found {
+                            queue.push((next, resolved.clone()));
+                        }
+                    }
+                    Err(e) => report.problems.push(format!(
+                        "{resolved} cannot be read ({e}); its lightmap layers were not collected"
+                    )),
                 }
             }
             Some(SCRIPT_EXTENSION) => {
@@ -869,6 +906,63 @@ mod tests {
             std::fs::write(&exe, "MZ").expect("write exe");
             exe
         }
+    }
+
+    /// A baked scene's lightmap data comes with it, and brings the layers it
+    /// names (and their sidecars, as every asset's); a scene with no data
+    /// brings none. Nothing in the scene names either, which is the point.
+    #[test]
+    fn a_baked_scene_brings_its_lightmap_data_and_layers() {
+        let probe = Probe::create();
+        probe.write("assets/scenes/main.ron", r#"(entities: [(name: "Floor")])"#);
+        probe.write(
+            "assets/scenes/main.lightmaps",
+            r#"(scene_fingerprint: "x", entries: [(entity: "Floor", texture: "assets/lightmaps/main/lightmap_0.png", scale_offset: (1.0, 1.0, 0.0, 0.0))])"#,
+        );
+        probe.write("assets/lightmaps/main/lightmap_0.png", "png");
+        probe.write("assets/lightmaps/other/lightmap_0.png", "not this scene's");
+
+        let cooked = probe.cook();
+        assert!(
+            cooked.assets.contains("assets/scenes/main.lightmaps"),
+            "{:?}",
+            cooked.assets
+        );
+        assert!(
+            cooked
+                .assets
+                .contains("assets/lightmaps/main/lightmap_0.png"),
+            "{:?}",
+            cooked.assets
+        );
+        assert!(
+            !cooked
+                .assets
+                .contains("assets/lightmaps/other/lightmap_0.png"),
+            "another scene's layer is not this one's"
+        );
+        assert!(cooked.missing.is_empty() && cooked.problems.is_empty());
+    }
+
+    /// A layer the data names and the disk does not have is reported, with the
+    /// data file as the referrer -- a bake that was half-deleted ships as an
+    /// error, not as a build that quietly lost its lighting.
+    #[test]
+    fn a_lightmap_layer_that_is_gone_is_a_missing_reference() {
+        let probe = Probe::create();
+        probe.write("assets/scenes/main.ron", r#"(entities: [(name: "Floor")])"#);
+        probe.write(
+            "assets/scenes/main.lightmaps",
+            r#"(scene_fingerprint: "x", entries: [(entity: "Floor", texture: "assets/lightmaps/main/lightmap_3.png", scale_offset: (1.0, 1.0, 0.0, 0.0))])"#,
+        );
+        let cooked = probe.cook();
+        assert_eq!(
+            cooked.missing,
+            vec![MissingReference {
+                referrer: "assets/scenes/main.lightmaps".into(),
+                path: "assets/lightmaps/main/lightmap_3.png".into(),
+            }]
+        );
     }
 
     /// Both halves matter: a cook that collects nothing passes "the stray is

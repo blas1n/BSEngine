@@ -15,8 +15,9 @@
 
 use serde::{Deserialize, Serialize};
 
-/// The data file's extension.
-pub const EXTENSION: &str = "lightmaps";
+/// The data file's extension: the cook's, so a packaged build carries
+/// exactly the file this crate writes and reads.
+pub const EXTENSION: &str = bsengine_asset::cook::LIGHTMAP_DATA_EXTENSION;
 
 /// One scene's lightmap assignments.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

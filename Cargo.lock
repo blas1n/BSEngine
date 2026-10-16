@@ -900,8 +900,11 @@ dependencies = [
 name = "bsengine-bake"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "glam 0.29.3",
+ "pollster",
  "rayon",
+ "wgpu",
 ]
 
 [[package]]

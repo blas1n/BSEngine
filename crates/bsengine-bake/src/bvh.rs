@@ -81,11 +81,27 @@ pub struct Bvh {
 /// Leaves stop splitting at this many triangles: below it a split costs more
 /// to traverse than it saves.
 const LEAF_SIZE: usize = 4;
+/// Deepest a node may be. A traversal stack holds at most one entry per level
+/// plus one, and the GPU backend's is 32 entries (`gpu.wgsl`) -- smaller is
+/// faster there, and 64 cost a third of its speed -- so the tree is held to
+/// that: a node this deep stays a leaf however many triangles it has. Slower
+/// to trace through, never wrong. A balanced tree of a million triangles is
+/// about 20 deep.
+pub(crate) const MAX_DEPTH: usize = 30;
+/// One node as [`Bvh::flat`] hands it to the GPU: `(min, start, max, count)`,
+/// the layout of `Node` in `gpu.wgsl`.
+pub(crate) type FlatNode = ([f32; 3], u32, [f32; 3], u32);
 /// Candidate split planes per axis for the SAH.
 const BINS: usize = 12;
 
 impl Bvh {
     pub fn build(tris: &[Tri]) -> Self {
+        Self::build_capped(tris, MAX_DEPTH)
+    }
+
+    /// [`Self::build`] with its depth cap named, so a test can make a cap
+    /// bite without first finding an input that drives SAH that deep.
+    pub(crate) fn build_capped(tris: &[Tri], max_depth: usize) -> Self {
         let mut bvh = Self {
             nodes: Vec::with_capacity(tris.len() * 2),
             order: (0..tris.len() as u32).collect(),
@@ -95,7 +111,7 @@ impl Bvh {
             return bvh;
         }
         let centroids: Vec<Vec3> = tris.iter().map(|t| (t[0] + t[1] + t[2]) / 3.0).collect();
-        bvh.build_node(0, tris.len(), &centroids);
+        bvh.build_node(0, tris.len(), &centroids, 0, max_depth);
         bvh
     }
 
@@ -110,7 +126,14 @@ impl Bvh {
     }
 
     /// Builds the node for `order[start..end]`, returning its index.
-    fn build_node(&mut self, start: usize, end: usize, centroids: &[Vec3]) -> usize {
+    fn build_node(
+        &mut self,
+        start: usize,
+        end: usize,
+        centroids: &[Vec3],
+        depth: usize,
+        max_depth: usize,
+    ) -> usize {
         let index = self.nodes.len();
         let bounds = self.bounds_of(start, end);
         self.nodes.push(Node {
@@ -119,7 +142,7 @@ impl Bvh {
             count: (end - start) as u32,
         });
         let count = end - start;
-        if count <= LEAF_SIZE {
+        if count <= LEAF_SIZE || depth >= max_depth {
             return index;
         }
 
@@ -193,11 +216,49 @@ impl Bvh {
         if mid == start || mid == end {
             return index;
         }
-        self.build_node(start, mid, centroids);
-        let right = self.build_node(mid, end, centroids);
+        self.build_node(start, mid, centroids, depth + 1, max_depth);
+        let right = self.build_node(mid, end, centroids, depth + 1, max_depth);
         self.nodes[index].start = right as u32;
         self.nodes[index].count = 0;
         index
+    }
+
+    /// The tree as the GPU backend uploads it: every node as a [`FlatNode`] `(min, start,
+    /// max, count)` in array order -- an interior node (`count == 0`) has its
+    /// first child next and its second at `start`; a leaf's triangles are
+    /// `order[start..start + count]` -- and that order. The GPU traversal is
+    /// this one, so the two trace the same tree.
+    pub(crate) fn flat(&self) -> (Vec<FlatNode>, &[u32]) {
+        let nodes = self
+            .nodes
+            .iter()
+            .map(|n| {
+                (
+                    n.bounds.min.to_array(),
+                    n.start,
+                    n.bounds.max.to_array(),
+                    n.count,
+                )
+            })
+            .collect();
+        (nodes, &self.order)
+    }
+
+    /// How many levels the tree has: 0 for an empty one, 1 for a single leaf.
+    pub(crate) fn depth(&self) -> usize {
+        fn below(nodes: &[Node], i: usize) -> usize {
+            let n = &nodes[i];
+            if n.count > 0 {
+                1
+            } else {
+                1 + below(nodes, i + 1).max(below(nodes, n.start as usize))
+            }
+        }
+        if self.nodes.is_empty() {
+            0
+        } else {
+            below(&self.nodes, 0)
+        }
     }
 
     /// The nearest hit along `origin + t * dir` for `t` in `(0, t_max)`.
@@ -341,6 +402,50 @@ mod tests {
         assert!(bvh.closest(Vec3::ZERO, Vec3::Z, 10.0).is_some());
         assert!(bvh.closest(Vec3::ZERO, Vec3::Z, 4.0).is_none());
         assert!(!bvh.occluded(Vec3::ZERO, Vec3::Z, 4.0));
+    }
+
+    /// The depth cap stops the tree where it says, and a node it stops is a
+    /// leaf of many triangles that still traces exactly: two thousand random
+    /// triangles under a cap of 3, against brute force. (A first version
+    /// looked for an input that drives SAH past the cap and asserted it was
+    /// deep; the premise failed -- the binned build flattened it -- which is
+    /// why the cap is now a parameter the test can lower.)
+    #[test]
+    fn a_capped_tree_stops_at_its_cap_and_still_traces_exactly() {
+        let mut rng = Rng::new(11);
+        let tris = random_tris(2000, &mut rng);
+        let full = Bvh::build(&tris);
+        assert!(
+            full.depth() > 4,
+            "premise: uncapped, this tree is deeper than the cap"
+        );
+        assert!(
+            full.depth() <= MAX_DEPTH + 1,
+            "and within the real cap: {}",
+            full.depth()
+        );
+        let capped = Bvh::build_capped(&tris, 3);
+        assert_eq!(
+            capped.depth(),
+            4,
+            "a cap of 3 is four levels, the last all leaves"
+        );
+        for _ in 0..500 {
+            let origin = Vec3::new(rng.next_f32(), rng.next_f32(), rng.next_f32()) * 30.0 - 15.0;
+            let dir =
+                (Vec3::new(rng.next_f32(), rng.next_f32(), rng.next_f32()) * 2.0 - 1.0).normalize();
+            let brute = tris
+                .iter()
+                .enumerate()
+                .filter_map(|(i, t)| intersect(t, origin, dir).map(|(d, _, _)| (d, i as u32)))
+                .min_by(|a, b| a.0.total_cmp(&b.0));
+            assert_eq!(
+                capped
+                    .closest(origin, dir, f32::INFINITY)
+                    .map(|h| (h.t, h.triangle)),
+                brute
+            );
+        }
     }
 
     #[test]

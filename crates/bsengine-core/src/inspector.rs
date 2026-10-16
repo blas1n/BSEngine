@@ -198,6 +198,9 @@ pub enum InspectorCmd {
     },
     /// Save the current scene to its existing path.
     SaveScene,
+    /// Bake the current scene's lightmaps (`bsengine-runtime --bake`), and
+    /// show them in the editor when the bake finishes.
+    BakeLightmaps,
     /// Reloads the current scene from `InspectorState.current_scene_path`,
     /// discarding all runtime changes (physics, script-mutated positions,
     /// ...) and respawning from the RON file's authored state — the
@@ -829,6 +832,14 @@ pub struct InspectorState {
     // Save toolbar button to save in place without prompting for a path.
     /// Path the current scene was loaded from / last saved to.
     pub current_scene_path: Option<String>,
+
+    /// Whether a lightmap bake is running: the toolbar's Bake button is off
+    /// while it is, as a second bake of the same scene would race the first
+    /// for its files.
+    pub lightmap_bake_running: bool,
+    /// What the last bake said -- how many renderers it baked, or why it
+    /// failed -- for the Bake button's tooltip.
+    pub lightmap_bake_status: Option<String>,
 }
 
 impl Default for InspectorState {
@@ -884,6 +895,8 @@ impl Default for InspectorState {
             request_undo: false,
             request_redo: false,
             current_scene_path: None,
+            lightmap_bake_running: false,
+            lightmap_bake_status: None,
         }
     }
 }

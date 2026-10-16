@@ -186,6 +186,18 @@ pub(super) fn apply_inspector_cmds(
                     tracing::warn!("save requested but no scene file is currently loaded");
                 }
             }
+            InspectorCmd::BakeLightmaps => {
+                if let Some(path) = inspector.current_scene_path.clone() {
+                    // Started with the whole world in hand (the bake's
+                    // resources), rather than by adding parameters to this
+                    // system.
+                    commands.add(move |world: &mut bevy_ecs::world::World| {
+                        super::lightmap_bake::start(world, path);
+                    });
+                } else {
+                    tracing::warn!("bake requested but no scene file is currently loaded");
+                }
+            }
             InspectorCmd::ReloadScene => {
                 if let Some(path) = inspector.current_scene_path.clone() {
                     // Goes through the same PendingSceneLoad -> handle_scene_load

@@ -8547,6 +8547,33 @@ impl WgpuSurface {
                                             insp.cmd_queue
                                                 .push(bsengine_core::InspectorCmd::SaveScene);
                                         }
+                                        // Bakes the saved file: what is on disk
+                                        // is what the bake loads.
+                                        let bake_enabled = insp.current_scene_path.is_some()
+                                            && !insp.lightmap_bake_running;
+                                        let bake_hover =
+                                            insp.lightmap_bake_status.clone().unwrap_or_else(
+                                                || "Bake Lightmaps (bakes the saved scene)".into(),
+                                            );
+                                        let bake_disabled_hover = if insp.lightmap_bake_running {
+                                            "Baking..."
+                                        } else {
+                                            "No scene file loaded"
+                                        };
+                                        if ui
+                                            .add_enabled(
+                                                bake_enabled,
+                                                egui::Button::new(
+                                                    egui_phosphor::regular::LIGHTBULB,
+                                                ),
+                                            )
+                                            .on_hover_text(bake_hover)
+                                            .on_disabled_hover_text(bake_disabled_hover)
+                                            .clicked()
+                                        {
+                                            insp.cmd_queue
+                                                .push(bsengine_core::InspectorCmd::BakeLightmaps);
+                                        }
                                     });
                                     ui.separator();
                                     ui.horizontal(|ui| {

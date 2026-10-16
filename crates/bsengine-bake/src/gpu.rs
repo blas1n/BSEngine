@@ -829,6 +829,152 @@ mod tests {
         assert!(p95 < 0.15, "95th percentile per-texel error {p95}");
     }
 
+    /// Six inward-facing quads of a unit box around the origin's cell, every
+    /// one with albedo `rho` and emission `e`.
+    fn furnace(rho: f32, e: f32) -> Vec<BakeTriangle> {
+        let mut tris = Vec::new();
+        let faces = [
+            // floor (+Y), ceiling (-Y), and the four walls, all facing in.
+            (Vec3::new(0.0, 0.0, 1.0), Vec3::X, Vec3::NEG_Z),
+            (Vec3::new(0.0, 1.0, 0.0), Vec3::X, Vec3::Z),
+            (Vec3::new(0.0, 0.0, 0.0), Vec3::Y, Vec3::Z),
+            (Vec3::new(1.0, 0.0, 1.0), Vec3::Y, Vec3::NEG_Z),
+            (Vec3::new(0.0, 0.0, 0.0), Vec3::X, Vec3::Y),
+            (Vec3::new(1.0, 0.0, 1.0), Vec3::NEG_X, Vec3::Y),
+        ];
+        for (i, (min, u, v)) in faces.into_iter().enumerate() {
+            let mut q = quad(i as u32, min, u, v, Vec3::splat(rho));
+            for t in &mut q {
+                t.emissive = Vec3::splat(e);
+            }
+            tris.extend(q);
+        }
+        tris
+    }
+
+    /// Closed form, exactly -- the furnace test: inside a closed box whose
+    /// every surface emits `e` with albedo `rho`, every path sees the same
+    /// thing, so a texel stores `e * (1 + rho + ... + rho^(B-1))` with no
+    /// noise at all. Pins the path's throughput and its bounce count, which
+    /// the reference scene is too open to resolve.
+    #[test]
+    fn the_furnace_stores_the_geometric_series_on_both_backends() {
+        let (rho, e, bounces) = (0.5f32, 0.4f32, 3u32);
+        let tris = furnace(rho, e);
+        let sky = Sky::Uniform(Vec3::splat(100.0));
+        let want = e * (1.0 - rho.powi(bounces as i32)) / (1.0 - rho);
+        for baker in [baker() as &dyn LightmapBaker, &CpuBaker] {
+            let out = baker.bake(
+                &BakeInput {
+                    triangles: &tris,
+                    renderers: &renderers(6),
+                    lights: &[],
+                    sky: &sky,
+                },
+                &settings(8, bounces, false),
+            );
+            for t in texels_of(&out, 0) {
+                assert!(
+                    (t.x - want).abs() < 1e-4,
+                    "{}: {} vs {want} (the sky, 100, would show any leak)",
+                    baker.name(),
+                    t.x
+                );
+            }
+        }
+    }
+
+    /// Direct light has no noise, so its shadow is exact: a plank over the
+    /// floor's middle third, a `Baked` sun straight down. Under the plank the
+    /// floor stores 0, beside it E / pi, and the GPU agrees with the CPU texel
+    /// for texel. The shadow ray is the only thing that tells the two halves
+    /// apart.
+    #[test]
+    fn a_baked_lights_shadow_is_exact_and_matches_the_cpu() {
+        let mut tris = floor(0, Vec3::splat(0.5)).to_vec();
+        // A plank 0.5 up, over x in [1/3, 2/3], facing up.
+        tris.extend(quad(
+            1,
+            Vec3::new(1.0 / 3.0, 0.5, 1.0),
+            Vec3::X / 3.0,
+            Vec3::NEG_Z,
+            Vec3::splat(0.5),
+        ));
+        let sky = Sky::Uniform(Vec3::ZERO);
+        let lights = [BakeLight::Directional {
+            direction: Vec3::NEG_Y,
+            color: Vec3::ONE,
+            contribution: Contribution::Baked,
+        }];
+        let bake = |baker: &dyn LightmapBaker| {
+            baker.bake(
+                &BakeInput {
+                    triangles: &tris,
+                    renderers: &renderers(2),
+                    lights: &lights,
+                    sky: &sky,
+                },
+                // No bounces of interest: the sky is black and the plank's
+                // top is what the sun lights, which the floor cannot see.
+                &settings(4, 1, true),
+            )
+        };
+        let gpu = bake(baker());
+        let cpu = bake(&CpuBaker);
+        let p = gpu.placements[0];
+        let size = gpu.layer_size;
+        let at = |o: &BakeOutput, x: u32| {
+            o.layers[p.layer as usize][((p.y + 3) * size + p.x + x) as usize]
+        };
+        let lit = 1.0 / std::f32::consts::PI;
+        assert!(
+            (at(&gpu, 0).x - lit).abs() < 1e-5,
+            "beside the plank: {}",
+            at(&gpu, 0)
+        );
+        assert_eq!(at(&gpu, 4), Vec3::ZERO, "under the plank: shadowed");
+        for x in 0..p.side {
+            assert!((at(&gpu, x) - at(&cpu, x)).length() < 1e-5, "x = {x}");
+        }
+    }
+
+    /// A surface's back is inside something and gives no light: a floor under
+    /// a plank that faces *up*, under a black sky, with the sun lighting the
+    /// plank's top. Every ray the floor sends either leaves into the black sky
+    /// or meets the plank from behind -- so it stores 0, on the CPU and the
+    /// GPU alike. Shading a back face as if it were a front lights it.
+    #[test]
+    fn a_back_face_gives_no_light() {
+        let mut tris = floor(0, Vec3::splat(0.5)).to_vec();
+        tris.extend(quad(
+            1,
+            Vec3::new(-2.0, 0.5, 3.0),
+            Vec3::X * 5.0,
+            Vec3::NEG_Z * 5.0,
+            Vec3::splat(0.9),
+        ));
+        let sky = Sky::Uniform(Vec3::ZERO);
+        let lights = [BakeLight::Directional {
+            direction: Vec3::NEG_Y,
+            color: Vec3::splat(3.0),
+            contribution: Contribution::Indirect,
+        }];
+        for baker in [baker() as &dyn LightmapBaker, &CpuBaker] {
+            let out = baker.bake(
+                &BakeInput {
+                    triangles: &tris,
+                    renderers: &renderers(2),
+                    lights: &lights,
+                    sky: &sky,
+                },
+                &settings(64, 2, false),
+            );
+            for t in texels_of(&out, 0) {
+                assert_eq!(t, Vec3::ZERO, "{}", baker.name());
+            }
+        }
+    }
+
     /// The same bake twice is the same bytes: every texel seeds from where it
     /// is, and nothing races.
     #[test]

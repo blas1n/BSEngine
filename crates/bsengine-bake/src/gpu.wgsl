@@ -45,7 +45,11 @@ struct Light {
     d: vec4<f32>,
 };
 struct Params {
-    samples: u32,
+    // All of a texel's samples, and the ones this pass traces: the samples
+    // are split across passes (see `gpu.rs`), every texel in each.
+    total_samples: u32,
+    sample_offset: u32,
+    sample_count: u32,
     bounces: u32,
     seed: u32,
     job_offset: u32,
@@ -57,7 +61,9 @@ struct Params {
     sky_kind: u32,
     sky_w: u32,
     sky_h: u32,
-    _pad: u32,
+    _p0: u32,
+    _p1: u32,
+    _p2: u32,
     sky_uniform: vec4<f32>,
 };
 struct Lights {
@@ -161,7 +167,10 @@ fn traverse(o: vec3<f32>, d: vec3<f32>, t_max: f32, stop_at_first: bool) -> Hit 
         return best;
     }
     let inv = safe_inv(d);
-    var stack: array<u32, 64>;
+    // 32 entries: the tree is at most `bvh::MAX_DEPTH` (30) deep, and a
+    // traversal never holds more than one entry per level plus one. Larger
+    // costs speed -- at 64 the bake ran a third slower.
+    var stack: array<u32, 32>;
     var top = 1u;
     stack[0] = 0u;
     while top > 0u {
@@ -323,24 +332,29 @@ fn cs_bake(@builtin(global_invocation_id) gid: vec3<u32>) {
     let job = jobs[index];
     let x = job.xy & 0xffffu;
     let y = job.xy >> 16u;
-    // Per texel, from where it is, never from which batch ran it: the same
-    // texel draws the same numbers however the work is split.
-    rng_state = pcg(params.seed ^ pcg(job.layer ^ pcg(x ^ pcg(y))));
+    // Per texel and per sample, from where the texel is and which sample this
+    // is -- never from which pass or batch ran it: the same texel draws the
+    // same numbers however the work is split.
+    let texel_seed = pcg(params.seed ^ pcg(job.layer ^ pcg(x ^ pcg(y))));
     let n = job.normal;
     let origin = job.pos + n * EPS;
-    let samples = max(params.samples, 1u);
-    var sum = vec3<f32>(0.0);
-    for (var s = 0u; s < samples; s++) {
+    // A running sum, divided by `total_samples` once every pass is in
+    // (`gpu.rs`). The buffer starts zeroed.
+    var sum = out[index].xyz;
+    for (var s = params.sample_offset; s < params.sample_offset + params.sample_count; s++) {
+        rng_state = pcg(texel_seed ^ pcg(s));
         sum += incoming(origin, cosine_hemisphere(n));
     }
-    var result = sum / f32(samples);
-    if params.bake_direct != 0u {
+    // The direct term once, in the first pass, weighted so the final divide
+    // leaves it whole.
+    if params.bake_direct != 0u && params.sample_offset == 0u {
+        rng_state = pcg(texel_seed ^ 0x9e3779b9u);
         for (var i = 0u; i < params.light_count; i++) {
             let li = lights.items[i];
             if li.contribution == 1u {
-                result += irradiance(li, origin, n) / PI;
+                sum += irradiance(li, origin, n) / PI * f32(params.total_samples);
             }
         }
     }
-    out[index] = vec4<f32>(result, 1.0);
+    out[index] = vec4<f32>(sum, 1.0);
 }

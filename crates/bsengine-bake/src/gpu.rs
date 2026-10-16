@@ -19,12 +19,16 @@
 //! triangles directly and the index buffer the CPU tree keeps is not needed.
 //! Lights go in a uniform, the sky in a texture.
 //!
-//! # Not one long dispatch
+//! # Not one long dispatch -- and not a thin one either
 //!
-//! The texels are traced in batches, each submitted and waited for: a single
-//! dispatch that runs for seconds is what Windows resets a GPU for (TDR). The
-//! batch is sized so each holds about the same number of rays whatever the
-//! sample count.
+//! A single dispatch that runs for seconds is what Windows resets a GPU for
+//! (TDR), so the work is split and each part submitted and waited for. It is
+//! split by *samples*: every pass traces every texel (as many threads as there
+//! are texels, which is what keeps the GPU busy) for a slice of the samples,
+//! adding into a running sum. A first version split by texels instead, sizing
+//! batches by rays: at 1024 samples a batch was 512 texels -- eight workgroups
+//! -- and the GPU bake ran ten times slower than the CPU's, and four times
+//! slower for twice the samples.
 
 use crate::scene::{BakeLight, Contribution, Sky};
 use crate::{BakeInput, BakeOutput, BakeSettings, LightmapBaker};
@@ -35,9 +39,12 @@ use wgpu::util::DeviceExt;
 /// Most lights one bake can carry: the uniform's fixed array.
 pub const MAX_GPU_LIGHTS: usize = 64;
 
-/// Rays aimed for per batch: samples x (bounces + 1) x texels. A few million
-/// keeps a batch well under a second on the slowest adapter CI runs on.
-const RAYS_PER_BATCH: u64 = 1 << 22;
+/// Rays aimed for per pass: texels x samples-in-pass x (bounces + 1) x (1 +
+/// lights). Tens of millions is a fraction of a second on a desktop GPU and
+/// keeps a software adapter (CI's lavapipe or WARP) under its timeouts.
+const RAYS_PER_PASS: u64 = 1 << 25;
+/// Most workgroups one dispatch may have along x (`maxComputeWorkgroupsPerDimension`).
+const MAX_GROUPS: usize = 65535;
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -88,7 +95,9 @@ struct GpuLight {
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct GpuParams {
-    samples: u32,
+    total_samples: u32,
+    sample_offset: u32,
+    sample_count: u32,
     bounces: u32,
     seed: u32,
     job_offset: u32,
@@ -99,7 +108,9 @@ struct GpuParams {
     sky_kind: u32,
     sky_w: u32,
     sky_h: u32,
-    _pad: u32,
+    _p0: u32,
+    _p1: u32,
+    _p2: u32,
     sky_uniform: [f32; 4],
 }
 
@@ -298,6 +309,9 @@ impl GpuBaker {
         if jobs.is_empty() {
             return Vec::new();
         }
+        // The shader's traversal stack is sized for `MAX_DEPTH`; the builder
+        // promises no deeper, and this is where a broken promise would show.
+        debug_assert!(prepared.bvh.depth() <= crate::bvh::MAX_DEPTH + 1);
         let (flat_nodes, order) = prepared.bvh.flat();
         // At least one element: a storage binding cannot be empty. The
         // shader reads `node_count`, so a placeholder is never traversed.
@@ -460,49 +474,59 @@ impl GpuBaker {
         });
 
         let trace = settings.trace;
-        let rays_per_texel = u64::from(trace.samples.max(1))
-            * u64::from(trace.bounces + 1)
-            * (1 + u64::from(light_count));
-        let batch = (RAYS_PER_BATCH / rays_per_texel).clamp(64, 1 << 16) as usize;
-        let mut offset = 0usize;
-        while offset < jobs.len() {
-            let count = batch.min(jobs.len() - offset);
-            let params = GpuParams {
-                samples: trace.samples,
-                bounces: trace.bounces,
-                // The CPU's seed is 64-bit; both halves reach the hash.
-                seed: (trace.seed ^ (trace.seed >> 32)) as u32,
-                job_offset: offset as u32,
-                job_count: count as u32,
-                light_count,
-                bake_direct: u32::from(settings.bake_direct),
-                node_count,
-                sky_kind,
-                sky_w,
-                sky_h,
-                _pad: 0,
-                sky_uniform,
-            };
-            self.queue
-                .write_buffer(&params_buf, 0, bytemuck::bytes_of(&params));
-            let mut encoder = self
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("lightmap bake"),
-                });
-            {
-                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some("lightmap bake"),
-                    timestamp_writes: None,
-                });
-                pass.set_pipeline(&self.pipeline);
-                pass.set_bind_group(0, &bind_group, &[]);
-                pass.dispatch_workgroups((count as u32).div_ceil(64), 1, 1);
+        let total = trace.samples.max(1);
+        let rays_per_sample =
+            jobs.len() as u64 * u64::from(trace.bounces + 1) * (1 + u64::from(light_count));
+        let per_pass = (RAYS_PER_PASS / rays_per_sample.max(1)).clamp(1, u64::from(total)) as u32;
+        let chunk = MAX_GROUPS * 64;
+        let mut sample_offset = 0u32;
+        while sample_offset < total {
+            let sample_count = per_pass.min(total - sample_offset);
+            let mut job_offset = 0usize;
+            while job_offset < jobs.len() {
+                let count = chunk.min(jobs.len() - job_offset);
+                let params = GpuParams {
+                    total_samples: total,
+                    sample_offset,
+                    sample_count,
+                    bounces: trace.bounces,
+                    // The CPU's seed is 64-bit; both halves reach the hash.
+                    seed: (trace.seed ^ (trace.seed >> 32)) as u32,
+                    job_offset: job_offset as u32,
+                    job_count: count as u32,
+                    light_count,
+                    bake_direct: u32::from(settings.bake_direct),
+                    node_count,
+                    sky_kind,
+                    sky_w,
+                    sky_h,
+                    _p0: 0,
+                    _p1: 0,
+                    _p2: 0,
+                    sky_uniform,
+                };
+                self.queue
+                    .write_buffer(&params_buf, 0, bytemuck::bytes_of(&params));
+                let mut encoder =
+                    self.device
+                        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                            label: Some("lightmap bake"),
+                        });
+                {
+                    let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                        label: Some("lightmap bake"),
+                        timestamp_writes: None,
+                    });
+                    pass.set_pipeline(&self.pipeline);
+                    pass.set_bind_group(0, &bind_group, &[]);
+                    pass.dispatch_workgroups((count as u32).div_ceil(64), 1, 1);
+                }
+                self.queue.submit(Some(encoder.finish()));
+                // Waited for here, pass by pass: see the module docs.
+                self.device.poll(wgpu::Maintain::Wait);
+                job_offset += count;
             }
-            self.queue.submit(Some(encoder.finish()));
-            // Waited for here, batch by batch: see the module docs.
-            self.device.poll(wgpu::Maintain::Wait);
-            offset += count;
+            sample_offset += sample_count;
         }
 
         let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -528,7 +552,11 @@ impl GpuBaker {
             .expect("map_async reported nothing")
             .expect("the bake output could not be read back");
         let values: Vec<[f32; 4]> = bytemuck::cast_slice(&slice.get_mapped_range()).to_vec();
-        values.iter().map(|v| Vec3::new(v[0], v[1], v[2])).collect()
+        let n = total as f32;
+        values
+            .iter()
+            .map(|v| Vec3::new(v[0], v[1], v[2]) / n)
+            .collect()
     }
 }
 
@@ -972,6 +1000,100 @@ mod tests {
             for t in texels_of(&out, 0) {
                 assert_eq!(t, Vec3::ZERO, "{}", baker.name());
             }
+        }
+    }
+
+    /// Not a test: the CPU and GPU backends' times on a mid-sized scene, for
+    /// the PR. `cargo test -p bsengine-bake --release -- --ignored
+    /// --nocapture bench` -- release, because a debug build's times say
+    /// nothing about either backend.
+    #[test]
+    #[ignore]
+    fn bench_cpu_against_gpu() {
+        let mut tris = Vec::new();
+        let mut renderers_n = 0;
+        // A 10 x 10 floor and `BENCH_SIDE`^2 half-metre boxes on it (8 x 8 by
+        // default), five faces each.
+        tris.extend(quad(
+            0,
+            Vec3::new(-5.0, 0.0, 5.0),
+            Vec3::X * 10.0,
+            Vec3::NEG_Z * 10.0,
+            Vec3::splat(0.7),
+        ));
+        renderers_n += 1;
+        let side = std::env::var("BENCH_SIDE")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(8u32);
+        let spacing = 9.6 / side as f32;
+        for i in 0..side * side {
+            let (x, z) = (
+                (i % side) as f32 * spacing - 4.8,
+                (i / side) as f32 * spacing - 4.8,
+            );
+            let o = Vec3::new(x, 0.0, z);
+            for (min, u, v) in [
+                (
+                    o + Vec3::new(0.0, 0.5, 0.5),
+                    Vec3::X * 0.5,
+                    Vec3::NEG_Z * 0.5,
+                ),
+                (o + Vec3::new(0.0, 0.0, 0.5), Vec3::X * 0.5, Vec3::Y * 0.5),
+                (
+                    o + Vec3::new(0.5, 0.0, 0.0),
+                    Vec3::NEG_X * 0.5,
+                    Vec3::Y * 0.5,
+                ),
+                (o + Vec3::new(0.0, 0.0, 0.0), Vec3::Z * 0.5, Vec3::Y * 0.5),
+                (
+                    o + Vec3::new(0.5, 0.0, 0.5),
+                    Vec3::NEG_Z * 0.5,
+                    Vec3::Y * 0.5,
+                ),
+            ] {
+                tris.extend(quad(renderers_n, min, u, v, Vec3::splat(0.6)));
+                renderers_n += 1;
+            }
+        }
+        let lights = [BakeLight::Directional {
+            direction: Vec3::new(0.3, -1.0, 0.2).normalize(),
+            color: Vec3::splat(2.0),
+            contribution: Contribution::Baked,
+        }];
+        let sky = Sky::Uniform(Vec3::new(0.2, 0.3, 0.5));
+        let s = BakeSettings {
+            trace: TraceSettings {
+                samples: std::env::var("BENCH_SAMPLES")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(128),
+                bounces: 3,
+                seed: 0,
+            },
+            texels_per_unit: 16.0,
+            layer_size: 1024,
+            max_layers: 4,
+            bake_direct: true,
+        };
+        let input = BakeInput {
+            triangles: &tris,
+            renderers: &renderers(renderers_n as usize),
+            lights: &lights,
+            sky: &sky,
+        };
+        let texels = crate::prepare(&input, &s).jobs.len();
+        let _warm = baker();
+        for b in [&CpuBaker as &dyn LightmapBaker, baker()] {
+            let t = std::time::Instant::now();
+            b.bake(&input, &s);
+            eprintln!(
+                "BENCH {}: {} triangles, {texels} texels, {} samples, 3 bounces: {:.2}s",
+                b.name(),
+                tris.len(),
+                s.trace.samples,
+                t.elapsed().as_secs_f32()
+            );
         }
     }
 

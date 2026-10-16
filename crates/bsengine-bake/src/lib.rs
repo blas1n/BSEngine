@@ -12,11 +12,13 @@
 //! and a GPU compute backend later. Front ends pick one per platform.
 
 pub mod bvh;
+pub mod gpu;
 pub mod pack;
 pub mod sample;
 pub mod scene;
 pub mod trace;
 
+pub use gpu::GpuBaker;
 pub use pack::{Packing, Placement};
 pub use scene::{BakeLight, BakeTriangle, Contribution, Sky};
 pub use trace::TraceSettings;
@@ -95,12 +97,12 @@ pub trait LightmapBaker {
 pub struct CpuBaker;
 
 /// One texel to compute: where it is in the atlas and on the surface.
-struct Job {
-    layer: u32,
-    x: u32,
-    y: u32,
-    position: Vec3,
-    normal: Vec3,
+pub(crate) struct Job {
+    pub(crate) layer: u32,
+    pub(crate) x: u32,
+    pub(crate) y: u32,
+    pub(crate) position: Vec3,
+    pub(crate) normal: Vec3,
 }
 
 impl LightmapBaker for CpuBaker {
@@ -109,33 +111,9 @@ impl LightmapBaker for CpuBaker {
     }
 
     fn bake(&self, input: &BakeInput, settings: &BakeSettings) -> BakeOutput {
-        let size = settings.layer_size;
-        let mut areas = vec![0.0f32; input.renderers.len()];
-        for t in input.triangles {
-            let [a, b, c] = t.positions;
-            areas[t.renderer as usize] += 0.5 * (b - a).cross(c - a).length();
-        }
-        let scales: Vec<f32> = input.renderers.iter().map(|r| r.resolution_scale).collect();
-        let packing = pack::pack(
-            &areas,
-            &scales,
-            settings.texels_per_unit,
-            size,
-            settings.max_layers,
-        );
-
-        let mut covered = vec![vec![false; (size * size) as usize]; packing.layers as usize];
-        let jobs = rasterise(input.triangles, &packing.placements, size, &mut covered);
-
-        let bvh = Bvh::build(
-            &input
-                .triangles
-                .iter()
-                .map(|t| t.positions)
-                .collect::<Vec<_>>(),
-        );
+        let prepared = prepare(input, settings);
         let world = trace::World {
-            bvh: &bvh,
+            bvh: &prepared.bvh,
             triangles: input.triangles,
             lights: input.lights,
             sky: input.sky,
@@ -143,27 +121,83 @@ impl LightmapBaker for CpuBaker {
         };
         // Each texel seeds its own generator, so the order rayon runs them in
         // changes nothing: the bake is the same bytes on any core count.
-        let values: Vec<Vec3> = jobs
+        let values: Vec<Vec3> = prepared
+            .jobs
             .par_iter()
             .map(|j| {
                 let mut rng = Rng::for_texel(settings.trace.seed, j.layer, j.x, j.y);
                 world.texel(j.position, j.normal, settings.bake_direct, &mut rng)
             })
             .collect();
+        finish(prepared, values, settings)
+    }
+}
 
-        let mut layers = vec![vec![Vec3::ZERO; (size * size) as usize]; packing.layers as usize];
-        for (j, v) in jobs.iter().zip(values) {
-            layers[j.layer as usize][(j.y * size + j.x) as usize] = v;
-        }
-        for (image, mask) in layers.iter_mut().zip(&covered) {
-            dilate(image, mask, size, pack::PADDING + 1);
-        }
-        BakeOutput {
-            layer_size: size,
-            layers,
-            placements: packing.placements,
-            texels_per_unit: packing.texels_per_unit,
-        }
+/// Everything about a bake that does not depend on how its texels are
+/// computed: where each renderer goes, which texels it covers and where on
+/// the surface each one is, and the tree the rays are traced through. Both
+/// backends start here, so they compute the same texels at the same places --
+/// and differ only in how each texel's light is found.
+pub(crate) struct Prepared {
+    pub(crate) packing: Packing,
+    pub(crate) covered: Vec<Vec<bool>>,
+    pub(crate) jobs: Vec<Job>,
+    pub(crate) bvh: Bvh,
+}
+
+pub(crate) fn prepare(input: &BakeInput, settings: &BakeSettings) -> Prepared {
+    let size = settings.layer_size;
+    let mut areas = vec![0.0f32; input.renderers.len()];
+    for t in input.triangles {
+        let [a, b, c] = t.positions;
+        areas[t.renderer as usize] += 0.5 * (b - a).cross(c - a).length();
+    }
+    let scales: Vec<f32> = input.renderers.iter().map(|r| r.resolution_scale).collect();
+    let packing = pack::pack(
+        &areas,
+        &scales,
+        settings.texels_per_unit,
+        size,
+        settings.max_layers,
+    );
+    let mut covered = vec![vec![false; (size * size) as usize]; packing.layers as usize];
+    let jobs = rasterise(input.triangles, &packing.placements, size, &mut covered);
+    let bvh = Bvh::build(
+        &input
+            .triangles
+            .iter()
+            .map(|t| t.positions)
+            .collect::<Vec<_>>(),
+    );
+    Prepared {
+        packing,
+        covered,
+        jobs,
+        bvh,
+    }
+}
+
+/// Places each texel's value, `values[i]` for `prepared.jobs[i]`, and dilates.
+pub(crate) fn finish(prepared: Prepared, values: Vec<Vec3>, settings: &BakeSettings) -> BakeOutput {
+    let size = settings.layer_size;
+    let Prepared {
+        packing,
+        covered,
+        jobs,
+        ..
+    } = prepared;
+    let mut layers = vec![vec![Vec3::ZERO; (size * size) as usize]; packing.layers as usize];
+    for (j, v) in jobs.iter().zip(values) {
+        layers[j.layer as usize][(j.y * size + j.x) as usize] = v;
+    }
+    for (image, mask) in layers.iter_mut().zip(&covered) {
+        dilate(image, mask, size, pack::PADDING + 1);
+    }
+    BakeOutput {
+        layer_size: size,
+        layers,
+        placements: packing.placements,
+        texels_per_unit: packing.texels_per_unit,
     }
 }
 

@@ -200,6 +200,27 @@ impl Bvh {
         index
     }
 
+    /// The tree as the GPU backend uploads it: every node as `(min, start,
+    /// max, count)` in array order -- an interior node (`count == 0`) has its
+    /// first child next and its second at `start`; a leaf's triangles are
+    /// `order[start..start + count]` -- and that order. The GPU traversal is
+    /// this one, so the two trace the same tree.
+    pub(crate) fn flat(&self) -> (Vec<([f32; 3], u32, [f32; 3], u32)>, &[u32]) {
+        let nodes = self
+            .nodes
+            .iter()
+            .map(|n| {
+                (
+                    n.bounds.min.to_array(),
+                    n.start,
+                    n.bounds.max.to_array(),
+                    n.count,
+                )
+            })
+            .collect();
+        (nodes, &self.order)
+    }
+
     /// The nearest hit along `origin + t * dir` for `t` in `(0, t_max)`.
     /// Both faces count: the caller decides what a back face means.
     pub fn closest(&self, origin: Vec3, dir: Vec3, t_max: f32) -> Option<Hit> {

@@ -29,6 +29,7 @@ pub fn test_tools(registry: Arc<SessionRegistry>) -> Vec<McpTool> {
         run_replay_tool(registry.clone()),
         asset_status_tool(registry.clone()),
         fixup_tool(registry.clone()),
+        bake_lightmaps_tool(registry.clone()),
     ];
     tools.extend(passthrough_tools(registry));
     tools
@@ -347,6 +348,68 @@ fn fixup_tool(registry: Arc<SessionRegistry>) -> McpTool {
                     let mut content = run.report;
                     if let Some(object) = content.as_object_mut() {
                         object.insert("clean".to_string(), json!(run.clean));
+                    }
+                    McpToolOutput::success(content)
+                }
+                Err(e) => McpToolOutput::error(&e),
+            }
+        }),
+    }
+}
+
+/// `game_bake_lightmaps`: the `--bake` front end, for an agent. Like
+/// `game_fixup` it needs no session: it loads the scene in a child of its own.
+fn bake_lightmaps_tool(registry: Arc<SessionRegistry>) -> McpTool {
+    McpTool {
+        name: "game_bake_lightmaps".to_string(),
+        description: "Bakes a game scene's lightmaps: every entity with a `LightmapStatic` \
+            component gets indirect light (sky and bounces) -- and the direct light and \
+            shadows of every light whose `bake_mode` is `Baked` -- written to \
+            `assets/lightmaps/<scene>/lightmap_<n>.png` with a `<scene>.lightmaps` file beside \
+            the scene, which loading the scene reads back. Scripts do not run during the bake \
+            (it is of the scene as written). Refuses, with the reason, duplicate names among \
+            static entities, skinned meshes, meshes without lightmap UVs. Returns `ok`, and \
+            either `renderers`, `layers`, `texels_per_unit`, `data_path`, `layer_paths` or \
+            `error`. Lower `samples` for a quick preview."
+            .to_string(),
+        input_schema: Some(json!({
+            "type": "object",
+            "properties": {
+                "game": { "type": "string", "description": "Game folder name under games/" },
+                "scene": { "type": "string", "description": "Project-relative scene path; the entry scene when absent" },
+                "samples": { "type": "integer", "description": "Rays per texel (default 128)" },
+                "bounces": { "type": "integer", "description": "Indirect bounces (default 3)" },
+                "texels_per_unit": { "type": "number", "description": "Lightmap density (default 16)" },
+            },
+            "required": ["game"],
+        })),
+        handler: Box::new(move |args| {
+            let Some(game) = args.get("game").and_then(|v| v.as_str()) else {
+                return McpToolOutput::error("missing required field: game");
+            };
+            let options = crate::session::BakeOptions {
+                scene: args
+                    .get("scene")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                samples: args
+                    .get("samples")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u32),
+                bounces: args
+                    .get("bounces")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u32),
+                texels_per_unit: args
+                    .get("texels_per_unit")
+                    .and_then(|v| v.as_f64())
+                    .map(|v| v as f32),
+            };
+            match registry.bake(game, &options) {
+                Ok(run) => {
+                    let mut content = run.report;
+                    if let Some(object) = content.as_object_mut() {
+                        object.insert("ok".to_string(), json!(run.ok));
                     }
                     McpToolOutput::success(content)
                 }

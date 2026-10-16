@@ -65,9 +65,9 @@ fn find<'a>(tools: &'a [McpTool], name: &str) -> &'a McpTool {
 }
 
 #[test]
-fn builds_fourteen_tools() {
+fn builds_fifteen_tools() {
     let tools = test_tools(test_registry());
-    assert_eq!(tools.len(), 14);
+    assert_eq!(tools.len(), 15);
 }
 
 #[test]
@@ -844,4 +844,126 @@ fn passthrough_missing_session_id_errors() {
     let out = (step.handler)(json!({"frames": 1}));
     assert!(!out.is_ok());
     assert!(out.error.unwrap().contains("session_id"));
+}
+
+// ---- game_bake_lightmaps ------------------------------------------------
+
+/// A game with a static floor and a static crate, and `extra` entities.
+struct BakeProbe {
+    games_root: PathBuf,
+}
+
+impl BakeProbe {
+    const GAME: &'static str = "bake-probe";
+
+    fn create(extra: &str) -> Self {
+        let games_root = PathBuf::from(unique_root_name());
+        let game = games_root.join(Self::GAME);
+        let write = |relative: &str, contents: &str| {
+            let path = game.join(relative);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, contents).unwrap();
+        };
+        write(
+            "project.toml",
+            "[project]\nname = \"Bake Probe\"\nentry_scene = \"assets/scenes/main.ron\"\n\n\
+             [window]\nwidth = 64\nheight = 64\n",
+        );
+        let static_ = r#"components: [("bsengine_core::lightmap_static::LightmapStatic", "(resolution_scale: 1.0)")]"#;
+        write(
+            "assets/scenes/main.ron",
+            &format!(
+                r#"SceneDescriptor(entities: [
+    EntityDescriptor(name: "Sun", directional_light: Some((direction: (-0.3, -1.0, -0.2)))),
+    EntityDescriptor(name: "Floor", primitive: Some(Plane), transform: Some((position: (0.0, 0.0, 0.0), scale: (4.0, 1.0, 4.0))), {static_}),
+    EntityDescriptor(name: "Crate", primitive: Some(Cube), transform: Some((position: (0.0, 0.5, 0.0))), {static_}),
+    {extra}
+])
+"#
+            ),
+        );
+        Self { games_root }
+    }
+
+    fn file(&self, relative: &str) -> PathBuf {
+        self.games_root.join(Self::GAME).join(relative)
+    }
+
+    fn registry(&self) -> Arc<SessionRegistry> {
+        Arc::new(SessionRegistry::new(
+            runtime_bin_path().clone(),
+            self.games_root.clone(),
+        ))
+    }
+}
+
+impl Drop for BakeProbe {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.games_root).ok();
+    }
+}
+
+/// The agent's bake, end to end: one call, a real child bake, and a report
+/// whose files are on disk where it says.
+#[test]
+fn game_bake_lightmaps_bakes_a_scene_and_reports_its_files() {
+    let probe = BakeProbe::create("");
+    let tools = test_tools(probe.registry());
+    let out = (find(&tools, "game_bake_lightmaps").handler)(
+        json!({"game": BakeProbe::GAME, "samples": 8, "bounces": 1, "texels_per_unit": 4.0}),
+    );
+    assert!(out.is_ok(), "{:?}", out.error);
+    assert_eq!(out.content["ok"], true, "{:?}", out.content);
+    assert_eq!(out.content["renderers"], 2, "{:?}", out.content);
+    assert_eq!(out.content["layers"], 1, "{:?}", out.content);
+    let data = out.content["data_path"].as_str().expect("a data path");
+    assert!(
+        std::path::Path::new(data).is_file(),
+        "the data file is there: {data}"
+    );
+    let layer = out.content["layer_paths"][0].as_str().expect("a layer");
+    assert!(probe.file(layer).is_file(), "the layer is there: {layer}");
+}
+
+/// A bake that cannot proceed says why, in the report, rather than failing
+/// the call: the reason is the answer an agent needs to fix the scene.
+#[test]
+fn game_bake_lightmaps_reports_why_it_refused() {
+    let static_ = r#"components: [("bsengine_core::lightmap_static::LightmapStatic", "(resolution_scale: 1.0)")]"#;
+    let probe = BakeProbe::create(&format!(
+        r#"EntityDescriptor(name: "Crate", primitive: Some(Cube), transform: Some((position: (2.0, 0.5, 0.0))), {static_}),"#
+    ));
+    let tools = test_tools(probe.registry());
+    let out = (find(&tools, "game_bake_lightmaps").handler)(json!({"game": BakeProbe::GAME}));
+    assert!(out.is_ok(), "{:?}", out.error);
+    assert_eq!(out.content["ok"], false, "{:?}", out.content);
+    let error = out.content["error"].as_str().unwrap_or_default();
+    assert!(error.contains("Crate"), "it names the duplicate: {error}");
+}
+
+/// Built is not reachable: the tool has to be in `tools/list`, taking a game
+/// and no session.
+#[test]
+fn game_bake_lightmaps_is_enumerated_by_the_server() {
+    use std::sync::Mutex;
+
+    use bsengine_mcp::{McpServer, McpToolRegistry};
+
+    let mut registry = McpToolRegistry::new();
+    for tool in test_tools(test_registry()) {
+        registry.register(tool);
+    }
+    let server = McpServer::new(Arc::new(Mutex::new(registry)));
+    let response = server
+        .handle_message(json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}))
+        .expect("tools/list must produce a response");
+    let listed = response["result"]["tools"].as_array().unwrap();
+    let tool = listed
+        .iter()
+        .find(|t| t["name"] == "game_bake_lightmaps")
+        .expect("game_bake_lightmaps is enumerated");
+    assert_eq!(
+        tool["inputSchema"]["required"].as_array().unwrap(),
+        &vec![json!("game")]
+    );
 }

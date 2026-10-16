@@ -809,3 +809,75 @@ fn apply_inspector_cmds_bridges_apply_to_prefab_into_the_prefab_apply_queue() {
     assert_eq!(queued.len(), 1);
     assert_eq!(queued[0].entity_id, 42);
 }
+
+/// A scene loaded in the editor gets its baked lightmaps, as the runtime's
+/// loads do: the entity the data names has its `Lightmap`, with the data's
+/// texture and rectangle, once the spawned entities exist.
+#[test]
+fn load_scene_applies_the_scenes_baked_lightmaps() {
+    let dir =
+        std::env::temp_dir().join(format!("bsengine_editor_lightmaps_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let scene = dir.join("level.ron");
+    let scene_path = scene.to_string_lossy().replace('\\', "/");
+    let text = r#"SceneDescriptor(entities: [EntityDescriptor(name: "Floor"), EntityDescriptor(name: "Wall")])"#;
+    std::fs::write(&scene, text).unwrap();
+    let data = bsengine_scene::lightmaps::LightmapData {
+        scene_fingerprint: bsengine_scene::lightmaps::fingerprint(text),
+        entries: vec![bsengine_scene::lightmaps::LightmapEntry {
+            entity: "Floor".into(),
+            texture: "assets/lightmaps/level/lightmap_0.png".into(),
+            scale_offset: [0.5, 0.25, 0.125, 0.0],
+        }],
+    };
+    std::fs::write(
+        bsengine_scene::lightmaps::data_path(&scene_path),
+        ron::ser::to_string(&data).unwrap(),
+    )
+    .unwrap();
+
+    let mut app = new_app();
+    app.add_plugins(McpPlugin);
+    app.add_plugins(EditorPlugin);
+    app.update();
+    let r = app
+        .world()
+        .resource::<bsengine_mcp::McpRegistryResource>()
+        .0
+        .lock()
+        .unwrap()
+        .execute("load_scene", json!({"path": scene_path}))
+        .unwrap();
+    assert!(r.is_ok(), "{:?}", r.error);
+    app.update();
+    app.update();
+
+    let mut q = app
+        .world_mut()
+        .query::<(&Name, Option<&bsengine_core::Lightmap>)>();
+    let found: Vec<(String, Option<[f32; 4]>, Option<String>)> = q
+        .iter(app.world())
+        .map(|(n, l)| {
+            (
+                n.0.clone(),
+                l.map(|l| l.scale_offset),
+                l.map(|l| l.texture_path.clone()),
+            )
+        })
+        .collect();
+    let floor = found
+        .iter()
+        .find(|f| f.0 == "Floor")
+        .expect("premise: Floor loaded");
+    assert_eq!(floor.1, Some([0.5, 0.25, 0.125, 0.0]), "{found:?}");
+    assert_eq!(
+        floor.2.as_deref(),
+        Some("assets/lightmaps/level/lightmap_0.png")
+    );
+    let wall = found
+        .iter()
+        .find(|f| f.0 == "Wall")
+        .expect("premise: Wall loaded");
+    assert_eq!(wall.1, None, "the data does not name the wall");
+    let _ = std::fs::remove_dir_all(&dir);
+}

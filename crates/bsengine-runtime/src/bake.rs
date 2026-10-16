@@ -46,8 +46,8 @@ pub struct BakeArgs {
     pub texels_per_unit: Option<f32>,
 }
 
-/// What a bake produced, for the summary line and for tests.
-#[derive(Debug, Clone, PartialEq)]
+/// What a bake produced, for the summary line, `--json` and tests.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct BakeReport {
     pub renderers: usize,
     pub layers: usize,

@@ -766,6 +766,18 @@ pub(super) fn process_editor_commands(
                         }
                     }
                 }
+                // The scene's baked lightmaps, as the runtime's loads apply
+                // them (`bsengine_scene::lightmaps`). Queued, not called: the
+                // entities above are spawned through `commands` too, and a
+                // command queued after them -- here, after the loop -- runs
+                // after they exist. (Queued before the loop it ran first, on an
+                // empty world, and applied nothing.)
+                {
+                    let (path, content) = (path.clone(), content.clone());
+                    commands.add(move |world: &mut World| {
+                        bsengine_scene::lightmaps::apply(world, &path, &content);
+                    });
+                }
             }
             EditorCommand::SaveScene { path } => {
                 let entities = {

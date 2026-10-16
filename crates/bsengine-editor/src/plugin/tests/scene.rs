@@ -1008,6 +1008,12 @@ fn the_bake_button_bakes_the_scene_and_lights_it_in_the_editor() {
         .clone()
         .unwrap_or_default();
     assert!(status.starts_with("Baked 2 renderer(s)"), "{status}");
+    // Which backend `auto` chose depends on the machine; that it is named
+    // does not -- the report carries it.
+    assert!(
+        status.contains(" on the GPU;") || status.contains(" on the CPU;"),
+        "the status names the backend that ran: {status}"
+    );
     assert!(
         dir.join("assets/scenes/main.lightmaps").is_file(),
         "the data was written"

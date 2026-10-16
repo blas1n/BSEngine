@@ -39,7 +39,7 @@ pub struct BakeArgs {
     pub project_dir: String,
     /// Project-relative scene path; the manifest's entry scene when absent.
     pub scene: Option<String>,
-    /// `cpu`, or `auto` (cpu until a GPU backend exists).
+    /// `cpu`, `gpu` or `auto` (see [`select_baker`]).
     pub backend: String,
     pub samples: Option<u32>,
     pub bounces: Option<u32>,
@@ -49,6 +49,9 @@ pub struct BakeArgs {
 /// What a bake produced, for the summary line, `--json` and tests.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct BakeReport {
+    /// The backend that ran -- `cpu` or `gpu` -- which for `auto` is the only
+    /// place the choice is visible.
+    pub backend: String,
     pub renderers: usize,
     pub layers: usize,
     pub texels_per_unit: f32,
@@ -56,18 +59,34 @@ pub struct BakeReport {
     pub layer_paths: Vec<String>,
 }
 
+/// The baker `--backend` names. `gpu` insists -- any adapter, a software one
+/// included, and an error when there is none, since asking for it by name
+/// means a CPU bake is not what was wanted. `auto` (the default, and what the
+/// editor's button and MCP send) takes a hardware GPU when there is one and
+/// the CPU otherwise, saying why on the log; the report's `backend` says
+/// which ran.
+fn select_baker(backend: &str) -> Result<Box<dyn LightmapBaker>, String> {
+    match backend {
+        "cpu" => Ok(Box::new(bsengine_bake::CpuBaker)),
+        "gpu" => bsengine_bake::GpuBaker::new()
+            .map(|b| Box::new(b) as Box<dyn LightmapBaker>)
+            .map_err(|e| format!("--backend gpu: {e}")),
+        "auto" => Ok(match bsengine_bake::GpuBaker::new_hardware() {
+            Ok(b) => Box::new(b),
+            Err(why) => {
+                tracing::info!("lightmap bake: on the CPU ({why})");
+                Box::new(bsengine_bake::CpuBaker)
+            }
+        }),
+        other => Err(format!("--backend {other}: expected cpu, gpu or auto")),
+    }
+}
+
 /// Frames to wait for every static entity's mesh to load before giving up.
 const MAX_LOAD_FRAMES: u32 = 600;
 
 pub fn run_bake(args: &BakeArgs) -> Result<BakeReport, String> {
-    let baker: Box<dyn LightmapBaker> = match args.backend.as_str() {
-        "cpu" | "auto" => Box::new(bsengine_bake::CpuBaker),
-        other => {
-            return Err(format!(
-                "--backend {other}: only `cpu` (or `auto`) exists so far"
-            ))
-        }
-    };
+    let baker = select_baker(&args.backend)?;
     let pak = crate::open_pak(&args.project_dir);
     let manifest = crate::read_manifest(&args.project_dir, pak.as_deref());
     let relative_scene = args
@@ -153,6 +172,7 @@ pub fn run_bake(args: &BakeArgs) -> Result<BakeReport, String> {
 
     write_output(
         args,
+        baker.name(),
         &relative_scene,
         &scene_path,
         &scene_text,
@@ -428,6 +448,7 @@ fn scene_stem(relative_scene: &str) -> String {
 
 fn write_output(
     args: &BakeArgs,
+    backend: &str,
     relative_scene: &str,
     scene_path: &str,
     scene_text: &str,
@@ -480,6 +501,7 @@ fn write_output(
     .map_err(|e| format!("cannot write {data_path}: {e}"))?;
 
     Ok(BakeReport {
+        backend: backend.to_string(),
         renderers: names.len(),
         layers: output.layers.len(),
         texels_per_unit: output.texels_per_unit,

@@ -81,6 +81,49 @@ impl Probe {
             .expect("the runtime binary runs")
     }
 
+    /// [`Self::bake`] on a named backend, with the `--json` report parsed.
+    fn bake_on(&self, backend: &str) -> (std::process::Output, serde_json::Value) {
+        let out = Command::new(env!("CARGO_BIN_EXE_bsengine-runtime"))
+            .arg("--bake")
+            .arg(&self.0)
+            .args([
+                "--samples",
+                "24",
+                "--bounces",
+                "1",
+                "--texels-per-unit",
+                "8",
+                "--json",
+                "--backend",
+                backend,
+            ])
+            .output()
+            .expect("the runtime binary runs");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let last = stdout
+            .lines()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("");
+        let report = serde_json::from_str(last.trim()).unwrap_or_else(|e| {
+            panic!(
+                "no JSON report ({e}): {stdout}\n{}",
+                String::from_utf8_lossy(&out.stderr)
+            )
+        });
+        (out, report)
+    }
+
+    /// The floor's lightmap at its open corner and under the crate.
+    fn floor_open_and_under(&self) -> (f32, f32) {
+        let data = self.data();
+        let floor = data.entries.iter().find(|e| e.entity == "Floor").unwrap();
+        let img = image::open(self.0.join(&floor.texture)).unwrap().to_rgba8();
+        let [sx, sy, ox, oy] = floor.scale_offset;
+        let at = |u: f32, v: f32| texel(&img, ox + u * sx, oy + v * sy);
+        (at(0.06, 0.06), at(0.5, 0.5))
+    }
+
     fn data(&self) -> bsengine_scene::lightmaps::LightmapData {
         let text = std::fs::read_to_string(self.0.join("assets/scenes/main.lightmaps"))
             .expect("the bake wrote the data file beside the scene");
@@ -147,6 +190,74 @@ fn a_scene_bakes_its_static_entities_and_their_shadows() {
         under < open * 0.5,
         "under the crate the floor is shadowed: {under} vs {open}"
     );
+}
+
+/// `--backend gpu` and `--backend cpu` bake the same scene to the same light,
+/// through the whole chain -- the scene gathered, traced, written -- and each
+/// report says which ran. The sun is `Baked`, so the direct term and its
+/// shadow under the crate are in both; the two agree within the noise of 24
+/// samples. (Texel for texel against closed forms is `bsengine-bake`'s; what
+/// this adds is that the runtime hands the GPU the same input.)
+#[test]
+fn the_gpu_and_cpu_backends_bake_the_same_light() {
+    let probe = Probe::create_with("Baked", "");
+    let mut seen = Vec::new();
+    for backend in ["cpu", "gpu"] {
+        let (out, report) = probe.bake_on(backend);
+        assert!(
+            out.status.success(),
+            "--backend {backend}: {report}\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(
+            report["backend"], backend,
+            "the report names the backend that ran"
+        );
+        seen.push(probe.floor_open_and_under());
+    }
+    let ((cpu_open, cpu_under), (gpu_open, gpu_under)) = (seen[0], seen[1]);
+    assert!(
+        gpu_open > 0.5 && gpu_under < gpu_open * 0.5,
+        "premise: the GPU bake lit the open floor and shadowed under the crate: {gpu_open}, {gpu_under}"
+    );
+    assert!(
+        (gpu_open - cpu_open).abs() < 0.05,
+        "open: gpu {gpu_open} vs cpu {cpu_open}"
+    );
+    assert!(
+        (gpu_under - cpu_under).abs() < 0.05,
+        "under: gpu {gpu_under} vs cpu {cpu_under}"
+    );
+}
+
+/// `auto` takes a hardware GPU when the machine has one and the CPU when it
+/// has none or only a software rasteriser -- the same answer
+/// `GpuBaker::new_hardware` gives this test, whichever machine it runs on.
+#[test]
+fn auto_bakes_on_a_hardware_gpu_when_there_is_one() {
+    let expected = if bsengine_bake::GpuBaker::new_hardware().is_ok() {
+        "gpu"
+    } else {
+        "cpu"
+    };
+    let probe = Probe::create("");
+    let (out, report) = probe.bake_on("auto");
+    assert!(out.status.success(), "{report}");
+    assert_eq!(report["backend"], expected);
+}
+
+/// A backend that does not exist is refused, by name, and nothing is written.
+#[test]
+fn an_unknown_backend_is_refused() {
+    let probe = Probe::create("");
+    let (out, report) = probe.bake_on("vulkan");
+    assert!(!out.status.success());
+    let error = report["error"].as_str().unwrap_or_default();
+    assert!(
+        error.contains("vulkan") && error.contains("cpu, gpu or auto"),
+        "{error}"
+    );
+    assert!(!probe.0.join("assets/scenes/main.lightmaps").exists());
 }
 
 /// A bake of an unchanged scene is the same bytes, and keeps each layer's

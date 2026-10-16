@@ -65,9 +65,9 @@ fn find<'a>(tools: &'a [McpTool], name: &str) -> &'a McpTool {
 }
 
 #[test]
-fn builds_fourteen_tools() {
+fn builds_fifteen_tools() {
     let tools = test_tools(test_registry());
-    assert_eq!(tools.len(), 14);
+    assert_eq!(tools.len(), 15);
 }
 
 #[test]

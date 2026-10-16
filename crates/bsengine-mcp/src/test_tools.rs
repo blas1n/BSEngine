@@ -369,8 +369,9 @@ fn bake_lightmaps_tool(registry: Arc<SessionRegistry>) -> McpTool {
             the scene, which loading the scene reads back. Scripts do not run during the bake \
             (it is of the scene as written). Refuses, with the reason, duplicate names among \
             static entities, skinned meshes, meshes without lightmap UVs. Returns `ok`, and \
-            either `renderers`, `layers`, `texels_per_unit`, `data_path`, `layer_paths` or \
-            `error`. Lower `samples` for a quick preview."
+            either `backend` (which ran: `gpu` or `cpu`), `renderers`, `layers`, \
+            `texels_per_unit`, `data_path`, `layer_paths` or `error`. Lower `samples` for a \
+            quick preview."
             .to_string(),
         input_schema: Some(json!({
             "type": "object",
@@ -380,6 +381,11 @@ fn bake_lightmaps_tool(registry: Arc<SessionRegistry>) -> McpTool {
                 "samples": { "type": "integer", "description": "Rays per texel (default 128)" },
                 "bounces": { "type": "integer", "description": "Indirect bounces (default 3)" },
                 "texels_per_unit": { "type": "number", "description": "Lightmap density (default 16)" },
+                "backend": {
+                    "type": "string",
+                    "enum": ["auto", "gpu", "cpu"],
+                    "description": "Where to trace: `auto` (default) uses a hardware GPU if there is one, else the CPU; `gpu` fails without an adapter",
+                },
             },
             "required": ["game"],
         })),
@@ -404,6 +410,10 @@ fn bake_lightmaps_tool(registry: Arc<SessionRegistry>) -> McpTool {
                     .get("texels_per_unit")
                     .and_then(|v| v.as_f64())
                     .map(|v| v as f32),
+                backend: args
+                    .get("backend")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
             };
             match registry.bake(game, &options) {
                 Ok(run) => {

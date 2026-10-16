@@ -18,7 +18,7 @@ pub mod sample;
 pub mod scene;
 pub mod trace;
 
-pub use gpu::GpuBaker;
+pub use gpu::{is_hardware, GpuBaker};
 pub use pack::{Packing, Placement};
 pub use scene::{BakeLight, BakeTriangle, Contribution, Sky};
 pub use trace::TraceSettings;

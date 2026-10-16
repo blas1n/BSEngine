@@ -189,6 +189,14 @@ fn gpu_light(light: &BakeLight) -> GpuLight {
     }
 }
 
+/// Whether an adapter of this type is real hardware, for
+/// [`GpuBaker::new_hardware`]. Only `Cpu` is software; `Other` (an adapter
+/// that does not say) is given the benefit of the doubt, since a backend that
+/// cannot name its device is far more often a real one than a rasteriser.
+pub fn is_hardware(device_type: wgpu::DeviceType) -> bool {
+    device_type != wgpu::DeviceType::Cpu
+}
+
 /// The compute tracer, on one device.
 pub struct GpuBaker {
     device: Arc<wgpu::Device>,
@@ -199,9 +207,23 @@ pub struct GpuBaker {
 
 impl GpuBaker {
     /// A baker on a device of its own: the first adapter the system offers
-    /// (a high-performance one if there is a choice). `Err` when there is
-    /// none -- the caller then bakes on the CPU.
+    /// (a high-performance one if there is a choice), a software one
+    /// included. `Err` when there is none.
     pub fn new() -> Result<Self, String> {
+        Self::open(true)
+    }
+
+    /// [`Self::new`], but `Err` when the only adapter is a software one --
+    /// what `--backend auto` asks for. A software rasteriser (CI's lavapipe,
+    /// Windows' WARP) is the CPU emulating a GPU, and [`crate::CpuBaker`] is
+    /// the direct way to use those same cores. (Not measured against each
+    /// other; Unity's GPU lightmapper likewise falls back to its CPU one when
+    /// it finds no suitable GPU, rather than failing the bake.)
+    pub fn new_hardware() -> Result<Self, String> {
+        Self::open(false)
+    }
+
+    fn open(allow_software: bool) -> Result<Self, String> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
@@ -209,6 +231,13 @@ impl GpuBaker {
             force_fallback_adapter: false,
         }))
         .ok_or("no GPU adapter")?;
+        let info = adapter.get_info();
+        if !allow_software && !is_hardware(info.device_type) {
+            return Err(format!(
+                "the only adapter is a software one ({})",
+                info.name
+            ));
+        }
         let have = adapter.limits();
         // The baseline, except for buffer sizes: a scene's triangles and
         // texels are as large as the scene, and the adapter knows its own.
@@ -1094,6 +1123,17 @@ mod tests {
                 s.trace.samples,
                 t.elapsed().as_secs_f32()
             );
+        }
+    }
+
+    /// `auto` refuses only a software rasteriser: every real kind of GPU, and
+    /// one that does not say what it is, counts as hardware.
+    #[test]
+    fn only_a_cpu_adapter_is_software() {
+        use wgpu::DeviceType::*;
+        assert!(!is_hardware(Cpu));
+        for t in [DiscreteGpu, IntegratedGpu, VirtualGpu, Other] {
+            assert!(is_hardware(t), "{t:?}");
         }
     }
 

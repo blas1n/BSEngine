@@ -904,16 +904,23 @@ impl Drop for BakeProbe {
 }
 
 /// The agent's bake, end to end: one call, a real child bake, and a report
-/// whose files are on disk where it says.
+/// whose files are on disk where it says. `backend: cpu` is asked for and
+/// reported back -- on a machine with a GPU, `auto` would have taken it, so a
+/// tool that dropped the option would report `gpu` there.
 #[test]
 fn game_bake_lightmaps_bakes_a_scene_and_reports_its_files() {
     let probe = BakeProbe::create("");
     let tools = test_tools(probe.registry());
-    let out = (find(&tools, "game_bake_lightmaps").handler)(
-        json!({"game": BakeProbe::GAME, "samples": 8, "bounces": 1, "texels_per_unit": 4.0}),
-    );
+    let out = (find(&tools, "game_bake_lightmaps").handler)(json!({
+        "game": BakeProbe::GAME,
+        "samples": 8,
+        "bounces": 1,
+        "texels_per_unit": 4.0,
+        "backend": "cpu",
+    }));
     assert!(out.is_ok(), "{:?}", out.error);
     assert_eq!(out.content["ok"], true, "{:?}", out.content);
+    assert_eq!(out.content["backend"], "cpu", "{:?}", out.content);
     assert_eq!(out.content["renderers"], 2, "{:?}", out.content);
     assert_eq!(out.content["layers"], 1, "{:?}", out.content);
     let data = out.content["data_path"].as_str().expect("a data path");

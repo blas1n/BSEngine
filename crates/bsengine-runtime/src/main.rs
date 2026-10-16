@@ -69,7 +69,7 @@ fn main() {
         std::process::exit(run_fixup(&project_dir, as_json));
     }
 
-    // `--bake <project> [--scene <path>] [--backend cpu|auto] [--samples N]
+    // `--bake <project> [--scene <path>] [--backend gpu|cpu|auto] [--samples N]
     // [--bounces N] [--texels-per-unit F]`: bakes the scene's lightmaps
     // (see `bake`). Exits non-zero, with the reason, when it cannot.
     if first_arg == "--bake" {
@@ -124,8 +124,12 @@ fn main() {
             }
             Ok(report) => {
                 println!(
-                    "baked {} renderers into {} layer(s) at {:.1} texels/unit -> {}",
-                    report.renderers, report.layers, report.texels_per_unit, report.data_path
+                    "baked {} renderers into {} layer(s) at {:.1} texels/unit on the {} -> {}",
+                    report.renderers,
+                    report.layers,
+                    report.texels_per_unit,
+                    report.backend.to_uppercase(),
+                    report.data_path
                 );
                 std::process::exit(0);
             }

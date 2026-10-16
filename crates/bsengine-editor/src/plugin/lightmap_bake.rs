@@ -159,8 +159,12 @@ pub(crate) fn poll(world: &mut World) {
                 world,
                 false,
                 format!(
-                    "Baked {} renderer(s) into {} layer(s); {applied} lit in this scene",
-                    report["renderers"], report["layers"]
+                    // The backend because the button sends `auto`: this is the
+                    // only place the editor's user learns which one ran.
+                    "Baked {} renderer(s) into {} layer(s) on the {}; {applied} lit in this scene",
+                    report["renderers"],
+                    report["layers"],
+                    report["backend"].as_str().unwrap_or("?").to_uppercase()
                 ),
             );
         }

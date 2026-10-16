@@ -32,6 +32,8 @@ pub struct BakeOptions {
     pub bounces: Option<u32>,
     /// Lightmap density (`--texels-per-unit`).
     pub texels_per_unit: Option<f32>,
+    /// `gpu`, `cpu` or `auto` (`--backend`); the runtime's `auto` when `None`.
+    pub backend: Option<String>,
 }
 
 /// One [`SessionRegistry::bake`] run.
@@ -262,6 +264,9 @@ impl SessionRegistry {
         }
         if let Some(density) = options.texels_per_unit {
             command.arg("--texels-per-unit").arg(density.to_string());
+        }
+        if let Some(backend) = &options.backend {
+            command.arg("--backend").arg(backend);
         }
         let output = command
             .output()

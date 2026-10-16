@@ -74,6 +74,7 @@ fn main() {
     // (see `bake`). Exits non-zero, with the reason, when it cannot.
     if first_arg == "--bake" {
         let project_dir = args.next().unwrap_or_else(|| ".".to_string());
+        let mut as_json = false;
         let mut bake_args = bake::BakeArgs {
             project_dir,
             scene: None,
@@ -88,6 +89,9 @@ fn main() {
                     .unwrap_or_else(|| panic!("{flag} requires a value"))
             };
             match flag.as_str() {
+                // The report on stdout as JSON, for `bsengine-mcp`'s bake tool
+                // -- the shape `--fixup --json` already gives it.
+                "--json" => as_json = true,
                 "--scene" => bake_args.scene = Some(value()),
                 "--backend" => bake_args.backend = value(),
                 "--samples" => {
@@ -107,6 +111,17 @@ fn main() {
         }
         bsengine_core::init_logging();
         match bake::run_bake(&bake_args) {
+            Ok(report) if as_json => {
+                println!(
+                    "{}",
+                    serde_json::to_string(&report).expect("a bake report serialises")
+                );
+                std::process::exit(0);
+            }
+            Err(e) if as_json => {
+                println!("{}", serde_json::json!({ "error": e }));
+                std::process::exit(1);
+            }
             Ok(report) => {
                 println!(
                     "baked {} renderers into {} layer(s) at {:.1} texels/unit -> {}",

@@ -21,6 +21,30 @@ pub struct ReplayResult {
     pub stderr: String,
 }
 
+/// What [`SessionRegistry::bake`] is asked to do beyond the game.
+#[derive(Debug, Clone, Default)]
+pub struct BakeOptions {
+    /// Project-relative scene path; the game's entry scene when `None`.
+    pub scene: Option<String>,
+    /// Rays per texel (`--samples`).
+    pub samples: Option<u32>,
+    /// Indirect bounces (`--bounces`).
+    pub bounces: Option<u32>,
+    /// Lightmap density (`--texels-per-unit`).
+    pub texels_per_unit: Option<f32>,
+}
+
+/// One [`SessionRegistry::bake`] run.
+pub struct BakeRun {
+    /// Whether the bake finished; false means `report` is `{ "error": ... }`.
+    pub ok: bool,
+    /// The report the child printed: renderers, layers, texel density and the
+    /// files written, or the reason it refused.
+    pub report: Value,
+    /// The child's log.
+    pub stderr: String,
+}
+
 /// Result of running `bsengine-runtime --fixup --json` over one game project.
 pub struct FixupRun {
     /// Whether the child left nothing undone — false when the report carries a
@@ -207,6 +231,55 @@ impl SessionRegistry {
 
         Ok(FixupRun {
             clean: output.status.success(),
+            report,
+            stderr,
+        })
+    }
+
+    /// Bakes `game`'s lightmaps: `bsengine-runtime --bake <game> --json`, in
+    /// a child for the reason [`Self::fixup`] runs in one -- the bake needs
+    /// the whole runtime (the scene's real plugin stack, a GPU device for its
+    /// meshes), and this crate links neither. `scene` is project-relative; the
+    /// entry scene when `None`.
+    pub fn bake(&self, game: &str, options: &BakeOptions) -> Result<BakeRun, String> {
+        let game_dir = self.games_root.join(game);
+        if !game_dir.join("project.toml").exists() {
+            return Err(format!(
+                "no game at {} — it needs a project.toml",
+                game_dir.display()
+            ));
+        }
+        let mut command = Command::new(&self.runtime_bin);
+        command.arg("--bake").arg(&game_dir).arg("--json");
+        if let Some(scene) = &options.scene {
+            command.arg("--scene").arg(scene);
+        }
+        if let Some(samples) = options.samples {
+            command.arg("--samples").arg(samples.to_string());
+        }
+        if let Some(bounces) = options.bounces {
+            command.arg("--bounces").arg(bounces.to_string());
+        }
+        if let Some(density) = options.texels_per_unit {
+            command.arg("--texels-per-unit").arg(density.to_string());
+        }
+        let output = command
+            .output()
+            .map_err(|e| format!("failed to run bsengine-runtime --bake: {e}"))?;
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        // The report is the last line: the bake logs to stderr, but a panic or
+        // an engine message could still reach stdout first.
+        let last = stdout
+            .lines()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("");
+        let report: Value = serde_json::from_str(last.trim()).map_err(|e| {
+            format!("bsengine-runtime --bake printed no readable report ({e}); it said: {stderr}")
+        })?;
+        Ok(BakeRun {
+            ok: output.status.success(),
             report,
             stderr,
         })

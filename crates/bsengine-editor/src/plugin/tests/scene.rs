@@ -881,3 +881,171 @@ fn load_scene_applies_the_scenes_baked_lightmaps() {
     assert_eq!(wall.1, None, "the data does not name the wall");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The real `bsengine-runtime`, built once for the bake tests below -- the
+/// button runs it as a child, so nothing less shows that it works.
+fn runtime_bin() -> &'static std::path::PathBuf {
+    static PATH: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    PATH.get_or_init(|| {
+        let output = std::process::Command::new(env!("CARGO"))
+            .args([
+                "build",
+                "-p",
+                "bsengine-runtime",
+                "--bin",
+                "bsengine-runtime",
+                "--message-format=json",
+            ])
+            .output()
+            .expect("cargo build runs");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        for line in String::from_utf8_lossy(&output.stdout).lines() {
+            let Ok(msg) = serde_json::from_str::<serde_json::Value>(line) else {
+                continue;
+            };
+            if msg["reason"] == "compiler-artifact" && msg["target"]["name"] == "bsengine-runtime" {
+                if let Some(exe) = msg["executable"].as_str() {
+                    return std::path::PathBuf::from(exe);
+                }
+            }
+        }
+        panic!("no bsengine-runtime executable in cargo's output")
+    })
+}
+
+/// A project with a static floor and crate, plus `extra` entities; returns
+/// its directory and the scene's path.
+fn bake_project(tag: &str, extra: &str) -> (std::path::PathBuf, String) {
+    let dir =
+        std::env::temp_dir().join(format!("bsengine_bake_button_{tag}_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("assets/scenes")).unwrap();
+    std::fs::write(
+        dir.join("project.toml"),
+        "[project]\nname = \"Bake Button\"\nentry_scene = \"assets/scenes/main.ron\"\n\n[window]\nwidth = 64\nheight = 64\n",
+    )
+    .unwrap();
+    let static_ = r#"components: [("bsengine_core::lightmap_static::LightmapStatic", "(resolution_scale: 1.0)")]"#;
+    std::fs::write(
+        dir.join("assets/scenes/main.ron"),
+        format!(
+            r#"SceneDescriptor(entities: [
+    EntityDescriptor(name: "Floor", primitive: Some(Plane), transform: Some((position: (0.0, 0.0, 0.0), scale: (4.0, 1.0, 4.0))), {static_}),
+    EntityDescriptor(name: "Crate", primitive: Some(Cube), transform: Some((position: (0.0, 0.5, 0.0))), {static_}),
+    {extra}
+])"#
+        ),
+    )
+    .unwrap();
+    let scene = dir
+        .join("assets/scenes/main.ron")
+        .to_string_lossy()
+        .replace('\\', "/");
+    (dir, scene)
+}
+
+/// Loads `scene` in an editor whose bake runs the real runtime, presses Bake,
+/// and runs frames until the bake is over; returns the app.
+fn press_bake(scene: &str) -> bevy_app::App {
+    let mut app = new_app();
+    app.add_plugins(McpPlugin);
+    app.add_plugins(EditorPlugin);
+    app.insert_resource(super::super::lightmap_bake::LightmapBakerBinary(
+        runtime_bin().clone(),
+    ));
+    app.update();
+    let r = app
+        .world()
+        .resource::<bsengine_mcp::McpRegistryResource>()
+        .0
+        .lock()
+        .unwrap()
+        .execute("load_scene", json!({"path": scene}))
+        .unwrap();
+    assert!(r.is_ok(), "{:?}", r.error);
+    app.update();
+    app.world_mut()
+        .resource_mut::<InspectorState>()
+        .cmd_queue
+        .push(bsengine_core::InspectorCmd::BakeLightmaps);
+    app.update();
+    assert!(
+        app.world()
+            .resource::<InspectorState>()
+            .lightmap_bake_running,
+        "premise: pressing Bake started a bake"
+    );
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(300);
+    while app
+        .world()
+        .resource::<InspectorState>()
+        .lightmap_bake_running
+    {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the bake never finished"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        app.update();
+    }
+    app
+}
+
+/// The button, end to end: it bakes the saved scene, says so, and the scene in
+/// the editor is lit by the result without being reloaded.
+#[test]
+fn the_bake_button_bakes_the_scene_and_lights_it_in_the_editor() {
+    let (dir, scene) = bake_project("ok", "");
+    let mut app = press_bake(&scene);
+    let status = app
+        .world()
+        .resource::<InspectorState>()
+        .lightmap_bake_status
+        .clone()
+        .unwrap_or_default();
+    assert!(status.starts_with("Baked 2 renderer(s)"), "{status}");
+    assert!(
+        dir.join("assets/scenes/main.lightmaps").is_file(),
+        "the data was written"
+    );
+    let mut q = app
+        .world_mut()
+        .query::<(&Name, Option<&bsengine_core::Lightmap>)>();
+    let lit: Vec<(String, bool)> = q
+        .iter(app.world())
+        .map(|(n, l)| (n.0.clone(), l.is_some()))
+        .collect();
+    assert!(
+        lit.contains(&("Floor".to_string(), true)) && lit.contains(&("Crate".to_string(), true)),
+        "both static entities are lit in the editor: {lit:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A bake that cannot go ahead says why, and leaves the button usable.
+#[test]
+fn the_bake_button_reports_why_a_bake_failed() {
+    let static_ = r#"components: [("bsengine_core::lightmap_static::LightmapStatic", "(resolution_scale: 1.0)")]"#;
+    let (dir, scene) = bake_project(
+        "dup",
+        // With a transform: an entity without one is drawn by nothing and
+        // baked by nothing, so a first version of this fixture made no
+        // duplicate at all and the bake succeeded.
+        &format!(
+            r#"EntityDescriptor(name: "Crate", primitive: Some(Cube), transform: Some((position: (2.0, 0.5, 0.0))), {static_}),"#
+        ),
+    );
+    let app = press_bake(&scene);
+    let insp = app.world().resource::<InspectorState>();
+    let status = insp.lightmap_bake_status.clone().unwrap_or_default();
+    assert!(
+        status.starts_with("Bake failed") && status.contains("Crate"),
+        "{status}"
+    );
+    assert!(!insp.lightmap_bake_running, "the button is usable again");
+    let _ = std::fs::remove_dir_all(&dir);
+}

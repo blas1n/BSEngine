@@ -24,6 +24,8 @@ mod camera;
 mod commands;
 mod history;
 mod inspector;
+/// The Bake Lightmaps button: `bsengine-runtime --bake` on a thread.
+pub mod lightmap_bake;
 mod prefab;
 mod reflect;
 mod snapshot_sync;
@@ -125,6 +127,11 @@ impl Plugin for EditorPlugin {
         );
         app.add_systems(Update, apply_inspector_cmds.before(process_editor_commands));
         app.add_systems(Update, process_editor_commands);
+        // A finished bake lands here: its status, and the new lightmaps on
+        // the scene the editor shows.
+        app.init_resource::<lightmap_bake::LightmapBakeJob>();
+        app.init_resource::<lightmap_bake::LightmapBakerBinary>();
+        app.add_systems(Update, lightmap_bake::poll);
         app.add_systems(
             Update,
             process_reflect_commands.after(process_editor_commands),

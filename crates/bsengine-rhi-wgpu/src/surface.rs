@@ -3296,6 +3296,10 @@ pub struct WgpuSurface {
     /// Whether this adapter can multisample every geometry-pass target 4x
     /// (see `request_device`). Without it MSAA stays off, whatever is asked.
     msaa_supported: bool,
+    /// Whether the adapter is a software one (`DeviceType::Cpu`: WARP,
+    /// lavapipe). The realtime GI update builds its pipelines in place there
+    /// rather than on a thread (`realtime_gi::PipelineState` says why).
+    software_adapter: bool,
     /// The sample count the geometry passes draw with: 1 (off) or
     /// [`crate::msaa::MSAA_SAMPLES`]. Set by [`Self::set_msaa`].
     msaa_samples: u32,
@@ -3320,8 +3324,15 @@ impl WgpuSurface {
             .create_surface(window.clone())
             .map_err(|e| e.to_string())?;
 
-        let (adapter, device, queue, timestamp_supported, instancing_supported, msaa_supported) =
-            Self::request_device(&instance, Some(&surface)).await?;
+        let (
+            adapter,
+            device,
+            queue,
+            timestamp_supported,
+            instancing_supported,
+            msaa_supported,
+            software_adapter,
+        ) = Self::request_device(&instance, Some(&surface)).await?;
 
         let size = window.inner_size();
         let caps = surface.get_capabilities(&adapter);
@@ -3357,6 +3368,7 @@ impl WgpuSurface {
             timestamp_supported,
             instancing_supported,
             msaa_supported,
+            software_adapter,
         )
     }
 
@@ -3371,8 +3383,15 @@ impl WgpuSurface {
             backends: wgpu::Backends::all(),
             ..Default::default()
         });
-        let (_adapter, device, queue, timestamp_supported, instancing_supported, msaa_supported) =
-            Self::request_device(&instance, None).await?;
+        let (
+            _adapter,
+            device,
+            queue,
+            timestamp_supported,
+            instancing_supported,
+            msaa_supported,
+            software_adapter,
+        ) = Self::request_device(&instance, None).await?;
         let texture = crate::output::create_offscreen_texture(&device, width, height);
         Self::build(
             device,
@@ -3386,6 +3405,7 @@ impl WgpuSurface {
             timestamp_supported,
             instancing_supported,
             msaa_supported,
+            software_adapter,
         )
     }
 
@@ -3642,6 +3662,7 @@ impl WgpuSurface {
             bool,
             bool,
             bool,
+            bool,
         ),
         String,
     > {
@@ -3715,6 +3736,7 @@ impl WgpuSurface {
                 .flags
                 .sample_count_supported(crate::msaa::MSAA_SAMPLES)
         });
+        let software_adapter = adapter.get_info().device_type == wgpu::DeviceType::Cpu;
 
         Ok((
             adapter,
@@ -3723,6 +3745,7 @@ impl WgpuSurface {
             timestamp_supported,
             instancing_supported,
             msaa_supported,
+            software_adapter,
         ))
     }
 
@@ -3748,11 +3771,15 @@ impl WgpuSurface {
     }
 
     /// The one device tests share, with what `request_device` found out about
-    /// it: `(device, queue, timestamp_supported, instancing_supported)`.
-    fn shared_test_device() -> &'static (Arc<wgpu::Device>, Arc<wgpu::Queue>, bool, bool, bool) {
+    /// it: `(device, queue, timestamp_supported, instancing_supported,
+    /// msaa_supported, software_adapter)`.
+    #[allow(clippy::type_complexity)]
+    fn shared_test_device() -> &'static (Arc<wgpu::Device>, Arc<wgpu::Queue>, bool, bool, bool, bool)
+    {
         static SHARED: std::sync::OnceLock<(
             Arc<wgpu::Device>,
             Arc<wgpu::Queue>,
+            bool,
             bool,
             bool,
             bool,
@@ -3769,6 +3796,7 @@ impl WgpuSurface {
                 timestamp_supported,
                 instancing_supported,
                 msaa_supported,
+                software_adapter,
             ) = pollster::block_on(Self::request_device(&instance, None))
                 .expect("headless device for test");
             (
@@ -3777,6 +3805,7 @@ impl WgpuSurface {
                 timestamp_supported,
                 instancing_supported,
                 msaa_supported,
+                software_adapter,
             )
         })
     }
@@ -3793,8 +3822,14 @@ impl WgpuSurface {
     /// `cfg(test)` item is compiled only for this crate's own test binary.
     #[doc(hidden)]
     pub fn offscreen_for_testing(width: u32, height: u32) -> Result<Self, String> {
-        let (device, queue, timestamp_supported, instancing_supported, msaa_supported) =
-            Self::shared_test_device().clone();
+        let (
+            device,
+            queue,
+            timestamp_supported,
+            instancing_supported,
+            msaa_supported,
+            software_adapter,
+        ) = Self::shared_test_device().clone();
         let texture = crate::output::create_offscreen_texture(&device, width, height);
         Self::build(
             device,
@@ -3808,6 +3843,7 @@ impl WgpuSurface {
             timestamp_supported,
             instancing_supported,
             msaa_supported,
+            software_adapter,
         )
     }
 
@@ -3817,6 +3853,7 @@ impl WgpuSurface {
     /// **Both constructors go through here.** What makes a pixel test worth
     /// anything is that it exercises the pipelines a real frame uses; a second
     /// construction path would quietly take that away.
+    #[allow(clippy::too_many_arguments)] // what `request_device` found, passed through; each is one flag
     fn build(
         device: Arc<wgpu::Device>,
         queue: Arc<wgpu::Queue>,
@@ -3825,6 +3862,7 @@ impl WgpuSurface {
         timestamp_supported: bool,
         instancing_supported: bool,
         msaa_supported: bool,
+        software_adapter: bool,
     ) -> Result<Self, String> {
         let format = output.format();
         let width = output.width();
@@ -5283,6 +5321,7 @@ impl WgpuSurface {
             prev_unjittered_view_proj: Mat4::IDENTITY,
             prev_camera_pos: Vec3::ZERO,
             msaa_supported,
+            software_adapter,
             msaa_samples: 1,
             msaa_targets: None,
             depth_resolve,
@@ -6864,10 +6903,10 @@ impl WgpuSurface {
             self.realtime_gi_input.take()
         };
         if let Some(input) = realtime {
-            let device = &self.device;
-            let gi = self
-                .realtime_gi
-                .get_or_insert_with(|| crate::realtime_gi::RealtimeGi::new(device));
+            let (device, software_adapter) = (&self.device, self.software_adapter);
+            let gi = self.realtime_gi.get_or_insert_with(|| {
+                crate::realtime_gi::RealtimeGi::new(device, software_adapter)
+            });
             gi.update(device, &self.queue, registry, &self.probe_buffer, &input);
             self.realtime_gi_active = true;
         } else if self.realtime_gi_active {

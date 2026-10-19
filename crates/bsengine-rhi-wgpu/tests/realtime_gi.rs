@@ -151,7 +151,8 @@ impl Surface {
 }
 
 /// The update compiles where Windows players run it -- wgpu's D3D12
-/// backend, through FXC -- and without making a frame wait for it. Every
+/// backend, through FXC -- off the frame on a hardware adapter and in place on
+/// a software one. Every
 /// other test takes whatever adapter comes first -- Vulkan, on most machines
 /// -- so a construct FXC rejects (an array-returning function was one) would
 /// pass them all and fail only where D3D12 happened to be chosen.
@@ -179,26 +180,40 @@ fn the_update_compiles_for_d3d12() {
     ))
     .expect("a D3D12 device");
     let device = std::sync::Arc::new(device);
+    // What the surface decides by: a hardware adapter here locally, WARP on
+    // Windows CI -- so each machine checks one side of the choice.
+    let software = adapter.get_info().device_type == wgpu::DeviceType::Cpu;
     device.push_error_scope(wgpu::ErrorFilter::Validation);
     let (returned, built, ready) =
-        bsengine_rhi_wgpu::realtime_gi::build_pipelines_for_testing(&device);
+        bsengine_rhi_wgpu::realtime_gi::build_pipelines_for_testing(&device, software);
     let error = pollster::block_on(device.pop_error_scope());
     assert!(
         error.is_none(),
         "the update does not compile for D3D12: {error:?}"
     );
     assert!(ready, "the pipelines were built");
-    // And off the frame: `new` hands the compile to a thread and returns.
     // The premise -- the compile is slow enough to matter -- is FXC's,
     // seconds on any machine.
     assert!(
         built.as_secs_f32() > 0.5,
         "premise: FXC takes a while: {built:?}"
     );
-    assert!(
-        returned < built / 4,
-        "creating the update must not wait for its compile: {returned:?} of {built:?}"
-    );
+    if software {
+        // In place on a software adapter: a frame running beside the compile
+        // waited on a fence WARP would not signal until it was done, past
+        // wgpu's 60 s limit, and wgpu then freed what the GPU still used
+        // (`realtime_gi::PipelineState`).
+        assert!(
+            returned * 10 >= built * 9,
+            "on a software adapter the update builds in place: {returned:?} of {built:?}"
+        );
+    } else {
+        // Off the frame: `new` hands the compile to a thread and returns.
+        assert!(
+            returned < built / 4,
+            "creating the update must not wait for its compile: {returned:?} of {built:?}"
+        );
+    }
 }
 
 // ---- the realtime probe volume -------------------------------------------

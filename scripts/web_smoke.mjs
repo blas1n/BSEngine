@@ -134,6 +134,11 @@ ws.addEventListener('message', (e) => {
     const text = msg.params.args.map((a) => a.value ?? a.description ?? '').join(' ');
     const level = text.match(/^%c(\w+)%c/)?.[1];
     if (msg.params.type === 'error' || level === 'ERROR') failures.push(`console: ${text}`);
+    // A scene component the page could not find by type path is dropped and
+    // the game still draws -- which is how every scene's `Material` went
+    // missing in the browser build, unseen, behind a PASS. The one warning
+    // that says a scene did not load as written is a failure.
+    if (level === 'WARN' && text.includes('unknown reflected type path')) failures.push(`scene: ${text}`);
     if (level === 'ERROR' || level === 'WARN' || (level === 'INFO' && process.env.VERBOSE)) {
       console.log(`  ${level} ${text.replace(/%c/g, '').replace(/ color:.*$/, '')}`);
     }

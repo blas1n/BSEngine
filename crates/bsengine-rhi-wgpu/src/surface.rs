@@ -6359,6 +6359,19 @@ impl WgpuSurface {
         self.realtime_gi_input = input;
     }
 
+    /// Realtime probe updates run so far: what a test outside this crate
+    /// observes to know a realtime volume reached the surface.
+    #[doc(hidden)]
+    pub fn realtime_gi_updates(&self) -> u32 {
+        self.realtime_gi.as_ref().map_or(0, |g| g.updates)
+    }
+
+    /// Whether the probe grid holds a baked volume, for the same reason.
+    #[doc(hidden)]
+    pub fn has_baked_probe_volume(&self) -> bool {
+        self.baked_probe_volume.is_some()
+    }
+
     /// Reads [`Self::probe_buffer`] back -- the header and the half it names
     /// for shading -- so a test can assert on
     /// what the shader is actually about to sample rather than on a CPU-side
@@ -10791,6 +10804,91 @@ mod tests {
         assert!(
             (dark - want_dark).abs() < want_dark * 0.03,
             "the sun is off: {dark} vs {want_dark}"
+        );
+    }
+
+    /// The same updates are the same bytes: every ray's direction and seed
+    /// come from the frame, the probe and the ray -- never from which
+    /// workgroup ran first -- and the bounce term reads only last frame's
+    /// half. A volume changed and changed back starts over (history, round
+    /// robin, frame count), so five updates after are five updates before.
+    #[test]
+    fn realtime_updates_are_deterministic() {
+        let mut s = furnace_scene(0.4, 0.5);
+        let volume = ProbeVolumeParams {
+            resolution: [4, 4, 4],
+            ..inner_volume()
+        };
+        let input = s.input(volume, 0.9, 256 * 16);
+        s.run(&input, 5);
+        let first: Vec<[[f32; 4]; 9]> = s.scene.surface.read_probe_grid().coeffs[..64].to_vec();
+        let other = s.input(inner_volume(), 0.9, 256 * 16);
+        s.run(&other, 1);
+        s.run(&input, 5);
+        let second: Vec<[[f32; 4]; 9]> = s.scene.surface.read_probe_grid().coeffs[..64].to_vec();
+        assert!(
+            first.iter().any(|c| c[0][0] != 0.0),
+            "premise: the grid was lit"
+        );
+        assert_eq!(first, second);
+    }
+
+    /// The static set is read back once per change, and traced once it lands:
+    /// moving the floor away (a new model matrix) starts exactly one more
+    /// readback, and after it the probes see the sky where the floor was.
+    #[test]
+    fn a_changed_static_set_is_read_back_once_and_then_traced() {
+        let sky = 0.2f32;
+        let mut s = GiScene::new(Vec3::splat(sky));
+        s.add(
+            quad_corners(
+                Vec3::new(-50.0, 0.0, 50.0),
+                Vec3::X * 100.0,
+                Vec3::NEG_Z * 100.0,
+            ),
+            Vec3::ZERO,
+            Vec3::splat(2.0),
+        );
+        let volume = ProbeVolumeParams {
+            origin: Vec3::new(-1.0, 0.5, -1.0),
+            extent: Vec3::splat(2.0),
+            resolution: [2, 2, 2],
+        };
+        let input = s.input(volume, 0.0, 1 << 20);
+        s.run(&input, 3);
+        assert_eq!(
+            s.scene
+                .surface
+                .realtime_gi
+                .as_ref()
+                .unwrap()
+                .readbacks_started,
+            1
+        );
+        let glowing = s.irradiance(0, Vec3::NEG_Y).x;
+        assert!(
+            (glowing - 2.0).abs() < 0.05,
+            "premise: the floor glows below: {glowing}"
+        );
+        // Far below and out of sight.
+        s.statics[0].model = Mat4::from_translation(Vec3::new(0.0, -1.0e4, 0.0));
+        let moved = s.input(volume, 0.0, 1 << 20);
+        s.run(&moved, 3);
+        s.run(&moved, 3);
+        assert_eq!(
+            s.scene
+                .surface
+                .realtime_gi
+                .as_ref()
+                .unwrap()
+                .readbacks_started,
+            2,
+            "one readback for the change, not one per frame"
+        );
+        let open = s.irradiance(0, Vec3::NEG_Y).x;
+        assert!(
+            (open - sky).abs() < 0.01,
+            "the floor is gone, the sky remains: {open}"
         );
     }
 

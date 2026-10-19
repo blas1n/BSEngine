@@ -1030,17 +1030,23 @@ fn render_frame(
     let reflection_probes: Vec<bsengine_rhi_wgpu::ReflectionProbeParams> =
         reflection_probes.into_iter().map(|(_, p)| p).collect();
 
-    let light_probes = probe_volumes.iter().next().map(|(volume, t, gt)| {
-        let centre = gt
-            .map(|g| g.to_matrix().w_axis.truncate())
-            .unwrap_or(t.position.0);
-        let half = *volume.half_extents;
-        bsengine_rhi_wgpu::ProbeVolumeParams {
-            origin: centre - half,
-            extent: half * 2.0,
-            resolution: volume.clamped_resolution(),
-        }
-    });
+    // A realtime volume is not baked: `feed_realtime_gi` hands it to the
+    // surface's update instead, and the bake is given none.
+    let light_probes = probe_volumes
+        .iter()
+        .next()
+        .filter(|(volume, _, _)| volume.update == bsengine_core::ProbeUpdate::Once)
+        .map(|(volume, t, gt)| {
+            let centre = gt
+                .map(|g| g.to_matrix().w_axis.truncate())
+                .unwrap_or(t.position.0);
+            let half = *volume.half_extents;
+            bsengine_rhi_wgpu::ProbeVolumeParams {
+                origin: centre - half,
+                extent: half * 2.0,
+                resolution: volume.clamped_resolution(),
+            }
+        });
 
     // Occlusion pre-pass. It has to finish before the draw-call loop below
     // borrows `p1()`: a ParamSet lends exactly one sub-query at a time, so
@@ -1505,6 +1511,7 @@ impl Plugin for RenderPlugin {
                     rebuild_modified_shaders,
                     sync_skybox,
                     sync_color_lut,
+                    crate::realtime_gi::feed_realtime_gi,
                     render_frame,
                 )
                     .chain(),
@@ -4103,5 +4110,78 @@ mod tests {
             .get::<LodLevels>(entity)
             .expect("candidate still carries its LodLevels")
             .current_index
+    }
+
+    /// A `Realtime` volume reaches the surface's realtime update -- through
+    /// `feed_realtime_gi`, with the static set read from the world -- and is
+    /// not baked; switched to `Once`, it is baked instead and the update
+    /// stops. The two paths share one probe grid, so this is the hand-over
+    /// both ways.
+    #[test]
+    fn a_realtime_volume_is_traced_not_baked_and_a_once_volume_baked() {
+        use bsengine_core::{LightProbeVolume, LightmapStatic, ProbeUpdate};
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::offscreen(64, 64, false));
+        app.add_plugins(RenderPlugin);
+        app.update();
+        let v = |x: f32, z: f32| Vertex {
+            position: [x, 0.0, z],
+            color: [1.0, 1.0, 1.0],
+            normal: [0.0, 1.0, 0.0],
+            uv: [0.0, 0.0],
+            uv2: [0.0, 0.0],
+        };
+        let mesh_id = app.world_mut().resource_mut::<GpuMeshRegistry>().register(
+            &[v(-5.0, 5.0), v(5.0, 5.0), v(5.0, -5.0), v(-5.0, -5.0)],
+            &[0, 1, 2, 0, 2, 3],
+        );
+        app.world_mut().spawn((
+            Camera::default(),
+            Transform::from_position(Vec3::new(0.0, 3.0, 10.0)),
+        ));
+        app.world_mut().spawn((
+            MeshRenderer { mesh_id },
+            LightmapStatic::default(),
+            Transform::default(),
+            Material {
+                emissive: Vec3::splat(1.0).into(),
+                ..Material::default()
+            },
+        ));
+        let volume = app
+            .world_mut()
+            .spawn((
+                LightProbeVolume {
+                    update: ProbeUpdate::Realtime,
+                    resolution: [2, 2, 2],
+                    half_extents: Vec3::splat(1.0).into(),
+                    ..LightProbeVolume::default()
+                },
+                Transform::from_position(Vec3::new(0.0, 1.5, 0.0)),
+            ))
+            .id();
+        assert!(
+            run_until(&mut app, |a| surface_of(a).realtime_gi_updates() >= 2),
+            "the realtime volume never reached the surface's update"
+        );
+        assert!(
+            !surface_of(&app).has_baked_probe_volume(),
+            "a realtime volume is not also baked"
+        );
+
+        app.world_mut()
+            .get_mut::<LightProbeVolume>(volume)
+            .unwrap()
+            .update = ProbeUpdate::Once;
+        let updates = surface_of(&app).realtime_gi_updates();
+        app.update();
+        app.update();
+        assert!(surface_of(&app).has_baked_probe_volume(), "now it is baked");
+        assert_eq!(
+            surface_of(&app).realtime_gi_updates(),
+            updates,
+            "and the realtime update has stopped"
+        );
     }
 }

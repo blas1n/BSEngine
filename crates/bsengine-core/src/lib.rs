@@ -45,6 +45,8 @@ pub mod editor_panel;
 pub mod follow;
 /// Fast approximate antialiasing (FXAA) settings for a camera.
 pub mod fxaa;
+/// The realtime GI budget.
+pub mod gi_config;
 /// World-space transform resulting from local transform + parent hierarchy.
 pub mod global_transform;
 /// Named on-screen HUD text overlay resource.
@@ -194,6 +196,7 @@ pub use depth_of_field::DepthOfField;
 pub use editor_panel::{EditorPanel, EditorPanelContext, EditorPanelRegistry};
 pub use follow::{Follow, LookAt};
 pub use fxaa::Fxaa;
+pub use gi_config::GiSettings;
 pub use global_transform::GlobalTransform;
 pub use hud_texts::HudTexts;
 pub use import_settings::ImportSettings;

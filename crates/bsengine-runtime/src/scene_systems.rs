@@ -217,6 +217,14 @@ pub struct RenderSection {
     /// for the renderer's 4x.
     #[serde(default = "default_msaa")]
     pub msaa: u32,
+    /// Rays the realtime light-probe volume may trace per frame
+    /// (`bsengine_core::GiSettings`).
+    #[serde(default = "default_gi_rays_per_frame")]
+    pub gi_rays_per_frame: u32,
+}
+
+fn default_gi_rays_per_frame() -> u32 {
+    bsengine_core::gi_config::DEFAULT_GI_RAYS_PER_FRAME
 }
 
 fn default_msaa() -> u32 {
@@ -262,6 +270,7 @@ impl Default for RenderSection {
             texture_streaming_budget_mb: default_texture_streaming_budget_mb(),
             texture_mip_bias: default_texture_mip_bias(),
             msaa: default_msaa(),
+            gi_rays_per_frame: default_gi_rays_per_frame(),
         }
     }
 }

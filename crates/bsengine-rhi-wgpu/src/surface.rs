@@ -6858,7 +6858,7 @@ impl WgpuSurface {
         // moving a wall after load does not re-bake, and the floor keeps the
         // colour that wall used to bleed onto it. That is the accepted cost of
         // baking once, which is what item 48 asked for.
-        if !self.realtime_gi_active && self.baked_probe_volume != volume_to_bake {
+        if self.baked_probe_volume != volume_to_bake {
             self.bake_probes(cascades, draw_calls, registry, tex_registry, volume_to_bake);
             self.baked_probe_volume = volume_to_bake;
         }

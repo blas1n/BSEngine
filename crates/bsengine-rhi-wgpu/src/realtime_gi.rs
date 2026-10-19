@@ -182,12 +182,18 @@ fn eval_probe_sh_at(world_pos: vec3<f32>, n: vec3<f32>, offset: u32, visibility:
     let g = probe_grid_coord(world_pos);
     let cells = max(vec3<f32>(probes.resolution) - vec3<f32>(1.0), vec3<f32>(1.0));
     let spacing = probes.extent / cells;
-    // Off the surface, so the surface itself is not what a probe saw first --
-    // by a tenth of the probe spacing. More pushes a surface near a wall
-    // through it (at 0.3, a quad 0.7 from a wall in a 2.4-spaced grid was
-    // judged from the wall's far side, and the probes on its own side
-    // dropped out).
-    let biased = world_pos + n * (0.1 * min(min(spacing.x, spacing.y), spacing.z));
+    // Off the surface, so the surface itself is not what a probe saw first:
+    // 0.3 of the probe spacing along the normal. Measured in the gi-demo room
+    // (games/gi-demo): at 0.1, and at DDGI's view-weighted bias
+    // ((0.2 n + 0.8 v) * 0.75 * 0.3 spacing, which leaves 0.045 along the
+    // normal), every surface showed one bright patch per probe -- a point
+    // that close to the surface sits right at the distance the probe
+    // recorded, and the test flickers in and out across the cells. At 0.3
+    // the patches are gone (`a_closed_room_is_lit_evenly_through_the_volume`
+    // holds it, and fails for both of the others). The price is the one DDGI
+    // documents: geometry thinner than this, or nearer a surface, can be
+    // judged from its far side.
+    let biased = world_pos + n * (0.3 * min(min(spacing.x, spacing.y), spacing.z));
     var weight_sum = 0.0;
     let last = vec3<i32>(probes.resolution) - vec3<i32>(1, 1, 1);
     let i0 = clamp(vec3<i32>(floor(g)), vec3<i32>(0, 0, 0), last);

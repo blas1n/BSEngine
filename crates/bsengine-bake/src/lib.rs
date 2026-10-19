@@ -13,6 +13,7 @@
 
 pub mod bvh;
 pub mod gpu;
+pub mod gpu_scene;
 pub mod pack;
 pub mod sample;
 pub mod scene;
@@ -25,6 +26,7 @@ pub use trace::TraceSettings;
 
 use bvh::Bvh;
 use glam::{Vec2, Vec3};
+#[cfg(feature = "native")]
 use rayon::prelude::*;
 use sample::Rng;
 
@@ -120,10 +122,14 @@ impl LightmapBaker for CpuBaker {
             settings: settings.trace,
         };
         // Each texel seeds its own generator, so the order rayon runs them in
-        // changes nothing: the bake is the same bytes on any core count.
-        let values: Vec<Vec3> = prepared
-            .jobs
-            .par_iter()
+        // changes nothing: the bake is the same bytes on any core count --
+        // and on one, which is how it runs without the `native` feature (the
+        // browser has no threads for rayon to spawn).
+        #[cfg(feature = "native")]
+        let jobs = prepared.jobs.par_iter();
+        #[cfg(not(feature = "native"))]
+        let jobs = prepared.jobs.iter();
+        let values: Vec<Vec3> = jobs
             .map(|j| {
                 let mut rng = Rng::for_texel(settings.trace.seed, j.layer, j.x, j.y);
                 world.texel(j.position, j.normal, settings.bake_direct, &mut rng)

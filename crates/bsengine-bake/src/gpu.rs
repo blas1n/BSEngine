@@ -17,7 +17,9 @@
 //! and the bake uses exactly four (nodes, triangles, texel jobs, output): the
 //! triangles are uploaded in the tree's leaf order, so a leaf names its
 //! triangles directly and the index buffer the CPU tree keeps is not needed.
-//! Lights go in a uniform, the sky in a texture.
+//! Lights go in a uniform, the sky in a texture. Those layouts, and the
+//! tracing half of the shader, are [`crate::gpu_scene`]'s -- shared with the
+//! renderer's realtime GI, so the two trace with the same code.
 //!
 //! # Not one long dispatch -- and not a thin one either
 //!
@@ -30,14 +32,11 @@
 //! -- and the GPU bake ran ten times slower than the CPU's, and four times
 //! slower for twice the samples.
 
-use crate::scene::{BakeLight, Contribution, Sky};
+use crate::gpu_scene::{scene_uniform, GpuGeometry, MAX_GPU_LIGHTS};
 use crate::{BakeInput, BakeOutput, BakeSettings, LightmapBaker};
 use glam::Vec3;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
-
-/// Most lights one bake can carry: the uniform's fixed array.
-pub const MAX_GPU_LIGHTS: usize = 64;
 
 /// Rays aimed for per pass: texels x samples-in-pass x (bounces + 1) x (1 +
 /// lights). Tens of millions is a fraction of a second on a desktop GPU and
@@ -48,48 +47,11 @@ const MAX_GROUPS: usize = 65535;
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct GpuNode {
-    lo: [f32; 3],
-    start: u32,
-    hi: [f32; 3],
-    count: u32,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct GpuTri {
-    p0: [f32; 4],
-    p1: [f32; 4],
-    p2: [f32; 4],
-    n: [f32; 4],
-    albedo: [f32; 4],
-    emissive: [f32; 4],
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct GpuJob {
     pos: [f32; 3],
     layer: u32,
     normal: [f32; 3],
     xy: u32,
-}
-
-/// One light: `kind` 0 directional (`a` = direction, `c` = colour), 1 point
-/// (`a` = position, `c` = colour), 2 spot (`a` position, `b` direction, `c`
-/// colour, `d.x` inner cos, `d.y` outer cos), 3 rect (`a` centre, `b` half
-/// width, `c` half height, `d` radiance).
-#[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct GpuLight {
-    kind: u32,
-    contribution: u32,
-    range: f32,
-    intensity: f32,
-    a: [f32; 4],
-    b: [f32; 4],
-    c: [f32; 4],
-    d: [f32; 4],
 }
 
 #[repr(C)]
@@ -102,91 +64,7 @@ struct GpuParams {
     seed: u32,
     job_offset: u32,
     job_count: u32,
-    light_count: u32,
     bake_direct: u32,
-    node_count: u32,
-    sky_kind: u32,
-    sky_w: u32,
-    sky_h: u32,
-    _p0: u32,
-    _p1: u32,
-    _p2: u32,
-    sky_uniform: [f32; 4],
-}
-
-fn v4(v: Vec3) -> [f32; 4] {
-    [v.x, v.y, v.z, 0.0]
-}
-
-fn gpu_light(light: &BakeLight) -> GpuLight {
-    let contribution = u32::from(light.contribution() == Contribution::Baked);
-    let zero = [0.0; 4];
-    match *light {
-        BakeLight::Directional {
-            direction, color, ..
-        } => GpuLight {
-            kind: 0,
-            contribution,
-            range: 0.0,
-            intensity: 0.0,
-            a: v4(direction),
-            b: zero,
-            c: v4(color),
-            d: zero,
-        },
-        BakeLight::Point {
-            position,
-            color,
-            intensity,
-            range,
-            ..
-        } => GpuLight {
-            kind: 1,
-            contribution,
-            range,
-            intensity,
-            a: v4(position),
-            b: zero,
-            c: v4(color),
-            d: zero,
-        },
-        BakeLight::Spot {
-            position,
-            direction,
-            color,
-            intensity,
-            range,
-            inner_cos,
-            outer_cos,
-            ..
-        } => GpuLight {
-            kind: 2,
-            contribution,
-            range,
-            intensity,
-            a: v4(position),
-            b: v4(direction),
-            c: v4(color),
-            d: [inner_cos, outer_cos, 0.0, 0.0],
-        },
-        BakeLight::Rect {
-            position,
-            half_width,
-            half_height,
-            radiance,
-            range,
-            ..
-        } => GpuLight {
-            kind: 3,
-            contribution,
-            range,
-            intensity: 0.0,
-            a: v4(position),
-            b: v4(half_width),
-            c: v4(half_height),
-            d: v4(radiance),
-        },
-    }
 }
 
 /// Whether an adapter of this type is real hardware, for
@@ -208,7 +86,9 @@ pub struct GpuBaker {
 impl GpuBaker {
     /// A baker on a device of its own: the first adapter the system offers
     /// (a high-performance one if there is a choice), a software one
-    /// included. `Err` when there is none.
+    /// included. `Err` when there is none. Blocks until the device is open,
+    /// so it exists only with the `native` feature.
+    #[cfg(feature = "native")]
     pub fn new() -> Result<Self, String> {
         Self::open(true)
     }
@@ -219,10 +99,12 @@ impl GpuBaker {
     /// the direct way to use those same cores. (Not measured against each
     /// other; Unity's GPU lightmapper likewise falls back to its CPU one when
     /// it finds no suitable GPU, rather than failing the bake.)
+    #[cfg(feature = "native")]
     pub fn new_hardware() -> Result<Self, String> {
         Self::open(false)
     }
 
+    #[cfg(feature = "native")]
     fn open(allow_software: bool) -> Result<Self, String> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -263,47 +145,27 @@ impl GpuBaker {
     pub fn with_device(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("lightmap bake"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("gpu.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                format!(
+                    "{}{}",
+                    crate::gpu_scene::TRACE_WGSL,
+                    include_str!("gpu.wgsl")
+                )
+                .into(),
+            ),
         });
-        let storage = |binding: u32, read_only: bool| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: wgpu::ShaderStages::COMPUTE,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Storage { read_only },
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        };
-        let uniform = |binding: u32| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: wgpu::ShaderStages::COMPUTE,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        };
+        use crate::gpu_scene::{sky_layout_entry, storage_layout_entry, uniform_layout_entry};
+        let compute = wgpu::ShaderStages::COMPUTE;
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("lightmap bake bgl"),
             entries: &[
-                storage(0, true),
-                storage(1, true),
-                storage(2, true),
-                storage(3, false),
-                uniform(4),
-                uniform(5),
-                wgpu::BindGroupLayoutEntry {
-                    binding: 6,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
+                storage_layout_entry(0, compute, true),
+                storage_layout_entry(1, compute, true),
+                storage_layout_entry(2, compute, true),
+                storage_layout_entry(3, compute, false),
+                uniform_layout_entry(4, compute),
+                uniform_layout_entry(5, compute),
+                sky_layout_entry(6, compute),
             ],
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -338,49 +200,7 @@ impl GpuBaker {
         if jobs.is_empty() {
             return Vec::new();
         }
-        // The shader's traversal stack is sized for `MAX_DEPTH`; the builder
-        // promises no deeper, and this is where a broken promise would show.
-        debug_assert!(prepared.bvh.depth() <= crate::bvh::MAX_DEPTH + 1);
-        let (flat_nodes, order) = prepared.bvh.flat();
-        // At least one element: a storage binding cannot be empty. The
-        // shader reads `node_count`, so a placeholder is never traversed.
-        let mut nodes: Vec<GpuNode> = flat_nodes
-            .iter()
-            .map(|&(lo, start, hi, count)| GpuNode {
-                lo,
-                start,
-                hi,
-                count,
-            })
-            .collect();
-        let node_count = nodes.len() as u32;
-        if nodes.is_empty() {
-            nodes.push(bytemuck::Zeroable::zeroed());
-        }
-        let mut tris: Vec<GpuTri> = order
-            .iter()
-            .map(|&i| {
-                let t = &input.triangles[i as usize];
-                let [a, b, c] = t.positions;
-                // `trace.rs`'s shading normal: the geometric one, turned to
-                // the side the vertex normals face.
-                let mut n = (b - a).cross(c - a).normalize_or_zero();
-                if n.dot(t.normals[0] + t.normals[1] + t.normals[2]) < 0.0 {
-                    n = -n;
-                }
-                GpuTri {
-                    p0: v4(a),
-                    p1: v4(b),
-                    p2: v4(c),
-                    n: v4(n),
-                    albedo: v4(t.albedo),
-                    emissive: v4(t.emissive),
-                }
-            })
-            .collect();
-        if tris.is_empty() {
-            tris.push(bytemuck::Zeroable::zeroed());
-        }
+        let geometry = GpuGeometry::from_bvh(&prepared.bvh, input.triangles);
         let gpu_jobs: Vec<GpuJob> = jobs
             .iter()
             .map(|j| GpuJob {
@@ -396,33 +216,15 @@ impl GpuBaker {
                 input.lights.len()
             ));
         }
-        let mut lights = [<GpuLight as bytemuck::Zeroable>::zeroed(); MAX_GPU_LIGHTS];
-        for (slot, l) in lights.iter_mut().zip(input.lights) {
-            *slot = gpu_light(l);
-        }
-        let light_count = input.lights.len().min(MAX_GPU_LIGHTS) as u32;
-
-        let (sky_kind, sky_w, sky_h, sky_uniform, sky_texels) = match input.sky {
-            Sky::Uniform(l) => (0u32, 1u32, 1u32, v4(*l), vec![[0.0f32; 4]]),
-            Sky::Equirect {
-                width,
-                height,
-                texels,
-            } => (
-                1,
-                *width,
-                *height,
-                [0.0; 4],
-                texels.iter().map(|t| [t.x, t.y, t.z, 1.0]).collect(),
-            ),
-        };
+        let (scene, sky_image) = scene_uniform(geometry.node_count, input.lights, input.sky);
+        let light_count = scene.light_count();
         let sky = self.device.create_texture_with_data(
             &self.queue,
             &wgpu::TextureDescriptor {
                 label: Some("lightmap bake sky"),
                 size: wgpu::Extent3d {
-                    width: sky_w,
-                    height: sky_h,
+                    width: sky_image.width,
+                    height: sky_image.height,
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
@@ -433,7 +235,7 @@ impl GpuBaker {
                 view_formats: &[],
             },
             wgpu::util::TextureDataOrder::LayerMajor,
-            bytemuck::cast_slice(&sky_texels),
+            bytemuck::cast_slice(&sky_image.texels),
         );
         let sky_view = sky.create_view(&Default::default());
 
@@ -446,12 +248,16 @@ impl GpuBaker {
                 })
         };
         let storage = wgpu::BufferUsages::STORAGE;
-        let nodes_buf = buffer("bake nodes", bytemuck::cast_slice(&nodes), storage);
-        let tris_buf = buffer("bake triangles", bytemuck::cast_slice(&tris), storage);
+        let nodes_buf = buffer("bake nodes", bytemuck::cast_slice(&geometry.nodes), storage);
+        let tris_buf = buffer(
+            "bake triangles",
+            bytemuck::cast_slice(&geometry.tris),
+            storage,
+        );
         let jobs_buf = buffer("bake jobs", bytemuck::cast_slice(&gpu_jobs), storage);
-        let lights_buf = buffer(
-            "bake lights",
-            bytemuck::cast_slice(&lights),
+        let scene_buf = buffer(
+            "bake scene",
+            bytemuck::bytes_of(&scene),
             wgpu::BufferUsages::UNIFORM,
         );
         let out_size = (jobs.len() * 16) as u64;
@@ -493,7 +299,7 @@ impl GpuBaker {
                 },
                 wgpu::BindGroupEntry {
                     binding: 5,
-                    resource: lights_buf.as_entire_binding(),
+                    resource: scene_buf.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 6,
@@ -523,16 +329,7 @@ impl GpuBaker {
                     seed: (trace.seed ^ (trace.seed >> 32)) as u32,
                     job_offset: job_offset as u32,
                     job_count: count as u32,
-                    light_count,
                     bake_direct: u32::from(settings.bake_direct),
-                    node_count,
-                    sky_kind,
-                    sky_w,
-                    sky_h,
-                    _p0: 0,
-                    _p1: 0,
-                    _p2: 0,
-                    sky_uniform,
                 };
                 self.queue
                     .write_buffer(&params_buf, 0, bytemuck::bytes_of(&params));
@@ -605,10 +402,13 @@ impl LightmapBaker for GpuBaker {
     }
 }
 
-#[cfg(test)]
+// The GPU tests open their device with `GpuBaker::new`, which blocks.
+#[cfg(all(test, feature = "native"))]
 mod tests {
     use super::*;
-    use crate::{BakeTriangle, CpuBaker, RendererInfo, TraceSettings};
+    use crate::{
+        BakeLight, BakeTriangle, Contribution, CpuBaker, RendererInfo, Sky, TraceSettings,
+    };
     use glam::Vec2;
     use std::sync::OnceLock;
 
@@ -1135,6 +935,229 @@ mod tests {
         for t in [DiscreteGpu, IntegratedGpu, VirtualGpu, Other] {
             assert!(is_hardware(t), "{t:?}");
         }
+    }
+
+    /// `TRACE_WGSL` stands on its own: a shader that is not the bake -- its
+    /// own entry point, its own bindings, none of the bake's `Params` -- traces
+    /// the scene through it and gets the CPU tree's answers. This is the
+    /// contract the renderer's realtime GI is written against, so it is held
+    /// here rather than discovered there: a shared module that reached for a
+    /// bake-only global would fail to build this shader while every bake test
+    /// stayed green.
+    ///
+    /// Rays from a grid of origins in every direction, through a room of
+    /// boxes: each ray's nearest hit (or miss) against `Bvh::closest`, and the
+    /// sky it sees on a miss against `Sky::radiance` (an equirect sky, so the
+    /// texture path is the one exercised).
+    #[test]
+    fn a_second_shader_traces_the_scene_through_trace_wgsl() {
+        const PROBE_WGSL: &str = r#"
+struct Ray { o: vec4<f32>, d: vec4<f32> };
+@group(0) @binding(0) var<storage, read> nodes: array<Node>;
+@group(0) @binding(1) var<storage, read> tris: array<Tri>;
+@group(0) @binding(2) var<storage, read> rays: array<Ray>;
+@group(0) @binding(3) var<storage, read_write> out: array<vec4<f32>>;
+@group(0) @binding(4) var<uniform> scene: Scene;
+@group(0) @binding(5) var sky: texture_2d<f32>;
+@compute @workgroup_size(64, 1, 1)
+fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if gid.x >= arrayLength(&rays) { return; }
+    let r = rays[gid.x];
+    let hit = traverse(r.o.xyz, r.d.xyz, 3.0e38, false);
+    let missed = hit.tri == NO_HIT;
+    out[gid.x] = vec4<f32>(select(hit.t, -1.0, missed), sky_radiance(r.d.xyz));
+}
+"#;
+        // A floor, and a few boxes' worth of quads at different heights.
+        let mut tris = floor(0, Vec3::splat(0.5)).to_vec();
+        for (i, (y, x)) in [(0.4f32, 0.2f32), (0.7, 0.6), (1.1, 0.3)]
+            .iter()
+            .enumerate()
+        {
+            tris.extend(quad(
+                i as u32 + 1,
+                Vec3::new(*x, *y, 0.7),
+                Vec3::X * 0.3,
+                Vec3::NEG_Z * 0.3,
+                Vec3::splat(0.5),
+            ));
+        }
+        let (w, h) = (8u32, 4u32);
+        let sky = Sky::Equirect {
+            width: w,
+            height: h,
+            texels: (0..w * h)
+                .map(|i| Vec3::new(i as f32, (i % w) as f32 * 0.1, 1.0))
+                .collect(),
+        };
+        let bvh = crate::bvh::Bvh::build(&tris.iter().map(|t| t.positions).collect::<Vec<_>>());
+        let geometry = crate::gpu_scene::GpuGeometry::build(&tris);
+        let (scene, sky_image) = crate::gpu_scene::scene_uniform(geometry.node_count, &[], &sky);
+
+        let mut rays: Vec<[[f32; 4]; 2]> = Vec::new();
+        let mut rng = crate::sample::Rng::new(5);
+        for _ in 0..512 {
+            let o = Vec3::new(rng.next_f32(), 0.05 + rng.next_f32() * 1.5, rng.next_f32());
+            let d =
+                (Vec3::new(rng.next_f32(), rng.next_f32(), rng.next_f32()) * 2.0 - 1.0).normalize();
+            rays.push([[o.x, o.y, o.z, 0.0], [d.x, d.y, d.z, 0.0]]);
+        }
+
+        let g = baker();
+        let device = &g.device;
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("trace_wgsl consumer"),
+            source: wgpu::ShaderSource::Wgsl(
+                format!("{}{PROBE_WGSL}", crate::gpu_scene::TRACE_WGSL).into(),
+            ),
+        });
+        use crate::gpu_scene::{sky_layout_entry, storage_layout_entry, uniform_layout_entry};
+        let compute = wgpu::ShaderStages::COMPUTE;
+        let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[
+                storage_layout_entry(0, compute, true),
+                storage_layout_entry(1, compute, true),
+                storage_layout_entry(2, compute, true),
+                storage_layout_entry(3, compute, false),
+                uniform_layout_entry(4, compute),
+                sky_layout_entry(5, compute),
+            ],
+        });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[&bgl],
+            push_constant_ranges: &[],
+        });
+        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("trace_wgsl consumer"),
+            layout: Some(&pipeline_layout),
+            module: &module,
+            entry_point: "cs_probe",
+            compilation_options: Default::default(),
+            cache: None,
+        });
+        let init = |contents: &[u8], usage| {
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents,
+                usage,
+            })
+        };
+        let storage = wgpu::BufferUsages::STORAGE;
+        let nodes = init(bytemuck::cast_slice(&geometry.nodes), storage);
+        let tri_buf = init(bytemuck::cast_slice(&geometry.tris), storage);
+        let ray_buf = init(bytemuck::cast_slice(&rays), storage);
+        let out_size = (rays.len() * 16) as u64;
+        let out = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: out_size,
+            usage: storage | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let scene_buf = init(bytemuck::bytes_of(&scene), wgpu::BufferUsages::UNIFORM);
+        let sky_tex = device.create_texture_with_data(
+            &g.queue,
+            &wgpu::TextureDescriptor {
+                label: None,
+                size: wgpu::Extent3d {
+                    width: sky_image.width,
+                    height: sky_image.height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba32Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::LayerMajor,
+            bytemuck::cast_slice(&sky_image.texels),
+        );
+        let sky_view = sky_tex.create_view(&Default::default());
+        let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: nodes.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: tri_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: ray_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: out.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: scene_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(&sky_view),
+                },
+            ],
+        });
+        let staging = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: out_size,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let mut encoder = device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &bind, &[]);
+            pass.dispatch_workgroups((rays.len() as u32).div_ceil(64), 1, 1);
+        }
+        encoder.copy_buffer_to_buffer(&out, 0, &staging, 0, out_size);
+        g.queue.submit(Some(encoder.finish()));
+        let slice = staging.slice(..);
+        slice.map_async(wgpu::MapMode::Read, |r| {
+            r.expect("map the consumer's output")
+        });
+        device.poll(wgpu::Maintain::Wait);
+        let got: Vec<[f32; 4]> = bytemuck::cast_slice(&slice.get_mapped_range()).to_vec();
+
+        let (mut hits, mut misses) = (0, 0);
+        for (ray, g) in rays.iter().zip(&got) {
+            let o = Vec3::from_slice(&ray[0][..3]);
+            let d = Vec3::from_slice(&ray[1][..3]);
+            match bvh.closest(o, d, f32::INFINITY) {
+                Some(hit) => {
+                    hits += 1;
+                    assert!(
+                        (g[0] - hit.t).abs() < 1e-4,
+                        "t: gpu {} vs cpu {}",
+                        g[0],
+                        hit.t
+                    );
+                }
+                None => {
+                    misses += 1;
+                    assert_eq!(g[0], -1.0, "the CPU tree misses; the GPU hit at {}", g[0]);
+                    let want = sky.radiance(d);
+                    assert!(
+                        (Vec3::new(g[1], g[2], g[3]) - want).length() < 1e-4,
+                        "sky in {d}: gpu {:?} vs cpu {want}",
+                        &g[1..]
+                    );
+                }
+            }
+        }
+        assert!(
+            hits > 50 && misses > 50,
+            "premise: rays both hit and miss ({hits} hits, {misses} misses)"
+        );
     }
 
     /// The same bake twice is the same bytes: every texel seeds from where it

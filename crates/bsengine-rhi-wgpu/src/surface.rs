@@ -10852,6 +10852,59 @@ mod tests {
         assert_eq!(first, grid(&s), "a restart replays the first frame exactly");
     }
 
+    /// At the pixel: a realtime volume lights a surface. A white quad fills
+    /// the frame (the view-projection is the identity, so world xy is clip xy)
+    /// inside the volume, facing +z; a glowing static panel in front of it at
+    /// z = 2 is outside the clip volume, so the camera never sees it -- only
+    /// the probes do. Without the realtime volume the quad is its ambient;
+    /// with it, the panel's light is on it.
+    #[test]
+    fn a_realtime_volume_lights_the_pixels_it_covers() {
+        let mut s = GiScene::new(Vec3::ZERO);
+        s.scene.push_quad(
+            [
+                Vec3::new(-1.0, -1.0, 0.5),
+                Vec3::new(1.0, -1.0, 0.5),
+                Vec3::new(1.0, 1.0, 0.5),
+                Vec3::new(-1.0, 1.0, 0.5),
+            ],
+            Vec3::ZERO,
+        );
+        let quad = s.scene.draw_calls.len() - 1;
+        s.scene.draw_calls[quad].3.base_color = Vec3::ONE;
+        s.scene.upload_uniforms();
+        // Facing -z, toward the quad.
+        s.add(
+            quad_corners(Vec3::new(5.0, -5.0, 2.0), Vec3::NEG_X * 10.0, Vec3::Y * 10.0),
+            Vec3::ZERO,
+            Vec3::splat(1.0),
+        );
+        let centre = |s: &GiScene| {
+            let pixels = s.scene.surface.read_pixels().expect("offscreen readback");
+            let at = (32 * 64 + 32) * 4;
+            [pixels[at], pixels[at + 1], pixels[at + 2]]
+        };
+        s.scene.render(None).expect("the frame renders");
+        let without = centre(&s);
+        let volume = ProbeVolumeParams {
+            origin: Vec3::new(-1.2, -1.2, 0.0),
+            extent: Vec3::new(2.4, 2.4, 1.0),
+            resolution: [2, 2, 2],
+        };
+        let input = s.input(volume, 0.0, 1 << 20);
+        s.run(&input, 3);
+        let with = centre(&s);
+        assert!(without.iter().all(|&c| c < 200), "premise: room to brighten: {without:?}");
+        assert!(
+            (0..3).all(|c| with[c] as i32 > without[c] as i32 + 30),
+            "the panel's light reaches the quad through the probes: {without:?} -> {with:?}"
+        );
+        // And handed back: a frame with no realtime volume is the frame
+        // before it.
+        s.scene.render(None).expect("the frame renders");
+        assert_eq!(centre(&s), without, "the grid is cleared when the volume goes");
+    }
+
     /// The static set is read back once per change, and traced once it lands:
     /// moving the floor away (a new model matrix) starts exactly one more
     /// readback, and after it the probes see the sky where the floor was.

@@ -598,17 +598,6 @@ struct Pipelines {
 /// what it had. (Engines compile pipelines asynchronously for the same
 /// reason.) The browser has no threads to spare, and compiles in its GPU
 /// process anyway, so there it is built in place.
-///
-/// So is it on a software adapter (`DeviceType::Cpu`: WARP, lavapipe), where
-/// the thread buys nothing and costs a crash. There the GPU *is* the CPU, and
-/// WARP runs none of the queue's work while it compiles a pipeline: on CI a
-/// frame submitted beside the compile sat in its `poll(Wait)` until wgpu's
-/// 60 s fence-wait limit, and wgpu 22 then treats the timed-out submission as
-/// finished -- it resets the command allocators and frees the staging buffers
-/// the GPU is still using, and the D3D12 debug layer kills the process
-/// ("CORRUPTION: ... (wgpu internal) Staging"). The build took under a minute
-/// until the visibility code grew the shader past it. Built in place, the
-/// frame blocks just as long, but nothing is waiting on a fence meanwhile.
 enum PipelineState {
     #[cfg(not(target_arch = "wasm32"))]
     Compiling(std::thread::JoinHandle<Pipelines>),
@@ -695,12 +684,8 @@ struct SharedPipelines {
 static SHARED: Mutex<Vec<SharedPipelines>> = Mutex::new(Vec::new());
 
 /// `device`'s layout and pipelines, starting their build if this is the first
-/// ask -- on a thread, or in place on a `software_adapter` (see
-/// [`PipelineState`]).
-fn shared(
-    device: &Arc<wgpu::Device>,
-    software_adapter: bool,
-) -> (Arc<wgpu::BindGroupLayout>, Arc<Mutex<PipelineState>>) {
+/// ask.
+fn shared(device: &Arc<wgpu::Device>) -> (Arc<wgpu::BindGroupLayout>, Arc<Mutex<PipelineState>>) {
     let mut all = SHARED.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(s) = all.iter().find(|s| Arc::ptr_eq(&s.device, device)) {
         return (Arc::clone(&s.layout), Arc::clone(&s.state));
@@ -720,9 +705,7 @@ fn shared(
         }),
     );
     #[cfg(not(target_arch = "wasm32"))]
-    let state = if software_adapter {
-        PipelineState::Ready(build_pipelines(device, &layout))
-    } else {
+    let state = {
         let (device, layout) = (Arc::clone(device), Arc::clone(&layout));
         PipelineState::Compiling(
             std::thread::Builder::new()
@@ -732,10 +715,7 @@ fn shared(
         )
     };
     #[cfg(target_arch = "wasm32")]
-    let state = {
-        let _ = software_adapter;
-        PipelineState::Ready(build_pipelines(device, &layout))
-    };
+    let state = PipelineState::Ready(build_pipelines(device, &layout));
     let state = Arc::new(Mutex::new(state));
     all.push(SharedPipelines {
         device: Arc::clone(device),
@@ -746,8 +726,8 @@ fn shared(
 }
 
 impl RealtimeGi {
-    pub(crate) fn new(device: &Arc<wgpu::Device>, software_adapter: bool) -> Self {
-        let (layout, pipelines) = shared(device, software_adapter);
+    pub(crate) fn new(device: &Arc<wgpu::Device>) -> Self {
+        let (layout, pipelines) = shared(device);
         let params = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("realtime gi params"),
             size: std::mem::size_of::<GiParams>() as u64,
@@ -1141,15 +1121,13 @@ fn random_rotation(frame: u32) -> Mat3 {
 
 /// For `tests/realtime_gi.rs`: makes a `RealtimeGi` on `device` and waits for
 /// its pipelines, returning how long `new` took and how long until they were
-/// built -- what shows whether the build is off the frame -- and whether they
-/// were.
+/// built -- what shows the build is off the frame -- and whether they were.
 #[doc(hidden)]
 pub fn build_pipelines_for_testing(
     device: &Arc<wgpu::Device>,
-    software_adapter: bool,
 ) -> (std::time::Duration, std::time::Duration, bool) {
     let started = std::time::Instant::now();
-    let mut gi = RealtimeGi::new(device, software_adapter);
+    let mut gi = RealtimeGi::new(device);
     let returned = started.elapsed();
     gi.wait_for_pipelines();
     let built = started.elapsed();

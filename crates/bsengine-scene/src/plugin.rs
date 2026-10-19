@@ -85,6 +85,12 @@ pub fn resolve_retarget_sources(
 impl Plugin for ScenePlugin {
     fn build(&self, app: &mut App) {
         let path = self.path.clone();
+        // The scene's `components:` entries are found by type path in this
+        // registry; without it each one is dropped with a warning and the
+        // scene still loads. Here, not in each host -- the browser build has
+        // no `EditorPlugin`, which is where it used to be done, and lost
+        // every one. Registering a type twice is a no-op.
+        register_gameplay_reflect_types(app);
         app.add_systems(bevy_app::Update, resolve_retarget_sources);
         app.add_systems(
             Startup,
@@ -962,6 +968,15 @@ pub fn instantiate_prefab_reference(
 /// scene loaded and played correctly in the windowed editor runtime. Call
 /// this from both `EditorPlugin::build` and the headless test app's setup so
 /// the two stay in parity.
+///
+/// A third host repeated the same mistake: the browser build has no
+/// `EditorPlugin` (`cfg(not(target_arch = "wasm32"))` in the runtime), so
+/// on the web every `components:` entry -- every scene's `Material`, a
+/// realtime `LightProbeVolume`, mini-arena's `NavMeshAgent` -- was dropped
+/// with the same warning, and `web_smoke.mjs` passed because the game still
+/// drew. [`ScenePlugin::build`] now calls this itself, so any host that
+/// loads a scene can read one; the other two calls are kept for the apps
+/// that spawn scenes without the plugin (`spawn_scene_entities` directly).
 pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     app.register_type::<bsengine_core::Camera>();
     app.register_type::<bsengine_core::PointLight>();
@@ -1204,6 +1219,47 @@ mod tests {
         assert!(
             !clean.contains("not a field"),
             "a clean scene warned: {clean}"
+        );
+    }
+
+    /// `ScenePlugin` alone -- nothing calling `register_gameplay_reflect_types`
+    /// first -- reads a scene's reflected `components:`. The browser build is
+    /// such a host: it has no `EditorPlugin`, which was the only thing that
+    /// registered them in a game, so every `Material` in every scene was
+    /// dropped on the web while the page went on drawing. The premise is in
+    /// the same scene: the entity itself spawns either way, so it is the
+    /// component, not the entity, that the registration decides.
+    #[test]
+    fn a_scene_plugin_alone_reads_reflected_components() {
+        let path = write_temp_scene(
+            "bsengine_reflected_component.ron",
+            r#"SceneDescriptor(entities: [EntityDescriptor(name: "Painted", components: [
+                ("bsengine_core::material::Material", "(base_color: (0.8, 0.1, 0.1), metallic: 0.0, roughness: 0.9, emissive: (0.0, 0.0, 0.0), opacity: 1.0)"),
+            ])])"#,
+        );
+        let mut app = new_app();
+        app.add_plugins(ScenePlugin::from_file(&path));
+        let (_, logs) = bsengine_asset::test_support::capture_warnings(|| app.update());
+        let world = app.world_mut();
+        let found: Vec<(String, Option<bsengine_core::Material>)> = world
+            .query::<(bevy_ecs::entity::Entity, &Name)>()
+            .iter(world)
+            .map(|(e, n)| {
+                (
+                    n.0.clone(),
+                    world.get::<bsengine_core::Material>(e).cloned(),
+                )
+            })
+            .collect();
+        assert_eq!(found.len(), 1, "the entity should spawn: {found:?}");
+        let material = found[0]
+            .1
+            .as_ref()
+            .unwrap_or_else(|| panic!("the entity spawned without its Material; warnings: {logs}"));
+        assert_eq!(material.base_color.0, glam::Vec3::new(0.8, 0.1, 0.1));
+        assert!(
+            !logs.contains("unknown reflected type path"),
+            "warned: {logs}"
         );
     }
 

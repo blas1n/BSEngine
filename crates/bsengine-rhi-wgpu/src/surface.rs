@@ -6148,7 +6148,7 @@ impl WgpuSurface {
         slice.map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
         });
-        self.device.poll(wgpu::Maintain::Wait);
+        wait_for_gpu(&self.device, &self.queue);
         rx.recv()
             .expect("map_async never reported a result")
             .expect("mapping the probe capture readback buffer failed");
@@ -6429,7 +6429,7 @@ impl WgpuSurface {
         slice.map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
         });
-        self.device.poll(wgpu::Maintain::Wait);
+        wait_for_gpu(&self.device, &self.queue);
         rx.recv()
             .expect("map_async never reported a result")
             .expect("mapping the probe grid readback buffer failed");
@@ -8903,7 +8903,12 @@ impl WgpuSurface {
             // (tried first; still present below, for the paths that *do*
             // drop normally, e.g. this crate's own tests) never runs on
             // either failing path.
-            self.device.poll(wgpu::Maintain::Wait);
+            //
+            // Polled rather than `Maintain::Wait`: a frame whose GPU work
+            // runs past a minute (WARP's first dispatch of the realtime GI
+            // update) would otherwise be freed under the GPU -- see
+            // `wait_for_gpu`.
+            wait_for_gpu(&self.device, &self.queue);
         }
 
         let frame_stats = crate::profiler::FrameStats {
@@ -9274,7 +9279,52 @@ impl Drop for WgpuSurface {
         // on the offscreen branch (see there) is what actually covers those
         // -- this Drop impl alone was tried first and confirmed
         // insufficient: CI failed identically with only this in place.
-        self.device.poll(wgpu::Maintain::Wait);
+        wait_for_gpu(&self.device, &self.queue);
+    }
+}
+
+/// Blocks until the GPU has finished everything submitted so far -- by
+/// polling, never by `Maintain::Wait`.
+///
+/// `Maintain::Wait` waits on the fence for at most wgpu-core's
+/// `CLEANUP_WAIT_MS`, 60 s, and wgpu-core 22 ignores the timeout
+/// (`Device::maintain` drops `wait`'s `false`): it then triages the
+/// submission as finished, resets its command allocators and frees its
+/// staging buffers while the GPU is still running it, and the D3D12 debug
+/// layer ends the process ("CORRUPTION: ... (wgpu internal) Staging", exit
+/// 2173). One job that long is ordinary on Windows CI's software adapter:
+/// WARP compiles a compute shader on its first dispatch, and the realtime GI
+/// update's first dispatch ran past a minute there (8 s locally on two
+/// cores). Reproduced locally with a 74 s busy-loop dispatch on WARP:
+/// `Maintain::Wait` died at 60 s with that exit code; this loop waited the
+/// 74 s and carried on.
+///
+/// `Maintain::Poll` reads the fence's real value and never waits, so the
+/// loop cannot time out; `on_submitted_work_done` fires from the poll that
+/// sees everything done, and any `map_async` callback for that work fires in
+/// the same poll. A browser has no blocking wait to replace.
+///
+/// Public only for `tests/long_gpu_wait.rs`, which is that reproduction.
+#[doc(hidden)]
+pub fn wait_for_gpu(device: &wgpu::Device, queue: &wgpu::Queue) {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let done = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&done);
+        queue.on_submitted_work_done(move || flag.store(true, Ordering::Release));
+        loop {
+            device.poll(wgpu::Maintain::Poll);
+            if done.load(Ordering::Acquire) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = queue;
+        device.poll(wgpu::Maintain::Wait);
     }
 }
 

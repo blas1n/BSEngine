@@ -490,17 +490,19 @@ pub(crate) struct RealtimeGi {
 impl RealtimeGi {
     pub(crate) fn new(device: &Arc<wgpu::Device>) -> Self {
         let compute = wgpu::ShaderStages::COMPUTE;
-        let layout = Arc::new(device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("realtime gi bgl"),
-            entries: &[
-                storage_layout_entry(0, compute, true),
-                storage_layout_entry(1, compute, true),
-                storage_layout_entry(2, compute, false),
-                uniform_layout_entry(3, compute),
-                sky_layout_entry(4, compute),
-                uniform_layout_entry(5, compute),
-            ],
-        }));
+        let layout = Arc::new(
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("realtime gi bgl"),
+                entries: &[
+                    storage_layout_entry(0, compute, true),
+                    storage_layout_entry(1, compute, true),
+                    storage_layout_entry(2, compute, false),
+                    uniform_layout_entry(3, compute),
+                    sky_layout_entry(4, compute),
+                    uniform_layout_entry(5, compute),
+                ],
+            }),
+        );
         #[cfg(not(target_arch = "wasm32"))]
         let pipelines = {
             let (device, layout) = (Arc::clone(device), Arc::clone(&layout));
@@ -941,7 +943,10 @@ mod tests {
         // And off the frame: `new` hands the compile to a thread and returns.
         // The premise -- the compile is slow enough to matter -- is FXC's,
         // seconds on any machine.
-        assert!(built.as_secs_f32() > 0.5, "premise: FXC takes a while: {built:?}");
+        assert!(
+            built.as_secs_f32() > 0.5,
+            "premise: FXC takes a while: {built:?}"
+        );
         assert!(
             returned < built / 4,
             "creating the update must not wait for its compile: {returned:?} of {built:?}"

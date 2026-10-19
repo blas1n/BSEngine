@@ -10875,7 +10875,11 @@ mod tests {
         s.scene.upload_uniforms();
         // Facing -z, toward the quad.
         s.add(
-            quad_corners(Vec3::new(5.0, -5.0, 2.0), Vec3::NEG_X * 10.0, Vec3::Y * 10.0),
+            quad_corners(
+                Vec3::new(5.0, -5.0, 2.0),
+                Vec3::NEG_X * 10.0,
+                Vec3::Y * 10.0,
+            ),
             Vec3::ZERO,
             Vec3::splat(1.0),
         );
@@ -10894,7 +10898,10 @@ mod tests {
         let input = s.input(volume, 0.0, 1 << 20);
         s.run(&input, 3);
         let with = centre(&s);
-        assert!(without.iter().all(|&c| c < 200), "premise: room to brighten: {without:?}");
+        assert!(
+            without.iter().all(|&c| c < 200),
+            "premise: room to brighten: {without:?}"
+        );
         assert!(
             (0..3).all(|c| with[c] as i32 > without[c] as i32 + 30),
             "the panel's light reaches the quad through the probes: {without:?} -> {with:?}"
@@ -10902,7 +10909,62 @@ mod tests {
         // And handed back: a frame with no realtime volume is the frame
         // before it.
         s.scene.render(None).expect("the frame renders");
-        assert_eq!(centre(&s), without, "the grid is cleared when the volume goes");
+        assert_eq!(
+            centre(&s),
+            without,
+            "the grid is cleared when the volume goes"
+        );
+    }
+
+    /// Not a test: what a full-grid realtime update costs, for the PR.
+    /// `cargo test -p bsengine-rhi-wgpu --release --lib -- --ignored
+    /// --nocapture bench_realtime_gi` -- release, because a debug build's
+    /// validation layers dominate any GPU timing (CLAUDE.md).
+    #[test]
+    #[ignore]
+    fn bench_realtime_gi() {
+        let mut s = furnace_scene(0.4, 0.5);
+        // A few hundred triangles more inside the room, so the tree is not
+        // trivially shallow: a grid of small panels on the floor.
+        for i in 0..100 {
+            let (x, z) = ((i % 10) as f32 * 0.1, (i / 10) as f32 * 0.1);
+            s.add(
+                quad_corners(
+                    Vec3::new(x, 0.1, z + 0.05),
+                    Vec3::X * 0.05,
+                    Vec3::NEG_Z * 0.05,
+                ),
+                Vec3::splat(0.6),
+                Vec3::ZERO,
+            );
+        }
+        s.lights = vec![bsengine_bake::BakeLight::Point {
+            position: Vec3::splat(0.5),
+            color: Vec3::ONE,
+            intensity: 2.0,
+            range: 3.0,
+            contribution: bsengine_bake::Contribution::Indirect,
+        }];
+        let volume = ProbeVolumeParams {
+            origin: Vec3::splat(0.05),
+            extent: Vec3::splat(0.9),
+            resolution: [16, 16, 16],
+        };
+        let mut input = s.input(volume, 0.97, 1 << 18);
+        input.rays_per_probe = 64;
+        s.run(&input, 3);
+        let n = 30;
+        let device = s.scene.surface.device.clone();
+        let t = std::time::Instant::now();
+        for _ in 0..n {
+            s.run(&input, 1);
+            device.poll(wgpu::Maintain::Wait);
+        }
+        eprintln!(
+            "BENCH realtime gi: 4096 probes x 64 rays, {} triangles: {:.2} ms per frame (update + frame)",
+            s.statics.len() * 2,
+            t.elapsed().as_secs_f64() * 1000.0 / n as f64
+        );
     }
 
     /// The static set is read back once per change, and traced once it lands:

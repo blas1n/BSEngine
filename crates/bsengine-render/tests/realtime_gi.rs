@@ -84,12 +84,21 @@ fn a_realtime_volume_is_traced_not_baked_and_a_once_volume_baked() {
     // built on a thread, which under FXC on CI's software D3D12 adapter
     // takes over a minute (`realtime_gi::PipelineState`).
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(300);
+    let started = std::time::Instant::now();
+    let mut seen = u64::MAX;
     while surface_of(&app).realtime_gi_updates() < 2 {
         assert!(
             std::time::Instant::now() < deadline,
             "the realtime volume never reached the surface's update"
         );
+        let n = surface_of(&app).realtime_gi_updates() as u64;
+        if n != seen {
+            tracing::warn!("DIAG updates={n} at {:?}", started.elapsed());
+            seen = n;
+        }
+        tracing::warn!("DIAG frame start at {:?}", started.elapsed());
         app.update();
+        tracing::warn!("DIAG frame end at {:?}", started.elapsed());
         // Frames a few times a second while the pipelines build: enough to
         // land them, not thousands of WARP frames beside the compile.
         std::thread::sleep(std::time::Duration::from_millis(100));
@@ -104,12 +113,18 @@ fn a_realtime_volume_is_traced_not_baked_and_a_once_volume_baked() {
         .unwrap()
         .update = ProbeUpdate::Once;
     let updates = surface_of(&app).realtime_gi_updates();
+    tracing::warn!("DIAG switched to Once at {:?}", started.elapsed());
     app.update();
+    tracing::warn!("DIAG bake frame 1 done at {:?}", started.elapsed());
     app.update();
+    tracing::warn!("DIAG bake frame 2 done at {:?}", started.elapsed());
     assert!(surface_of(&app).has_baked_probe_volume(), "now it is baked");
     assert_eq!(
         surface_of(&app).realtime_gi_updates(),
         updates,
         "and the realtime update has stopped"
     );
+    tracing::warn!("DIAG dropping the app at {:?}", started.elapsed());
+    drop(app);
+    tracing::warn!("DIAG dropped at {:?}", started.elapsed());
 }

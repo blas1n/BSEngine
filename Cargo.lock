@@ -1115,6 +1115,7 @@ dependencies = [
  "bevy_reflect",
  "bsengine-app",
  "bsengine-asset",
+ "bsengine-bake",
  "bsengine-core",
  "bsengine-ecs",
  "bsengine-input",

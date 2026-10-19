@@ -18,6 +18,11 @@ bsengine-asset.workspace = true
 glam.workspace = true
 tracing.workspace = true
 rayon.workspace = true
+# `gi_scene`: the scene converted for global illumination, in the bake's
+# types (the realtime probe volume and `--bake` both read it), and the
+# skybox panorama decoded for it.
+bsengine-bake.workspace = true
+image.workspace = true
 
 [dev-dependencies]
 bsengine-app.workspace = true

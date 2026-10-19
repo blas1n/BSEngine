@@ -21,17 +21,13 @@
 //! * `<scene>.lightmaps` beside the scene file (`bsengine_scene::lightmaps`),
 //!   which loading the scene reads back to give each entity its `Lightmap`.
 
-use bevy_ecs::prelude::{Entity, World};
+use bevy_ecs::prelude::World;
 use bsengine_bake::{
-    BakeInput, BakeLight, BakeSettings, BakeTriangle, Contribution, LightmapBaker, RendererInfo,
-    Sky, TraceSettings,
+    BakeInput, BakeLight, BakeSettings, BakeTriangle, LightmapBaker, RendererInfo, Sky,
+    TraceSettings,
 };
-use bsengine_core::{
-    DirectionalLight, GlobalTransform, LightBakeMode, LightmapStatic, Material, PointLight,
-    RectLight, SkyboxPath, SpotLight, Transform,
-};
+use bsengine_core::LightmapStatic;
 use bsengine_rhi_wgpu::{GpuMeshRegistry, RetainCpuMeshCopies};
-use glam::{Mat3, Mat4, Vec2, Vec3};
 
 /// What `--bake` was asked to do.
 #[derive(Debug, Clone)]
@@ -217,45 +213,27 @@ struct Gathered {
     names: Vec<String>,
 }
 
-fn model_matrix(t: &Transform, gt: Option<&GlobalTransform>) -> Mat4 {
-    gt.map(|g| g.to_matrix()).unwrap_or_else(|| t.to_matrix())
-}
-
 fn gather(world: &mut World) -> Result<Gathered, String> {
-    let mut rows: Vec<(Entity, String, f32, u64, Mat4, Vec3, Vec3)> = Vec::new();
-    let mut q = world.query::<(
-        Entity,
-        &LightmapStatic,
-        Option<&bsengine_scene::Name>,
-        &bsengine_render::MeshRenderer,
-        &Transform,
-        Option<&GlobalTransform>,
-        Option<&Material>,
-    )>();
-    for (e, s, name, mesh, t, gt, mat) in q.iter(world) {
-        let name = name.map(|n| n.0.clone()).ok_or_else(|| {
-            format!("a LightmapStatic entity ({e:?}) has no name to record it by")
-        })?;
-        let (albedo, emissive) = mat
-            .map(|m| (*m.base_color, *m.emissive))
-            .unwrap_or((Vec3::ONE, Vec3::ZERO));
-        rows.push((
-            e,
-            name,
-            s.resolution_scale,
-            mesh.mesh_id,
-            model_matrix(t, gt),
-            albedo,
-            emissive,
-        ));
+    let mut rows: Vec<(String, bsengine_render::gi_scene::StaticRow)> = Vec::new();
+    for row in bsengine_render::gi_scene::static_rows(world) {
+        let name = world
+            .get::<bsengine_scene::Name>(row.entity)
+            .map(|n| n.0.clone())
+            .ok_or_else(|| {
+                format!(
+                    "a LightmapStatic entity ({:?}) has no name to record it by",
+                    row.entity
+                )
+            })?;
+        rows.push((name, row));
     }
     // Entity order is the world's; sort by name so the bake (and its files)
     // do not depend on spawn order.
-    rows.sort_by(|a, b| a.1.cmp(&b.1));
+    rows.sort_by(|a, b| a.0.cmp(&b.0));
 
     let mut seen = std::collections::BTreeMap::<&str, usize>::new();
     for r in &rows {
-        *seen.entry(&r.1).or_default() += 1;
+        *seen.entry(&r.0).or_default() += 1;
     }
     let dupes: Vec<&str> = seen
         .iter()
@@ -276,7 +254,8 @@ fn gather(world: &mut World) -> Result<Gathered, String> {
         renderers: Vec::new(),
         names: Vec::new(),
     };
-    for (_, name, scale, mesh_id, model, albedo, emissive) in rows {
+    for (name, row) in rows {
+        let mesh_id = row.mesh_id;
         if registry.is_skinned(mesh_id) {
             return Err(format!(
                 "'{name}' is skinned; a lightmap is for static geometry (its uv2 is empty)"
@@ -291,152 +270,32 @@ fn gather(world: &mut World) -> Result<Gathered, String> {
             ));
         }
         let renderer = out.renderers.len() as u32;
-        let normal_matrix = Mat3::from_mat4(model).inverse().transpose();
-        for tri in indices.chunks_exact(3) {
-            let v = |k: usize| &vertices[tri[k] as usize];
-            out.triangles.push(BakeTriangle {
-                positions: [0, 1, 2].map(|k| model.transform_point3(Vec3::from(v(k).position))),
-                normals: [0, 1, 2]
-                    .map(|k| (normal_matrix * Vec3::from(v(k).normal)).normalize_or_zero()),
-                uv2: [0, 1, 2].map(|k| Vec2::from(v(k).uv2)),
-                albedo,
-                emissive,
-                renderer,
-            });
-        }
+        bsengine_render::gi_scene::world_triangles(
+            vertices,
+            indices,
+            &row,
+            renderer,
+            &mut out.triangles,
+        );
         out.renderers.push(RendererInfo {
-            resolution_scale: scale,
+            resolution_scale: row.resolution_scale,
         });
         out.names.push(name);
     }
     Ok(out)
 }
 
-fn contribution(mode: LightBakeMode) -> Option<Contribution> {
-    match mode {
-        LightBakeMode::Realtime => None,
-        LightBakeMode::Indirect => Some(Contribution::Indirect),
-        LightBakeMode::Baked => Some(Contribution::Baked),
-    }
-}
-
-/// Position and rotation of a light, as the renderer reads them.
-fn pose(t: &Transform, gt: Option<&GlobalTransform>) -> (Vec3, glam::Quat) {
-    gt.map(|g| {
-        let (_, r, p) = g.to_matrix().to_scale_rotation_translation();
-        (p, r)
-    })
-    .unwrap_or((t.position.0, t.rotation.0))
-}
-
 fn gather_lights(world: &mut World) -> Vec<BakeLight> {
-    let mut lights = Vec::new();
-    // The first directional light only: the renderer shades no other.
-    let mut suns = world.query::<(&DirectionalLight, &Transform, Option<&GlobalTransform>)>();
-    if let Some((l, t, gt)) = suns.iter(world).next() {
-        if let Some(contribution) = contribution(l.bake_mode) {
-            let direction = gt
-                .map(|g| -Mat3::from_mat4(g.to_matrix()).z_axis)
-                .unwrap_or_else(|| t.rotation.0 * Vec3::NEG_Z);
-            lights.push(BakeLight::Directional {
-                direction: direction.normalize_or(Vec3::NEG_Y),
-                color: *l.color,
-                contribution,
-            });
-        }
-    }
-    let mut points = world.query::<(&PointLight, &Transform, Option<&GlobalTransform>)>();
-    for (l, t, gt) in points.iter(world) {
-        if let Some(contribution) = contribution(l.bake_mode) {
-            lights.push(BakeLight::Point {
-                position: pose(t, gt).0,
-                color: *l.color,
-                intensity: l.intensity,
-                range: l.range,
-                contribution,
-            });
-        }
-    }
-    let mut spots = world.query::<(&SpotLight, &Transform, Option<&GlobalTransform>)>();
-    for (l, t, gt) in spots.iter(world) {
-        if let Some(contribution) = contribution(l.bake_mode) {
-            let direction = gt
-                .map(|g| -Mat3::from_mat4(g.to_matrix()).z_axis)
-                .unwrap_or_else(|| t.rotation.0 * Vec3::NEG_Z);
-            lights.push(BakeLight::Spot {
-                position: pose(t, gt).0,
-                direction: direction.normalize_or(Vec3::NEG_Y),
-                color: *l.color,
-                intensity: l.intensity,
-                range: l.range,
-                inner_cos: l.inner_angle_degrees.to_radians().cos(),
-                outer_cos: l.outer_angle_degrees.to_radians().cos(),
-                contribution,
-            });
-        }
-    }
-    let mut rects = world.query::<(&RectLight, &Transform, Option<&GlobalTransform>)>();
-    for (l, t, gt) in rects.iter(world) {
-        if let Some(contribution) = contribution(l.bake_mode) {
-            let (position, rotation) = pose(t, gt);
-            lights.push(BakeLight::Rect {
-                position,
-                half_width: rotation * Vec3::X * (l.width * 0.5),
-                half_height: rotation * Vec3::Y * (l.height * 0.5),
-                radiance: *l.color * l.intensity,
-                range: l.range,
-                contribution,
-            });
-        }
-    }
-    lights
+    use bsengine_render::gi_scene;
+    gi_scene::lights(world, gi_scene::bake_contribution)
 }
 
-/// The renderer's own default ambient, when there is no directional light
-/// (`LightData::default`).
-const DEFAULT_AMBIENT: Vec3 = Vec3::splat(0.15);
-
+/// The skybox panorama if there is one, else the directional light's ambient:
+/// what the renderer lights with in either case.
 fn gather_sky(world: &mut World) -> Sky {
-    let ambient = {
-        let mut suns = world.query::<&DirectionalLight>();
-        suns.iter(world)
-            .next()
-            .map(|l| *l.ambient)
-            .unwrap_or(DEFAULT_AMBIENT)
-    };
-    let Some(path) = world.get_resource::<SkyboxPath>().and_then(|p| p.0.clone()) else {
-        return Sky::Uniform(ambient);
-    };
-    match image::open(&path) {
-        Ok(img) => {
-            let rgba = img.to_rgba8();
-            let (width, height) = rgba.dimensions();
-            // Decoded from sRGB, as the skybox texture is sampled at run time.
-            let linear = |c: u8| {
-                let c = c as f32 / 255.0;
-                if c <= 0.04045 {
-                    c / 12.92
-                } else {
-                    ((c + 0.055) / 1.055).powf(2.4)
-                }
-            };
-            let texels = rgba
-                .pixels()
-                .map(|p| Vec3::new(linear(p[0]), linear(p[1]), linear(p[2])))
-                .collect();
-            Sky::Equirect {
-                width,
-                height,
-                texels,
-            }
-        }
-        Err(e) => {
-            tracing::warn!(
-                "lightmap bake: cannot read the skybox {path} ({e}); baking the ambient"
-            );
-            Sky::Uniform(ambient)
-        }
-    }
+    use bsengine_render::gi_scene;
+    let ambient = gi_scene::ambient(world);
+    gi_scene::sky(gi_scene::skybox_path(world).as_deref(), ambient)
 }
 
 fn scene_stem(relative_scene: &str) -> String {

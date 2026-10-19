@@ -13,6 +13,8 @@
 
 /// ECS components describing renderable entities (currently `MeshRenderer`).
 pub mod components;
+/// The scene as global illumination sees it.
+pub mod gi_scene;
 /// Pure hysteresis LOD-level selection.
 pub mod lod;
 /// GPU-free software occlusion culling: conservative occluder rasterization.

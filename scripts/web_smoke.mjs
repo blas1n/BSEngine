@@ -19,7 +19,7 @@
 // Node 22+ (global fetch and WebSocket); no dependencies.
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -30,9 +30,12 @@ const opt = (name, fallback) => {
 };
 const wantFrames = Number(opt('--frames', '10'));
 const timeoutS = Number(opt('--timeout', '120'));
+// The page as drawn once it passes, as a PNG: what the counts above cannot
+// say -- whether the frame looks like the native one.
+const screenshot = opt('--screenshot', undefined);
 const root = resolve(args[0] ?? '');
 if (!args[0] || !existsSync(join(root, 'index.html'))) {
-  console.error('usage: node scripts/web_smoke.mjs <web-build-dir> [--frames N] [--timeout S]');
+  console.error('usage: node scripts/web_smoke.mjs <web-build-dir> [--frames N] [--timeout S] [--screenshot out.png]');
   process.exit(2);
 }
 
@@ -188,6 +191,11 @@ for (;;) {
       console.error(`FAIL: ${status} -- frames ran, nothing was drawn`);
       finish(1);
     } else {
+      if (screenshot) {
+        const shot = await send('Page.captureScreenshot', { format: 'png' });
+        writeFileSync(screenshot, Buffer.from(shot.result.data, 'base64'));
+        console.log(`  screenshot: ${screenshot}`);
+      }
       console.log(`PASS: ${status}`);
       finish(0);
     }

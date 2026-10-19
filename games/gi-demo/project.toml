@@ -1,0 +1,8 @@
+[project]
+name = "GI Demo"
+entry_scene = "assets/scenes/main.ron"
+
+[window]
+title = "GI Demo"
+width = 1280
+height = 720

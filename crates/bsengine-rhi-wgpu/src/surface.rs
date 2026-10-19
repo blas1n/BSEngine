@@ -1761,12 +1761,17 @@ const PROBE_CAPTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Flo
 pub(crate) const PROBE_GRID_HEADER_SIZE: u64 = 48;
 /// Bytes of one probe's coefficients: nine `vec4<f32>`.
 pub(crate) const PROBE_COEFFS_SIZE: u64 = (crate::sh::SH_COEFF_COUNT * 16) as u64;
-/// The probe buffer's whole size: the header and two halves of
-/// [`bsengine_core::MAX_PROBES`] probes, about 1.1 MiB. A baked volume uses
-/// the first half; a realtime one alternates between them
-/// (`crate::realtime_gi`). Allocated once, whatever the scene.
-const PROBE_GRID_SIZE: u64 =
-    PROBE_GRID_HEADER_SIZE + 2 * PROBE_COEFFS_SIZE * bsengine_core::MAX_PROBES as u64;
+/// The probe buffer's whole size: the header, two halves of
+/// [`bsengine_core::MAX_PROBES`] probes' SH (a baked volume uses the first; a
+/// realtime one alternates, `crate::realtime_gi`) and two halves of every
+/// probe's distance moments, about 9.6 MiB. Allocated once, whatever the
+/// scene.
+pub(crate) const PROBE_GRID_SIZE: u64 = PROBE_GRID_HEADER_SIZE
+    + 2 * PROBE_COEFFS_SIZE * bsengine_core::MAX_PROBES as u64
+    + 2 * PROBE_MOMENTS_SIZE * bsengine_core::MAX_PROBES as u64;
+/// Bytes of one probe's distance moments: 16 x 16 octahedral texels as two
+/// f16 each, four to a `vec4`, each `vec4` written by one thread.
+pub(crate) const PROBE_MOMENTS_SIZE: u64 = 64 * 16;
 
 /// The header of `ProbeGrid` in [`MESH_WGSL`]; the coefficients follow it in
 /// the same buffer, written separately (see [`WgpuSurface::bake_probes`]) so
@@ -1782,7 +1787,9 @@ pub(crate) struct ProbeGridHeader {
     pub(crate) enabled: u32,
     /// World-space size of the volume (full extent, not half).
     pub(crate) extent: [f32; 3],
-    pub(crate) _pad0: f32,
+    /// Bit 0: the distance moments are filled, so shading weighs probes by
+    /// visibility (a realtime volume; a baked one has none).
+    pub(crate) flags: u32,
     /// Probes per axis, on the grid's lattice points.
     pub(crate) resolution: [u32; 3],
     /// The half to shade with, as a probe index: 0 or `MAX_PROBES`.
@@ -6387,6 +6394,16 @@ impl WgpuSurface {
         self.read_probe_grid()
     }
 
+    /// Switches the realtime volume's visibility weighting, which is always
+    /// on, for the test that measures the leak it prevents. The volume must
+    /// have updated once (so it exists).
+    #[doc(hidden)]
+    pub fn set_realtime_gi_visibility_for_testing(&mut self, on: bool) {
+        if let Some(gi) = &mut self.realtime_gi {
+            gi.visibility = on;
+        }
+    }
+
     /// Reads [`Self::probe_buffer`] back -- the header and the half it names
     /// for shading -- so a test can assert on
     /// what the shader is actually about to sample rather than on a CPU-side
@@ -10537,7 +10554,7 @@ mod tests {
                 origin: volume.origin.to_array(),
                 enabled: 1,
                 extent: volume.extent.to_array(),
-                _pad0: 0.0,
+                flags: 0,
                 resolution: volume.resolution,
                 coeff_offset: 0,
             };

@@ -10807,30 +10807,49 @@ mod tests {
         );
     }
 
-    /// The same updates are the same bytes: every ray's direction and seed
-    /// come from the frame, the probe and the ray -- never from which
-    /// workgroup ran first -- and the bounce term reads only last frame's
-    /// half. A volume changed and changed back starts over (history, round
-    /// robin, frame count), so five updates after are five updates before.
+    /// The same update is the same bytes: every ray's direction and seed come
+    /// from the frame, the probe and the ray -- never from which workgroup ran
+    /// first -- and a volume changed and changed back starts over (history,
+    /// round robin, frame count). The box's faces glow differently and
+    /// reflect nothing, so each update is a fresh estimate that depends on
+    /// where its rays went: two frames differ (the premise -- in a uniform
+    /// furnace every ray set gives the same answer, and determinism would be
+    /// unobservable), and the first frame after a restart equals the first
+    /// frame before it.
     #[test]
     fn realtime_updates_are_deterministic() {
-        let mut s = furnace_scene(0.4, 0.5);
+        let mut s = GiScene::new(Vec3::ZERO);
+        for (i, (min, u, v)) in [
+            (Vec3::new(0.0, 0.0, 1.0), Vec3::X, Vec3::NEG_Z),
+            (Vec3::new(0.0, 1.0, 0.0), Vec3::X, Vec3::Z),
+            (Vec3::new(0.0, 0.0, 0.0), Vec3::Y, Vec3::Z),
+            (Vec3::new(1.0, 0.0, 1.0), Vec3::Y, Vec3::NEG_Z),
+            (Vec3::new(0.0, 0.0, 0.0), Vec3::X, Vec3::Y),
+            (Vec3::new(1.0, 0.0, 1.0), Vec3::NEG_X, Vec3::Y),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            s.add(
+                quad_corners(min, u, v),
+                Vec3::ZERO,
+                Vec3::splat(0.2 * (i + 1) as f32),
+            );
+        }
         let volume = ProbeVolumeParams {
             resolution: [4, 4, 4],
             ..inner_volume()
         };
-        let input = s.input(volume, 0.9, 256 * 16);
-        s.run(&input, 5);
-        let first: Vec<[[f32; 4]; 9]> = s.scene.surface.read_probe_grid().coeffs[..64].to_vec();
-        let other = s.input(inner_volume(), 0.9, 256 * 16);
+        let grid = |s: &GiScene| s.scene.surface.read_probe_grid().coeffs[..64].to_vec();
+        let input = s.input(volume, 0.0, 1 << 20);
+        s.run(&input, 1);
+        let first = grid(&s);
+        s.run(&input, 1);
+        assert_ne!(first, grid(&s), "premise: the ray set turns every frame");
+        let other = s.input(inner_volume(), 0.0, 1 << 20);
         s.run(&other, 1);
-        s.run(&input, 5);
-        let second: Vec<[[f32; 4]; 9]> = s.scene.surface.read_probe_grid().coeffs[..64].to_vec();
-        assert!(
-            first.iter().any(|c| c[0][0] != 0.0),
-            "premise: the grid was lit"
-        );
-        assert_eq!(first, second);
+        s.run(&input, 1);
+        assert_eq!(first, grid(&s), "a restart replays the first frame exactly");
     }
 
     /// The static set is read back once per change, and traced once it lands:

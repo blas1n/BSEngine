@@ -1030,23 +1030,20 @@ fn render_frame(
     let reflection_probes: Vec<bsengine_rhi_wgpu::ReflectionProbeParams> =
         reflection_probes.into_iter().map(|(_, p)| p).collect();
 
-    // A realtime volume is not baked: `feed_realtime_gi` hands it to the
-    // surface's update instead, and the bake is given none.
-    let light_probes = probe_volumes
-        .iter()
-        .next()
-        .filter(|(volume, _, _)| volume.update == bsengine_core::ProbeUpdate::Once)
-        .map(|(volume, t, gt)| {
-            let centre = gt
-                .map(|g| g.to_matrix().w_axis.truncate())
-                .unwrap_or(t.position.0);
-            let half = *volume.half_extents;
-            bsengine_rhi_wgpu::ProbeVolumeParams {
-                origin: centre - half,
-                extent: half * 2.0,
-                resolution: volume.clamped_resolution(),
-            }
-        });
+    // A realtime volume is passed here too, and the surface does not bake it:
+    // `feed_realtime_gi` has handed it to the realtime update, which owns the
+    // grid while it runs (one rule, in one place: `WgpuSurface::render_frame`).
+    let light_probes = probe_volumes.iter().next().map(|(volume, t, gt)| {
+        let centre = gt
+            .map(|g| g.to_matrix().w_axis.truncate())
+            .unwrap_or(t.position.0);
+        let half = *volume.half_extents;
+        bsengine_rhi_wgpu::ProbeVolumeParams {
+            origin: centre - half,
+            extent: half * 2.0,
+            resolution: volume.clamped_resolution(),
+        }
+    });
 
     // Occlusion pre-pass. It has to finish before the draw-call loop below
     // borrows `p1()`: a ParamSet lends exactly one sub-query at a time, so

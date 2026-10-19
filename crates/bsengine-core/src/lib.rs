@@ -205,7 +205,7 @@ pub use inspector::{
 };
 pub use lifetime::Lifetime;
 pub use light::{DirectionalLight, LightBakeMode, PointLight, RectLight, SpotLight};
-pub use light_probe::{LightProbeVolume, MAX_BAKED_PROBES, MAX_PROBES};
+pub use light_probe::{LightProbeVolume, ProbeUpdate, MAX_BAKED_PROBES, MAX_PROBES};
 pub use lightmap::{Lightmap, LIGHTMAP_RGBM_RANGE};
 pub use lightmap_static::LightmapStatic;
 pub use localization::Localization;

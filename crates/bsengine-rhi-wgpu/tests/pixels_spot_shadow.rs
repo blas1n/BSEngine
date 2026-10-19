@@ -220,6 +220,7 @@ fn a_first_frame_probe_bake_is_not_shadowed_by_empty_maps() {
     let probes = bsengine_core::LightProbeVolume {
         half_extents: Vec3::new(2.5, 1.5, 2.5).into(),
         resolution: [4, 2, 4],
+        ..Default::default()
     };
     let room = |intensity: f32, volume| Scene {
         camera_pos: Vec3::new(0.0, 2.0, 6.0),
@@ -402,6 +403,7 @@ fn probes_are_baked_with_spot_shadows() {
     let probes = bsengine_core::LightProbeVolume {
         half_extents: Vec3::new(2.5, 1.5, 2.5).into(),
         resolution: [4, 2, 4],
+        ..Default::default()
     };
     let room = |intensity: f32, blocked: bool, volume| {
         let mut draws = vec![

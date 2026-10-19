@@ -75,6 +75,7 @@ fn volume() -> LightProbeVolume {
     LightProbeVolume {
         half_extents: Vec3::new(2.5, 1.5, 2.5).into(),
         resolution: [4, 2, 4],
+        ..Default::default()
     }
 }
 

@@ -125,18 +125,13 @@ struct LightUniform {
 // shadow sampler, which no shader declares (the cube lookup uses textureLoad)
 // but which is bound all the same, as a non-filtering sampler.
 @group(2) @binding(8) var ibl_sampler: sampler;
-// Baked light probes. A uniform buffer with a fixed maximum, not a storage
-// buffer: this engine uses no storage buffers anywhere, and fixed-size uniform
-// arrays are its established pattern (see MAX_POINT_LIGHTS above). 32 probes x
-// 9 coefficients x vec4 is 4608 bytes, well inside the 64 KiB uniform limit.
-//
-// Bound in every frame, exactly like the IBL maps: a bind group layout is fixed
-// at creation, so a scene with no volume uploads `enabled: 0` and zeroed
-// coefficients rather than skipping the binding.
-struct ProbeUniform {
-    // MAX_PROBES(32) * 9 coefficients. vec4 rather than vec3 because std140
-    // pads a vec3 array element out to 16 bytes anyway.
-    coeffs: array<vec4<f32>, 288>,
+// The light-probe grid: a header, then nine L2 SH coefficients per probe, x
+// fastest, then y, then z. A storage buffer sized for MAX_PROBES (4096) probes
+// -- the uniform array it replaced topped out at 32, which a ray-traced grid
+// outgrows -- allocated once and bound in every frame, exactly like the IBL
+// maps: a bind group layout is fixed at creation, so a scene with no volume
+// uploads `enabled: 0` rather than skipping the binding.
+struct ProbeGrid {
     // World-space minimum corner of the volume.
     origin: vec3<f32>,
     enabled: u32,
@@ -146,8 +141,11 @@ struct ProbeUniform {
     // Probes per axis, sitting on the grid's lattice points.
     resolution: vec3<u32>,
     _pad1: u32,
+    // vec4 rather than vec3: a vec3 array element is padded to 16 bytes, and
+    // the CPU writes [f32; 4] per coefficient to match.
+    coeffs: array<vec4<f32>>,
 };
-@group(2) @binding(9) var<uniform> probes: ProbeUniform;
+@group(2) @binding(9) var<storage, read> probes: ProbeGrid;
 // The decal normal buffer. Its rgb holds `sum(encoded * a)` and its alpha
 // `product(1 - a)`, so the decals' contribution decodes as
 // `2 * rgb - (1 - a)`, which is `a * n` -- making the blend below a plain
@@ -444,9 +442,9 @@ fn probe_grid_coord(world_pos: vec3<f32>) -> vec3<f32> {
 // the same order the CPU walks the lattice in when it uploads them.
 fn probe_coeff_base(ix: u32, iy: u32, iz: u32) -> u32 {
     let idx = (iz * probes.resolution.y + iy) * probes.resolution.x + ix;
-    // MAX_PROBES - 1. A resolution the CPU side never produces would otherwise
-    // read past the end of the array.
-    return min(idx, 31u) * 9u;
+    // MAX_PROBES - 1: the buffer always holds that many. A resolution the CPU
+    // side never produces would otherwise read past the end of it.
+    return min(idx, 4095u) * 9u;
 }
 // The probe grid's irradiance at `world_pos` for a surface facing `n`, in the
 // same units the irradiance cube stores: E / PI, with the Lambert BRDF's 1/PI
@@ -1852,33 +1850,27 @@ const PROBE_CAPTURE_RANGE: f32 = 200.0;
 /// probe radiance is pre-tonemap and routinely exceeds 1.0, and clipping it to
 /// 8-bit here would quietly cap how much light a probe can carry.
 const PROBE_CAPTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
-/// Size of [`ProbeUniformData`], and the group-2 binding-9 `min_binding_size`.
-///
-/// `MAX_PROBES(32) * 9 coefficients * vec4(16)` = 4608 bytes of coefficients,
-/// plus 48 bytes describing the volume's box and grid. Far inside the 64 KiB
-/// uniform binding limit, which is what makes a fixed-size uniform array a
-/// workable substitute for the storage buffer this engine does not use.
-const PROBE_UNIFORM_SIZE: u64 = 4656;
+/// Bytes of [`ProbeGridHeader`]: the part of `ProbeGrid` in [`MESH_WGSL`]
+/// before its runtime-sized `coeffs` array.
+const PROBE_GRID_HEADER_SIZE: u64 = 48;
+/// Bytes of one probe's coefficients: nine `vec4<f32>`.
+const PROBE_COEFFS_SIZE: u64 = (crate::sh::SH_COEFF_COUNT * 16) as u64;
+/// The probe buffer's whole size: the header and [`bsengine_core::MAX_PROBES`]
+/// probes, about 576 KiB. Allocated once, whatever the scene.
+const PROBE_GRID_SIZE: u64 =
+    PROBE_GRID_HEADER_SIZE + PROBE_COEFFS_SIZE * bsengine_core::MAX_PROBES as u64;
 
-/// GPU-uniform layout for the baked probe grid. Mirrors `ProbeUniform` in
-/// [`MESH_WGSL`].
-///
-/// A uniform buffer with a fixed maximum rather than a storage buffer: this
-/// engine uses no storage buffers anywhere, and fixed-size uniform arrays are
-/// its established pattern (`MAX_POINT_LIGHTS`).
+/// The header of `ProbeGrid` in [`MESH_WGSL`]; the coefficients follow it in
+/// the same buffer, written separately (see [`WgpuSurface::bake_probes`]) so
+/// that no 576 KiB struct is ever built on a stack.
 #[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct ProbeUniformData {
-    /// Nine coefficients per probe, `vec4` each because std140 pads a `vec3`
-    /// array element out to 16 bytes regardless. Nested rather than a flat
-    /// `[[f32; 4]; 288]` purely so the probe index is visible at the use site;
-    /// the bytes are identical, and the shader reads them flat.
-    coeffs: [[[f32; 4]; crate::sh::SH_COEFF_COUNT]; bsengine_core::MAX_PROBES],
+#[derive(Copy, Clone, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+struct ProbeGridHeader {
     /// World-space minimum corner of the volume.
     origin: [f32; 3],
-    /// Nonzero when probe GI should be sampled at all. Zero -- with zeroed
-    /// coefficients -- is what a scene with no volume uploads: a bind group
-    /// layout is fixed at creation, so the binding cannot simply be skipped.
+    /// Nonzero when probe GI should be sampled at all. Zero is what a scene
+    /// with no volume uploads: a bind group layout is fixed at creation, so
+    /// the binding cannot simply be skipped.
     enabled: u32,
     /// World-space size of the volume (full extent, not half).
     extent: [f32; 3],
@@ -1888,14 +1880,24 @@ struct ProbeUniformData {
     _pad1: u32,
 }
 
-// The layout's `min_binding_size`, so a mismatch here would surface as a bind
-// group validation failure at runtime rather than at compile time. It also has
-// to match `ProbeUniform` in MESH_WGSL byte for byte: a shorter Rust struct
-// would leave the shader reading the volume's bounds out of coefficient data.
+// The coefficients are written at this offset, and the shader reads them from
+// the end of its header: a header that grew on one side only would leave the
+// shader reading the volume's bounds out of coefficient data.
 const _: () = assert!(
-    std::mem::size_of::<ProbeUniformData>() as u64 == PROBE_UNIFORM_SIZE,
-    "ProbeUniformData must stay exactly PROBE_UNIFORM_SIZE bytes"
+    std::mem::size_of::<ProbeGridHeader>() as u64 == PROBE_GRID_HEADER_SIZE,
+    "ProbeGridHeader must stay exactly PROBE_GRID_HEADER_SIZE bytes"
 );
+
+/// What [`WgpuSurface::read_probe_grid`] read: the header's fields, and nine
+/// coefficients per probe for the first [`bsengine_core::MAX_BAKED_PROBES`].
+#[cfg(test)]
+struct ProbeGridReadback {
+    enabled: u32,
+    origin: [f32; 3],
+    extent: [f32; 3],
+    resolution: [u32; 3],
+    coeffs: Vec<[[f32; 4]; crate::sh::SH_COEFF_COUNT]>,
+}
 
 /// The world-space box and grid one probe bake was performed for.
 ///
@@ -2846,9 +2848,10 @@ fn light_bgl_entries() -> Vec<wgpu::BindGroupLayoutEntry> {
             binding: 9,
             visibility: wgpu::ShaderStages::FRAGMENT,
             ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Uniform,
+                ty: wgpu::BufferBindingType::Storage { read_only: true },
                 has_dynamic_offset: false,
-                min_binding_size: wgpu::BufferSize::new(PROBE_UNIFORM_SIZE),
+                // The header and one probe: the least a grid can be read as.
+                min_binding_size: wgpu::BufferSize::new(PROBE_GRID_HEADER_SIZE + PROBE_COEFFS_SIZE),
             },
             count: None,
         },
@@ -4357,16 +4360,16 @@ impl WgpuSurface {
         let (brdf_lut_texture, brdf_lut_view) = crate::ibl::generate_brdf_lut(&device, &queue);
 
         let probe_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("probe uniform"),
+            label: Some("probe grid"),
             // COPY_SRC so a test can read back what the bake actually uploaded.
             // A bake's result is otherwise entirely invisible to the CPU -- it
-            // goes straight from a texture readback into a uniform only the
+            // goes straight from a texture readback into a buffer only the
             // shader ever sees -- and "the probes were baked" would then only
             // be assertable indirectly, through pixels.
-            usage: wgpu::BufferUsages::UNIFORM
+            usage: wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_DST
                 | wgpu::BufferUsages::COPY_SRC,
-            size: PROBE_UNIFORM_SIZE,
+            size: PROBE_GRID_SIZE,
             mapped_at_creation: false,
         });
         // Explicitly zeroed rather than left to wgpu's lazy zero-init, for the
@@ -4374,11 +4377,7 @@ impl WgpuSurface {
         // every scene without a probe volume rendering as it did before probes
         // existed, and that should be a property of this code rather than of a
         // backend detail.
-        queue.write_buffer(
-            &probe_buffer,
-            0,
-            bytemuck::bytes_of(&<ProbeUniformData as bytemuck::Zeroable>::zeroed()),
-        );
+        queue.write_buffer(&probe_buffer, 0, &vec![0u8; PROBE_GRID_SIZE as usize]);
 
         // Reflection probes: the uniform (zeroed to `count: 0`, for the same
         // reason `probe_buffer` is), the cube array every probe's prefiltered
@@ -4727,7 +4726,7 @@ impl WgpuSurface {
                 cache: None,
             });
 
-        // --- light probe capture (one cube per probe, MAX_PROBES of them) ---
+        // --- light probe capture (one cube per probe, MAX_BAKED_PROBES of them) ---
         let probe_capture_texture = crate::profiler::create_tracked_texture(
             &device,
             &wgpu::TextureDescriptor {
@@ -4735,7 +4734,7 @@ impl WgpuSurface {
                 size: wgpu::Extent3d {
                     width: PROBE_FACE_SIZE,
                     height: PROBE_FACE_SIZE,
-                    depth_or_array_layers: (bsengine_core::MAX_PROBES * 6) as u32,
+                    depth_or_array_layers: (bsengine_core::MAX_BAKED_PROBES * 6) as u32,
                 },
                 mip_level_count: 1,
                 sample_count: 1,
@@ -4769,7 +4768,7 @@ impl WgpuSurface {
 
         let probe_capture_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("probe capture uniform"),
-            size: PROBE_CAPTURE_STRIDE * (bsengine_core::MAX_PROBES * 6) as u64,
+            size: PROBE_CAPTURE_STRIDE * (bsengine_core::MAX_BAKED_PROBES * 6) as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -5987,8 +5986,8 @@ impl WgpuSurface {
     /// than the capture pipeline is built for, and terrain is ground: it
     /// receives bounced light far more than it contributes it.
     ///
-    /// Probes past [`bsengine_core::MAX_PROBES`] are ignored, matching the
-    /// uniform array's fixed size.
+    /// Probes past [`bsengine_core::MAX_BAKED_PROBES`] are ignored, matching
+    /// the capture array's fixed size.
     fn capture_probes(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -5998,7 +5997,7 @@ impl WgpuSurface {
         tex_registry: Option<&crate::texture::GpuTextureRegistry>,
         positions: &[Vec3],
     ) {
-        let positions = &positions[..positions.len().min(bsengine_core::MAX_PROBES)];
+        let positions = &positions[..positions.len().min(bsengine_core::MAX_BAKED_PROBES)];
         self.capture_cube_faces(
             encoder,
             cascades,
@@ -6166,7 +6165,7 @@ impl WgpuSurface {
     /// [`probe_face_texel_solid_angle`] (the real projected solid angle, not a
     /// flat share of the sphere).
     fn project_captures_to_sh(&self, probe_count: usize) -> Vec<crate::sh::ShL2> {
-        let probes = probe_count.min(bsengine_core::MAX_PROBES);
+        let probes = probe_count.min(bsengine_core::MAX_BAKED_PROBES);
         if probes == 0 {
             return Vec::new();
         }
@@ -6261,7 +6260,7 @@ impl WgpuSurface {
     /// [`Self::project_captures_to_sh`] blocks on a buffer map and so cannot
     /// see anything still sitting in the frame's unsubmitted encoder.
     ///
-    /// Expensive by design -- up to `MAX_PROBES * 6` render passes plus a
+    /// Expensive by design -- up to `MAX_BAKED_PROBES * 6` render passes plus a
     /// synchronous readback -- which is why the caller runs it once rather than
     /// per frame.
     fn bake_probes(
@@ -6272,7 +6271,8 @@ impl WgpuSurface {
         tex_registry: Option<&crate::texture::GpuTextureRegistry>,
         volume: Option<ProbeVolumeParams>,
     ) {
-        let mut data = <ProbeUniformData as bytemuck::Zeroable>::zeroed();
+        let mut header = <ProbeGridHeader as bytemuck::Zeroable>::zeroed();
+        let mut coeffs: Vec<[f32; 4]> = Vec::new();
         if let Some(params) = volume {
             let positions = probe_positions(&params);
             let mut encoder = self
@@ -6290,26 +6290,32 @@ impl WgpuSurface {
             );
             self.queue.submit(std::iter::once(encoder.finish()));
 
-            for (probe, sh) in self
-                .project_captures_to_sh(positions.len())
-                .iter()
-                .enumerate()
-            {
-                for (slot, coeff) in sh.coeffs.iter().enumerate() {
-                    data.coeffs[probe][slot] = [coeff.x, coeff.y, coeff.z, 0.0];
-                }
+            for sh in self.project_captures_to_sh(positions.len()) {
+                coeffs.extend(sh.coeffs.iter().map(|c| [c.x, c.y, c.z, 0.0]));
             }
-            data.origin = params.origin.to_array();
-            data.enabled = 1;
-            data.extent = params.extent.to_array();
-            data.resolution = params.resolution;
+            header.origin = params.origin.to_array();
+            header.enabled = 1;
+            header.extent = params.extent.to_array();
+            header.resolution = params.resolution;
+        } else {
+            // No volume: zero every coefficient as well as `enabled`, so the
+            // buffer is exactly what a fresh surface starts with, and nothing
+            // of the last bake survives to be read by a later bug.
+            coeffs = vec![[0.0; 4]; bsengine_core::MAX_PROBES * crate::sh::SH_COEFF_COUNT];
         }
         // Written even in the `None` case: the binding exists in every frame,
-        // so "no probes" has to be expressed as `enabled: 0` with zeroed
-        // coefficients rather than as a skipped upload -- otherwise removing a
-        // volume would leave the previous bake lighting the scene forever.
+        // so "no probes" has to be expressed as `enabled: 0` rather than as a
+        // skipped upload -- otherwise removing a volume would leave the
+        // previous bake lighting the scene forever.
         self.queue
-            .write_buffer(&self.probe_buffer, 0, bytemuck::bytes_of(&data));
+            .write_buffer(&self.probe_buffer, 0, bytemuck::bytes_of(&header));
+        if !coeffs.is_empty() {
+            self.queue.write_buffer(
+                &self.probe_buffer,
+                PROBE_GRID_HEADER_SIZE,
+                bytemuck::cast_slice(&coeffs),
+            );
+        }
     }
 
     /// Captures each reflection probe and fills its slot of
@@ -6425,23 +6431,26 @@ impl WgpuSurface {
             .write_buffer(&self.reflection_probe_buffer, 0, bytemuck::bytes_of(&data));
     }
 
-    /// Reads [`Self::probe_buffer`] back, so a test can assert on what the
-    /// shader is actually about to sample rather than on a CPU-side mirror of
-    /// it. Blocks on a buffer map; not for use in a frame.
+    /// Reads [`Self::probe_buffer`] back -- the header and the first
+    /// [`bsengine_core::MAX_BAKED_PROBES`] probes -- so a test can assert on
+    /// what the shader is actually about to sample rather than on a CPU-side
+    /// mirror of it. Blocks on a buffer map; not for use in a frame.
     #[cfg(test)]
-    fn read_probe_uniform(&self) -> ProbeUniformData {
+    fn read_probe_grid(&self) -> ProbeGridReadback {
+        let size =
+            PROBE_GRID_HEADER_SIZE + PROBE_COEFFS_SIZE * bsengine_core::MAX_BAKED_PROBES as u64;
         let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("probe uniform readback"),
-            size: PROBE_UNIFORM_SIZE,
+            label: Some("probe grid readback"),
+            size,
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("probe uniform readback encoder"),
+                label: Some("probe grid readback encoder"),
             });
-        encoder.copy_buffer_to_buffer(&self.probe_buffer, 0, &staging, 0, PROBE_UNIFORM_SIZE);
+        encoder.copy_buffer_to_buffer(&self.probe_buffer, 0, &staging, 0, size);
         self.queue.submit(std::iter::once(encoder.finish()));
 
         let slice = staging.slice(..);
@@ -6452,10 +6461,23 @@ impl WgpuSurface {
         self.device.poll(wgpu::Maintain::Wait);
         rx.recv()
             .expect("map_async never reported a result")
-            .expect("mapping the probe uniform readback buffer failed");
-        let data = *bytemuck::from_bytes::<ProbeUniformData>(&slice.get_mapped_range());
+            .expect("mapping the probe grid readback buffer failed");
+        let bytes = slice.get_mapped_range();
+        let header =
+            *bytemuck::from_bytes::<ProbeGridHeader>(&bytes[..PROBE_GRID_HEADER_SIZE as usize]);
+        let coeffs = bytemuck::cast_slice::<u8, [[f32; 4]; crate::sh::SH_COEFF_COUNT]>(
+            &bytes[PROBE_GRID_HEADER_SIZE as usize..],
+        )
+        .to_vec();
+        drop(bytes);
         staging.unmap();
-        data
+        ProbeGridReadback {
+            enabled: header.enabled,
+            origin: header.origin,
+            extent: header.extent,
+            resolution: header.resolution,
+            coeffs,
+        }
     }
 
     /// Renders one full frame: shadow map, main scene pass, post-processing,
@@ -10026,24 +10048,16 @@ mod tests {
         }
     }
 
-    /// The shader's coefficient array is a hand-written literal, so nothing but
-    /// this ties it to `MAX_PROBES`. Raising `MAX_PROBES` without raising it
-    /// would leave the upper probes writing past the end of the uniform.
+    /// The shader's probe-index clamp is a hand-written literal, so nothing but
+    /// this ties it to `MAX_PROBES`: raising `MAX_PROBES` without it would
+    /// leave the upper probes reading the last one's coefficients, and
+    /// lowering it would let a grid read past the end of the buffer.
     #[test]
-    fn the_scene_shader_probe_array_is_sized_from_max_probes() {
-        let expected = format!(
-            "array<vec4<f32>, {}>",
-            bsengine_core::MAX_PROBES * crate::sh::SH_COEFF_COUNT
-        );
+    fn the_scene_shader_probe_clamp_is_max_probes() {
         assert!(
-            MESH_WGSL.contains(&expected),
-            "MESH_WGSL must declare `{expected}`; MAX_PROBES is \
-             {} and there are {} coefficients per probe",
-            bsengine_core::MAX_PROBES,
-            crate::sh::SH_COEFF_COUNT
+            MESH_WGSL.contains("var<storage, read> probes: ProbeGrid;"),
+            "the probe grid is a read-only storage buffer"
         );
-        // The shader's own out-of-range clamp, which cannot be written in terms
-        // of a Rust constant.
         assert!(
             MESH_WGSL.contains(&format!("min(idx, {}u)", bsengine_core::MAX_PROBES - 1)),
             "the shader's probe-index clamp must be MAX_PROBES - 1"
@@ -10482,6 +10496,85 @@ mod tests {
         }
     }
 
+    /// The grid holds `MAX_PROBES`, not the `MAX_BAKED_PROBES` the uniform it
+    /// replaced did -- and the shader reads past the old limit.
+    ///
+    /// A raster bake cannot make more than 32 probes, so the grid is uploaded
+    /// directly: a 16^3 volume with probes 0..32 black and every later one
+    /// white. A white quad fills the frame (the view-projection is the
+    /// identity, so world xy is clip xy) inside the volume, where the centre
+    /// pixel's eight probes all have indices past 31. Read as the old shader
+    /// read -- every index clamped to 31 -- they would all be the black probe
+    /// 31, and the frame would equal the all-black one.
+    #[test]
+    fn the_shader_reads_probes_past_the_baked_limit() {
+        use bsengine_core::{MAX_BAKED_PROBES, MAX_PROBES};
+        let mut scene = ProbeBakeScene::new(
+            [
+                Vec3::new(-1.0, -1.0, 0.5),
+                Vec3::new(1.0, -1.0, 0.5),
+                Vec3::new(1.0, 1.0, 0.5),
+                Vec3::new(-1.0, 1.0, 0.5),
+            ],
+            Vec3::ZERO,
+        );
+        scene.draw_calls[0].3.base_color = Vec3::ONE;
+        scene.upload_uniforms();
+        let volume = ProbeVolumeParams {
+            origin: Vec3::new(-1.1, -1.1, 0.0),
+            extent: Vec3::new(2.2, 2.2, 1.0),
+            resolution: [16, 16, 16],
+        };
+        assert_eq!(
+            16 * 16 * 16,
+            MAX_PROBES,
+            "premise: the volume fills the grid"
+        );
+        // Premise: the centre pixel (world (0, 0, 0.5)) sits in lattice cell
+        // (7, 7, 7), whose lowest-index corner is far past the old limit.
+        let lowest_corner = (7 * 16 + 7) * 16 + 7;
+        assert!(lowest_corner >= MAX_BAKED_PROBES);
+        // Marked as baked, so `render_frame` keeps the upload below rather
+        // than baking over it.
+        scene.surface.baked_probe_volume = Some(volume);
+
+        let centre_with_probes_lit_from = |scene: &mut ProbeBakeScene, first_lit: usize| {
+            let header = ProbeGridHeader {
+                origin: volume.origin.to_array(),
+                enabled: 1,
+                extent: volume.extent.to_array(),
+                _pad0: 0.0,
+                resolution: volume.resolution,
+                _pad1: 0,
+            };
+            let mut coeffs = vec![[0.0f32; 4]; MAX_PROBES * crate::sh::SH_COEFF_COUNT];
+            for probe in first_lit..MAX_PROBES {
+                coeffs[probe * crate::sh::SH_COEFF_COUNT] = [1.0, 1.0, 1.0, 0.0];
+            }
+            let queue = &scene.surface.queue;
+            queue.write_buffer(&scene.surface.probe_buffer, 0, bytemuck::bytes_of(&header));
+            queue.write_buffer(
+                &scene.surface.probe_buffer,
+                PROBE_GRID_HEADER_SIZE,
+                bytemuck::cast_slice(&coeffs),
+            );
+            scene.render(Some(volume)).expect("the frame renders");
+            let pixels = scene.surface.read_pixels().expect("offscreen readback");
+            let at = (32 * 64 + 32) * 4;
+            [pixels[at], pixels[at + 1], pixels[at + 2]]
+        };
+        let dark = centre_with_probes_lit_from(&mut scene, MAX_PROBES);
+        let lit = centre_with_probes_lit_from(&mut scene, MAX_BAKED_PROBES);
+        assert!(
+            dark.iter().all(|&c| c < 200),
+            "premise: the unlit frame leaves room to brighten: {dark:?}"
+        );
+        assert!(
+            (0..3).all(|c| lit[c] as i32 > dark[c] as i32 + 30),
+            "probes past {MAX_BAKED_PROBES} must light the quad: {dark:?} -> {lit:?}"
+        );
+    }
+
     /// A test volume big enough to hold `ProbeBakeScene`'s quad.
     fn test_volume(origin: Vec3) -> ProbeVolumeParams {
         ProbeVolumeParams {
@@ -10820,7 +10913,7 @@ mod tests {
         let mut scene = a_red_quad_scene();
         assert_eq!(scene.surface.baked_probe_volume, None);
         assert_eq!(
-            scene.surface.read_probe_uniform().enabled,
+            scene.surface.read_probe_grid().enabled,
             0,
             "a fresh surface must start with probes disabled, or every scene \
              that never places a volume would be lit by whatever the buffer \
@@ -10833,7 +10926,7 @@ mod tests {
                      validation error",
         );
         assert_eq!(scene.surface.baked_probe_volume, Some(volume));
-        let baked = scene.surface.read_probe_uniform();
+        let baked = scene.surface.read_probe_grid();
         assert_eq!(baked.enabled, 1);
         assert_eq!(baked.origin, volume.origin.to_array());
         assert_eq!(baked.extent, volume.extent.to_array());
@@ -10851,7 +10944,7 @@ mod tests {
         scene
             .render(Some(volume))
             .expect("a second frame must render");
-        let after = scene.surface.read_probe_uniform();
+        let after = scene.surface.read_probe_grid();
         assert_eq!(
             after.coeffs[0], baked.coeffs[0],
             "the volume did not change, so no re-bake should have happened -- \
@@ -10866,7 +10959,7 @@ mod tests {
             .render(Some(moved))
             .expect("a third frame must render");
         assert_eq!(scene.surface.baked_probe_volume, Some(moved));
-        let rebaked = scene.surface.read_probe_uniform();
+        let rebaked = scene.surface.read_probe_grid();
         assert_eq!(rebaked.origin, moved.origin.to_array());
         assert!(
             rebaked.coeffs[0][0][1] > rebaked.coeffs[0][0][0],
@@ -10879,7 +10972,7 @@ mod tests {
         // the last bake lighting the scene forever.
         scene.render(None).expect("a fourth frame must render");
         assert_eq!(scene.surface.baked_probe_volume, None);
-        let cleared = scene.surface.read_probe_uniform();
+        let cleared = scene.surface.read_probe_grid();
         assert_eq!(cleared.enabled, 0);
         assert_eq!(cleared.coeffs[0][0], [0.0; 4]);
     }
@@ -10910,7 +11003,7 @@ mod tests {
              next frame does not try again"
         );
         assert_eq!(
-            scene.surface.read_probe_uniform().enabled,
+            scene.surface.read_probe_grid().enabled,
             0,
             "fast_render skips the bake, so probes must be disabled rather \
              than enabled over zeroed coefficients"

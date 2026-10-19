@@ -4158,10 +4158,18 @@ mod tests {
                 Transform::from_position(Vec3::new(0.0, 1.5, 0.0)),
             ))
             .id();
-        assert!(
-            run_until(&mut app, |a| surface_of(a).realtime_gi_updates() >= 2),
-            "the realtime volume never reached the surface's update"
-        );
+        // Against the clock, not a frame count: the update's pipelines are
+        // built on a thread, which under FXC on CI's software D3D12 adapter
+        // takes over a minute (`realtime_gi::PipelineState`).
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(300);
+        while surface_of(&app).realtime_gi_updates() < 2 {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the realtime volume never reached the surface's update"
+            );
+            app.update();
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
         assert!(
             !surface_of(&app).has_baked_probe_volume(),
             "a realtime volume is not also baked"

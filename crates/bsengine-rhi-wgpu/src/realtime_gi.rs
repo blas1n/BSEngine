@@ -406,12 +406,68 @@ struct Geometry {
     node_count: u32,
 }
 
+/// The update's two pipelines.
+struct Pipelines {
+    update: wgpu::ComputePipeline,
+    carry: wgpu::ComputePipeline,
+}
+
+/// Where the pipelines are. Built on a thread of their own, never in a frame:
+/// on D3D12 wgpu compiles HLSL with FXC, which takes seconds over this shader
+/// (4.6 s on a desktop, over a minute on CI's software adapter) -- the BVH
+/// traversal's indexed stack is what FXC is slow at, and the bake's shader is
+/// no faster. A frame that waited would hitch; instead the volume starts
+/// updating the frame the pipelines are ready, and until then the grid keeps
+/// what it had. (Engines compile pipelines asynchronously for the same
+/// reason.) The browser has no threads to spare, and compiles in its GPU
+/// process anyway, so there it is built in place.
+enum PipelineState {
+    #[cfg(not(target_arch = "wasm32"))]
+    Compiling(std::thread::JoinHandle<Pipelines>),
+    Ready(Pipelines),
+    /// The build panicked (a validation error): logged once, and the volume
+    /// never updates. (Only a thread's build can end here.)
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    Failed,
+}
+
+fn build_pipelines(device: &wgpu::Device, layout: &wgpu::BindGroupLayout) -> Pipelines {
+    let source = format!(
+        "{}{}{}",
+        bsengine_bake::gpu_scene::TRACE_WGSL,
+        probe_grid_wgsl!(),
+        UPDATE_WGSL
+    );
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("realtime gi update"),
+        source: wgpu::ShaderSource::Wgsl(source.into()),
+    });
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("realtime gi layout"),
+        bind_group_layouts: &[layout],
+        push_constant_ranges: &[],
+    });
+    let entry = |entry_point| {
+        device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some(entry_point),
+            layout: Some(&pipeline_layout),
+            module: &module,
+            entry_point,
+            compilation_options: Default::default(),
+            cache: None,
+        })
+    };
+    Pipelines {
+        update: entry("cs_update"),
+        carry: entry("cs_carry"),
+    }
+}
+
 /// The realtime volume's GPU side. Made the first frame a realtime volume is
 /// asked for, kept while the surface lives.
 pub(crate) struct RealtimeGi {
-    pipeline: wgpu::ComputePipeline,
-    carry: wgpu::ComputePipeline,
-    layout: wgpu::BindGroupLayout,
+    pipelines: PipelineState,
+    layout: Arc<wgpu::BindGroupLayout>,
     params: wgpu::Buffer,
     scene: wgpu::Buffer,
     sky: Option<(Arc<Sky>, wgpu::Texture)>,
@@ -432,19 +488,9 @@ pub(crate) struct RealtimeGi {
 }
 
 impl RealtimeGi {
-    pub(crate) fn new(device: &wgpu::Device) -> Self {
-        let source = format!(
-            "{}{}{}",
-            bsengine_bake::gpu_scene::TRACE_WGSL,
-            probe_grid_wgsl!(),
-            UPDATE_WGSL
-        );
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("realtime gi update"),
-            source: wgpu::ShaderSource::Wgsl(source.into()),
-        });
+    pub(crate) fn new(device: &Arc<wgpu::Device>) -> Self {
         let compute = wgpu::ShaderStages::COMPUTE;
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let layout = Arc::new(device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("realtime gi bgl"),
             entries: &[
                 storage_layout_entry(0, compute, true),
@@ -454,24 +500,19 @@ impl RealtimeGi {
                 sky_layout_entry(4, compute),
                 uniform_layout_entry(5, compute),
             ],
-        });
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("realtime gi layout"),
-            bind_group_layouts: &[&layout],
-            push_constant_ranges: &[],
-        });
-        let entry = |entry_point| {
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some(entry_point),
-                layout: Some(&pipeline_layout),
-                module: &module,
-                entry_point,
-                compilation_options: Default::default(),
-                cache: None,
-            })
+        }));
+        #[cfg(not(target_arch = "wasm32"))]
+        let pipelines = {
+            let (device, layout) = (Arc::clone(device), Arc::clone(&layout));
+            PipelineState::Compiling(
+                std::thread::Builder::new()
+                    .name("realtime gi pipelines".into())
+                    .spawn(move || build_pipelines(&device, &layout))
+                    .expect("a thread for the realtime GI pipelines"),
+            )
         };
-        let pipeline = entry("cs_update");
-        let carry = entry("cs_carry");
+        #[cfg(target_arch = "wasm32")]
+        let pipelines = PipelineState::Ready(build_pipelines(device, &layout));
         let params = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("realtime gi params"),
             size: std::mem::size_of::<GiParams>() as u64,
@@ -485,8 +526,7 @@ impl RealtimeGi {
             mapped_at_creation: false,
         });
         Self {
-            pipeline,
-            carry,
+            pipelines,
             layout,
             params,
             scene,
@@ -499,6 +539,42 @@ impl RealtimeGi {
             current: 0,
             readbacks_started: 0,
             updates: 0,
+        }
+    }
+
+    /// Whether the pipelines are built, collecting them from their thread the
+    /// first time they are. Never waits.
+    fn pipelines_ready(&mut self) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        if matches!(&self.pipelines, PipelineState::Compiling(h) if h.is_finished()) {
+            let PipelineState::Compiling(handle) =
+                std::mem::replace(&mut self.pipelines, PipelineState::Failed)
+            else {
+                unreachable!("matched above");
+            };
+            match handle.join() {
+                Ok(p) => self.pipelines = PipelineState::Ready(p),
+                Err(_) => tracing::error!(
+                    "realtime GI: building the update pipelines failed; the volume will not update"
+                ),
+            }
+        }
+        matches!(self.pipelines, PipelineState::Ready(_))
+    }
+
+    /// Waits for the pipelines, for a test that is not measuring the wait.
+    #[cfg(test)]
+    pub(crate) fn wait_for_pipelines(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let PipelineState::Compiling(_) = &self.pipelines {
+            let PipelineState::Compiling(handle) =
+                std::mem::replace(&mut self.pipelines, PipelineState::Failed)
+            else {
+                unreachable!("matched above");
+            };
+            if let Ok(p) = handle.join() {
+                self.pipelines = PipelineState::Ready(p);
+            }
         }
     }
 
@@ -678,6 +754,9 @@ impl RealtimeGi {
         let Some(node_count) = self.geometry.as_ref().map(|g| g.node_count) else {
             return false;
         };
+        if !self.pipelines_ready() {
+            return false;
+        }
 
         let volume = input.volume;
         let [rx, ry, rz] = volume.resolution;
@@ -778,9 +857,12 @@ impl RealtimeGi {
             pass.set_bind_group(0, &bind, &[]);
             // Every probe carried over, then the slice overwritten: two
             // dispatches, which WebGPU orders (each is its own usage scope).
-            pass.set_pipeline(&self.carry);
+            let PipelineState::Ready(pipelines) = &self.pipelines else {
+                unreachable!("checked by pipelines_ready above");
+            };
+            pass.set_pipeline(&pipelines.carry);
             pass.dispatch_workgroups((total * 9).div_ceil(64), 1, 1);
-            pass.set_pipeline(&self.pipeline);
+            pass.set_pipeline(&pipelines.update);
             pass.set_bind_group(0, &bind, &[]);
             pass.dispatch_workgroups(per_frame, 1, 1);
         }
@@ -820,8 +902,8 @@ fn random_rotation(frame: u32) -> Mat3 {
 
 #[cfg(test)]
 mod tests {
-    /// The update compiles where Windows players run it: wgpu's D3D12
-    /// backend, through FXC. The other tests here take whatever adapter comes
+    /// The update compiles where Windows players run it -- wgpu's D3D12
+    /// backend, through FXC -- and without making a frame wait for it. The other tests here take whatever adapter comes
     /// first -- Vulkan, on most machines and CI's -- so a construct FXC
     /// rejects (an array-returning function was one) passes all of them and
     /// fails only in whichever test happens to land on D3D12.
@@ -848,8 +930,22 @@ mod tests {
             None,
         ))
         .expect("a D3D12 device");
+        let device = std::sync::Arc::new(device);
         device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let _gi = super::RealtimeGi::new(&device);
+        let started = std::time::Instant::now();
+        let mut gi = super::RealtimeGi::new(&device);
+        let returned = started.elapsed();
+        gi.wait_for_pipelines();
+        let built = started.elapsed();
+        assert!(gi.pipelines_ready(), "the pipelines were built");
+        // And off the frame: `new` hands the compile to a thread and returns.
+        // The premise -- the compile is slow enough to matter -- is FXC's,
+        // seconds on any machine.
+        assert!(built.as_secs_f32() > 0.5, "premise: FXC takes a while: {built:?}");
+        assert!(
+            returned < built / 4,
+            "creating the update must not wait for its compile: {returned:?} of {built:?}"
+        );
         let error = pollster::block_on(device.pop_error_scope());
         assert!(
             error.is_none(),

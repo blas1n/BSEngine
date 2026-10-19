@@ -10621,12 +10621,13 @@ mod tests {
         }
 
         /// Frames until `n` more updates have run. The first waits for the
-        /// static meshes to come back from the GPU, which takes a frame or a
-        /// few -- polled, never assumed (a fixed count is what flakes on a
-        /// cold CI machine).
+        /// update's pipelines (built on a thread: seconds under FXC, over a
+        /// minute on CI's software D3D12) and for the static meshes to come
+        /// back from the GPU -- polled against the clock, never assumed (a
+        /// fixed frame count is what flakes on a cold CI machine).
         fn run(&mut self, input: &crate::realtime_gi::RealtimeGiInput, n: u32) {
             let target = self.updates() + n;
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(300);
             while self.updates() < target {
                 assert!(
                     std::time::Instant::now() < deadline,

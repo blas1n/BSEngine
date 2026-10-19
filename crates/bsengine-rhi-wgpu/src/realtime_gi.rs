@@ -323,9 +323,11 @@ fn fibonacci(i: u32, n: u32) -> vec3<f32> {
 }
 
 // What a ray from `o` along `d` brings back, and how far it went for the
-// moments: the hit distance, capped at `max_dist` (a miss records the cap);
-// a back face records a fifth of it, so a probe inside geometry looks to have
-// walls all around it, close, and drops out of every lookup beyond them.
+// moments: the hit distance, capped at `max_dist` (a miss records the cap).
+// A back face records its true distance too: a probe inside geometry then
+// has walls all around it, nearer than anything it could light, and drops
+// out of every lookup beyond them. (DDGI implementations also shorten
+// back-face distances; a fifth was tried here and changed no result.)
 struct RayResult {
     radiance: vec3<f32>,
     dist: f32,
@@ -340,7 +342,7 @@ fn trace_ray(o: vec3<f32>, d: vec3<f32>, max_dist: f32) -> RayResult {
     let dist = min(hit.t, max_dist);
     // A back face: the probe sees the inside of something.
     if dot(ng, d) >= 0.0 {
-        return RayResult(vec3<f32>(0.0), dist * 0.2);
+        return RayResult(vec3<f32>(0.0), dist);
     }
     let y = o + d * hit.t + ng * EPS;
     // The bounce reads last frame's half -- SH and moments -- with visibility,

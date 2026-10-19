@@ -29,32 +29,12 @@ struct Surface {
     /// The sun's colour and the ambient: `LightData::default()`'s unless a
     /// test darkens them.
     sun: Option<(Vec3, Vec3)>,
-    /// Held for the surface's life, so this file's GPU tests run one at a
-    /// time. Last, so it is released after the surface has drained its GPU
-    /// work.
-    _serial: std::sync::MutexGuard<'static, ()>,
-}
-
-/// One GPU test at a time in this process. libtest runs tests on parallel
-/// threads, and on Windows CI's WARP that is fatal here: WARP runs no queue
-/// work while it compiles a pipeline, so a test's frame submitted beside
-/// another test's minute-long compile of the update waits on its fence past
-/// wgpu's 60 s limit, and wgpu 22 then frees what the GPU still uses (exit
-/// 2173; `realtime_gi::PipelineState`). The engine builds that compile in
-/// place on a software adapter, which covers a frame on its own thread --
-/// only another thread's frame gets past it, and a game renders on one.
-static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn serial() -> std::sync::MutexGuard<'static, ()> {
-    // A test that failed holding it poisons it; the next one still runs.
-    SERIAL.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 impl Surface {
     /// With one quad, `corners` in counter-clockwise order as seen from its
     /// front, emitting `emissive`.
     fn new(corners: [Vec3; 4], emissive: Vec3) -> Self {
-        let serial = serial();
         let surface = WgpuSurface::offscreen_for_testing(64, 64)
             .expect("these tests need an adapter; a skip would look like a pass");
         let registry = GpuMeshRegistry::new(surface.device_arc());
@@ -64,7 +44,6 @@ impl Surface {
             draw_calls: Vec::new(),
             camera: (Mat4::IDENTITY, Vec3::new(0.0, 0.0, 5.0)),
             sun: None,
-            _serial: serial,
         };
         s.push_quad(corners, emissive);
         s
@@ -180,9 +159,6 @@ impl Surface {
 #[cfg(windows)]
 #[test]
 fn the_update_compiles_for_d3d12() {
-    // Its own device, but the same WARP on CI: its compile would stall the
-    // others' queues just the same.
-    let _serial = serial();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::DX12,
         ..Default::default()

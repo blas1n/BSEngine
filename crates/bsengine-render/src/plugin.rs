@@ -1030,6 +1030,9 @@ fn render_frame(
     let reflection_probes: Vec<bsengine_rhi_wgpu::ReflectionProbeParams> =
         reflection_probes.into_iter().map(|(_, p)| p).collect();
 
+    // A realtime volume is passed here too, and the surface does not bake it:
+    // `feed_realtime_gi` has handed it to the realtime update, which owns the
+    // grid while it runs (one rule, in one place: `WgpuSurface::render_frame`).
     let light_probes = probe_volumes.iter().next().map(|(volume, t, gt)| {
         let centre = gt
             .map(|g| g.to_matrix().w_axis.truncate())
@@ -1505,6 +1508,7 @@ impl Plugin for RenderPlugin {
                     rebuild_modified_shaders,
                     sync_skybox,
                     sync_color_lut,
+                    crate::realtime_gi::feed_realtime_gi,
                     render_frame,
                 )
                     .chain(),

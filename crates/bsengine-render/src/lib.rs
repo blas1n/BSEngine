@@ -13,12 +13,16 @@
 
 /// ECS components describing renderable entities (currently `MeshRenderer`).
 pub mod components;
+/// The scene as global illumination sees it.
+pub mod gi_scene;
 /// Pure hysteresis LOD-level selection.
 pub mod lod;
 /// GPU-free software occlusion culling: conservative occluder rasterization.
 pub mod occlusion;
 /// The Bevy `Plugin` wiring transform propagation and frame rendering into the app schedule.
 pub mod plugin;
+/// Feeds the realtime light-probe volume.
+mod realtime_gi;
 /// Custom WGSL shader source asset and its loader.
 pub mod shader_asset;
 /// Turning a texture path into a `Material.texture_id`.

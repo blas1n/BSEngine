@@ -72,6 +72,13 @@ impl World<'_> {
         result
     }
 
+    /// Radiance arriving at `origin` from `dir`, bounces and all: what one
+    /// ray of a light probe sees. The reference the renderer's realtime probe
+    /// volume is held to.
+    pub fn radiance(&self, origin: Vec3, dir: Vec3, rng: &mut Rng) -> Vec3 {
+        self.incoming(origin, dir, 1, rng)
+    }
+
     /// Radiance arriving at `origin` from `dir`.
     fn incoming(&self, origin: Vec3, dir: Vec3, depth: u32, rng: &mut Rng) -> Vec3 {
         let Some(hit) = self.bvh.closest(origin, dir, f32::INFINITY) else {

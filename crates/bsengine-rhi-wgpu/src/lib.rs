@@ -57,6 +57,8 @@ pub mod post_process;
 /// Frame/GPU statistics: texture memory tracking, draw-call/triangle
 /// counting, and feature-gated GPU pass timing.
 pub mod profiler;
+/// The realtime light-probe volume: probes ray traced every frame.
+pub mod realtime_gi;
 /// Spherical-harmonic (L2) projection, irradiance evaluation and trilinear
 /// blending for light probes.
 pub mod sh;

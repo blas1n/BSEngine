@@ -1,4 +1,5 @@
-//! Baked light-probe volume for indirect lighting.
+//! Light-probe volume for indirect lighting: baked once, or kept up to date
+//! by ray tracing every frame.
 
 use crate::ReflectVec3;
 use bevy_ecs::prelude::{Component, ReflectComponent};
@@ -22,8 +23,27 @@ pub const MAX_PROBES: usize = 4096;
 // Every baked volume has to fit the grid it is uploaded into.
 const _: () = assert!(MAX_BAKED_PROBES <= MAX_PROBES);
 
-/// A box filled with a regular grid of baked light probes, giving
-/// position-varying indirect light inside it.
+/// How a [`LightProbeVolume`]'s probes get their light.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Reflect)]
+#[reflect(Default)]
+pub enum ProbeUpdate {
+    /// Baked once, when the volume appears or changes, by capturing the scene
+    /// around each probe. Sees everything the camera would, moving objects
+    /// and textures included, but not what changes afterwards. At most
+    /// [`MAX_BAKED_PROBES`] probes.
+    #[default]
+    Once,
+    /// Ray traced every frame against the static (`LightmapStatic`) geometry
+    /// with the current lights and sky, bounce after bounce: lights switched
+    /// on, off or moved, and the sky changing, show in the indirect light a
+    /// few frames later. Moving objects receive this light but do not bounce
+    /// or block it, and surfaces bounce their material's base colour (no
+    /// textures). At most [`MAX_PROBES`] probes.
+    Realtime,
+}
+
+/// A box filled with a regular grid of light probes, giving position-varying
+/// indirect light inside it.
 ///
 /// Probes sit on the grid's **lattice points**, not cell centres: trilinear
 /// interpolation is defined by the eight corners of a cell, so corner
@@ -36,8 +56,19 @@ pub struct LightProbeVolume {
     /// Half-extents of the box, relative to the entity's `Transform`.
     pub half_extents: ReflectVec3,
     /// Probe count along each axis. The product is clamped to
-    /// [`MAX_BAKED_PROBES`]. `[4, 2, 4]` gives exactly 32.
+    /// [`MAX_BAKED_PROBES`] for a baked volume and [`MAX_PROBES`] for a
+    /// realtime one. `[4, 2, 4]` gives exactly 32.
     pub resolution: [u32; 3],
+    /// Baked once, or ray traced every frame.
+    pub update: ProbeUpdate,
+    /// Realtime only: rays each probe traces per update. More is less noise
+    /// for more time. Rounded up to a multiple of 64 (one per thread of the
+    /// update's workgroup) and clamped to 64..=256.
+    pub rays_per_probe: u32,
+    /// Realtime only: how much of a probe's previous light each update keeps,
+    /// 0..1. Higher is smoother and slower to follow a change; the DDGI
+    /// default of 0.97 settles in about a hundred updates.
+    pub hysteresis: f32,
 }
 
 impl Default for LightProbeVolume {
@@ -45,20 +76,24 @@ impl Default for LightProbeVolume {
         Self {
             half_extents: glam::Vec3::splat(5.0).into(),
             resolution: [4, 2, 4],
+            update: ProbeUpdate::Once,
+            rays_per_probe: 64,
+            hysteresis: 0.97,
         }
     }
 }
 
 impl LightProbeVolume {
     /// Resolution with each axis at least 2 (one probe per axis cannot
-    /// interpolate) and the product clamped to [`MAX_BAKED_PROBES`].
+    /// interpolate) and the product clamped to [`Self::max_probes`].
     pub fn clamped_resolution(&self) -> [u32; 3] {
+        let max = self.max_probes();
         let mut r = [
             self.resolution[0].max(2),
             self.resolution[1].max(2),
             self.resolution[2].max(2),
         ];
-        while (r[0] * r[1] * r[2]) as usize > MAX_BAKED_PROBES {
+        while (r[0] * r[1] * r[2]) as usize > max {
             // Shrink the largest axis first, keeping the grid as even as
             // possible rather than collapsing one direction.
             let largest = if r[0] >= r[1] && r[0] >= r[2] {
@@ -74,6 +109,29 @@ impl LightProbeVolume {
             r[largest] -= 1;
         }
         r
+    }
+
+    /// How many probes this volume may hold: the bake's limit, or the grid's.
+    pub fn max_probes(&self) -> usize {
+        match self.update {
+            ProbeUpdate::Once => MAX_BAKED_PROBES,
+            ProbeUpdate::Realtime => MAX_PROBES,
+        }
+    }
+
+    /// [`Self::rays_per_probe`] as the update runs it: a multiple of 64 in
+    /// 64..=256.
+    pub fn clamped_rays_per_probe(&self) -> u32 {
+        self.rays_per_probe.clamp(64, 256).div_ceil(64) * 64
+    }
+
+    /// [`Self::hysteresis`] in 0..=0.999: 1 would never let a probe change.
+    pub fn clamped_hysteresis(&self) -> f32 {
+        if self.hysteresis.is_finite() {
+            self.hysteresis.clamp(0.0, 0.999)
+        } else {
+            0.97
+        }
     }
 }
 
@@ -100,6 +158,45 @@ mod tests {
             r.iter().all(|&a| a >= 2),
             "every axis must keep >= 2 probes"
         );
+    }
+
+    /// A realtime volume is held to the grid, not to the bake: the same
+    /// 16^3 request is 4096 probes realtime and at most 32 baked.
+    #[test]
+    fn a_realtime_volume_may_hold_the_whole_grid() {
+        let realtime = LightProbeVolume {
+            resolution: [16, 16, 16],
+            update: ProbeUpdate::Realtime,
+            ..Default::default()
+        };
+        assert_eq!(realtime.clamped_resolution(), [16, 16, 16]);
+        let baked = LightProbeVolume {
+            update: ProbeUpdate::Once,
+            ..realtime
+        };
+        let r = baked.clamped_resolution();
+        assert!((r[0] * r[1] * r[2]) as usize <= MAX_BAKED_PROBES, "{r:?}");
+        let over = LightProbeVolume {
+            resolution: [32, 32, 32],
+            ..realtime
+        };
+        let r = over.clamped_resolution();
+        assert!((r[0] * r[1] * r[2]) as usize <= MAX_PROBES, "{r:?}");
+    }
+
+    #[test]
+    fn rays_and_hysteresis_are_clamped_to_what_the_update_runs() {
+        let v = |rays, h| LightProbeVolume {
+            rays_per_probe: rays,
+            hysteresis: h,
+            ..Default::default()
+        };
+        assert_eq!(v(0, 0.5).clamped_rays_per_probe(), 64);
+        assert_eq!(v(65, 0.5).clamped_rays_per_probe(), 128);
+        assert_eq!(v(1000, 0.5).clamped_rays_per_probe(), 256);
+        assert_eq!(v(64, 2.0).clamped_hysteresis(), 0.999);
+        assert_eq!(v(64, -1.0).clamped_hysteresis(), 0.0);
+        assert_eq!(v(64, f32::NAN).clamped_hysteresis(), 0.97);
     }
 
     #[test]

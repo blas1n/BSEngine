@@ -193,7 +193,11 @@ impl GpuMeshRegistry {
         self.build_with_usage(
             vertices,
             indices,
-            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            // COPY_SRC: the realtime probe volume reads a static mesh back
+            // to trace against (`crate::realtime_gi`).
+            wgpu::BufferUsages::VERTEX
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
         )
     }
 
@@ -217,7 +221,7 @@ impl GpuMeshRegistry {
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("mesh ibo"),
                 contents: bytemuck::cast_slice(indices),
-                usage: wgpu::BufferUsages::INDEX,
+                usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_SRC,
             });
         GpuMesh {
             vertex_buffer,

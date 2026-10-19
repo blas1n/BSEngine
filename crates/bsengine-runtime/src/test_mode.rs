@@ -49,6 +49,9 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>, fast_rend
     app.insert_resource(bsengine_core::MsaaSettings {
         samples: manifest.render.msaa,
     });
+    app.insert_resource(bsengine_core::GiSettings {
+        rays_per_frame: manifest.render.gi_rays_per_frame,
+    });
     app.insert_resource(bsengine_core::ShadowSettings {
         distance: manifest.render.shadow_distance,
         cascades: manifest.render.shadow_cascades,

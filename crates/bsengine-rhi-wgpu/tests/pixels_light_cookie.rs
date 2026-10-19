@@ -337,6 +337,7 @@ fn probes_are_baked_with_the_cookie() {
     let probes = bsengine_core::LightProbeVolume {
         half_extents: Vec3::new(2.5, 1.5, 2.5).into(),
         resolution: [4, 2, 4],
+        ..Default::default()
     };
     // Pointing +X, at the wall's face 1.35 units away.
     let at_wall = Quat::from_rotation_y(-std::f32::consts::FRAC_PI_2);

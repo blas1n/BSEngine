@@ -5,6 +5,8 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+# `realtime_gi`: the lightmap bake's tracer (`gpu_scene`), shared.
+bsengine-bake.workspace = true
 bsengine-core.workspace = true
 bsengine-ecs.workspace = true
 bsengine-input.workspace = true

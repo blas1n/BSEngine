@@ -18,7 +18,7 @@ use bsengine_core::{
     DirectionalLight, GlobalTransform, LightBakeMode, LightmapStatic, Material, PointLight,
     RectLight, SkyboxPath, SpotLight, Transform,
 };
-use glam::{Mat3, Mat4, Vec2, Vec3};
+use glam::{Mat3, Mat4, Vec3};
 
 /// One static entity, as GI needs it.
 #[derive(Clone, Debug, PartialEq)]
@@ -65,7 +65,9 @@ pub fn static_rows(world: &mut World) -> Vec<StaticRow> {
         .collect()
 }
 
-/// `row`'s mesh in world space, appended to `out` as `renderer`'s triangles.
+/// `row`'s mesh in world space, appended to `out` as `renderer`'s triangles
+/// -- [`bsengine_rhi_wgpu::realtime_gi::world_triangles`], the conversion the
+/// realtime update makes of the same mesh.
 pub fn world_triangles(
     vertices: &[bsengine_rhi_wgpu::mesh::Vertex],
     indices: &[u32],
@@ -73,19 +75,15 @@ pub fn world_triangles(
     renderer: u32,
     out: &mut Vec<BakeTriangle>,
 ) {
-    let normal_matrix = Mat3::from_mat4(row.model).inverse().transpose();
-    for tri in indices.chunks_exact(3) {
-        let v = |k: usize| &vertices[tri[k] as usize];
-        out.push(BakeTriangle {
-            positions: [0, 1, 2].map(|k| row.model.transform_point3(Vec3::from(v(k).position))),
-            normals: [0, 1, 2]
-                .map(|k| (normal_matrix * Vec3::from(v(k).normal)).normalize_or_zero()),
-            uv2: [0, 1, 2].map(|k| Vec2::from(v(k).uv2)),
-            albedo: row.albedo,
-            emissive: row.emissive,
-            renderer,
-        });
-    }
+    bsengine_rhi_wgpu::realtime_gi::world_triangles(
+        vertices,
+        indices,
+        row.model,
+        row.albedo,
+        row.emissive,
+        renderer,
+        out,
+    );
 }
 
 /// The bake's rule: a `Realtime` light is not baked at all, `Indirect` only

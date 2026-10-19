@@ -125,26 +125,12 @@ struct LightUniform {
 // shadow sampler, which no shader declares (the cube lookup uses textureLoad)
 // but which is bound all the same, as a non-filtering sampler.
 @group(2) @binding(8) var ibl_sampler: sampler;
-// The light-probe grid: a header, then nine L2 SH coefficients per probe, x
-// fastest, then y, then z. A storage buffer sized for MAX_PROBES (4096) probes
-// -- the uniform array it replaced topped out at 32, which a ray-traced grid
-// outgrows -- allocated once and bound in every frame, exactly like the IBL
-// maps: a bind group layout is fixed at creation, so a scene with no volume
-// uploads `enabled: 0` rather than skipping the binding.
-struct ProbeGrid {
-    // World-space minimum corner of the volume.
-    origin: vec3<f32>,
-    enabled: u32,
-    // World-space size of the volume (full extent, not half).
-    extent: vec3<f32>,
-    _pad0: f32,
-    // Probes per axis, sitting on the grid's lattice points.
-    resolution: vec3<u32>,
-    _pad1: u32,
-    // vec4 rather than vec3: a vec3 array element is padded to 16 bytes, and
-    // the CPU writes [f32; 4] per coefficient to match.
-    coeffs: array<vec4<f32>>,
-};
+// The light-probe grid (`ProbeGrid` and its lookup are
+// `realtime_gi::probe_grid_wgsl`, shared with the realtime update). A storage
+// buffer of two halves of MAX_PROBES (4096) probes, allocated once and bound in
+// every frame, exactly like the IBL maps: a bind group layout is fixed at
+// creation, so a scene with no volume uploads `enabled: 0` rather than
+// skipping the binding.
 @group(2) @binding(9) var<storage, read> probes: ProbeGrid;
 // The decal normal buffer. Its rgb holds `sum(encoded * a)` and its alpha
 // `product(1 - a)`, so the decals' contribution decodes as
@@ -423,87 +409,6 @@ fn reflection_probe_dir(e: ReflectionProbeEntry, world_pos: vec3<f32>, r: vec3<f
     return world_pos + r * t - e.center;
 }
 
-// True when `world_pos` is inside the baked volume's box. Outside it there are
-// no surrounding probes to interpolate between, so the IBL path stands.
-fn inside_probe_volume(world_pos: vec3<f32>) -> bool {
-    let local = world_pos - probes.origin;
-    return all(local >= vec3<f32>(0.0, 0.0, 0.0)) && all(local <= probes.extent);
-}
-// `world_pos` in lattice units. Probes sit on the grid's *corners*, so a volume
-// with `resolution` probes along an axis spans `resolution - 1` cells, and the
-// last probe lands exactly on the far face rather than one cell short of it.
-fn probe_grid_coord(world_pos: vec3<f32>) -> vec3<f32> {
-    let cells = max(vec3<f32>(probes.resolution) - vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 1.0, 1.0));
-    let extent = max(probes.extent, vec3<f32>(1e-6, 1e-6, 1e-6));
-    let t = (world_pos - probes.origin) / extent;
-    return clamp(t, vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0)) * cells;
-}
-// Index of probe (ix, iy, iz)'s first coefficient. x fastest, then y, then z --
-// the same order the CPU walks the lattice in when it uploads them.
-fn probe_coeff_base(ix: u32, iy: u32, iz: u32) -> u32 {
-    let idx = (iz * probes.resolution.y + iy) * probes.resolution.x + ix;
-    // MAX_PROBES - 1: the buffer always holds that many. A resolution the CPU
-    // side never produces would otherwise read past the end of it.
-    return min(idx, 4095u) * 9u;
-}
-// The probe grid's irradiance at `world_pos` for a surface facing `n`, in the
-// same units the irradiance cube stores: E / PI, with the Lambert BRDF's 1/PI
-// folded in, so callers write `* albedo` with no stray constant exactly as the
-// IBL path does.
-//
-// The eight surrounding probes' COEFFICIENTS are blended and the result
-// evaluated once, rather than evaluating eight probes and blending the results.
-// SH evaluation is linear in the coefficients, so the two are equivalent -- and
-// this one does an eighth of the evaluation work.
-fn eval_probe_sh(world_pos: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
-    let g = probe_grid_coord(world_pos);
-    let last = vec3<i32>(probes.resolution) - vec3<i32>(1, 1, 1);
-    let i0 = clamp(vec3<i32>(floor(g)), vec3<i32>(0, 0, 0), last);
-    let i1 = min(i0 + vec3<i32>(1, 1, 1), last);
-    let frac = clamp(g - floor(g), vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0));
-
-    var blended: array<vec4<f32>, 9>;
-    for (var c: u32 = 0u; c < 9u; c++) {
-        blended[c] = vec4<f32>(0.0, 0.0, 0.0, 0.0);
-    }
-    // Corner bit 0 is x, bit 1 is y, bit 2 is z -- the same ordering
-    // `trilinear_weights` in sh.rs uses, so the two cannot disagree.
-    for (var corner: u32 = 0u; corner < 8u; corner++) {
-        let hi_x = (corner & 1u) != 0u;
-        let hi_y = (corner & 2u) != 0u;
-        let hi_z = (corner & 4u) != 0u;
-        let w = select(1.0 - frac.x, frac.x, hi_x)
-            * select(1.0 - frac.y, frac.y, hi_y)
-            * select(1.0 - frac.z, frac.z, hi_z);
-        let base = probe_coeff_base(
-            u32(select(i0.x, i1.x, hi_x)),
-            u32(select(i0.y, i1.y, hi_y)),
-            u32(select(i0.z, i1.z, hi_z)),
-        );
-        for (var c: u32 = 0u; c < 9u; c++) {
-            blended[c] = blended[c] + probes.coeffs[base + c] * w;
-        }
-    }
-
-    // Cosine-lobe convolution constants: the per-band factors that turn a
-    // radiance expansion into the irradiance a Lambertian surface receives.
-    // Identical to `ShL2::eval_irradiance` in sh.rs, which asserts them.
-    let a0 = 3.141593;
-    let a1 = 2.094395;
-    let a2 = 0.785398;
-    var e = blended[0].rgb * (0.282095 * a0);
-    e = e + blended[1].rgb * (0.488603 * n.y * a1);
-    e = e + blended[2].rgb * (0.488603 * n.z * a1);
-    e = e + blended[3].rgb * (0.488603 * n.x * a1);
-    e = e + blended[4].rgb * (1.092548 * n.x * n.y * a2);
-    e = e + blended[5].rgb * (1.092548 * n.y * n.z * a2);
-    e = e + blended[6].rgb * (0.315392 * (3.0 * n.z * n.z - 1.0) * a2);
-    e = e + blended[7].rgb * (1.092548 * n.x * n.z * a2);
-    e = e + blended[8].rgb * (0.546274 * (n.x * n.x - n.y * n.y) * a2);
-    // Ringing in a truncated expansion can drive irradiance below zero, which
-    // would darken a surface rather than light it.
-    return max(e, vec3<f32>(0.0, 0.0, 0.0)) / PI;
-}
 struct SceneOut {
     @location(0) colour: vec4<f32>,
     // World normal in rgb, roughness in alpha -- what a reflection ray needs to
@@ -716,7 +621,8 @@ fn fs_main(in: VertOut) -> SceneOut {
     crate::area_light::rect_light_wgsl!(),
     crate::cookie::cookie_wgsl!(),
     crate::lightmap::lightmap_wgsl!(),
-    crate::spot_shadow::spot_shadow_wgsl!()
+    crate::spot_shadow::spot_shadow_wgsl!(),
+    crate::realtime_gi::probe_grid_wgsl!()
 );
 
 const TERRAIN_WGSL: &str = concat!(
@@ -1852,32 +1758,35 @@ const PROBE_CAPTURE_RANGE: f32 = 200.0;
 const PROBE_CAPTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 /// Bytes of [`ProbeGridHeader`]: the part of `ProbeGrid` in [`MESH_WGSL`]
 /// before its runtime-sized `coeffs` array.
-const PROBE_GRID_HEADER_SIZE: u64 = 48;
+pub(crate) const PROBE_GRID_HEADER_SIZE: u64 = 48;
 /// Bytes of one probe's coefficients: nine `vec4<f32>`.
-const PROBE_COEFFS_SIZE: u64 = (crate::sh::SH_COEFF_COUNT * 16) as u64;
-/// The probe buffer's whole size: the header and [`bsengine_core::MAX_PROBES`]
-/// probes, about 576 KiB. Allocated once, whatever the scene.
+pub(crate) const PROBE_COEFFS_SIZE: u64 = (crate::sh::SH_COEFF_COUNT * 16) as u64;
+/// The probe buffer's whole size: the header and two halves of
+/// [`bsengine_core::MAX_PROBES`] probes, about 1.1 MiB. A baked volume uses
+/// the first half; a realtime one alternates between them
+/// (`crate::realtime_gi`). Allocated once, whatever the scene.
 const PROBE_GRID_SIZE: u64 =
-    PROBE_GRID_HEADER_SIZE + PROBE_COEFFS_SIZE * bsengine_core::MAX_PROBES as u64;
+    PROBE_GRID_HEADER_SIZE + 2 * PROBE_COEFFS_SIZE * bsengine_core::MAX_PROBES as u64;
 
 /// The header of `ProbeGrid` in [`MESH_WGSL`]; the coefficients follow it in
 /// the same buffer, written separately (see [`WgpuSurface::bake_probes`]) so
 /// that no 576 KiB struct is ever built on a stack.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
-struct ProbeGridHeader {
+pub(crate) struct ProbeGridHeader {
     /// World-space minimum corner of the volume.
-    origin: [f32; 3],
+    pub(crate) origin: [f32; 3],
     /// Nonzero when probe GI should be sampled at all. Zero is what a scene
     /// with no volume uploads: a bind group layout is fixed at creation, so
     /// the binding cannot simply be skipped.
-    enabled: u32,
+    pub(crate) enabled: u32,
     /// World-space size of the volume (full extent, not half).
-    extent: [f32; 3],
-    _pad0: f32,
+    pub(crate) extent: [f32; 3],
+    pub(crate) _pad0: f32,
     /// Probes per axis, on the grid's lattice points.
-    resolution: [u32; 3],
-    _pad1: u32,
+    pub(crate) resolution: [u32; 3],
+    /// The half to shade with, as a probe index: 0 or `MAX_PROBES`.
+    pub(crate) coeff_offset: u32,
 }
 
 // The coefficients are written at this offset, and the shader reads them from
@@ -1889,7 +1798,7 @@ const _: () = assert!(
 );
 
 /// What [`WgpuSurface::read_probe_grid`] read: the header's fields, and nine
-/// coefficients per probe for the first [`bsengine_core::MAX_BAKED_PROBES`].
+/// coefficients per probe of the half shading reads.
 #[cfg(test)]
 struct ProbeGridReadback {
     enabled: u32,
@@ -3192,6 +3101,15 @@ pub struct WgpuSurface {
     /// with zeroed coefficients rather than as a missing binding -- the same
     /// arrangement [`Self::dummy_ibl_cube_view`] gives the IBL maps.
     probe_buffer: wgpu::Buffer,
+    /// The realtime probe volume's update pass, made the first frame one is
+    /// asked for.
+    realtime_gi: Option<crate::realtime_gi::RealtimeGi>,
+    /// This frame's realtime volume ([`Self::set_realtime_gi`]); taken by
+    /// `render_frame`, so a frame that does not set it has none.
+    realtime_gi_input: Option<crate::realtime_gi::RealtimeGiInput>,
+    /// Whether [`Self::probe_buffer`] holds a realtime volume's grid, which
+    /// the baked path must then leave alone.
+    realtime_gi_active: bool,
     /// The volume [`Self::probe_buffer`]'s contents were baked for, or `None`
     /// when nothing has been baked and the buffer is still the zeroed,
     /// `enabled: 0` one construction wrote.
@@ -5305,6 +5223,9 @@ impl WgpuSurface {
             probe_capture_uniform_buffer,
             probe_capture_bind_group,
             probe_buffer,
+            realtime_gi: None,
+            realtime_gi_input: None,
+            realtime_gi_active: false,
             // Nothing baked yet, and `probe_buffer` was just zeroed to match.
             baked_probe_volume: None,
             reflection_probe_buffer,
@@ -6431,14 +6352,20 @@ impl WgpuSurface {
             .write_buffer(&self.reflection_probe_buffer, 0, bytemuck::bytes_of(&data));
     }
 
-    /// Reads [`Self::probe_buffer`] back -- the header and the first
-    /// [`bsengine_core::MAX_BAKED_PROBES`] probes -- so a test can assert on
+    /// The realtime probe volume for the next frame, or `None` for none. Set
+    /// every frame a realtime volume should update: `render_frame` takes it,
+    /// and a frame without one hands the grid back to the baked path.
+    pub fn set_realtime_gi(&mut self, input: Option<crate::realtime_gi::RealtimeGiInput>) {
+        self.realtime_gi_input = input;
+    }
+
+    /// Reads [`Self::probe_buffer`] back -- the header and the half it names
+    /// for shading -- so a test can assert on
     /// what the shader is actually about to sample rather than on a CPU-side
     /// mirror of it. Blocks on a buffer map; not for use in a frame.
     #[cfg(test)]
     fn read_probe_grid(&self) -> ProbeGridReadback {
-        let size =
-            PROBE_GRID_HEADER_SIZE + PROBE_COEFFS_SIZE * bsengine_core::MAX_BAKED_PROBES as u64;
+        let size = PROBE_GRID_SIZE;
         let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("probe grid readback"),
             size,
@@ -6465,8 +6392,11 @@ impl WgpuSurface {
         let bytes = slice.get_mapped_range();
         let header =
             *bytemuck::from_bytes::<ProbeGridHeader>(&bytes[..PROBE_GRID_HEADER_SIZE as usize]);
+        // The half the header names, `MAX_PROBES` probes of it.
+        let half = PROBE_GRID_HEADER_SIZE as usize
+            + header.coeff_offset as usize * PROBE_COEFFS_SIZE as usize;
         let coeffs = bytemuck::cast_slice::<u8, [[f32; 4]; crate::sh::SH_COEFF_COUNT]>(
-            &bytes[PROBE_GRID_HEADER_SIZE as usize..],
+            &bytes[half..half + PROBE_COEFFS_SIZE as usize * bsengine_core::MAX_PROBES],
         )
         .to_vec();
         drop(bytes);
@@ -6876,13 +6806,46 @@ impl WgpuSurface {
         // "clear to nothing occludes anything" is for shadows. Folding it into
         // the comparison rather than guarding the call keeps a fast_render
         // surface at zero bakes rather than one per frame.
-        let volume_to_bake = if self.fast_render { None } else { light_probes };
+        // --- realtime probe volume ---
+        // Here for the reason the bake below is: the light and model
+        // uniforms are written, the frame's encoder does not exist yet, and
+        // the update submits on its own, ahead of the frame in queue order.
+        // While it owns the grid the bake leaves it alone; the frame it ends,
+        // the grid is cleared and the bake's cache forgotten, so a baked
+        // volume (if any) is baked afresh rather than shadowed by a stale
+        // realtime header.
+        let realtime = if self.fast_render {
+            None
+        } else {
+            self.realtime_gi_input.take()
+        };
+        if let Some(input) = realtime {
+            let device = &self.device;
+            let gi = self
+                .realtime_gi
+                .get_or_insert_with(|| crate::realtime_gi::RealtimeGi::new(device));
+            gi.update(device, &self.queue, registry, &self.probe_buffer, &input);
+            self.realtime_gi_active = true;
+        } else if self.realtime_gi_active {
+            self.realtime_gi_active = false;
+            if let Some(gi) = &mut self.realtime_gi {
+                gi.reset();
+            }
+            self.bake_probes(cascades, draw_calls, registry, tex_registry, None);
+            self.baked_probe_volume = None;
+        }
+
+        let volume_to_bake = if self.fast_render || self.realtime_gi_active {
+            None
+        } else {
+            light_probes
+        };
         // A bake happens only when the volume appears or its own parameters
         // change. Note this tracks the *volume*, not the scene inside it:
         // moving a wall after load does not re-bake, and the floor keeps the
         // colour that wall used to bleed onto it. That is the accepted cost of
         // baking once, which is what item 48 asked for.
-        if self.baked_probe_volume != volume_to_bake {
+        if !self.realtime_gi_active && self.baked_probe_volume != volume_to_bake {
             self.bake_probes(cascades, draw_calls, registry, tex_registry, volume_to_bake);
             self.baked_probe_volume = volume_to_bake;
         }
@@ -10545,7 +10508,7 @@ mod tests {
                 extent: volume.extent.to_array(),
                 _pad0: 0.0,
                 resolution: volume.resolution,
-                _pad1: 0,
+                coeff_offset: 0,
             };
             let mut coeffs = vec![[0.0f32; 4]; MAX_PROBES * crate::sh::SH_COEFF_COUNT];
             for probe in first_lit..MAX_PROBES {
@@ -10572,6 +10535,262 @@ mod tests {
         assert!(
             (0..3).all(|c| lit[c] as i32 > dark[c] as i32 + 30),
             "probes past {MAX_BAKED_PROBES} must light the quad: {dark:?} -> {lit:?}"
+        );
+    }
+
+    // ---- the realtime probe volume -------------------------------------------
+
+    /// A scene for the realtime volume: [`ProbeBakeScene`]'s surface and
+    /// registry, with quads registered as the static set (their draws are
+    /// irrelevant -- realtime GI traces `statics`, not the draw list).
+    struct GiScene {
+        scene: ProbeBakeScene,
+        statics: Vec<crate::realtime_gi::GiStatic>,
+        lights: Vec<bsengine_bake::BakeLight>,
+        sky: std::sync::Arc<bsengine_bake::Sky>,
+    }
+
+    /// Four corners of a quad from `min` along `u` and `v`, facing `u x v`.
+    fn quad_corners(min: Vec3, u: Vec3, v: Vec3) -> [Vec3; 4] {
+        [min, min + u, min + u + v, min + v]
+    }
+
+    impl GiScene {
+        fn new(sky: Vec3) -> Self {
+            // A first quad far away, so `ProbeBakeScene` has its surface; not
+            // a static.
+            let scene = ProbeBakeScene::new(
+                quad_corners(Vec3::new(500.0, 0.0, 0.0), Vec3::X, Vec3::Y),
+                Vec3::ZERO,
+            );
+            Self {
+                scene,
+                statics: Vec::new(),
+                lights: Vec::new(),
+                sky: std::sync::Arc::new(bsengine_bake::Sky::Uniform(sky)),
+            }
+        }
+
+        fn add(&mut self, corners: [Vec3; 4], albedo: Vec3, emissive: Vec3) {
+            self.scene.push_quad(corners, Vec3::ZERO);
+            let mesh_id = self.scene.draw_calls.last().unwrap().0;
+            self.statics.push(crate::realtime_gi::GiStatic {
+                mesh_id,
+                model: Mat4::IDENTITY,
+                albedo,
+                emissive,
+            });
+        }
+
+        fn input(
+            &self,
+            volume: ProbeVolumeParams,
+            hysteresis: f32,
+            rays_per_frame: u32,
+        ) -> crate::realtime_gi::RealtimeGiInput {
+            crate::realtime_gi::RealtimeGiInput {
+                volume,
+                rays_per_probe: 256,
+                hysteresis,
+                rays_per_frame,
+                statics: self.statics.clone(),
+                lights: self.lights.clone(),
+                sky: self.sky.clone(),
+            }
+        }
+
+        fn updates(&self) -> u32 {
+            self.scene
+                .surface
+                .realtime_gi
+                .as_ref()
+                .map_or(0, |g| g.updates)
+        }
+
+        /// Frames until `n` more updates have run. The first waits for the
+        /// static meshes to come back from the GPU, which takes a frame or a
+        /// few -- polled, never assumed (a fixed count is what flakes on a
+        /// cold CI machine).
+        fn run(&mut self, input: &crate::realtime_gi::RealtimeGiInput, n: u32) {
+            let target = self.updates() + n;
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            while self.updates() < target {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "the realtime volume never updated ({} of {target})",
+                    self.updates()
+                );
+                self.scene.surface.set_realtime_gi(Some(input.clone()));
+                self.scene.render(None).expect("the frame renders");
+            }
+        }
+
+        /// Probe `probe`'s E / PI for a surface facing `n`, as shading reads it.
+        fn irradiance(&self, probe: usize, n: Vec3) -> Vec3 {
+            let grid = self.scene.surface.read_probe_grid();
+            let c = grid.coeffs[probe];
+            let sh = crate::sh::ShL2 {
+                coeffs: c.map(|v| Vec3::new(v[0], v[1], v[2])),
+            };
+            sh.eval_irradiance(n) / std::f32::consts::PI
+        }
+
+        /// How many of the first `n` probes have been updated at least once.
+        fn with_history(&self, n: usize) -> usize {
+            let grid = self.scene.surface.read_probe_grid();
+            grid.coeffs[..n].iter().filter(|c| c[0][3] > 0.5).count()
+        }
+    }
+
+    /// A closed unit box, every face facing in, all emissive `e` with albedo
+    /// `rho`.
+    fn furnace_scene(e: f32, rho: f32) -> GiScene {
+        let mut s = GiScene::new(Vec3::splat(100.0));
+        for (min, u, v) in [
+            (Vec3::new(0.0, 0.0, 1.0), Vec3::X, Vec3::NEG_Z),
+            (Vec3::new(0.0, 1.0, 0.0), Vec3::X, Vec3::Z),
+            (Vec3::new(0.0, 0.0, 0.0), Vec3::Y, Vec3::Z),
+            (Vec3::new(1.0, 0.0, 1.0), Vec3::Y, Vec3::NEG_Z),
+            (Vec3::new(0.0, 0.0, 0.0), Vec3::X, Vec3::Y),
+            (Vec3::new(1.0, 0.0, 1.0), Vec3::NEG_X, Vec3::Y),
+        ] {
+            s.add(quad_corners(min, u, v), Vec3::splat(rho), Vec3::splat(e));
+        }
+        s
+    }
+
+    /// A 2x2x2 grid well inside the unit box.
+    fn inner_volume() -> ProbeVolumeParams {
+        ProbeVolumeParams {
+            origin: Vec3::splat(0.3),
+            extent: Vec3::splat(0.4),
+            resolution: [2, 2, 2],
+        }
+    }
+
+    /// Closed form, the furnace: inside a closed box whose every surface
+    /// emits `e` with albedo `rho`, the radiance everywhere is the fixed point
+    /// of `L = e + rho * L`, `e / (1 - rho)`. With no history kept
+    /// (hysteresis 0), update k reads `e (1 - rho^k) / (1 - rho)` -- the
+    /// first exactly `e`, each next one a bounce more, the bounces carried
+    /// by the probes themselves. Pins the bounce term, the SH projection's
+    /// weight and the units the update writes in. The sky (100) would show
+    /// any ray that escaped.
+    #[test]
+    fn realtime_probes_in_a_furnace_follow_the_geometric_series() {
+        let (e, rho) = (0.4f32, 0.5f32);
+        let mut s = furnace_scene(e, rho);
+        let input = s.input(inner_volume(), 0.0, 1 << 20);
+        s.run(&input, 1);
+        let first = s.irradiance(0, Vec3::Y);
+        assert!(
+            (first.x - e).abs() < e * 0.01,
+            "premise: the first update sees the walls' own emission, {e}: {first}"
+        );
+        for k in 2..=12 {
+            s.run(&input, 1);
+            let want = e * (1.0 - rho.powi(k)) / (1.0 - rho);
+            let got = s.irradiance(0, Vec3::Y).x;
+            assert!(
+                (got - want).abs() < want * 0.01,
+                "update {k}: {got} vs {want}"
+            );
+        }
+        for probe in 1..8 {
+            let got = s.irradiance(probe, Vec3::NEG_X).x;
+            assert!(
+                (got - e / (1.0 - rho)).abs() < 0.01,
+                "probe {probe}, any direction: {got}"
+            );
+        }
+    }
+
+    /// The same scene, kept history: each update is `mix(sample, previous,
+    /// h)`, so the value one update after a probe's first is `e * (1 - h) +
+    /// e * h` from a sample of `e (1 + rho)` -- pinned exactly, which a
+    /// blend that ignored `h` (or ignored the history flag and blended into
+    /// the zeroed buffer) would miss.
+    #[test]
+    fn hysteresis_blends_each_update_into_the_last() {
+        let (e, rho, h) = (0.4f32, 0.5f32, 0.75f32);
+        let mut s = furnace_scene(e, rho);
+        let input = s.input(inner_volume(), h, 1 << 20);
+        s.run(&input, 1);
+        assert!(
+            (s.irradiance(0, Vec3::Y).x - e).abs() < e * 0.01,
+            "the first update takes the sample whole, history or not"
+        );
+        s.run(&input, 1);
+        let want = (1.0 - h) * e * (1.0 + rho) + h * e;
+        let got = s.irradiance(0, Vec3::Y).x;
+        assert!((got - want).abs() < want * 0.01, "{got} vs {want}");
+    }
+
+    /// The budget: rays for a quarter of the probes a frame means each
+    /// frame updates the next quarter, and four frames cover every probe
+    /// exactly -- the round robin neither skips nor repeats.
+    #[test]
+    fn the_ray_budget_updates_the_grid_a_slice_at_a_time() {
+        let mut s = furnace_scene(0.4, 0.5);
+        let volume = ProbeVolumeParams {
+            resolution: [4, 4, 4],
+            ..inner_volume()
+        };
+        let input = s.input(volume, 0.5, 256 * 16);
+        for frame in 1..=4 {
+            s.run(&input, 1);
+            assert_eq!(s.with_history(64), 16 * frame, "after {frame} frames");
+        }
+    }
+
+    /// Closed form, an open floor: under a uniform sky `S` and a sun of
+    /// irradiance `E` straight down, an infinite floor of albedo `rho`
+    /// reflects `rho * (E / pi + S)` -- its own upper hemisphere is all sky
+    /// -- and a probe above it, facing down, sees nothing but floor. So its
+    /// E / pi facing down is that radiance: 0.5 * (3/pi + 0.2) = 0.577 lit,
+    /// and 0.5 * 0.2 = 0.1 once the sun is switched off and a few updates
+    /// have run. Pins the direct-light term at a hit (the bake's own
+    /// `irradiance`, with its shadow ray), the sky, and that the lights are
+    /// uploaded every frame rather than once.
+    #[test]
+    fn a_light_switched_off_leaves_the_probes() {
+        let (sky, rho, sun) = (0.2f32, 0.5f32, 3.0f32);
+        let mut s = GiScene::new(Vec3::splat(sky));
+        s.add(
+            quad_corners(
+                Vec3::new(-50.0, 0.0, 50.0),
+                Vec3::X * 100.0,
+                Vec3::NEG_Z * 100.0,
+            ),
+            Vec3::splat(rho),
+            Vec3::ZERO,
+        );
+        s.lights = vec![bsengine_bake::BakeLight::Directional {
+            direction: Vec3::NEG_Y,
+            color: Vec3::splat(sun),
+            contribution: bsengine_bake::Contribution::Indirect,
+        }];
+        let volume = ProbeVolumeParams {
+            origin: Vec3::new(-1.0, 0.5, -1.0),
+            extent: Vec3::splat(2.0),
+            resolution: [2, 2, 2],
+        };
+        let lit_input = s.input(volume, 0.0, 1 << 20);
+        s.run(&lit_input, 6);
+        let lit = s.irradiance(0, Vec3::NEG_Y).x;
+        let want_lit = rho * (sun / std::f32::consts::PI + sky);
+        assert!(
+            (lit - want_lit).abs() < want_lit * 0.03,
+            "lit: {lit} vs {want_lit}"
+        );
+        s.lights.clear();
+        let dark_input = s.input(volume, 0.0, 1 << 20);
+        s.run(&dark_input, 6);
+        let dark = s.irradiance(0, Vec3::NEG_Y).x;
+        let want_dark = rho * sky;
+        assert!(
+            (dark - want_dark).abs() < want_dark * 0.03,
+            "the sun is off: {dark} vs {want_dark}"
         );
     }
 

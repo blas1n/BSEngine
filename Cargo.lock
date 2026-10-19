@@ -1138,6 +1138,7 @@ dependencies = [
  "bevy_reflect",
  "blake3",
  "bsengine-app",
+ "bsengine-bake",
  "bsengine-core",
  "bsengine-ecs",
  "bsengine-editor",

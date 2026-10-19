@@ -68,7 +68,7 @@ const WALL_RADIANCE: f32 = 6.0;
 
 /// A volume around the origin covering the middle of the floor.
 ///
-/// `[4, 2, 4]` is `LightProbeVolume`'s own default and exactly `MAX_PROBES`.
+/// `[4, 2, 4]` is `LightProbeVolume`'s own default and exactly `MAX_BAKED_PROBES`.
 /// Two probes on `y` put one just under the floor and one above it, which is
 /// the pair the floor's lookup interpolates between.
 fn volume() -> LightProbeVolume {

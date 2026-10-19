@@ -994,7 +994,7 @@ fn render_frame(
     // reason the occlusion pre-pass below is one: the whole query is consumed
     // here and nothing downstream holds a borrow of it.
     //
-    // Only the first volume counts. The GPU side has one `MAX_PROBES` grid,
+    // Only the first volume counts. The GPU side has one probe grid,
     // and picking silently among several would be worse than ignoring the
     // extras -- there is nothing sensible to blend between two boxes.
     //

@@ -5,10 +5,22 @@ use bevy_ecs::prelude::{Component, ReflectComponent};
 use bevy_reflect::prelude::ReflectDefault;
 use bevy_reflect::Reflect;
 
-/// Largest number of probes a single volume may hold, matching the GPU
-/// uniform array. A volume asking for more is clamped rather than
-/// rejected -- an over-specified scene should still render.
-pub const MAX_PROBES: usize = 32;
+/// Largest number of probes a baked volume may hold. A volume asking for
+/// more is clamped rather than rejected -- an over-specified scene should
+/// still render.
+///
+/// The limit is the bake's, not the grid's: every probe is captured by six
+/// scene passes into a cube array of `MAX_BAKED_PROBES * 6` layers, and 256
+/// layers is the downlevel limit a texture array may have.
+pub const MAX_BAKED_PROBES: usize = 32;
+
+/// Largest number of probes the GPU grid holds: the storage buffer the scene
+/// shader reads, and its index clamp. Larger than [`MAX_BAKED_PROBES`] so a
+/// grid filled by other means than the raster bake is not held to its limit.
+pub const MAX_PROBES: usize = 4096;
+
+// Every baked volume has to fit the grid it is uploaded into.
+const _: () = assert!(MAX_BAKED_PROBES <= MAX_PROBES);
 
 /// A box filled with a regular grid of baked light probes, giving
 /// position-varying indirect light inside it.
@@ -24,7 +36,7 @@ pub struct LightProbeVolume {
     /// Half-extents of the box, relative to the entity's `Transform`.
     pub half_extents: ReflectVec3,
     /// Probe count along each axis. The product is clamped to
-    /// [`MAX_PROBES`]. `[4, 2, 4]` gives exactly 32.
+    /// [`MAX_BAKED_PROBES`]. `[4, 2, 4]` gives exactly 32.
     pub resolution: [u32; 3],
 }
 
@@ -39,14 +51,14 @@ impl Default for LightProbeVolume {
 
 impl LightProbeVolume {
     /// Resolution with each axis at least 2 (one probe per axis cannot
-    /// interpolate) and the product clamped to [`MAX_PROBES`].
+    /// interpolate) and the product clamped to [`MAX_BAKED_PROBES`].
     pub fn clamped_resolution(&self) -> [u32; 3] {
         let mut r = [
             self.resolution[0].max(2),
             self.resolution[1].max(2),
             self.resolution[2].max(2),
         ];
-        while (r[0] * r[1] * r[2]) as usize > MAX_PROBES {
+        while (r[0] * r[1] * r[2]) as usize > MAX_BAKED_PROBES {
             // Shrink the largest axis first, keeping the grid as even as
             // possible rather than collapsing one direction.
             let largest = if r[0] >= r[1] && r[0] >= r[2] {
@@ -73,7 +85,7 @@ mod tests {
     fn default_resolution_fits_max_probes_exactly() {
         let v = LightProbeVolume::default();
         let r = v.clamped_resolution();
-        assert_eq!((r[0] * r[1] * r[2]) as usize, MAX_PROBES);
+        assert_eq!((r[0] * r[1] * r[2]) as usize, MAX_BAKED_PROBES);
     }
 
     #[test]
@@ -83,7 +95,7 @@ mod tests {
             ..Default::default()
         };
         let r = v.clamped_resolution();
-        assert!((r[0] * r[1] * r[2]) as usize <= MAX_PROBES);
+        assert!((r[0] * r[1] * r[2]) as usize <= MAX_BAKED_PROBES);
         assert!(
             r.iter().all(|&a| a >= 2),
             "every axis must keep >= 2 probes"

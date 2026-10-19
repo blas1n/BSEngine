@@ -219,18 +219,20 @@ fn ray_radiance(o: vec3<f32>, d: vec3<f32>) -> vec3<f32> {
     return tri.emissive.xyz + tri.albedo.xyz * e;
 }
 
-fn sh_basis(d: vec3<f32>) -> array<f32, 9> {
-    return array<f32, 9>(
-        0.282095,
-        0.488603 * d.y,
-        0.488603 * d.z,
-        0.488603 * d.x,
-        1.092548 * d.x * d.y,
-        1.092548 * d.y * d.z,
-        0.315392 * (3.0 * d.z * d.z - 1.0),
-        1.092548 * d.x * d.z,
-        0.546274 * (d.x * d.x - d.y * d.y),
-    );
+// The nine L2 basis functions of `d`, accumulated into `acc` times `l`.
+// Written out rather than returned as an `array<f32, 9>`: FXC, which wgpu's
+// D3D12 backend compiles HLSL with, rejects the array-returning function naga
+// emits for that ("cannot convert from 'const float[9]' to 'float'").
+fn accumulate_sh(acc: ptr<function, array<vec3<f32>, 9>>, d: vec3<f32>, l: vec3<f32>) {
+    (*acc)[0] += l * 0.282095;
+    (*acc)[1] += l * (0.488603 * d.y);
+    (*acc)[2] += l * (0.488603 * d.z);
+    (*acc)[3] += l * (0.488603 * d.x);
+    (*acc)[4] += l * (1.092548 * d.x * d.y);
+    (*acc)[5] += l * (1.092548 * d.y * d.z);
+    (*acc)[6] += l * (0.315392 * (3.0 * d.z * d.z - 1.0));
+    (*acc)[7] += l * (1.092548 * d.x * d.z);
+    (*acc)[8] += l * (0.546274 * (d.x * d.x - d.y * d.y));
 }
 
 // Every coefficient of the grid carried from the read half to the write
@@ -262,11 +264,7 @@ fn cs_update(
         rng_state = pcg(gi.frame ^ pcg(probe ^ pcg(r)));
         let d = normalize(gi.rotation * fibonacci(r, gi.rays));
         let l = ray_radiance(p, d);
-        // A `var`: naga indexes a `let` array by constants only.
-        var y = sh_basis(d);
-        for (var c = 0u; c < 9u; c++) {
-            acc[c] += l * y[c];
-        }
+        accumulate_sh(&acc, d, l);
     }
     partial[lid] = acc;
     workgroupBarrier();
@@ -818,4 +816,44 @@ fn random_rotation(frame: u32) -> Mat3 {
         b * (tau * u3).cos(),
     );
     Mat3::from_quat(q.normalize())
+}
+
+#[cfg(test)]
+mod tests {
+    /// The update compiles where Windows players run it: wgpu's D3D12
+    /// backend, through FXC. The other tests here take whatever adapter comes
+    /// first -- Vulkan, on most machines and CI's -- so a construct FXC
+    /// rejects (an array-returning function was one) passes all of them and
+    /// fails only in whichever test happens to land on D3D12.
+    #[cfg(windows)]
+    #[test]
+    fn the_update_compiles_for_d3d12() {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::DX12,
+            ..Default::default()
+        });
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::LowPower,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+        }))
+        .expect("Windows has a D3D12 adapter (WARP at worst); a skip would look like a pass");
+        let (device, _queue) = pollster::block_on(adapter.request_device(
+            &wgpu::DeviceDescriptor {
+                label: Some("d3d12 compile check"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::downlevel_defaults(),
+                memory_hints: wgpu::MemoryHints::default(),
+            },
+            None,
+        ))
+        .expect("a D3D12 device");
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let _gi = super::RealtimeGi::new(&device);
+        let error = pollster::block_on(device.pop_error_scope());
+        assert!(
+            error.is_none(),
+            "the update does not compile for D3D12: {error:?}"
+        );
+    }
 }

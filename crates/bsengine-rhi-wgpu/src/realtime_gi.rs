@@ -19,6 +19,10 @@
 //! changes -- asynchronously, so no frame waits for it, and the browser can
 //! do it too -- and built into a BVH on the CPU.
 //!
+//! Each ray's distance also goes into a 16 x 16 octahedral map of distance
+//! moments per probe, which shading uses to drop the probes that cannot see
+//! the point -- DDGI's answer to light leaking through walls.
+//!
 //! The grid's SH lives in two halves of the probe buffer. Each frame carries
 //! the half last written into the other and updates the slice there, reading
 //! the old half for the bounce term -- so no probe reads a neighbour that is
@@ -54,15 +58,82 @@ struct ProbeGrid {
     enabled: u32,
     // World-space size of the volume (full extent, not half).
     extent: vec3<f32>,
-    _pad0: f32,
+    // Bit 0: the moments below are filled (a realtime volume), so shading
+    // weighs each probe by whether it can see the point (see eval).
+    flags: u32,
     // Probes per axis, sitting on the grid's lattice points.
     resolution: vec3<u32>,
     coeff_offset: u32,
     // vec4 rather than vec3: a vec3 array element is padded to 16 bytes, and
     // the CPU writes [f32; 4] per coefficient to match. Coefficient 0's `w`
     // is the realtime update's history flag; shading reads only rgb.
+    //
+    // After the two halves of SH (2 * MAX_PROBES * 9 entries) come two halves
+    // of distance moments, MOMENT_VEC4S entries per probe: a 16 x 16
+    // octahedral map around the probe, each texel the mean distance to what
+    // the probe sees that way and its mean square, as two f16 in one u32 --
+    // four texels to an entry, all four written by one thread. Two halves for the
+    // reason the SH has two: the update's bounce term reads them too (else a
+    // wall's dark side is lit through the wall, and the leak comes back by
+    // way of the bounce), and must read last frame's. `coeff_offset` names
+    // the half of both.
     coeffs: array<vec4<f32>>,
 };
+
+// 16 x 16, DDGI's depth resolution. 8 x 8 was tried and was too coarse: a
+// texel spans ~22 degrees, so near a grazing wall the bilinear lookup mixed
+// "the wall, 1.6 away" with "nothing for 5" into a mean beyond the point --
+// and a probe behind the wall passed the test.
+const MOMENT_RES: u32 = 16u;
+const MOMENT_TEXELS: u32 = 256u;
+// Entries of `coeffs` per probe's moments: four texels each.
+const MOMENT_VEC4S: u32 = 64u;
+// 2 * MAX_PROBES * 9: where the moments start in `coeffs`.
+const MOMENTS_BASE: u32 = 73728u;
+
+// The octahedral map (Cigolle et al.): a direction to [-1, 1]^2 and back.
+fn oct_encode(d: vec3<f32>) -> vec2<f32> {
+    let p = d.xy / (abs(d.x) + abs(d.y) + abs(d.z));
+    if d.z < 0.0 {
+        let s = select(vec2<f32>(-1.0), vec2<f32>(1.0), p >= vec2<f32>(0.0));
+        return (vec2<f32>(1.0) - abs(p.yx)) * s;
+    }
+    return p;
+}
+fn oct_decode(e: vec2<f32>) -> vec3<f32> {
+    var v = vec3<f32>(e, 1.0 - abs(e.x) - abs(e.y));
+    if v.z < 0.0 {
+        let s = select(vec2<f32>(-1.0), vec2<f32>(1.0), v.xy >= vec2<f32>(0.0));
+        v = vec3<f32>((vec2<f32>(1.0) - abs(v.yx)) * s, v.z);
+    }
+    return normalize(v);
+}
+// The direction a moment texel stands for: its centre on the map.
+fn moment_texel_direction(t: u32) -> vec3<f32> {
+    let xy = vec2<f32>(f32(t % MOMENT_RES), f32(t / MOMENT_RES));
+    return oct_decode((xy + vec2<f32>(0.5)) / f32(MOMENT_RES) * 2.0 - vec2<f32>(1.0));
+}
+// Texel `t` of probe `probe`'s moments in the half at probe `offset`.
+fn moment_texel(probe: u32, t: u32, offset: u32) -> vec2<f32> {
+    let entry = probes.coeffs[MOMENTS_BASE + (offset + probe) * MOMENT_VEC4S + t / 4u];
+    return unpack2x16float(bitcast<u32>(entry[t % 4u]));
+}
+// Probe `probe`'s moments towards `d` in the half at probe `offset`,
+// bilinear between texel centres, clamped at the map's edge.
+fn probe_moments(probe: u32, d: vec3<f32>, offset: u32) -> vec2<f32> {
+    let uv = (oct_encode(d) * 0.5 + vec2<f32>(0.5)) * f32(MOMENT_RES) - vec2<f32>(0.5);
+    let base = vec2<i32>(floor(uv));
+    let f = uv - floor(uv);
+    var m = vec2<f32>(0.0);
+    for (var k = 0u; k < 4u; k++) {
+        let o = vec2<i32>(i32(k & 1u), i32(k >> 1u));
+        let c = clamp(base + o, vec2<i32>(0), vec2<i32>(i32(MOMENT_RES) - 1));
+        let w = select(1.0 - f.x, f.x, o.x == 1) * select(1.0 - f.y, f.y, o.y == 1);
+        let t = u32(c.y) * MOMENT_RES + u32(c.x);
+        m += moment_texel(probe, t, offset) * w;
+    }
+    return m;
+}
 
 // True when `world_pos` is inside the volume's box. Outside it there are
 // no surrounding probes to interpolate between, so the IBL path stands.
@@ -97,8 +168,33 @@ fn probe_coeff_base(ix: u32, iy: u32, iz: u32, offset: u32) -> u32 {
 // evaluated once, rather than evaluating eight probes and blending the results.
 // SH evaluation is linear in the coefficients, so the two are equivalent -- and
 // this one does an eighth of the evaluation work.
-fn eval_probe_sh_at(world_pos: vec3<f32>, n: vec3<f32>, offset: u32) -> vec3<f32> {
+//
+// With `visibility` (a realtime grid, whose moments are filled), each corner's
+// trilinear weight is also scaled by how much the probe faces the surface and
+// by whether it can see it at all -- DDGI's weights: a wrap-shaded back-face
+// term, and a Chebyshev test of the distance to the point against the
+// distances the probe recorded that way. A probe on the far side of a wall
+// recorded the wall, nearer than the point, and drops out; so does one buried
+// inside geometry, whose rays all met back faces. The weights are then
+// renormalised, so what is left is an interpolation between the probes that
+// can see the point.
+fn eval_probe_sh_at(world_pos: vec3<f32>, n: vec3<f32>, offset: u32, visibility: bool) -> vec3<f32> {
     let g = probe_grid_coord(world_pos);
+    let cells = max(vec3<f32>(probes.resolution) - vec3<f32>(1.0), vec3<f32>(1.0));
+    let spacing = probes.extent / cells;
+    // Off the surface, so the surface itself is not what a probe saw first:
+    // 0.3 of the probe spacing along the normal. Measured in the gi-demo room
+    // (games/gi-demo): at 0.1, and at DDGI's view-weighted bias
+    // ((0.2 n + 0.8 v) * 0.75 * 0.3 spacing, which leaves 0.045 along the
+    // normal), every surface showed one bright patch per probe -- a point
+    // that close to the surface sits right at the distance the probe
+    // recorded, and the test flickers in and out across the cells. At 0.3
+    // the patches are gone (`a_closed_room_is_lit_evenly_through_the_volume`
+    // holds it, and fails for both of the others). The price is the one DDGI
+    // documents: geometry thinner than this, or nearer a surface, can be
+    // judged from its far side.
+    let biased = world_pos + n * (0.3 * min(min(spacing.x, spacing.y), spacing.z));
+    var weight_sum = 0.0;
     let last = vec3<i32>(probes.resolution) - vec3<i32>(1, 1, 1);
     let i0 = clamp(vec3<i32>(floor(g)), vec3<i32>(0, 0, 0), last);
     let i1 = min(i0 + vec3<i32>(1, 1, 1), last);
@@ -114,17 +210,44 @@ fn eval_probe_sh_at(world_pos: vec3<f32>, n: vec3<f32>, offset: u32) -> vec3<f32
         let hi_x = (corner & 1u) != 0u;
         let hi_y = (corner & 2u) != 0u;
         let hi_z = (corner & 4u) != 0u;
-        let w = select(1.0 - frac.x, frac.x, hi_x)
+        var w = select(1.0 - frac.x, frac.x, hi_x)
             * select(1.0 - frac.y, frac.y, hi_y)
             * select(1.0 - frac.z, frac.z, hi_z);
-        let base = probe_coeff_base(
+        let ci = vec3<u32>(
             u32(select(i0.x, i1.x, hi_x)),
             u32(select(i0.y, i1.y, hi_y)),
             u32(select(i0.z, i1.z, hi_z)),
-            offset,
         );
+        if visibility {
+            let probe_pos = probes.origin + spacing * vec3<f32>(ci);
+            let to_probe = normalize(probe_pos - world_pos);
+            let wrap = (dot(to_probe, n) + 1.0) * 0.5;
+            w *= wrap * wrap + 0.2;
+            let v = biased - probe_pos;
+            let dist = length(v);
+            let index = (ci.z * probes.resolution.y + ci.y) * probes.resolution.x + ci.x;
+            let m = probe_moments(min(index, 4095u), v / max(dist, 1e-4), offset);
+            if dist > m.x {
+                let variance = abs(m.y - m.x * m.x);
+                let d = dist - m.x;
+                let chebyshev = variance / (variance + d * d);
+                w *= chebyshev * chebyshev * chebyshev;
+            }
+            // Very small weights crushed further, as DDGI does, so a probe
+            // that barely sees the point does not light it at all.
+            if w < 0.2 {
+                w *= w * w / 0.04;
+            }
+        }
+        weight_sum += w;
+        let base = probe_coeff_base(ci.x, ci.y, ci.z, offset);
         for (var c: u32 = 0u; c < 9u; c++) {
             blended[c] = blended[c] + probes.coeffs[base + c] * w;
+        }
+    }
+    if visibility && weight_sum > 1e-12 {
+        for (var c: u32 = 0u; c < 9u; c++) {
+            blended[c] = blended[c] / weight_sum;
         }
     }
 
@@ -149,7 +272,7 @@ fn eval_probe_sh_at(world_pos: vec3<f32>, n: vec3<f32>, offset: u32) -> vec3<f32
 }
 // The grid as shading reads it: the half the header names.
 fn eval_probe_sh(world_pos: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
-    return eval_probe_sh_at(world_pos, n, probes.coeff_offset);
+    return eval_probe_sh_at(world_pos, n, probes.coeff_offset, (probes.flags & 1u) != 0u);
 }
 "#
     };
@@ -170,7 +293,8 @@ struct GiParams {
     read_offset: u32,
     write_offset: u32,
     hysteresis: f32,
-    _pad: u32,
+    // Whether the bounce term weighs probes by visibility, as shading does.
+    visibility: u32,
     // This frame's turn of the ray set, the same for every probe.
     rotation: mat3x3<f32>,
 };
@@ -184,6 +308,8 @@ struct GiParams {
 
 // Each thread's share of the nine coefficients, summed by the first nine.
 var<workgroup> partial: array<array<vec3<f32>, 9>, 64>;
+// Every ray's direction and distance, for the moments.
+var<workgroup> ray_hits: array<vec4<f32>, 256>;
 
 fn probe_position(index: u32) -> vec3<f32> {
     let r = probes.resolution;
@@ -202,21 +328,36 @@ fn fibonacci(i: u32, n: u32) -> vec3<f32> {
     return vec3<f32>(r * cos(phi), r * sin(phi), z);
 }
 
-// The radiance a ray from `o` along `d` brings back.
-fn ray_radiance(o: vec3<f32>, d: vec3<f32>) -> vec3<f32> {
+// What a ray from `o` along `d` brings back, and how far it went for the
+// moments: the hit distance, capped at `max_dist` (a miss records the cap).
+// A back face records its true distance too: a probe inside geometry then
+// has walls all around it, nearer than anything it could light, and drops
+// out of every lookup beyond them. (DDGI implementations also shorten
+// back-face distances; a fifth was tried here and changed no result.)
+struct RayResult {
+    radiance: vec3<f32>,
+    dist: f32,
+};
+fn trace_ray(o: vec3<f32>, d: vec3<f32>, max_dist: f32) -> RayResult {
     let hit = traverse(o, d, 3.0e38, false);
     if hit.tri == NO_HIT {
-        return sky_radiance(d);
+        return RayResult(sky_radiance(d), max_dist);
     }
     let tri = tris[hit.tri];
     let ng = tri.n.xyz;
+    let dist = min(hit.t, max_dist);
     // A back face: the probe sees the inside of something.
     if dot(ng, d) >= 0.0 {
-        return vec3<f32>(0.0);
+        return RayResult(vec3<f32>(0.0), dist);
     }
     let y = o + d * hit.t + ng * EPS;
-    let e = all_lights(y, ng) / PI + eval_probe_sh_at(y, ng, gi.read_offset);
-    return tri.emissive.xyz + tri.albedo.xyz * e;
+    // The bounce reads last frame's half -- SH and moments -- with visibility,
+    // as shading does: without it, the dark side of a wall would take the
+    // light of the probes beyond it, and the probes on its own side would
+    // see that.
+    let e = all_lights(y, ng) / PI
+        + eval_probe_sh_at(y, ng, gi.read_offset, gi.visibility != 0u);
+    return RayResult(tri.emissive.xyz + tri.albedo.xyz * e, dist);
 }
 
 // The nine L2 basis functions of `d`, accumulated into `acc` times `l`.
@@ -235,17 +376,24 @@ fn accumulate_sh(acc: ptr<function, array<vec3<f32>, 9>>, d: vec3<f32>, l: vec3<
     (*acc)[8] += l * (0.546274 * (d.x * d.x - d.y * d.y));
 }
 
-// Every coefficient of the grid carried from the read half to the write
-// half, before `cs_update` overwrites its slice there. A pass of its own
+// Every coefficient and moment of the grid carried from the read half to the
+// write half, before `cs_update` overwrites its slice there. A pass of its own
 // because a buffer cannot be copied onto itself (WebGPU's
 // copyBufferToBuffer refuses source == destination).
 @compute @workgroup_size(64, 1, 1)
 fn cs_carry(@builtin(global_invocation_id) gid: vec3<u32>) {
     let i = gid.x;
-    if i >= gi.total_probes * 9u {
+    let sh = gi.total_probes * 9u;
+    if i < sh {
+        probes.coeffs[gi.write_offset * 9u + i] = probes.coeffs[gi.read_offset * 9u + i];
         return;
     }
-    probes.coeffs[gi.write_offset * 9u + i] = probes.coeffs[gi.read_offset * 9u + i];
+    let j = i - sh;
+    if j >= gi.total_probes * MOMENT_VEC4S {
+        return;
+    }
+    probes.coeffs[MOMENTS_BASE + gi.write_offset * MOMENT_VEC4S + j] =
+        probes.coeffs[MOMENTS_BASE + gi.read_offset * MOMENT_VEC4S + j];
 }
 
 @compute @workgroup_size(64, 1, 1)
@@ -255,6 +403,8 @@ fn cs_update(
 ) {
     let probe = (gi.first_probe + wg.x) % gi.total_probes;
     let p = probe_position(probe);
+    let cells = max(vec3<f32>(probes.resolution) - vec3<f32>(1.0), vec3<f32>(1.0));
+    let max_dist = 1.5 * length(probes.extent / cells);
     var acc: array<vec3<f32>, 9>;
     for (var c = 0u; c < 9u; c++) {
         acc[c] = vec3<f32>(0.0);
@@ -263,11 +413,40 @@ fn cs_update(
         // From the frame, the probe and the ray -- never from scheduling.
         rng_state = pcg(gi.frame ^ pcg(probe ^ pcg(r)));
         let d = normalize(gi.rotation * fibonacci(r, gi.rays));
-        let l = ray_radiance(p, d);
+        let result = trace_ray(p, d, max_dist);
+        let l = result.radiance;
+        ray_hits[r] = vec4<f32>(d, result.dist);
         accumulate_sh(&acc, d, l);
     }
     partial[lid] = acc;
     workgroupBarrier();
+    let read = (gi.read_offset + probe) * 9u;
+    let has_history = probes.coeffs[read].w > 0.5;
+    // Four moment texels per thread, one entry of `coeffs`: every ray weighted
+    // by how close it ran to the texel's direction (DDGI's cosine power of 50).
+    {
+        let at = MOMENTS_BASE + (gi.write_offset + probe) * MOMENT_VEC4S + lid;
+        let before = probes.coeffs[MOMENTS_BASE + (gi.read_offset + probe) * MOMENT_VEC4S + lid];
+        var packed = vec4<f32>(0.0);
+        for (var k = 0u; k < 4u; k++) {
+            let dir = moment_texel_direction(lid * 4u + k);
+            var m = vec2<f32>(0.0);
+            var wsum = 0.0;
+            for (var r = 0u; r < gi.rays; r++) {
+                let h = ray_hits[r];
+                let w = pow(max(dot(dir, h.xyz), 0.0), 50.0);
+                m += w * vec2<f32>(h.w, h.w * h.w);
+                wsum += w;
+            }
+            var v = unpack2x16float(bitcast<u32>(before[k]));
+            if wsum > 0.0 {
+                let sample = m / wsum;
+                v = select(sample, mix(sample, v, gi.hysteresis), has_history);
+            }
+            packed[k] = bitcast<f32>(pack2x16float(v));
+        }
+        probes.coeffs[at] = packed;
+    }
     if lid < 9u {
         var sum = vec3<f32>(0.0);
         for (var t = 0u; t < 64u; t++) {
@@ -276,8 +455,6 @@ fn cs_update(
         // The Fibonacci set samples the sphere evenly: each ray stands for
         // 4 pi / n of solid angle.
         let sample = sum * (4.0 * PI / f32(gi.rays));
-        let read = (gi.read_offset + probe) * 9u;
-        let has_history = probes.coeffs[read].w > 0.5;
         var v = sample;
         if has_history {
             v = mix(sample, probes.coeffs[read + lid].xyz, gi.hysteresis);
@@ -298,7 +475,7 @@ struct GiParams {
     read_offset: u32,
     write_offset: u32,
     hysteresis: f32,
-    _pad: u32,
+    visibility: u32,
     /// Columns, each padded to a vec4 as a uniform `mat3x3` lays them out.
     rotation: [[f32; 4]; 3],
 }
@@ -486,6 +663,9 @@ pub(crate) struct RealtimeGi {
     pub(crate) readbacks_started: u32,
     /// Updates dispatched, for tests that wait for the geometry to land.
     pub(crate) updates: u32,
+    /// Whether shading and the bounce term weigh probes by visibility. Always
+    /// on; a test turns it off to measure the leak it prevents.
+    pub(crate) visibility: bool,
 }
 
 /// One device's layout and pipelines.
@@ -574,6 +754,7 @@ impl RealtimeGi {
             current: 0,
             readbacks_started: 0,
             updates: 0,
+            visibility: true,
         }
     }
 
@@ -807,7 +988,7 @@ impl RealtimeGi {
                 crate::surface::PROBE_GRID_HEADER_SIZE,
                 &vec![
                     0u8;
-                    (2 * crate::surface::PROBE_COEFFS_SIZE * bsengine_core::MAX_PROBES as u64)
+                    (crate::surface::PROBE_GRID_SIZE - crate::surface::PROBE_GRID_HEADER_SIZE)
                         as usize
                 ],
             );
@@ -832,7 +1013,7 @@ impl RealtimeGi {
             read_offset: read * bsengine_core::MAX_PROBES as u32,
             write_offset: write * bsengine_core::MAX_PROBES as u32,
             hysteresis: input.hysteresis,
-            _pad: 0,
+            visibility: u32::from(self.visibility),
             rotation: [
                 rotation.x_axis.extend(0.0).to_array(),
                 rotation.y_axis.extend(0.0).to_array(),
@@ -845,7 +1026,7 @@ impl RealtimeGi {
             origin: volume.origin.to_array(),
             enabled: 1,
             extent: volume.extent.to_array(),
-            _pad0: 0.0,
+            flags: u32::from(self.visibility),
             resolution: volume.resolution,
             coeff_offset: write * bsengine_core::MAX_PROBES as u32,
         };
@@ -898,7 +1079,8 @@ impl RealtimeGi {
             // Every probe carried over, then the slice overwritten: two
             // dispatches, which WebGPU orders (each is its own usage scope).
             pass.set_pipeline(&pipelines.carry);
-            pass.dispatch_workgroups((total * 9).div_ceil(64), 1, 1);
+            // Nine SH entries and 64 moment entries a probe.
+            pass.dispatch_workgroups((total * (9 + 64)).div_ceil(64), 1, 1);
             pass.set_pipeline(&pipelines.update);
             pass.set_bind_group(0, &bind, &[]);
             pass.dispatch_workgroups(per_frame, 1, 1);

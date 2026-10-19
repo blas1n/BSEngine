@@ -1761,12 +1761,17 @@ const PROBE_CAPTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Flo
 pub(crate) const PROBE_GRID_HEADER_SIZE: u64 = 48;
 /// Bytes of one probe's coefficients: nine `vec4<f32>`.
 pub(crate) const PROBE_COEFFS_SIZE: u64 = (crate::sh::SH_COEFF_COUNT * 16) as u64;
-/// The probe buffer's whole size: the header and two halves of
-/// [`bsengine_core::MAX_PROBES`] probes, about 1.1 MiB. A baked volume uses
-/// the first half; a realtime one alternates between them
-/// (`crate::realtime_gi`). Allocated once, whatever the scene.
-const PROBE_GRID_SIZE: u64 =
-    PROBE_GRID_HEADER_SIZE + 2 * PROBE_COEFFS_SIZE * bsengine_core::MAX_PROBES as u64;
+/// The probe buffer's whole size: the header, two halves of
+/// [`bsengine_core::MAX_PROBES`] probes' SH (a baked volume uses the first; a
+/// realtime one alternates, `crate::realtime_gi`) and two halves of every
+/// probe's distance moments, about 9.6 MiB. Allocated once, whatever the
+/// scene.
+pub(crate) const PROBE_GRID_SIZE: u64 = PROBE_GRID_HEADER_SIZE
+    + 2 * PROBE_COEFFS_SIZE * bsengine_core::MAX_PROBES as u64
+    + 2 * PROBE_MOMENTS_SIZE * bsengine_core::MAX_PROBES as u64;
+/// Bytes of one probe's distance moments: 16 x 16 octahedral texels as two
+/// f16 each, four to a `vec4`, each `vec4` written by one thread.
+pub(crate) const PROBE_MOMENTS_SIZE: u64 = 64 * 16;
 
 /// The header of `ProbeGrid` in [`MESH_WGSL`]; the coefficients follow it in
 /// the same buffer, written separately (see [`WgpuSurface::bake_probes`]) so
@@ -1782,7 +1787,9 @@ pub(crate) struct ProbeGridHeader {
     pub(crate) enabled: u32,
     /// World-space size of the volume (full extent, not half).
     pub(crate) extent: [f32; 3],
-    pub(crate) _pad0: f32,
+    /// Bit 0: the distance moments are filled, so shading weighs probes by
+    /// visibility (a realtime volume; a baked one has none).
+    pub(crate) flags: u32,
     /// Probes per axis, on the grid's lattice points.
     pub(crate) resolution: [u32; 3],
     /// The half to shade with, as a probe index: 0 or `MAX_PROBES`.
@@ -6141,7 +6148,7 @@ impl WgpuSurface {
         slice.map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
         });
-        self.device.poll(wgpu::Maintain::Wait);
+        wait_for_gpu(&self.device, &self.queue);
         rx.recv()
             .expect("map_async never reported a result")
             .expect("mapping the probe capture readback buffer failed");
@@ -6387,6 +6394,16 @@ impl WgpuSurface {
         self.read_probe_grid()
     }
 
+    /// Switches the realtime volume's visibility weighting, which is always
+    /// on, for the test that measures the leak it prevents. The volume must
+    /// have updated once (so it exists).
+    #[doc(hidden)]
+    pub fn set_realtime_gi_visibility_for_testing(&mut self, on: bool) {
+        if let Some(gi) = &mut self.realtime_gi {
+            gi.visibility = on;
+        }
+    }
+
     /// Reads [`Self::probe_buffer`] back -- the header and the half it names
     /// for shading -- so a test can assert on
     /// what the shader is actually about to sample rather than on a CPU-side
@@ -6412,7 +6429,7 @@ impl WgpuSurface {
         slice.map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
         });
-        self.device.poll(wgpu::Maintain::Wait);
+        wait_for_gpu(&self.device, &self.queue);
         rx.recv()
             .expect("map_async never reported a result")
             .expect("mapping the probe grid readback buffer failed");
@@ -8886,7 +8903,12 @@ impl WgpuSurface {
             // (tried first; still present below, for the paths that *do*
             // drop normally, e.g. this crate's own tests) never runs on
             // either failing path.
-            self.device.poll(wgpu::Maintain::Wait);
+            //
+            // Polled rather than `Maintain::Wait`: a frame whose GPU work
+            // runs past a minute (WARP's first dispatch of the realtime GI
+            // update) would otherwise be freed under the GPU -- see
+            // `wait_for_gpu`.
+            wait_for_gpu(&self.device, &self.queue);
         }
 
         let frame_stats = crate::profiler::FrameStats {
@@ -9257,7 +9279,52 @@ impl Drop for WgpuSurface {
         // on the offscreen branch (see there) is what actually covers those
         // -- this Drop impl alone was tried first and confirmed
         // insufficient: CI failed identically with only this in place.
-        self.device.poll(wgpu::Maintain::Wait);
+        wait_for_gpu(&self.device, &self.queue);
+    }
+}
+
+/// Blocks until the GPU has finished everything submitted so far -- by
+/// polling, never by `Maintain::Wait`.
+///
+/// `Maintain::Wait` waits on the fence for at most wgpu-core's
+/// `CLEANUP_WAIT_MS`, 60 s, and wgpu-core 22 ignores the timeout
+/// (`Device::maintain` drops `wait`'s `false`): it then triages the
+/// submission as finished, resets its command allocators and frees its
+/// staging buffers while the GPU is still running it, and the D3D12 debug
+/// layer ends the process ("CORRUPTION: ... (wgpu internal) Staging", exit
+/// 2173). One job that long is ordinary on Windows CI's software adapter:
+/// WARP compiles a compute shader on its first dispatch, and the realtime GI
+/// update's first dispatch ran past a minute there (8 s locally on two
+/// cores). Reproduced locally with a 74 s busy-loop dispatch on WARP:
+/// `Maintain::Wait` died at 60 s with that exit code; this loop waited the
+/// 74 s and carried on.
+///
+/// `Maintain::Poll` reads the fence's real value and never waits, so the
+/// loop cannot time out; `on_submitted_work_done` fires from the poll that
+/// sees everything done, and any `map_async` callback for that work fires in
+/// the same poll. A browser has no blocking wait to replace.
+///
+/// Public only for `tests/long_gpu_wait.rs`, which is that reproduction.
+#[doc(hidden)]
+pub fn wait_for_gpu(device: &wgpu::Device, queue: &wgpu::Queue) {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let done = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&done);
+        queue.on_submitted_work_done(move || flag.store(true, Ordering::Release));
+        loop {
+            device.poll(wgpu::Maintain::Poll);
+            if done.load(Ordering::Acquire) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = queue;
+        device.poll(wgpu::Maintain::Wait);
     }
 }
 
@@ -10537,7 +10604,7 @@ mod tests {
                 origin: volume.origin.to_array(),
                 enabled: 1,
                 extent: volume.extent.to_array(),
-                _pad0: 0.0,
+                flags: 0,
                 resolution: volume.resolution,
                 coeff_offset: 0,
             };

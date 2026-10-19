@@ -23,6 +23,12 @@ struct Surface {
     surface: WgpuSurface,
     registry: GpuMeshRegistry,
     draw_calls: Vec<DrawCall>,
+    /// The view-projection and the eye: the identity and (0, 0, 5) unless a
+    /// test sets a real camera.
+    camera: (Mat4, Vec3),
+    /// The sun's colour and the ambient: `LightData::default()`'s unless a
+    /// test darkens them.
+    sun: Option<(Vec3, Vec3)>,
 }
 
 impl Surface {
@@ -36,6 +42,8 @@ impl Surface {
             surface,
             registry,
             draw_calls: Vec::new(),
+            camera: (Mat4::IDENTITY, Vec3::new(0.0, 0.0, 5.0)),
+            sun: None,
         };
         s.push_quad(corners, emissive);
         s
@@ -79,8 +87,8 @@ impl Surface {
         let ui_state = bsengine_core::UiState::default();
         self.surface
             .render_frame(
-                Mat4::IDENTITY,
-                Vec3::new(0.0, 0.0, 5.0),
+                self.camera.0,
+                self.camera.1,
                 &bsengine_rhi_wgpu::shadow::DirectionalCascades::new(
                     Vec3::new(0.0, -1.0, 0.0),
                     Mat4::IDENTITY,
@@ -94,7 +102,14 @@ impl Surface {
                 &[],
                 0,
                 &self.registry,
-                LightData::default(),
+                match self.sun {
+                    None => LightData::default(),
+                    Some((color, ambient)) => LightData {
+                        color,
+                        ambient,
+                        ..LightData::default()
+                    },
+                },
                 None,
                 &std::collections::HashMap::new(),
                 &ui_state,
@@ -267,6 +282,12 @@ impl GiScene {
             );
             self.scene.surface.set_realtime_gi(Some(input.clone()));
             self.scene.render(None).expect("the frame renders");
+            // Not a spin: while the pipelines build (a minute under FXC on
+            // CI's software D3D12) frames beside the build are what crashed
+            // the process there.
+            if self.updates() < target {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
         }
     }
 
@@ -641,5 +662,270 @@ fn a_changed_static_set_is_read_back_once_and_then_traced() {
     assert!(
         (open - sky).abs() < 0.01,
         "the floor is gone, the sky remains: {open}"
+    );
+}
+
+/// A white quad filling the frame at z = 0.5, facing the camera (+z), and
+/// a 2 x 2 x 2 realtime grid around it from z = 0 to z = 1.6: the scene of
+/// the two visibility tests. Returns the centre pixel after a few updates
+/// with visibility on or off.
+fn visibility_scene(s: &mut GiScene, visibility: bool) -> [u8; 3] {
+    // z from 0 to 1.6: the probes at z = 1.6 are beyond the wall (at 1.2),
+    // and the cell is shallow enough that a surface's bias (0.3 of the 1.6
+    // spacing, 0.48) keeps the quad's lookup point in front of the wall
+    // rather than through it.
+    let volume = ProbeVolumeParams {
+        origin: Vec3::new(-1.2, -1.2, 0.0),
+        extent: Vec3::new(2.4, 2.4, 1.6),
+        resolution: [2, 2, 2],
+    };
+    let input = s.input(volume, 0.0, 1 << 20);
+    s.run(&input, 1);
+    s.scene
+        .surface
+        .set_realtime_gi_visibility_for_testing(visibility);
+    s.run(&input, 4);
+    let pixels = s.scene.surface.read_pixels().expect("offscreen readback");
+    let at = (32 * 64 + 32) * 4;
+    [pixels[at], pixels[at + 1], pixels[at + 2]]
+}
+
+fn white_quad_in_view(s: &mut GiScene) {
+    s.scene.push_quad(
+        [
+            Vec3::new(-1.0, -1.0, 0.5),
+            Vec3::new(1.0, -1.0, 0.5),
+            Vec3::new(1.0, 1.0, 0.5),
+            Vec3::new(-1.0, 1.0, 0.5),
+        ],
+        Vec3::ZERO,
+    );
+    let quad = s.scene.draw_calls.len() - 1;
+    s.scene.draw_calls[quad].3.base_color = Vec3::ONE;
+}
+
+/// sRGB-encoded 8-bit to linear, to compare light rather than encodings.
+fn linear(c: u8) -> f32 {
+    let c = f32::from(c) / 255.0;
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// The leak DDGI's visibility exists for, at the proportions it is built
+/// for: two rooms on a floor, a wall between them at x = 0, probes a metre
+/// apart with the wall halfway between two of them, and a glowing panel in
+/// the right-hand room -- emissive, so only GI carries its light anywhere.
+/// The camera looks down at the left room's floor 0.3 m from the wall,
+/// where trilinear alone takes a fifth of its light from the probes beyond
+/// the wall (the premise: without visibility, it does leak). Nearer the wall
+/// than that, DDGI's test cannot fully tell the wall from the floor -- at
+/// 0.1 m the probes beyond recorded the wall at 0.61 and see the floor at
+/// 0.75, and a seventh of the leak got through -- the known price of probes
+/// a metre apart. With
+/// visibility those probes recorded the wall nearer than the floor and drop
+/// out, in shading and in the bounce: what reaches the floor is under a tenth
+/// of the leak. Both measured as light added over the same scene with the
+/// panel dark (the harness's sun lights the floor either way).
+#[test]
+fn visibility_stops_light_leaking_through_a_wall() {
+    let build = |panel: f32| {
+        let mut s = GiScene::new(Vec3::ZERO);
+        // The floor, facing up, drawn and static.
+        let floor = quad_corners(Vec3::new(-3.0, 0.0, 3.0), Vec3::X * 6.0, Vec3::NEG_Z * 6.0);
+        s.add(floor, Vec3::splat(0.5), Vec3::ZERO);
+        let i = s.scene.draw_calls.len() - 1;
+        s.scene.draw_calls[i].3.base_color = Vec3::ONE;
+        // Both faces of the wall, a hair apart, so each side is a front.
+        s.add(
+            quad_corners(Vec3::new(0.01, 0.0, 3.0), Vec3::NEG_Z * 6.0, Vec3::Y * 3.0),
+            Vec3::splat(0.5),
+            Vec3::ZERO,
+        );
+        s.add(
+            quad_corners(Vec3::new(-0.01, 0.0, -3.0), Vec3::Z * 6.0, Vec3::Y * 3.0),
+            Vec3::splat(0.5),
+            Vec3::ZERO,
+        );
+        // The panel: the right room's ceiling at y = 2, facing down.
+        s.add(
+            quad_corners(Vec3::new(0.2, 2.0, -3.0), Vec3::X * 2.8, Vec3::Z * 6.0),
+            Vec3::ZERO,
+            Vec3::splat(panel),
+        );
+        s.scene.camera = (
+            Mat4::perspective_rh(0.8, 1.0, 0.05, 50.0)
+                * Mat4::look_at_rh(
+                    Vec3::new(-0.3, 1.5, 0.6),
+                    Vec3::new(-0.3, 0.0, 0.0),
+                    Vec3::Y,
+                ),
+            Vec3::new(-0.3, 1.5, 0.6),
+        );
+        s
+    };
+    let shade = |s: &mut GiScene, visibility: bool| {
+        // Probes at x = -1.5, -0.5, 0.5, 1.5: the wall halfway between the
+        // middle two. y from -0.25 (under the floor) to 1.75, z -1 to 1.
+        let volume = ProbeVolumeParams {
+            origin: Vec3::new(-1.5, -0.25, -1.0),
+            extent: Vec3::new(3.0, 2.0, 2.0),
+            resolution: [4, 3, 3],
+        };
+        let input = s.input(volume, 0.0, 1 << 20);
+        s.run(&input, 1);
+        s.scene
+            .surface
+            .set_realtime_gi_visibility_for_testing(visibility);
+        s.run(&input, 6);
+        let pixels = s.scene.surface.read_pixels().expect("offscreen readback");
+        let at = (32 * 64 + 32) * 4;
+        pixels[at]
+    };
+    let base = shade(&mut build(0.0), true);
+    let leaked = shade(&mut build(4.0), false);
+    let seen = shade(&mut build(4.0), true);
+    let leak = linear(leaked) - linear(base);
+    let through = linear(seen) - linear(base);
+    assert!(
+        leak > 0.05,
+        "premise: without visibility the panel leaks under the wall: {base} -> {leaked}"
+    );
+    assert!(
+        through < 0.1 * leak,
+        "visibility drops the probes beyond the wall: added {through} against a leak of          {leak} (pixels {base}, {leaked}, {seen})"
+    );
+}
+
+/// A closed room's wall is lit as a furnace's is: evenly, and at the light
+/// every point there sees. Every wall of a 6 x 6 x 6 box glows and reflects
+/// alike, and the volume is a little larger than the box, as in
+/// games/gi-demo: a layer of probes stands 0.1 behind the back wall, seeing
+/// only its back, and black. The camera looks at that wall (the
+/// view-projection is the identity, the wall at z = 0.5), whose lookups
+/// straddle those black probes and the lit ones in front. Against the same
+/// wall shaded by a volume with no probes behind it, the row must match --
+/// letting the black probes in darkens it -- and be flat across the probe
+/// cells: with the bias at 0.1 of the spacing, the demo's walls showed one
+/// bright patch per probe.
+#[test]
+fn a_closed_room_is_lit_evenly_through_the_volume() {
+    let row_with = |origin_z: f32| {
+        let mut s = GiScene::new(Vec3::ZERO);
+        let (e, rho) = (0.15f32, 0.5f32);
+        let (lo, hi) = (Vec3::new(-3.0, -3.0, 0.5), Vec3::new(3.0, 3.0, 6.5));
+        let size = hi - lo;
+        for (min, u, v) in [
+            // The back wall first: the one drawn, facing +z, at z = 0.5.
+            (lo, Vec3::X * size.x, Vec3::Y * size.y),
+            (
+                Vec3::new(hi.x, lo.y, hi.z),
+                Vec3::NEG_X * size.x,
+                Vec3::Y * size.y,
+            ),
+            (lo, Vec3::Y * size.y, Vec3::Z * size.z),
+            (
+                Vec3::new(hi.x, lo.y, hi.z),
+                Vec3::Y * size.y,
+                Vec3::NEG_Z * size.z,
+            ),
+            (
+                Vec3::new(lo.x, lo.y, hi.z),
+                Vec3::X * size.x,
+                Vec3::NEG_Z * size.z,
+            ),
+            (
+                Vec3::new(lo.x, hi.y, lo.z),
+                Vec3::X * size.x,
+                Vec3::Z * size.z,
+            ),
+        ] {
+            s.add(quad_corners(min, u, v), Vec3::splat(rho), Vec3::splat(e));
+        }
+        // Drawn as the trace sees it; the other walls lie outside the frame.
+        let back = s.scene.draw_calls.len() - 6;
+        s.scene.draw_calls[back].3.base_color = Vec3::splat(rho);
+        s.scene.draw_calls[back].3.emissive = Vec3::splat(e);
+        s.scene.sun = Some((Vec3::ZERO, Vec3::ZERO));
+        let volume = ProbeVolumeParams {
+            origin: Vec3::new(-3.1, -3.1, origin_z),
+            extent: Vec3::new(6.2, 6.2, 6.6 - origin_z),
+            resolution: [8, 8, 8],
+        };
+        let input = s.input(volume, 0.5, 1 << 20);
+        s.run(&input, 24);
+        let pixels = s.scene.surface.read_pixels().expect("offscreen readback");
+        // The middle row, pixels 17..47: x from -0.47 to 0.47, across the
+        // probes at x = +-0.44 (cells 0.89 wide). Not wider: the renderer
+        // brightens the frame's outer 16-pixel tiles by a step of its own,
+        // with or without a probe volume (a screen-space pass, not GI).
+        (17..47)
+            .map(|x| pixels[(32 * 64 + x) * 4])
+            .collect::<Vec<u8>>()
+    };
+    // Probes from 0.1 behind the wall, as in the demo; and, for reference,
+    // from the wall itself -- every probe in the room.
+    let row = row_with(0.4);
+    let reference = row_with(0.5);
+    let (lo, hi) = (*row.iter().min().unwrap(), *row.iter().max().unwrap());
+    let r = reference[reference.len() / 2];
+    assert!(r > 60, "premise: the wall is lit: {reference:?}");
+    assert!(
+        hi - lo <= 4,
+        "inside a furnace every point sees the same light; the wall varies {lo}..{hi}: {row:?}"
+    );
+    assert!(
+        row.iter().all(|&p| (p as i32 - r as i32).abs() <= 4),
+        "the probes behind the wall must not darken it: {row:?} against {r}"
+    );
+}
+
+/// A probe buried inside geometry sees only back faces: black, and close.
+/// The grid's near probes (z = 0) each sit inside a small closed box; the
+/// far ones see a glowing panel. Trilinear alone lets the buried probes
+/// darken the quad (most of its weight is theirs: the premise); with
+/// visibility they drop out, and the quad takes the far probes' light.
+#[test]
+fn a_buried_probe_drops_out_of_the_lookup() {
+    let build = || {
+        let mut s = GiScene::new(Vec3::ZERO);
+        white_quad_in_view(&mut s);
+        let inward = [
+            (Vec3::new(0.0, 0.0, 1.0), Vec3::X, Vec3::NEG_Z),
+            (Vec3::new(0.0, 1.0, 0.0), Vec3::X, Vec3::Z),
+            (Vec3::new(0.0, 0.0, 0.0), Vec3::Y, Vec3::Z),
+            (Vec3::new(1.0, 0.0, 1.0), Vec3::Y, Vec3::NEG_Z),
+            (Vec3::new(0.0, 0.0, 0.0), Vec3::X, Vec3::Y),
+            (Vec3::new(1.0, 0.0, 1.0), Vec3::NEG_X, Vec3::Y),
+        ];
+        for (x, y) in [(-1.2f32, -1.2f32), (1.2, -1.2), (-1.2, 1.2), (1.2, 1.2)] {
+            let (c, h) = (Vec3::new(x, y, 0.0), 0.05f32);
+            for (min, u, v) in inward {
+                // Swapping u and v turns each face outward: a solid box.
+                s.add(
+                    quad_corners(c - Vec3::splat(h) + min * 2.0 * h, v * 2.0 * h, u * 2.0 * h),
+                    Vec3::splat(0.5),
+                    Vec3::ZERO,
+                );
+            }
+        }
+        s.add(
+            quad_corners(
+                Vec3::new(10.0, -10.0, 3.0),
+                Vec3::NEG_X * 20.0,
+                Vec3::Y * 20.0,
+            ),
+            Vec3::ZERO,
+            Vec3::splat(2.0),
+        );
+        s
+    };
+    let darkened = visibility_scene(&mut build(), false);
+    let seen = visibility_scene(&mut build(), true);
+    assert!(
+        (0..3).all(|c| seen[c] as i32 > darkened[c] as i32 + 40),
+        "the buried probes drop out and the far ones light the quad: {darkened:?} -> {seen:?}"
     );
 }

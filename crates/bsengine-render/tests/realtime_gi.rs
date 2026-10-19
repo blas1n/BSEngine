@@ -28,8 +28,21 @@ fn a_realtime_volume_is_traced_not_baked_and_a_once_volume_baked() {
     use bsengine_core::{LightProbeVolume, LightmapStatic, ProbeUpdate};
     let mut app = new_app();
     app.add_plugins(bsengine_asset::AssetPlugin);
-    app.add_plugins(WgpuRHIPlugin::offscreen(64, 64, false));
+    // The windowed plugin with no window builds no surface; the test's comes
+    // from the process's shared test device, the way the crate's other GPU
+    // tests get theirs -- one device, rather than a fresh one compiling the
+    // update's pipelines under FXC beside CI's software D3D12 (that, with a
+    // frame loop spinning beside the build, is what crashed the process).
+    app.add_plugins(WgpuRHIPlugin::windowed());
     app.add_plugins(RenderPlugin);
+    let surface = bsengine_rhi_wgpu::surface::WgpuSurface::offscreen_for_testing(64, 64)
+        .expect("these tests need an adapter; a skip here would look like a pass");
+    app.insert_resource(GpuMeshRegistry::new(surface.device_arc()));
+    app.insert_resource(bsengine_rhi_wgpu::GpuTextureRegistry::new(
+        surface.device_arc(),
+        surface.queue_arc(),
+    ));
+    app.insert_resource(bsengine_rhi_wgpu::WgpuSurfaceResource(surface));
     app.update();
     let v = |x: f32, z: f32| Vertex {
         position: [x, 0.0, z],
@@ -77,7 +90,9 @@ fn a_realtime_volume_is_traced_not_baked_and_a_once_volume_baked() {
             "the realtime volume never reached the surface's update"
         );
         app.update();
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        // Frames a few times a second while the pipelines build: enough to
+        // land them, not thousands of WARP frames beside the compile.
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
     assert!(
         !surface_of(&app).has_baked_probe_volume(),

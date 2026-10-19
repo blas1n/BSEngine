@@ -9,8 +9,15 @@ edition.workspace = true
 # from any front end (the runtime's `--bake`, later the editor and MCP).
 [dependencies]
 glam.workspace = true
-rayon.workspace = true
-# The GPU backend (`gpu`): its own headless device, a compute pass, readback.
+# The GPU backend (`gpu`) and the shared GI scene layout (`gpu_scene`).
 wgpu.workspace = true
-pollster.workspace = true
 bytemuck.workspace = true
+# `native` only: the CPU bake's threads, and the GPU backend opening its own
+# device by blocking on it. Neither exists in a browser, where the renderer
+# uses this crate for `gpu_scene` alone.
+rayon = { workspace = true, optional = true }
+pollster = { workspace = true, optional = true }
+
+[features]
+default = ["native"]
+native = ["dep:rayon", "dep:pollster"]

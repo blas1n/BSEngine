@@ -599,8 +599,7 @@ impl RealtimeGi {
     }
 
     /// Waits for the pipelines, for a test that is not measuring the wait.
-    #[cfg(test)]
-    pub(crate) fn wait_for_pipelines(&mut self) {
+    fn wait_for_pipelines(&mut self) {
         let mut state = self.pipelines.lock().unwrap_or_else(|e| e.into_inner());
         #[cfg(not(target_arch = "wasm32"))]
         if let PipelineState::Compiling(_) = &*state {
@@ -938,59 +937,17 @@ fn random_rotation(frame: u32) -> Mat3 {
     Mat3::from_quat(q.normalize())
 }
 
-#[cfg(test)]
-mod tests {
-    /// The update compiles where Windows players run it -- wgpu's D3D12
-    /// backend, through FXC -- and without making a frame wait for it. The other tests here take whatever adapter comes
-    /// first -- Vulkan, on most machines and CI's -- so a construct FXC
-    /// rejects (an array-returning function was one) passes all of them and
-    /// fails only in whichever test happens to land on D3D12.
-    #[cfg(windows)]
-    #[test]
-    fn the_update_compiles_for_d3d12() {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::DX12,
-            ..Default::default()
-        });
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::LowPower,
-            compatible_surface: None,
-            force_fallback_adapter: false,
-        }))
-        .expect("Windows has a D3D12 adapter (WARP at worst); a skip would look like a pass");
-        let (device, _queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                label: Some("d3d12 compile check"),
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::downlevel_defaults(),
-                memory_hints: wgpu::MemoryHints::default(),
-            },
-            None,
-        ))
-        .expect("a D3D12 device");
-        let device = std::sync::Arc::new(device);
-        device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let started = std::time::Instant::now();
-        let mut gi = super::RealtimeGi::new(&device);
-        let returned = started.elapsed();
-        gi.wait_for_pipelines();
-        let built = started.elapsed();
-        assert!(gi.pipelines_ready(), "the pipelines were built");
-        // And off the frame: `new` hands the compile to a thread and returns.
-        // The premise -- the compile is slow enough to matter -- is FXC's,
-        // seconds on any machine.
-        assert!(
-            built.as_secs_f32() > 0.5,
-            "premise: FXC takes a while: {built:?}"
-        );
-        assert!(
-            returned < built / 4,
-            "creating the update must not wait for its compile: {returned:?} of {built:?}"
-        );
-        let error = pollster::block_on(device.pop_error_scope());
-        assert!(
-            error.is_none(),
-            "the update does not compile for D3D12: {error:?}"
-        );
-    }
+/// For `tests/realtime_gi.rs`: makes a `RealtimeGi` on `device` and waits for
+/// its pipelines, returning how long `new` took and how long until they were
+/// built -- what shows the build is off the frame -- and whether they were.
+#[doc(hidden)]
+pub fn build_pipelines_for_testing(
+    device: &Arc<wgpu::Device>,
+) -> (std::time::Duration, std::time::Duration, bool) {
+    let started = std::time::Instant::now();
+    let mut gi = RealtimeGi::new(device);
+    let returned = started.elapsed();
+    gi.wait_for_pipelines();
+    let built = started.elapsed();
+    (returned, built, gi.pipelines_ready())
 }

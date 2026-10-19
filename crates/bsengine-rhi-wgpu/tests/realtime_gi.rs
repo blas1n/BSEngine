@@ -1,0 +1,645 @@
+//! The realtime light-probe volume (`bsengine_rhi_wgpu::realtime_gi`),
+//! against closed forms and at the pixel.
+//!
+//! In a process of its own, not among the crate's unit tests: on Windows CI
+//! every GPU test runs on the software D3D12 adapter, where building the
+//! update's pipelines (FXC, then WARP's own compile) takes over a minute.
+//! Run beside the crate's other GPU tests, that minute of contention crashed
+//! the test process on teardown, three runs out of three; alone, it passes.
+//! Every test here shares one device (`WgpuSurface::offscreen_for_testing`),
+//! and the pipelines are built once per device, so the minute is paid once.
+
+use bsengine_rhi_wgpu::mesh::{GpuMeshRegistry, Vertex};
+use bsengine_rhi_wgpu::surface::WgpuSurface;
+use bsengine_rhi_wgpu::{LightData, MaterialParams, ProbeVolumeParams};
+use glam::{Mat4, Vec3};
+
+type DrawCall = (u64, Mat4, Option<u64>, MaterialParams, Option<String>);
+
+/// A 64 x 64 offscreen surface on the shared test device, its registry, and
+/// the quads drawn each frame. The view-projection is the identity, so world
+/// xy is clip xy and a quad at z in 0..1 is on screen.
+struct Surface {
+    surface: WgpuSurface,
+    registry: GpuMeshRegistry,
+    draw_calls: Vec<DrawCall>,
+}
+
+impl Surface {
+    /// With one quad, `corners` in counter-clockwise order as seen from its
+    /// front, emitting `emissive`.
+    fn new(corners: [Vec3; 4], emissive: Vec3) -> Self {
+        let surface = WgpuSurface::offscreen_for_testing(64, 64)
+            .expect("these tests need an adapter; a skip would look like a pass");
+        let registry = GpuMeshRegistry::new(surface.device_arc());
+        let mut s = Self {
+            surface,
+            registry,
+            draw_calls: Vec::new(),
+        };
+        s.push_quad(corners, emissive);
+        s
+    }
+
+    /// Adds another quad, black, emitting `emissive`.
+    fn push_quad(&mut self, corners: [Vec3; 4], emissive: Vec3) {
+        let normal = (corners[1] - corners[0])
+            .cross(corners[2] - corners[0])
+            .normalize();
+        let vertices: Vec<Vertex> = corners
+            .iter()
+            .map(|p| Vertex {
+                position: p.to_array(),
+                color: [1.0, 1.0, 1.0],
+                normal: normal.to_array(),
+                uv: [0.0, 0.0],
+                uv2: [0.0, 0.0],
+            })
+            .collect();
+        let mesh_id = self.registry.register(&vertices, &[0, 1, 2, 0, 2, 3]);
+        self.draw_calls.push((
+            mesh_id,
+            Mat4::IDENTITY,
+            None,
+            MaterialParams {
+                metallic: 0.0,
+                roughness: 1.0,
+                emissive,
+                base_color: Vec3::ZERO,
+                opacity: 1.0,
+                lightmap: None,
+            },
+            None,
+        ));
+    }
+
+    /// One real `render_frame`, everything this file does not care about at
+    /// its neutral value, and no baked volume.
+    fn render(&mut self, _volume: Option<ProbeVolumeParams>) -> Result<(), String> {
+        let ui_state = bsengine_core::UiState::default();
+        self.surface
+            .render_frame(
+                Mat4::IDENTITY,
+                Vec3::new(0.0, 0.0, 5.0),
+                &bsengine_rhi_wgpu::shadow::DirectionalCascades::new(
+                    Vec3::new(0.0, -1.0, 0.0),
+                    Mat4::IDENTITY,
+                    bsengine_core::shadow_config::DEFAULT_SHADOW_DISTANCE,
+                    bsengine_core::shadow_config::DEFAULT_CASCADES,
+                    0.0,
+                ),
+                None,
+                &self.draw_calls,
+                &[],
+                &[],
+                0,
+                &self.registry,
+                LightData::default(),
+                None,
+                &std::collections::HashMap::new(),
+                &ui_state,
+                &std::collections::HashMap::new(),
+                0.0,
+                0.0,
+                false,
+                false,
+                Mat4::IDENTITY,
+                None,
+                None,
+                None,
+                None,
+                None,
+                &[],
+                false,
+                false,
+                false,
+                None,
+                None,
+                0.0,
+                &[],
+                None,
+                (0.0, 0.0),
+                0,
+                Mat4::IDENTITY,
+                None,
+                &[],
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                &[],
+            )
+            .map(|_| ())
+    }
+}
+
+/// The update compiles where Windows players run it -- wgpu's D3D12
+/// backend, through FXC -- and without making a frame wait for it. Every
+/// other test takes whatever adapter comes first -- Vulkan, on most machines
+/// -- so a construct FXC rejects (an array-returning function was one) would
+/// pass them all and fail only where D3D12 happened to be chosen.
+#[cfg(windows)]
+#[test]
+fn the_update_compiles_for_d3d12() {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::DX12,
+        ..Default::default()
+    });
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::LowPower,
+        compatible_surface: None,
+        force_fallback_adapter: false,
+    }))
+    .expect("Windows has a D3D12 adapter (WARP at worst); a skip would look like a pass");
+    let (device, _queue) = pollster::block_on(adapter.request_device(
+        &wgpu::DeviceDescriptor {
+            label: Some("d3d12 compile check"),
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::downlevel_defaults(),
+            memory_hints: wgpu::MemoryHints::default(),
+        },
+        None,
+    ))
+    .expect("a D3D12 device");
+    let device = std::sync::Arc::new(device);
+    device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let (returned, built, ready) =
+        bsengine_rhi_wgpu::realtime_gi::build_pipelines_for_testing(&device);
+    let error = pollster::block_on(device.pop_error_scope());
+    assert!(
+        error.is_none(),
+        "the update does not compile for D3D12: {error:?}"
+    );
+    assert!(ready, "the pipelines were built");
+    // And off the frame: `new` hands the compile to a thread and returns.
+    // The premise -- the compile is slow enough to matter -- is FXC's,
+    // seconds on any machine.
+    assert!(
+        built.as_secs_f32() > 0.5,
+        "premise: FXC takes a while: {built:?}"
+    );
+    assert!(
+        returned < built / 4,
+        "creating the update must not wait for its compile: {returned:?} of {built:?}"
+    );
+}
+
+// ---- the realtime probe volume -------------------------------------------
+
+/// A scene for the realtime volume: [`Surface`]'s surface and
+/// registry, with quads registered as the static set (their draws are
+/// irrelevant -- realtime GI traces `statics`, not the draw list).
+struct GiScene {
+    scene: Surface,
+    statics: Vec<bsengine_rhi_wgpu::realtime_gi::GiStatic>,
+    lights: Vec<bsengine_bake::BakeLight>,
+    sky: std::sync::Arc<bsengine_bake::Sky>,
+}
+
+/// Four corners of a quad from `min` along `u` and `v`, facing `u x v`.
+fn quad_corners(min: Vec3, u: Vec3, v: Vec3) -> [Vec3; 4] {
+    [min, min + u, min + u + v, min + v]
+}
+
+impl GiScene {
+    fn new(sky: Vec3) -> Self {
+        // A first quad far away, so `Surface` has one; not
+        // a static.
+        let scene = Surface::new(
+            quad_corners(Vec3::new(500.0, 0.0, 0.0), Vec3::X, Vec3::Y),
+            Vec3::ZERO,
+        );
+        Self {
+            scene,
+            statics: Vec::new(),
+            lights: Vec::new(),
+            sky: std::sync::Arc::new(bsengine_bake::Sky::Uniform(sky)),
+        }
+    }
+
+    fn add(&mut self, corners: [Vec3; 4], albedo: Vec3, emissive: Vec3) {
+        self.scene.push_quad(corners, Vec3::ZERO);
+        let mesh_id = self.scene.draw_calls.last().unwrap().0;
+        self.statics.push(bsengine_rhi_wgpu::realtime_gi::GiStatic {
+            mesh_id,
+            model: Mat4::IDENTITY,
+            albedo,
+            emissive,
+        });
+    }
+
+    fn input(
+        &self,
+        volume: ProbeVolumeParams,
+        hysteresis: f32,
+        rays_per_frame: u32,
+    ) -> bsengine_rhi_wgpu::realtime_gi::RealtimeGiInput {
+        bsengine_rhi_wgpu::realtime_gi::RealtimeGiInput {
+            volume,
+            rays_per_probe: 256,
+            hysteresis,
+            rays_per_frame,
+            statics: self.statics.clone(),
+            lights: self.lights.clone(),
+            sky: self.sky.clone(),
+        }
+    }
+
+    fn updates(&self) -> u32 {
+        self.scene.surface.realtime_gi_updates()
+    }
+
+    /// Frames until `n` more updates have run. The first waits for the
+    /// update's pipelines (built on a thread: seconds under FXC, over a
+    /// minute on CI's software D3D12) and for the static meshes to come
+    /// back from the GPU -- polled against the clock, never assumed (a
+    /// fixed frame count is what flakes on a cold CI machine).
+    fn run(&mut self, input: &bsengine_rhi_wgpu::realtime_gi::RealtimeGiInput, n: u32) {
+        let target = self.updates() + n;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(300);
+        while self.updates() < target {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the realtime volume never updated ({} of {target})",
+                self.updates()
+            );
+            self.scene.surface.set_realtime_gi(Some(input.clone()));
+            self.scene.render(None).expect("the frame renders");
+        }
+    }
+
+    /// Probe `probe`'s E / PI for a surface facing `n`, as shading reads it.
+    fn irradiance(&self, probe: usize, n: Vec3) -> Vec3 {
+        let grid = self.scene.surface.read_probe_grid_for_testing();
+        let c = grid.coeffs[probe];
+        let sh = bsengine_rhi_wgpu::sh::ShL2 {
+            coeffs: c.map(|v| Vec3::new(v[0], v[1], v[2])),
+        };
+        sh.eval_irradiance(n) / std::f32::consts::PI
+    }
+
+    /// How many of the first `n` probes have been updated at least once.
+    fn with_history(&self, n: usize) -> usize {
+        let grid = self.scene.surface.read_probe_grid_for_testing();
+        grid.coeffs[..n].iter().filter(|c| c[0][3] > 0.5).count()
+    }
+}
+
+/// A closed unit box, every face facing in, all emissive `e` with albedo
+/// `rho`.
+fn furnace_scene(e: f32, rho: f32) -> GiScene {
+    let mut s = GiScene::new(Vec3::splat(100.0));
+    for (min, u, v) in [
+        (Vec3::new(0.0, 0.0, 1.0), Vec3::X, Vec3::NEG_Z),
+        (Vec3::new(0.0, 1.0, 0.0), Vec3::X, Vec3::Z),
+        (Vec3::new(0.0, 0.0, 0.0), Vec3::Y, Vec3::Z),
+        (Vec3::new(1.0, 0.0, 1.0), Vec3::Y, Vec3::NEG_Z),
+        (Vec3::new(0.0, 0.0, 0.0), Vec3::X, Vec3::Y),
+        (Vec3::new(1.0, 0.0, 1.0), Vec3::NEG_X, Vec3::Y),
+    ] {
+        s.add(quad_corners(min, u, v), Vec3::splat(rho), Vec3::splat(e));
+    }
+    s
+}
+
+/// A 2x2x2 grid well inside the unit box.
+fn inner_volume() -> ProbeVolumeParams {
+    ProbeVolumeParams {
+        origin: Vec3::splat(0.3),
+        extent: Vec3::splat(0.4),
+        resolution: [2, 2, 2],
+    }
+}
+
+/// Closed form, the furnace: inside a closed box whose every surface
+/// emits `e` with albedo `rho`, the radiance everywhere is the fixed point
+/// of `L = e + rho * L`, `e / (1 - rho)`. With no history kept
+/// (hysteresis 0), update k reads `e (1 - rho^k) / (1 - rho)` -- the
+/// first exactly `e`, each next one a bounce more, the bounces carried
+/// by the probes themselves. Pins the bounce term, the SH projection's
+/// weight and the units the update writes in. The sky (100) would show
+/// any ray that escaped.
+#[test]
+fn realtime_probes_in_a_furnace_follow_the_geometric_series() {
+    let (e, rho) = (0.4f32, 0.5f32);
+    let mut s = furnace_scene(e, rho);
+    let input = s.input(inner_volume(), 0.0, 1 << 20);
+    s.run(&input, 1);
+    let first = s.irradiance(0, Vec3::Y);
+    assert!(
+        (first.x - e).abs() < e * 0.01,
+        "premise: the first update sees the walls' own emission, {e}: {first}"
+    );
+    for k in 2..=12 {
+        s.run(&input, 1);
+        let want = e * (1.0 - rho.powi(k)) / (1.0 - rho);
+        let got = s.irradiance(0, Vec3::Y).x;
+        assert!(
+            (got - want).abs() < want * 0.01,
+            "update {k}: {got} vs {want}"
+        );
+    }
+    for probe in 1..8 {
+        let got = s.irradiance(probe, Vec3::NEG_X).x;
+        assert!(
+            (got - e / (1.0 - rho)).abs() < 0.01,
+            "probe {probe}, any direction: {got}"
+        );
+    }
+}
+
+/// The same scene, kept history: each update is `mix(sample, previous,
+/// h)`, so the value one update after a probe's first is `e * (1 - h) +
+/// e * h` from a sample of `e (1 + rho)` -- pinned exactly, which a
+/// blend that ignored `h` (or ignored the history flag and blended into
+/// the zeroed buffer) would miss.
+#[test]
+fn hysteresis_blends_each_update_into_the_last() {
+    let (e, rho, h) = (0.4f32, 0.5f32, 0.75f32);
+    let mut s = furnace_scene(e, rho);
+    let input = s.input(inner_volume(), h, 1 << 20);
+    s.run(&input, 1);
+    assert!(
+        (s.irradiance(0, Vec3::Y).x - e).abs() < e * 0.01,
+        "the first update takes the sample whole, history or not"
+    );
+    s.run(&input, 1);
+    let want = (1.0 - h) * e * (1.0 + rho) + h * e;
+    let got = s.irradiance(0, Vec3::Y).x;
+    assert!((got - want).abs() < want * 0.01, "{got} vs {want}");
+}
+
+/// The budget: rays for a quarter of the probes a frame means each
+/// frame updates the next quarter, and four frames cover every probe
+/// exactly -- the round robin neither skips nor repeats.
+#[test]
+fn the_ray_budget_updates_the_grid_a_slice_at_a_time() {
+    let mut s = furnace_scene(0.4, 0.5);
+    let volume = ProbeVolumeParams {
+        resolution: [4, 4, 4],
+        ..inner_volume()
+    };
+    let input = s.input(volume, 0.5, 256 * 16);
+    for frame in 1..=4 {
+        s.run(&input, 1);
+        assert_eq!(s.with_history(64), 16 * frame, "after {frame} frames");
+    }
+}
+
+/// Closed form, an open floor: under a uniform sky `S` and a sun of
+/// irradiance `E` straight down, an infinite floor of albedo `rho`
+/// reflects `rho * (E / pi + S)` -- its own upper hemisphere is all sky
+/// -- and a probe above it, facing down, sees nothing but floor. So its
+/// E / pi facing down is that radiance: 0.5 * (3/pi + 0.2) = 0.577 lit,
+/// and 0.5 * 0.2 = 0.1 once the sun is switched off and a few updates
+/// have run. Pins the direct-light term at a hit (the bake's own
+/// `irradiance`, with its shadow ray), the sky, and that the lights are
+/// uploaded every frame rather than once.
+#[test]
+fn a_light_switched_off_leaves_the_probes() {
+    let (sky, rho, sun) = (0.2f32, 0.5f32, 3.0f32);
+    let mut s = GiScene::new(Vec3::splat(sky));
+    s.add(
+        quad_corners(
+            Vec3::new(-50.0, 0.0, 50.0),
+            Vec3::X * 100.0,
+            Vec3::NEG_Z * 100.0,
+        ),
+        Vec3::splat(rho),
+        Vec3::ZERO,
+    );
+    s.lights = vec![bsengine_bake::BakeLight::Directional {
+        direction: Vec3::NEG_Y,
+        color: Vec3::splat(sun),
+        contribution: bsengine_bake::Contribution::Indirect,
+    }];
+    let volume = ProbeVolumeParams {
+        origin: Vec3::new(-1.0, 0.5, -1.0),
+        extent: Vec3::splat(2.0),
+        resolution: [2, 2, 2],
+    };
+    let lit_input = s.input(volume, 0.0, 1 << 20);
+    s.run(&lit_input, 6);
+    let lit = s.irradiance(0, Vec3::NEG_Y).x;
+    let want_lit = rho * (sun / std::f32::consts::PI + sky);
+    assert!(
+        (lit - want_lit).abs() < want_lit * 0.03,
+        "lit: {lit} vs {want_lit}"
+    );
+    s.lights.clear();
+    let dark_input = s.input(volume, 0.0, 1 << 20);
+    s.run(&dark_input, 6);
+    let dark = s.irradiance(0, Vec3::NEG_Y).x;
+    let want_dark = rho * sky;
+    assert!(
+        (dark - want_dark).abs() < want_dark * 0.03,
+        "the sun is off: {dark} vs {want_dark}"
+    );
+}
+
+/// The same update is the same bytes: every ray's direction and seed come
+/// from the frame, the probe and the ray -- never from which workgroup ran
+/// first -- and a volume changed and changed back starts over (history,
+/// round robin, frame count). The box's faces glow differently and
+/// reflect nothing, so each update is a fresh estimate that depends on
+/// where its rays went: two frames differ (the premise -- in a uniform
+/// furnace every ray set gives the same answer, and determinism would be
+/// unobservable), and the first frame after a restart equals the first
+/// frame before it.
+#[test]
+fn realtime_updates_are_deterministic() {
+    let mut s = GiScene::new(Vec3::ZERO);
+    for (i, (min, u, v)) in [
+        (Vec3::new(0.0, 0.0, 1.0), Vec3::X, Vec3::NEG_Z),
+        (Vec3::new(0.0, 1.0, 0.0), Vec3::X, Vec3::Z),
+        (Vec3::new(0.0, 0.0, 0.0), Vec3::Y, Vec3::Z),
+        (Vec3::new(1.0, 0.0, 1.0), Vec3::Y, Vec3::NEG_Z),
+        (Vec3::new(0.0, 0.0, 0.0), Vec3::X, Vec3::Y),
+        (Vec3::new(1.0, 0.0, 1.0), Vec3::NEG_X, Vec3::Y),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        s.add(
+            quad_corners(min, u, v),
+            Vec3::ZERO,
+            Vec3::splat(0.2 * (i + 1) as f32),
+        );
+    }
+    let volume = ProbeVolumeParams {
+        resolution: [4, 4, 4],
+        ..inner_volume()
+    };
+    let grid = |s: &GiScene| s.scene.surface.read_probe_grid_for_testing().coeffs[..64].to_vec();
+    let input = s.input(volume, 0.0, 1 << 20);
+    s.run(&input, 1);
+    let first = grid(&s);
+    s.run(&input, 1);
+    assert_ne!(first, grid(&s), "premise: the ray set turns every frame");
+    let other = s.input(inner_volume(), 0.0, 1 << 20);
+    s.run(&other, 1);
+    s.run(&input, 1);
+    assert_eq!(first, grid(&s), "a restart replays the first frame exactly");
+}
+
+/// At the pixel: a realtime volume lights a surface. A white quad fills
+/// the frame (the view-projection is the identity, so world xy is clip xy)
+/// inside the volume, facing +z; a glowing static panel in front of it at
+/// z = 2 is outside the clip volume, so the camera never sees it -- only
+/// the probes do. Without the realtime volume the quad is its ambient;
+/// with it, the panel's light is on it.
+#[test]
+fn a_realtime_volume_lights_the_pixels_it_covers() {
+    let mut s = GiScene::new(Vec3::ZERO);
+    s.scene.push_quad(
+        [
+            Vec3::new(-1.0, -1.0, 0.5),
+            Vec3::new(1.0, -1.0, 0.5),
+            Vec3::new(1.0, 1.0, 0.5),
+            Vec3::new(-1.0, 1.0, 0.5),
+        ],
+        Vec3::ZERO,
+    );
+    let quad = s.scene.draw_calls.len() - 1;
+    s.scene.draw_calls[quad].3.base_color = Vec3::ONE;
+    // Facing -z, toward the quad.
+    s.add(
+        quad_corners(
+            Vec3::new(5.0, -5.0, 2.0),
+            Vec3::NEG_X * 10.0,
+            Vec3::Y * 10.0,
+        ),
+        Vec3::ZERO,
+        Vec3::splat(1.0),
+    );
+    let centre = |s: &GiScene| {
+        let pixels = s.scene.surface.read_pixels().expect("offscreen readback");
+        let at = (32 * 64 + 32) * 4;
+        [pixels[at], pixels[at + 1], pixels[at + 2]]
+    };
+    s.scene.render(None).expect("the frame renders");
+    let without = centre(&s);
+    let volume = ProbeVolumeParams {
+        origin: Vec3::new(-1.2, -1.2, 0.0),
+        extent: Vec3::new(2.4, 2.4, 1.0),
+        resolution: [2, 2, 2],
+    };
+    let input = s.input(volume, 0.0, 1 << 20);
+    s.run(&input, 3);
+    let with = centre(&s);
+    assert!(
+        without.iter().all(|&c| c < 200),
+        "premise: room to brighten: {without:?}"
+    );
+    assert!(
+        (0..3).all(|c| with[c] as i32 > without[c] as i32 + 30),
+        "the panel's light reaches the quad through the probes: {without:?} -> {with:?}"
+    );
+    // And handed back: a frame with no realtime volume is the frame
+    // before it.
+    s.scene.render(None).expect("the frame renders");
+    assert_eq!(
+        centre(&s),
+        without,
+        "the grid is cleared when the volume goes"
+    );
+}
+
+/// Not a test: what a full-grid realtime update costs, for the PR.
+/// `cargo test -p bsengine-rhi-wgpu --release --lib -- --ignored
+/// --nocapture bench_realtime_gi` -- release, because a debug build's
+/// validation layers dominate any GPU timing (CLAUDE.md).
+#[test]
+#[ignore]
+fn bench_realtime_gi() {
+    let mut s = furnace_scene(0.4, 0.5);
+    // A few hundred triangles more inside the room, so the tree is not
+    // trivially shallow: a grid of small panels on the floor.
+    for i in 0..100 {
+        let (x, z) = ((i % 10) as f32 * 0.1, (i / 10) as f32 * 0.1);
+        s.add(
+            quad_corners(
+                Vec3::new(x, 0.1, z + 0.05),
+                Vec3::X * 0.05,
+                Vec3::NEG_Z * 0.05,
+            ),
+            Vec3::splat(0.6),
+            Vec3::ZERO,
+        );
+    }
+    s.lights = vec![bsengine_bake::BakeLight::Point {
+        position: Vec3::splat(0.5),
+        color: Vec3::ONE,
+        intensity: 2.0,
+        range: 3.0,
+        contribution: bsengine_bake::Contribution::Indirect,
+    }];
+    let volume = ProbeVolumeParams {
+        origin: Vec3::splat(0.05),
+        extent: Vec3::splat(0.9),
+        resolution: [16, 16, 16],
+    };
+    let mut input = s.input(volume, 0.97, 1 << 18);
+    input.rays_per_probe = 64;
+    s.run(&input, 3);
+    let n = 30;
+    let device = s.scene.surface.device_arc();
+    let t = std::time::Instant::now();
+    for _ in 0..n {
+        s.run(&input, 1);
+        device.poll(wgpu::Maintain::Wait);
+    }
+    eprintln!(
+        "BENCH realtime gi: 4096 probes x 64 rays, {} triangles: {:.2} ms per frame (update + frame)",
+        s.statics.len() * 2,
+        t.elapsed().as_secs_f64() * 1000.0 / n as f64
+    );
+}
+
+/// The static set is read back once per change, and traced once it lands:
+/// moving the floor away (a new model matrix) starts exactly one more
+/// readback, and after it the probes see the sky where the floor was.
+#[test]
+fn a_changed_static_set_is_read_back_once_and_then_traced() {
+    let sky = 0.2f32;
+    let mut s = GiScene::new(Vec3::splat(sky));
+    s.add(
+        quad_corners(
+            Vec3::new(-50.0, 0.0, 50.0),
+            Vec3::X * 100.0,
+            Vec3::NEG_Z * 100.0,
+        ),
+        Vec3::ZERO,
+        Vec3::splat(2.0),
+    );
+    let volume = ProbeVolumeParams {
+        origin: Vec3::new(-1.0, 0.5, -1.0),
+        extent: Vec3::splat(2.0),
+        resolution: [2, 2, 2],
+    };
+    let input = s.input(volume, 0.0, 1 << 20);
+    s.run(&input, 3);
+    assert_eq!(s.scene.surface.realtime_gi_readbacks(), 1);
+    let glowing = s.irradiance(0, Vec3::NEG_Y).x;
+    assert!(
+        (glowing - 2.0).abs() < 0.05,
+        "premise: the floor glows below: {glowing}"
+    );
+    // Far below and out of sight.
+    s.statics[0].model = Mat4::from_translation(Vec3::new(0.0, -1.0e4, 0.0));
+    let moved = s.input(volume, 0.0, 1 << 20);
+    s.run(&moved, 3);
+    s.run(&moved, 3);
+    assert_eq!(
+        s.scene.surface.realtime_gi_readbacks(),
+        2,
+        "one readback for the change, not one per frame"
+    );
+    let open = s.irradiance(0, Vec3::NEG_Y).x;
+    assert!(
+        (open - sky).abs() < 0.01,
+        "the floor is gone, the sky remains: {open}"
+    );
+}

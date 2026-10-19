@@ -761,6 +761,9 @@ impl RealtimeGi {
     /// Whether the pipelines are built, collecting them from their thread the
     /// first time they are. Never waits.
     fn pipelines_ready(&mut self) -> bool {
+        // Only a thread's build is collected here; in a browser they were
+        // built in place and `state` is only read.
+        #[cfg_attr(target_arch = "wasm32", allow(unused_mut))]
         let mut state = self.pipelines.lock().unwrap_or_else(|e| e.into_inner());
         #[cfg(not(target_arch = "wasm32"))]
         if matches!(&*state, PipelineState::Compiling(h) if h.is_finished()) {
@@ -779,18 +782,21 @@ impl RealtimeGi {
         matches!(&*state, PipelineState::Ready(_))
     }
 
-    /// Waits for the pipelines, for a test that is not measuring the wait.
+    /// Waits for the pipelines, for a test that is not measuring the wait. (A
+    /// browser builds them in place, so there is nothing to wait for there.)
     fn wait_for_pipelines(&mut self) {
-        let mut state = self.pipelines.lock().unwrap_or_else(|e| e.into_inner());
         #[cfg(not(target_arch = "wasm32"))]
-        if let PipelineState::Compiling(_) = &*state {
-            let PipelineState::Compiling(handle) =
-                std::mem::replace(&mut *state, PipelineState::Failed)
-            else {
-                unreachable!("matched above");
-            };
-            if let Ok(p) = handle.join() {
-                *state = PipelineState::Ready(p);
+        {
+            let mut state = self.pipelines.lock().unwrap_or_else(|e| e.into_inner());
+            if let PipelineState::Compiling(_) = &*state {
+                let PipelineState::Compiling(handle) =
+                    std::mem::replace(&mut *state, PipelineState::Failed)
+                else {
+                    unreachable!("matched above");
+                };
+                if let Ok(p) = handle.join() {
+                    *state = PipelineState::Ready(p);
+                }
             }
         }
     }

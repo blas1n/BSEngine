@@ -1,0 +1,110 @@
+// Dynamic global illumination: a Cornell-style room lit by one moving point
+// light, its indirect light from a realtime light-probe volume.
+//
+// The walls, floor, ceiling and the boulder are `LightmapStatic` -- the one flag
+// that says a surface takes part in GI -- so the volume's rays bounce off
+// them; their materials' base colours are what the bounce carries, which is
+// why the floor beside the red wall goes red and the boulder's side facing
+// the green wall goes green. Nothing is baked: the volume is `update: Realtime`, and as
+// the light circles (assets/scripts/light.js) the bounced light follows it.
+// There is no sky to speak of (the sun is black, its ambient near zero), so
+// every bit of light off the walls' unlit sides is bounce.
+SceneDescriptor(entities: [
+    EntityDescriptor(
+        name: "Camera",
+        camera: true,
+        transform: Some((position: (0.0, 1.6, 7.5))),
+        look_at: Some((0.0, 1.4, 0.0)),
+    ),
+    EntityDescriptor(
+        name: "Sun",
+        directional_light: Some((direction: (0.0, -1.0, 0.0), color: (0.0, 0.0, 0.0), ambient: (0.02, 0.02, 0.02))),
+    ),
+    EntityDescriptor(
+        name: "Light",
+        transform: Some((position: (1.8, 2.2, 0.0))),
+        point_light: Some((color: (1.0, 0.95, 0.85), intensity: 6.0, range: 8.0)),
+        script: Some("assets/scripts/light.js"),
+    ),
+    EntityDescriptor(
+        // Planes, not cubes: a plane's vertices are white, so what the camera sees is the material's colour -- the colour the probes' rays bounce (cube vertices are painted a colour per face).
+        name: "Floor",
+        primitive: Some(Plane),
+        transform: Some((position: (0.0, 0.0, 0.0), rotation: (0.0, 0.0, 0.0, 1.0), scale: (6.0, 1.0, 6.0))),
+        components: [
+            ("bsengine_core::lightmap_static::LightmapStatic", "(resolution_scale: 1.0)"),
+            ("bsengine_core::material::Material", "(base_color: (0.75, 0.75, 0.75), metallic: 0.0, roughness: 0.9, emissive: (0.0, 0.0, 0.0), opacity: 1.0)"),
+        ],
+    ),
+    EntityDescriptor(
+        // Turned over, facing down.
+        name: "Ceiling",
+        primitive: Some(Plane),
+        transform: Some((position: (0.0, 3.0, 0.0), rotation: (1.0, 0.0, 0.0, 0.0), scale: (6.0, 1.0, 6.0))),
+        components: [
+            ("bsengine_core::lightmap_static::LightmapStatic", "(resolution_scale: 1.0)"),
+            ("bsengine_core::material::Material", "(base_color: (0.75, 0.75, 0.75), metallic: 0.0, roughness: 0.9, emissive: (0.0, 0.0, 0.0), opacity: 1.0)"),
+        ],
+    ),
+    EntityDescriptor(
+        // Facing +z, into the room.
+        name: "BackWall",
+        primitive: Some(Plane),
+        transform: Some((position: (0.0, 1.5, -3.0), rotation: (0.70710677, 0.0, 0.0, 0.70710677), scale: (6.0, 1.0, 3.0))),
+        components: [
+            ("bsengine_core::lightmap_static::LightmapStatic", "(resolution_scale: 1.0)"),
+            ("bsengine_core::material::Material", "(base_color: (0.75, 0.75, 0.75), metallic: 0.0, roughness: 0.9, emissive: (0.0, 0.0, 0.0), opacity: 1.0)"),
+        ],
+    ),
+    EntityDescriptor(
+        // Facing +x.
+        name: "RedWall",
+        primitive: Some(Plane),
+        transform: Some((position: (-3.0, 1.5, 0.0), rotation: (0.0, 0.0, -0.70710677, 0.70710677), scale: (3.0, 1.0, 6.0))),
+        components: [
+            ("bsengine_core::lightmap_static::LightmapStatic", "(resolution_scale: 1.0)"),
+            ("bsengine_core::material::Material", "(base_color: (0.8, 0.1, 0.1), metallic: 0.0, roughness: 0.9, emissive: (0.0, 0.0, 0.0), opacity: 1.0)"),
+        ],
+    ),
+    EntityDescriptor(
+        // Facing -x.
+        name: "GreenWall",
+        primitive: Some(Plane),
+        transform: Some((position: (3.0, 1.5, 0.0), rotation: (0.0, 0.0, 0.70710677, 0.70710677), scale: (3.0, 1.0, 6.0))),
+        components: [
+            ("bsengine_core::lightmap_static::LightmapStatic", "(resolution_scale: 1.0)"),
+            ("bsengine_core::material::Material", "(base_color: (0.1, 0.7, 0.1), metallic: 0.0, roughness: 0.9, emissive: (0.0, 0.0, 0.0), opacity: 1.0)"),
+        ],
+    ),
+    EntityDescriptor(
+        // Static, so it bounces light and casts the volume's indirect shadow.
+        name: "Boulder",
+        primitive: Some(Sphere),
+        transform: Some((position: (0.9, 0.8, -1.0), rotation: (0.0, 0.0, 0.0, 1.0), scale: (1.6, 1.6, 1.6))),
+        components: [
+            ("bsengine_core::lightmap_static::LightmapStatic", "(resolution_scale: 1.0)"),
+            ("bsengine_core::material::Material", "(base_color: (0.75, 0.75, 0.75), metallic: 0.0, roughness: 0.9, emissive: (0.0, 0.0, 0.0), opacity: 1.0)"),
+        ],
+    ),
+    EntityDescriptor(
+        // Not static: a moving object receives the volume's light but does
+        // not bounce or block it.
+        name: "Ball",
+        primitive: Some(Sphere),
+        transform: Some((position: (-1.2, 0.5, 0.6), scale: (1.0, 1.0, 1.0))),
+        components: [
+            ("bsengine_core::material::Material", "(base_color: (0.9, 0.9, 0.9), metallic: 0.0, roughness: 0.6, emissive: (0.0, 0.0, 0.0), opacity: 1.0)"),
+        ],
+    ),
+    EntityDescriptor(
+        // A little larger than the room, so the walls, floor and ceiling are
+        // inside it and take its light too. The outermost probes then stand
+        // just behind the walls, seeing their backs -- the visibility test
+        // drops those from every lookup inside the room.
+        name: "GIVolume",
+        transform: Some((position: (0.0, 1.5, 0.0))),
+        components: [
+            ("bsengine_core::light_probe::LightProbeVolume", "(half_extents: (3.1, 1.6, 3.1), resolution: (8, 4, 8), update: Realtime, rays_per_probe: 64, hysteresis: 0.97)"),
+        ],
+    ),
+])

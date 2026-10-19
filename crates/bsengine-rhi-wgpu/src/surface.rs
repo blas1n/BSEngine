@@ -10170,6 +10170,20 @@ mod tests {
         fn build(corners: [Vec3; 4], emissive: Vec3, fast_render: bool) -> Self {
             let surface = pollster::block_on(WgpuSurface::new_offscreen(64, 64, fast_render))
                 .expect("an offscreen surface is what every GPU test here uses");
+            Self::on(surface, corners, emissive)
+        }
+
+        /// [`Self::new`] on the process's shared test device
+        /// (`offscreen_for_testing`): what the realtime GI tests use, so the
+        /// update's pipelines -- over a minute to build under FXC on CI's
+        /// software D3D12 -- are built once for all of them.
+        fn shared(corners: [Vec3; 4], emissive: Vec3) -> Self {
+            let surface = WgpuSurface::offscreen_for_testing(64, 64)
+                .expect("an offscreen surface is what every GPU test here uses");
+            Self::on(surface, corners, emissive)
+        }
+
+        fn on(surface: WgpuSurface, corners: [Vec3; 4], emissive: Vec3) -> Self {
             let mut registry = crate::mesh::GpuMeshRegistry::new(surface.device.clone());
             let normal = (corners[1] - corners[0])
                 .cross(corners[2] - corners[0])
@@ -10572,7 +10586,7 @@ mod tests {
         fn new(sky: Vec3) -> Self {
             // A first quad far away, so `ProbeBakeScene` has its surface; not
             // a static.
-            let scene = ProbeBakeScene::new(
+            let scene = ProbeBakeScene::shared(
                 quad_corners(Vec3::new(500.0, 0.0, 0.0), Vec3::X, Vec3::Y),
                 Vec3::ZERO,
             );

@@ -466,7 +466,8 @@ fn build_pipelines(device: &wgpu::Device, layout: &wgpu::BindGroupLayout) -> Pip
 /// The realtime volume's GPU side. Made the first frame a realtime volume is
 /// asked for, kept while the surface lives.
 pub(crate) struct RealtimeGi {
-    pipelines: PipelineState,
+    /// Shared with every other `RealtimeGi` on the same device ([`shared`]).
+    pipelines: Arc<Mutex<PipelineState>>,
     layout: Arc<wgpu::BindGroupLayout>,
     params: wgpu::Buffer,
     scene: wgpu::Buffer,
@@ -487,34 +488,66 @@ pub(crate) struct RealtimeGi {
     pub(crate) updates: u32,
 }
 
+/// One device's layout and pipelines.
+struct SharedPipelines {
+    device: Arc<wgpu::Device>,
+    layout: Arc<wgpu::BindGroupLayout>,
+    state: Arc<Mutex<PipelineState>>,
+}
+
+/// Every device's pipelines, built the first time a realtime volume appears on
+/// it and kept for the process: building them is the expensive part (FXC, see
+/// [`PipelineState`]), and a second surface on the same device -- the editor's
+/// play view, every test sharing `WgpuSurface::offscreen_for_testing`'s device
+/// -- has no reason to pay it again. Holding the device here keeps it alive,
+/// which is what a process with one renderer does anyway.
+static SHARED: Mutex<Vec<SharedPipelines>> = Mutex::new(Vec::new());
+
+/// `device`'s layout and pipelines, starting their build if this is the first
+/// ask.
+fn shared(device: &Arc<wgpu::Device>) -> (Arc<wgpu::BindGroupLayout>, Arc<Mutex<PipelineState>>) {
+    let mut all = SHARED.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(s) = all.iter().find(|s| Arc::ptr_eq(&s.device, device)) {
+        return (Arc::clone(&s.layout), Arc::clone(&s.state));
+    }
+    let compute = wgpu::ShaderStages::COMPUTE;
+    let layout = Arc::new(
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("realtime gi bgl"),
+            entries: &[
+                storage_layout_entry(0, compute, true),
+                storage_layout_entry(1, compute, true),
+                storage_layout_entry(2, compute, false),
+                uniform_layout_entry(3, compute),
+                sky_layout_entry(4, compute),
+                uniform_layout_entry(5, compute),
+            ],
+        }),
+    );
+    #[cfg(not(target_arch = "wasm32"))]
+    let state = {
+        let (device, layout) = (Arc::clone(device), Arc::clone(&layout));
+        PipelineState::Compiling(
+            std::thread::Builder::new()
+                .name("realtime gi pipelines".into())
+                .spawn(move || build_pipelines(&device, &layout))
+                .expect("a thread for the realtime GI pipelines"),
+        )
+    };
+    #[cfg(target_arch = "wasm32")]
+    let state = PipelineState::Ready(build_pipelines(device, &layout));
+    let state = Arc::new(Mutex::new(state));
+    all.push(SharedPipelines {
+        device: Arc::clone(device),
+        layout: Arc::clone(&layout),
+        state: Arc::clone(&state),
+    });
+    (layout, state)
+}
+
 impl RealtimeGi {
     pub(crate) fn new(device: &Arc<wgpu::Device>) -> Self {
-        let compute = wgpu::ShaderStages::COMPUTE;
-        let layout = Arc::new(
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("realtime gi bgl"),
-                entries: &[
-                    storage_layout_entry(0, compute, true),
-                    storage_layout_entry(1, compute, true),
-                    storage_layout_entry(2, compute, false),
-                    uniform_layout_entry(3, compute),
-                    sky_layout_entry(4, compute),
-                    uniform_layout_entry(5, compute),
-                ],
-            }),
-        );
-        #[cfg(not(target_arch = "wasm32"))]
-        let pipelines = {
-            let (device, layout) = (Arc::clone(device), Arc::clone(&layout));
-            PipelineState::Compiling(
-                std::thread::Builder::new()
-                    .name("realtime gi pipelines".into())
-                    .spawn(move || build_pipelines(&device, &layout))
-                    .expect("a thread for the realtime GI pipelines"),
-            )
-        };
-        #[cfg(target_arch = "wasm32")]
-        let pipelines = PipelineState::Ready(build_pipelines(device, &layout));
+        let (layout, pipelines) = shared(device);
         let params = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("realtime gi params"),
             size: std::mem::size_of::<GiParams>() as u64,
@@ -547,35 +580,37 @@ impl RealtimeGi {
     /// Whether the pipelines are built, collecting them from their thread the
     /// first time they are. Never waits.
     fn pipelines_ready(&mut self) -> bool {
+        let mut state = self.pipelines.lock().unwrap_or_else(|e| e.into_inner());
         #[cfg(not(target_arch = "wasm32"))]
-        if matches!(&self.pipelines, PipelineState::Compiling(h) if h.is_finished()) {
+        if matches!(&*state, PipelineState::Compiling(h) if h.is_finished()) {
             let PipelineState::Compiling(handle) =
-                std::mem::replace(&mut self.pipelines, PipelineState::Failed)
+                std::mem::replace(&mut *state, PipelineState::Failed)
             else {
                 unreachable!("matched above");
             };
             match handle.join() {
-                Ok(p) => self.pipelines = PipelineState::Ready(p),
+                Ok(p) => *state = PipelineState::Ready(p),
                 Err(_) => tracing::error!(
                     "realtime GI: building the update pipelines failed; the volume will not update"
                 ),
             }
         }
-        matches!(self.pipelines, PipelineState::Ready(_))
+        matches!(&*state, PipelineState::Ready(_))
     }
 
     /// Waits for the pipelines, for a test that is not measuring the wait.
     #[cfg(test)]
     pub(crate) fn wait_for_pipelines(&mut self) {
+        let mut state = self.pipelines.lock().unwrap_or_else(|e| e.into_inner());
         #[cfg(not(target_arch = "wasm32"))]
-        if let PipelineState::Compiling(_) = &self.pipelines {
+        if let PipelineState::Compiling(_) = &*state {
             let PipelineState::Compiling(handle) =
-                std::mem::replace(&mut self.pipelines, PipelineState::Failed)
+                std::mem::replace(&mut *state, PipelineState::Failed)
             else {
                 unreachable!("matched above");
             };
             if let Ok(p) = handle.join() {
-                self.pipelines = PipelineState::Ready(p);
+                *state = PipelineState::Ready(p);
             }
         }
     }
@@ -852,6 +887,10 @@ impl RealtimeGi {
             label: Some("realtime gi update"),
         });
         {
+            let state = self.pipelines.lock().unwrap_or_else(|e| e.into_inner());
+            let PipelineState::Ready(pipelines) = &*state else {
+                unreachable!("checked by pipelines_ready above");
+            };
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("realtime gi update"),
                 timestamp_writes: None,
@@ -859,9 +898,6 @@ impl RealtimeGi {
             pass.set_bind_group(0, &bind, &[]);
             // Every probe carried over, then the slice overwritten: two
             // dispatches, which WebGPU orders (each is its own usage scope).
-            let PipelineState::Ready(pipelines) = &self.pipelines else {
-                unreachable!("checked by pipelines_ready above");
-            };
             pass.set_pipeline(&pipelines.carry);
             pass.dispatch_workgroups((total * 9).div_ceil(64), 1, 1);
             pass.set_pipeline(&pipelines.update);

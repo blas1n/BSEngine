@@ -11,15 +11,18 @@ use bevy_reflect::Reflect;
 /// renders, with the sky reflection where the ignored probes would have been.
 pub const MAX_REFLECTION_PROBES: usize = 4;
 
-/// Captures the scene around it into a cubemap, once, and makes surfaces
-/// inside its box reflect that capture instead of the sky.
+/// Captures the scene around it into a cubemap and makes surfaces inside its
+/// box reflect that capture instead of the sky -- once, or kept up to date
+/// ([`ReflectionProbe::update`]).
 ///
 /// Unity's Reflection Probe, Unreal's Box Reflection Capture and Godot's
 /// `ReflectionProbe` share this shape: a position the capture is taken from,
-/// a box of influence, optional box projection, an intensity. Like Godot's
-/// default *Update Once* and Unity's baked probes, the capture is taken when
-/// the probe appears or its own settings change -- not when the scene around
-/// it does, so moving a lamp after load keeps the old reflection.
+/// a box of influence, optional box projection, an intensity, and a refresh
+/// mode. With the default [`crate::ProbeUpdate::Once`] -- Godot's default
+/// *Update Once*, Unity's baked probes -- the capture is taken when the probe
+/// appears or its own settings change, not when the scene around it does, so
+/// moving a lamp after load keeps the old reflection; `Realtime` re-captures
+/// it a face a frame.
 ///
 /// Where boxes overlap, the smallest box containing the surface wins.
 /// Unity and Godot can also blend across a margin; this does not, so the
@@ -42,6 +45,9 @@ pub struct ReflectionProbe {
     /// Multiplies the reflection's brightness. 1 is physically what the
     /// probe saw.
     pub intensity: f32,
+    /// Captured once (the default) or kept up to date, a face a frame. See
+    /// [`crate::ProbeUpdate`].
+    pub update: crate::ProbeUpdate,
 }
 
 impl Default for ReflectionProbe {
@@ -50,6 +56,7 @@ impl Default for ReflectionProbe {
             half_extents: glam::Vec3::splat(5.0).into(),
             box_projection: false,
             intensity: 1.0,
+            update: crate::ProbeUpdate::Once,
         }
     }
 }

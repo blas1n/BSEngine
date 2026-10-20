@@ -88,6 +88,7 @@ fn probe(center: Vec3, half_extents: Vec3) -> ReflectionProbeParams {
         half_extents,
         box_projection: false,
         intensity: 1.0,
+        realtime: false,
     }
 }
 
@@ -297,4 +298,154 @@ fn each_probe_reflects_its_own_capture() {
         bias(right, G) > 30.0,
         "the right box reflects green: {right:?}"
     );
+}
+
+/// A realtime probe follows the scene: repaint the ceiling, and the mirror
+/// floor shows the new colour a few frames later -- where a probe captured
+/// once keeps the old one (the test above). It is refreshed one cube face a
+/// frame and filtered into its slot only once all six are new, so it changes
+/// whole, on a frame that finished a refresh, and not before the second frame
+/// (all six faces at once would change it on the first). Until then every
+/// frame shows the old capture complete, never a cube half of each.
+#[test]
+fn a_realtime_probe_follows_the_scene_a_face_a_frame() {
+    let mut h = Harness::new();
+    let (plane, cube) = (h.plane(), h.cube());
+    let p = ReflectionProbeParams {
+        realtime: true,
+        ..probe(Vec3::new(0.0, 2.0, 0.0), Vec3::new(8.0, 3.0, 8.0))
+    };
+    let room =
+        |colour, probes| mirror_room(plane, cube, &[(-20.0, 20.0, colour)], Vec3::ZERO, probes);
+
+    let red = floor(&h.render(&room(RED, vec![p])));
+    assert!(bias(red, R) > 40.0, "premise: captured whole, red: {red:?}");
+    let mut turned = None;
+    for frame in 1..=14 {
+        let before = h.reflection_refreshes();
+        let passes = h.cube_face_passes();
+        let px = floor(&h.render(&room(GREEN, vec![p])));
+        let finished = h.reflection_refreshes() > before;
+        // The cost claim, which no pixel shows: a refresh that captured all
+        // six faces and then filtered on the sixth frame would look the same.
+        assert_eq!(
+            h.cube_face_passes() - passes,
+            1,
+            "frame {frame}: a realtime probe is refreshed one face a frame"
+        );
+        if bias(px, G) > 40.0 {
+            turned = Some((frame, finished));
+            break;
+        }
+        assert!(
+            bias(px, R) > 40.0,
+            "frame {frame}: until a refresh finishes the floor shows the old capture, \
+             whole: {px:?}"
+        );
+    }
+    let (frame, finished) =
+        turned.expect("within two refreshes the floor reflects the green ceiling");
+    assert!(
+        finished,
+        "the reflection changed on frame {frame}, which finished no refresh: a cube \
+         with only some faces new was shown"
+    );
+    assert!(
+        frame >= 2,
+        "one face a frame, not all six: the reflection changed on frame {frame}"
+    );
+}
+
+/// Several realtime probes take turns: each is refreshed in full before the
+/// next starts, and each gets its turn. Two probes over two floors, the
+/// ceiling repainted green; both floors turn green within two rounds.
+#[test]
+fn realtime_probes_take_turns() {
+    let mut h = Harness::new();
+    let (plane, cube) = (h.plane(), h.cube());
+    let probes = vec![
+        ReflectionProbeParams {
+            realtime: true,
+            ..probe(Vec3::new(-10.0, 2.0, 0.0), Vec3::new(3.0, 3.0, 4.0))
+        },
+        ReflectionProbeParams {
+            realtime: true,
+            ..probe(Vec3::new(10.0, 2.0, 0.0), Vec3::new(3.0, 3.0, 4.0))
+        },
+    ];
+    let (left, right) = (Vec3::new(-10.0, 0.0, 0.0), Vec3::new(10.0, 0.0, 0.0));
+    let view = |h: &mut Harness, colour, target| {
+        floor(&h.render(&mirror_room(
+            plane,
+            cube,
+            &[(-20.0, 20.0, colour)],
+            target,
+            probes.clone(),
+        )))
+    };
+    let before = (view(&mut h, RED, left), view(&mut h, RED, right));
+    assert!(
+        bias(before.0, R) > 30.0 && bias(before.1, R) > 30.0,
+        "premise: both captured red: {before:?}"
+    );
+    let (mut left_green, mut right_green) = (false, false);
+    for frame in 0..30 {
+        let target = if frame % 2 == 0 { left } else { right };
+        if bias(view(&mut h, GREEN, target), G) > 30.0 {
+            if frame % 2 == 0 {
+                left_green = true;
+            } else {
+                right_green = true;
+            }
+        }
+        if left_green && right_green {
+            break;
+        }
+    }
+    assert!(
+        left_green && right_green,
+        "both realtime probes should have been refreshed: left {left_green}, right {right_green}"
+    );
+}
+
+/// A whole capture -- the probe list changed -- restarts the realtime
+/// refresh. Both share one capture cube: the whole capture leaves the last
+/// probe's six faces in it, so a refresh that carried on mid-probe would file
+/// the rest of the other probe's faces under the one it was refreshing. Two
+/// realtime probes over a red and a green ceiling, the list changed after a
+/// few frames of refresh: the red side must never show green.
+#[test]
+fn a_whole_capture_restarts_the_realtime_refresh() {
+    let mut h = Harness::new();
+    let (plane, cube) = (h.plane(), h.cube());
+    let panels = [(-20.0, 0.0, RED), (0.0, 20.0, GREEN)];
+    let left = ReflectionProbeParams {
+        realtime: true,
+        ..probe(Vec3::new(-10.0, 2.0, 0.0), Vec3::new(3.0, 3.0, 4.0))
+    };
+    let right = |dx: f32| ReflectionProbeParams {
+        realtime: true,
+        ..probe(Vec3::new(10.0 + dx, 2.0, 0.0), Vec3::new(3.0, 3.0, 4.0))
+    };
+    let view = |h: &mut Harness, probes: Vec<ReflectionProbeParams>| {
+        floor(&h.render(&mirror_room(
+            plane,
+            cube,
+            &panels,
+            Vec3::new(-10.0, 0.0, 0.0),
+            probes,
+        )))
+    };
+    // Part-way into refreshing the left probe.
+    for _ in 0..3 {
+        view(&mut h, vec![left, right(0.0)]);
+    }
+    // The right probe moves: the list changed, both are captured whole.
+    for frame in 0..14 {
+        let px = view(&mut h, vec![left, right(0.1)]);
+        assert!(
+            bias(px, R) > 30.0,
+            "frame {frame}: the left floor must keep reflecting its red ceiling: {px:?}"
+        );
+    }
 }

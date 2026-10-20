@@ -6682,6 +6682,13 @@ impl WgpuSurface {
         self.realtime_gi.as_ref().map_or(0, |g| g.readbacks_started)
     }
 
+    /// Moving instances the last realtime update traced, for the tests that
+    /// hold the plugin's dynamic set and the cap.
+    #[doc(hidden)]
+    pub fn realtime_gi_instances(&self) -> u32 {
+        self.realtime_gi.as_ref().map_or(0, |g| g.instances_traced)
+    }
+
     /// [`Self::read_probe_grid`] for the realtime tests, which run in a
     /// process of their own (`tests/realtime_gi.rs`): a minute of FXC on CI's
     /// software D3D12 must not overlap the other GPU tests.

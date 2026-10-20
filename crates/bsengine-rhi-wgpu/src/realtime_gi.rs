@@ -19,6 +19,15 @@
 //! changes -- asynchronously, so no frame waits for it, and the browser can
 //! do it too -- and built into a BVH on the CPU.
 //!
+//! Everything else that moves is traced as instances, the two-level layout
+//! hardware ray tracing gives RTXGI (a bottom-level tree per mesh, a top
+//! level of transforms): each mesh a moving entity draws gets its own tree in
+//! its own space, built once and appended after the static tree, and every
+//! update uploads where each entity is now. A ray meets an instance through
+//! its inverse transform, so moving one costs nothing but its 176 bytes.
+//! The top level is a list rather than a tree -- every ray tests every
+//! instance's box -- which is why there is a cap ([`MAX_GI_INSTANCES`]).
+//!
 //! Each ray's distance also goes into a 16 x 16 octahedral map of distance
 //! moments per probe, which shading uses to drop the probes that cannot see
 //! the point -- DDGI's answer to light leaking through walls.
@@ -318,6 +327,22 @@ struct GiParams {
     // Whether probes are relocated and classified. Always on; a test turns
     // it off to look at visibility alone.
     relocation: u32,
+    // How many of `instances` this update traces.
+    instance_count: u32,
+};
+
+// A moving entity: its mesh's own tree (`root`, `tri_base`, in `nodes` and
+// `tris` after the static tree), the transform into that tree's space, the
+// one back out for normals, its world bounds, and its material.
+struct GiInstance {
+    world_to_local: mat4x4<f32>,
+    normal_to_world: mat3x3<f32>,
+    lo: vec3<f32>,
+    root: u32,
+    hi: vec3<f32>,
+    tri_base: u32,
+    albedo: vec4<f32>,
+    emissive: vec4<f32>,
 };
 
 @group(0) @binding(0) var<storage, read> nodes: array<Node>;
@@ -326,6 +351,49 @@ struct GiParams {
 @group(0) @binding(3) var<uniform> scene: Scene;
 @group(0) @binding(4) var sky: texture_2d<f32>;
 @group(0) @binding(5) var<uniform> gi: GiParams;
+@group(0) @binding(6) var<storage, read> instances: array<GiInstance>;
+
+// `trace.wgsl`'s instance hooks, over the moving entities. The ray goes into
+// the mesh's space through the inverse transform, its direction *not*
+// renormalised: a hit at parameter t there is the hit at t in the world, so
+// distances compare with the static tree's and with `best` unchanged, under
+// any scale.
+fn instance_count() -> u32 {
+    return gi.instance_count;
+}
+fn instance_ray(i: u32, o: vec3<f32>, d: vec3<f32>, t_max: f32) -> InstanceRay {
+    let inst = instances[i];
+    let enters = box_hit(inst.lo, inst.hi, o, safe_inv(d), t_max);
+    return InstanceRay(
+        inst.root,
+        inst.tri_base,
+        (inst.world_to_local * vec4<f32>(o, 1.0)).xyz,
+        (inst.world_to_local * vec4<f32>(d, 0.0)).xyz,
+        enters,
+    );
+}
+
+// What a hit found: the world-space face normal (turned as `trace.rs` turns
+// it), and the surface's material -- the triangle's own for the static tree,
+// the instance's for a moving mesh, whose triangles are shared by every
+// entity that draws it.
+struct HitSurface {
+    n: vec3<f32>,
+    albedo: vec3<f32>,
+    emissive: vec3<f32>,
+};
+fn hit_surface(hit: Hit) -> HitSurface {
+    let tri = tris[hit.tri];
+    if hit.instance == NO_HIT {
+        return HitSurface(tri.n.xyz, tri.albedo.xyz, tri.emissive.xyz);
+    }
+    let inst = instances[hit.instance];
+    return HitSurface(
+        normalize(inst.normal_to_world * tri.n.xyz),
+        inst.albedo.xyz,
+        inst.emissive.xyz,
+    );
+}
 
 // Each thread's share of the nine coefficients, summed by the first nine.
 var<workgroup> partial: array<array<vec3<f32>, 9>, 64>;
@@ -376,8 +444,8 @@ fn trace_ray(o: vec3<f32>, d: vec3<f32>, max_dist: f32) -> RayResult {
     if hit.tri == NO_HIT {
         return RayResult(sky_radiance(d), max_dist);
     }
-    let tri = tris[hit.tri];
-    let ng = tri.n.xyz;
+    let surface = hit_surface(hit);
+    let ng = surface.n;
     let dist = min(hit.t, max_dist);
     // A back face: the probe sees the inside of something.
     if dot(ng, d) >= 0.0 {
@@ -390,7 +458,7 @@ fn trace_ray(o: vec3<f32>, d: vec3<f32>, max_dist: f32) -> RayResult {
     // see that.
     let e = all_lights(y, ng) / PI
         + eval_probe_sh_at(y, ng, gi.read_offset, gi.visibility != 0u);
-    return RayResult(tri.emissive.xyz + tri.albedo.xyz * e, dist);
+    return RayResult(surface.emissive + surface.albedo * e, dist);
 }
 
 // The nine L2 basis functions of `d`, accumulated into `acc` times `l`.
@@ -524,7 +592,7 @@ fn cs_update(
         let hit = traverse(p, d, 3.0e38, false);
         var dist = RELOCATE_MISS;
         if hit.tri != NO_HIT {
-            dist = select(hit.t, -hit.t, dot(tris[hit.tri].n.xyz, d) >= 0.0);
+            dist = select(hit.t, -hit.t, dot(hit_surface(hit).n, d) >= 0.0);
         }
         fixed_hits[lid] = vec4<f32>(d, dist);
     }
@@ -596,8 +664,9 @@ struct GiParams {
     /// Columns, each padded to a vec4 as a uniform `mat3x3` lays them out.
     rotation: [[f32; 4]; 3],
     relocation: u32,
+    instance_count: u32,
     /// The uniform struct rounds up to its 16-byte alignment.
-    _pad: [u32; 3],
+    _pad: [u32; 2],
 }
 
 /// One static entity, as the update traces it.
@@ -613,6 +682,26 @@ pub struct GiStatic {
     pub emissive: Vec3,
 }
 
+/// One moving entity, as the update traces it: its mesh's own tree, met
+/// through this frame's transform.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GiDynamic {
+    /// The mesh in the [`GpuMeshRegistry`], read back from its buffers once
+    /// for every entity that draws it.
+    pub mesh_id: u64,
+    /// Local to world, this frame.
+    pub model: Mat4,
+    /// The base colour light bounces with.
+    pub albedo: Vec3,
+    /// Emitted radiance.
+    pub emissive: Vec3,
+}
+
+/// Most moving instances one update traces. Every ray tests each one's box,
+/// so the cost grows with the count (a linear list, not a tree over them);
+/// past this the nearest to the volume are kept, and a warning says so.
+pub const MAX_GI_INSTANCES: usize = 256;
+
 /// What a frame asks of the realtime volume (`WgpuSurface::set_realtime_gi`).
 #[derive(Clone)]
 pub struct RealtimeGiInput {
@@ -626,6 +715,10 @@ pub struct RealtimeGiInput {
     pub rays_per_frame: u32,
     /// The static set, in a stable order (a reorder alone rebuilds).
     pub statics: Vec<GiStatic>,
+    /// Everything else that takes part, where it is this frame. Moving one
+    /// rebuilds nothing; only a mesh no dynamic entity drew before does
+    /// (its tree is built once, then shared by every entity drawing it).
+    pub dynamics: Vec<GiDynamic>,
     /// Every light, as realtime GI takes them (`Contribution::Indirect`).
     pub lights: Vec<BakeLight>,
     /// Shared so a frame need not copy a panorama; re-uploaded only when the
@@ -660,8 +753,10 @@ pub fn world_triangles(
     }
 }
 
-/// A hash of the static set: what decides when the geometry is rebuilt.
-fn signature(statics: &[GiStatic]) -> u64 {
+/// A hash of the static set and of the meshes the moving entities draw (in
+/// ascending id order): what decides when the geometry is rebuilt. Where the
+/// moving entities are is not in it -- that is uploaded every frame.
+fn signature(statics: &[GiStatic], dynamic_meshes: &[u64]) -> u64 {
     // FNV-1a over the bits: stable across runs, unlike `DefaultHasher`, which
     // a test comparing two surfaces would otherwise trip over.
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
@@ -682,25 +777,145 @@ fn signature(statics: &[GiStatic]) -> u64 {
         }
     }
     eat(statics.len() as u32);
+    for id in dynamic_meshes {
+        eat(*id as u32);
+        eat((*id >> 32) as u32);
+    }
+    eat(dynamic_meshes.len() as u32);
     h
 }
 
-/// The static meshes' buffers, being copied back.
+/// The meshes `dynamics` draw that can be traced now: loaded, not skinned
+/// (a skinned mesh's buffer is the skinning pass's output, which a tree
+/// built once would not follow), each once, in ascending id order. One that
+/// is not loaded yet joins the set -- and the signature -- the frame it is,
+/// so its tree is built then rather than never.
+fn traceable_meshes(registry: &GpuMeshRegistry, dynamics: &[GiDynamic]) -> Vec<u64> {
+    let mut ids: Vec<u64> = dynamics
+        .iter()
+        .map(|d| d.mesh_id)
+        .filter(|&id| registry.get(id).is_some() && !registry.is_skinned(id))
+        .collect();
+    ids.sort_unstable();
+    ids.dedup();
+    ids
+}
+
+/// One mesh's tree, where `land_geometry` laid it out: its root node and its
+/// first triangle in the shared buffers, and its local bounds.
+#[derive(Clone, Copy, Debug)]
+struct MeshTree {
+    root: u32,
+    tri_base: u32,
+    lo: Vec3,
+    hi: Vec3,
+}
+
+/// `GiInstance` in `UPDATE_WGSL`: one moving entity, as a ray meets it.
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct GpuInstance {
+    world_to_local: [[f32; 4]; 4],
+    /// Columns, each padded to a vec4 as a storage `mat3x3` lays them out.
+    normal_to_world: [[f32; 4]; 3],
+    lo: [f32; 3],
+    root: u32,
+    hi: [f32; 3],
+    tri_base: u32,
+    albedo: [f32; 4],
+    emissive: [f32; 4],
+}
+
+const _: () = assert!(std::mem::size_of::<GpuInstance>() == 176);
+
+/// `model`'s image of the box `lo..hi`: the box around its eight corners.
+fn world_bounds(model: Mat4, lo: Vec3, hi: Vec3) -> (Vec3, Vec3) {
+    let mut out = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+    for k in 0..8 {
+        let c = Vec3::new(
+            if k & 1 == 0 { lo.x } else { hi.x },
+            if k & 2 == 0 { lo.y } else { hi.y },
+            if k & 4 == 0 { lo.z } else { hi.z },
+        );
+        let w = model.transform_point3(c);
+        out = (out.0.min(w), out.1.max(w));
+    }
+    out
+}
+
+/// This frame's instances, in the order `dynamics` gave them: each one whose
+/// mesh has a tree, transformed. Past [`MAX_GI_INSTANCES`], the ones whose
+/// bounds lie nearest the volume's centre.
+fn instances(
+    dynamics: &[GiDynamic],
+    trees: &std::collections::HashMap<u64, MeshTree>,
+    volume: &ProbeVolumeParams,
+) -> (Vec<GpuInstance>, bool) {
+    let centre = volume.origin + volume.extent * 0.5;
+    let mut out: Vec<(f32, GpuInstance)> = dynamics
+        .iter()
+        .filter_map(|d| {
+            let tree = trees.get(&d.mesh_id)?;
+            // A degenerate transform (a zero scale) has no inverse, and
+            // nothing to hit either.
+            if d.model.determinant().abs() < 1e-12 {
+                return None;
+            }
+            let (lo, hi) = world_bounds(d.model, tree.lo, tree.hi);
+            let normal = Mat3::from_mat4(d.model).inverse().transpose();
+            let nearest = centre.clamp(lo, hi);
+            Some((
+                nearest.distance_squared(centre),
+                GpuInstance {
+                    world_to_local: d.model.inverse().to_cols_array_2d(),
+                    normal_to_world: [
+                        normal.x_axis.extend(0.0).to_array(),
+                        normal.y_axis.extend(0.0).to_array(),
+                        normal.z_axis.extend(0.0).to_array(),
+                    ],
+                    lo: lo.to_array(),
+                    root: tree.root,
+                    hi: hi.to_array(),
+                    tri_base: tree.tri_base,
+                    albedo: d.albedo.extend(0.0).to_array(),
+                    emissive: d.emissive.extend(0.0).to_array(),
+                },
+            ))
+        })
+        .collect();
+    let over = out.len() > MAX_GI_INSTANCES;
+    if over {
+        // Stable, so equally near instances keep their order -- and the
+        // update stays the same bytes from run to run.
+        out.sort_by(|a, b| a.0.total_cmp(&b.0));
+        out.truncate(MAX_GI_INSTANCES);
+    }
+    (out.into_iter().map(|(_, i)| i).collect(), over)
+}
+
+/// The static meshes' buffers, and the moving entities' meshes', being
+/// copied back.
 struct Readback {
     signature: u64,
     statics: Vec<GiStatic>,
     /// Per static: (vertex offset, vertex bytes, index offset, index bytes)
     /// in `staging`, or `None` for a mesh that was not there to copy.
     ranges: Vec<Option<(u64, u64, u64, u64)>>,
+    /// The moving entities' meshes, and where each is in `staging`.
+    meshes: Vec<(u64, (u64, u64, u64, u64))>,
     staging: wgpu::Buffer,
     done: Arc<Mutex<Option<bool>>>,
 }
 
 struct Geometry {
     signature: u64,
+    /// The static tree at 0, then every moving mesh's own tree.
     nodes: wgpu::Buffer,
     tris: wgpu::Buffer,
+    /// The static tree's node count (0 for no statics).
     node_count: u32,
+    /// Each moving mesh's tree in `nodes` and `tris`.
+    trees: std::collections::HashMap<u64, MeshTree>,
 }
 
 /// The update's two pipelines.
@@ -789,6 +1004,13 @@ pub(crate) struct RealtimeGi {
     /// Whether the update relocates and classifies probes. Always on; a test
     /// turns it off to see visibility on its own, or what relocation adds.
     pub(crate) relocation: bool,
+    /// The moving instances, rewritten every update: [`MAX_GI_INSTANCES`]
+    /// of [`GpuInstance`].
+    instances: wgpu::Buffer,
+    /// How many instances the last update traced, for tests.
+    pub(crate) instances_traced: u32,
+    /// Whether the cap has been warned about (once a process, not a frame).
+    warned_over_cap: bool,
 }
 
 /// One device's layout and pipelines.
@@ -824,6 +1046,7 @@ fn shared(device: &Arc<wgpu::Device>) -> (Arc<wgpu::BindGroupLayout>, Arc<Mutex<
                 uniform_layout_entry(3, compute),
                 sky_layout_entry(4, compute),
                 uniform_layout_entry(5, compute),
+                storage_layout_entry(6, compute, true),
             ],
         }),
     );
@@ -863,11 +1086,20 @@ impl RealtimeGi {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let instances = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("realtime gi instances"),
+            size: (MAX_GI_INSTANCES * std::mem::size_of::<GpuInstance>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         Self {
             pipelines,
             layout,
             params,
             scene,
+            instances,
+            instances_traced: 0,
+            warned_over_cap: false,
             sky: None,
             geometry: None,
             readback: None,
@@ -934,16 +1166,19 @@ impl RealtimeGi {
         self.frame = 0;
     }
 
-    /// Starts copying the static set's meshes back, unless that set is
-    /// already built or already on its way.
+    /// Starts copying the static set's meshes back, and the meshes the
+    /// moving entities draw, unless that geometry is already built or
+    /// already on its way.
     fn request_geometry(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         registry: &GpuMeshRegistry,
         statics: &[GiStatic],
+        dynamics: &[GiDynamic],
     ) {
-        let sig = signature(statics);
+        let dynamic_meshes = traceable_meshes(registry, dynamics);
+        let sig = signature(statics, &dynamic_meshes);
         if self.geometry.as_ref().is_some_and(|g| g.signature == sig)
             || self.readback.as_ref().is_some_and(|r| r.signature == sig)
         {
@@ -963,6 +1198,13 @@ impl RealtimeGi {
                 _ => ranges.push(None),
             }
         }
+        let mut meshes = Vec::with_capacity(dynamic_meshes.len());
+        for id in dynamic_meshes {
+            let mesh = registry.get(id).expect("kept only if loaded");
+            let (vb, ib) = (mesh.vertex_buffer.size(), mesh.index_buffer.size());
+            meshes.push((id, (size, vb, size + vb, ib)));
+            size += vb + ib;
+        }
         let staging = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("realtime gi mesh readback"),
             size: size.max(4),
@@ -978,6 +1220,11 @@ impl RealtimeGi {
                 encoder.copy_buffer_to_buffer(&mesh.index_buffer, 0, &staging, *io, *ib);
             }
         }
+        for (id, (vo, vb, io, ib)) in &meshes {
+            let mesh = registry.get(*id).expect("kept only if loaded");
+            encoder.copy_buffer_to_buffer(&mesh.vertex_buffer, 0, &staging, *vo, *vb);
+            encoder.copy_buffer_to_buffer(&mesh.index_buffer, 0, &staging, *io, *ib);
+        }
         queue.submit(Some(encoder.finish()));
         let done = Arc::new(Mutex::new(None));
         let flag = Arc::clone(&done);
@@ -989,6 +1236,7 @@ impl RealtimeGi {
             signature: sig,
             statics: statics.to_vec(),
             ranges,
+            meshes,
             staging,
             done,
         });
@@ -1007,8 +1255,36 @@ impl RealtimeGi {
             return;
         }
         let mut triangles = Vec::new();
+        // Each moving mesh's triangles in its own space -- the albedo and
+        // emissive here are placeholders, the instance's own are read at a
+        // hit -- and its bounds there.
+        let mut mesh_triangles: Vec<(u64, Vec<BakeTriangle>, Vec3, Vec3)> = Vec::new();
         {
             let bytes = readback.staging.slice(..).get_mapped_range();
+            for (id, (vo, vb, io, ib)) in &readback.meshes {
+                let vertices: &[Vertex] =
+                    bytemuck::cast_slice(&bytes[*vo as usize..(vo + vb) as usize]);
+                let indices: &[u32] =
+                    bytemuck::cast_slice(&bytes[*io as usize..(io + ib) as usize]);
+                let mut local = Vec::new();
+                world_triangles(
+                    vertices,
+                    indices,
+                    Mat4::IDENTITY,
+                    Vec3::ONE,
+                    Vec3::ZERO,
+                    0,
+                    &mut local,
+                );
+                if local.is_empty() {
+                    continue;
+                }
+                let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+                for p in local.iter().flat_map(|t| t.positions) {
+                    (lo, hi) = (lo.min(p), hi.max(p));
+                }
+                mesh_triangles.push((*id, local, lo, hi));
+            }
             for (s, range) in readback.statics.iter().zip(&readback.ranges) {
                 let Some((vo, vb, io, ib)) = *range else {
                     continue;
@@ -1029,6 +1305,26 @@ impl RealtimeGi {
         }
         readback.staging.unmap();
         let geometry = GpuGeometry::build(&triangles);
+        let (mut nodes, mut tris) = (geometry.nodes, geometry.tris);
+        // Every moving mesh's tree after the static one, each at its own
+        // offset: a tree's indices are its own (`trace.wgsl`'s
+        // `traverse_tree`), so it is laid out unchanged. Built once per mesh,
+        // not per entity, and not again when an entity moves.
+        let mut trees = std::collections::HashMap::new();
+        for (id, local, lo, hi) in mesh_triangles {
+            let tree = GpuGeometry::build(&local);
+            trees.insert(
+                id,
+                MeshTree {
+                    root: nodes.len() as u32,
+                    tri_base: tris.len() as u32,
+                    lo,
+                    hi,
+                },
+            );
+            nodes.extend(tree.nodes);
+            tris.extend(tree.tris);
+        }
         let init = |label, contents: &[u8]| {
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some(label),
@@ -1038,12 +1334,10 @@ impl RealtimeGi {
         };
         self.geometry = Some(Geometry {
             signature: readback.signature,
-            nodes: init("realtime gi nodes", bytemuck::cast_slice(&geometry.nodes)),
-            tris: init(
-                "realtime gi triangles",
-                bytemuck::cast_slice(&geometry.tris),
-            ),
+            nodes: init("realtime gi nodes", bytemuck::cast_slice(&nodes)),
+            tris: init("realtime gi triangles", bytemuck::cast_slice(&tris)),
             node_count: geometry.node_count,
+            trees,
         });
     }
 
@@ -1094,7 +1388,7 @@ impl RealtimeGi {
         probe_buffer: &wgpu::Buffer,
         input: &RealtimeGiInput,
     ) -> bool {
-        self.request_geometry(device, queue, registry, &input.statics);
+        self.request_geometry(device, queue, registry, &input.statics, &input.dynamics);
         // Lands a readback the GPU has finished; never blocks.
         device.poll(wgpu::Maintain::Poll);
         self.land_geometry(device);
@@ -1133,6 +1427,26 @@ impl RealtimeGi {
         let per_frame = (input.rays_per_frame / (rays + 32)).clamp(1, total);
         let first = self.cursor % total;
         self.cursor = (first + per_frame) % total;
+        // Where the moving entities are now: uploaded every update, so a
+        // moved one is traced where it is, with no rebuild.
+        let (frame_instances, over_cap) = instances(
+            &input.dynamics,
+            &self.geometry.as_ref().expect("checked above").trees,
+            &volume,
+        );
+        if over_cap && !self.warned_over_cap {
+            self.warned_over_cap = true;
+            tracing::warn!(
+                "realtime GI: {} moving renderers take part, more than {MAX_GI_INSTANCES}; \
+                 the nearest {MAX_GI_INSTANCES} to the volume are traced (ExcludeFromGi \
+                 leaves one out)",
+                input.dynamics.len()
+            );
+        }
+        if !frame_instances.is_empty() {
+            queue.write_buffer(&self.instances, 0, bytemuck::cast_slice(&frame_instances));
+        }
+        self.instances_traced = frame_instances.len() as u32;
         let read = self.current;
         let write = 1 - read;
         let rotation = random_rotation(self.frame);
@@ -1151,7 +1465,8 @@ impl RealtimeGi {
                 rotation.z_axis.extend(0.0).to_array(),
             ],
             relocation: u32::from(self.relocation),
-            _pad: [0; 3],
+            instance_count: self.instances_traced,
+            _pad: [0; 2],
         };
         queue.write_buffer(&self.params, 0, bytemuck::bytes_of(&params));
         // The header: shade with the half this update writes.
@@ -1193,6 +1508,10 @@ impl RealtimeGi {
                 wgpu::BindGroupEntry {
                     binding: 5,
                     resource: self.params.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: self.instances.as_entire_binding(),
                 },
             ],
         });
@@ -1283,5 +1602,89 @@ mod tests {
             let line = format!("const {name}: u32 = {value}u;");
             assert!(wgsl.contains(&line), "the shader should declare `{line}`");
         }
+    }
+
+    use super::{instances, GiDynamic, MeshTree, MAX_GI_INSTANCES};
+    use crate::surface::ProbeVolumeParams;
+    use glam::{Mat4, Vec3};
+
+    fn one_tree() -> std::collections::HashMap<u64, MeshTree> {
+        std::collections::HashMap::from([(
+            7,
+            MeshTree {
+                root: 3,
+                tri_base: 5,
+                lo: Vec3::splat(-0.5),
+                hi: Vec3::splat(0.5),
+            },
+        )])
+    }
+
+    fn at(x: f32) -> GiDynamic {
+        GiDynamic {
+            mesh_id: 7,
+            model: Mat4::from_translation(Vec3::new(x, 0.0, 0.0)),
+            albedo: Vec3::ONE,
+            emissive: Vec3::ZERO,
+        }
+    }
+
+    /// Past the cap, the instances nearest the volume are the ones kept:
+    /// 300 unit cubes in a row from the volume outwards, of which the first
+    /// 256 survive -- in the order given -- and the warning is asked for.
+    /// The ones beyond are the ones far from every probe.
+    #[test]
+    fn past_the_cap_the_instances_nearest_the_volume_are_kept() {
+        let volume = ProbeVolumeParams {
+            origin: Vec3::splat(-1.0),
+            extent: Vec3::splat(2.0),
+            resolution: [2, 2, 2],
+        };
+        // Given farthest first, so keeping the first 256 given would keep
+        // the wrong ones.
+        let dynamics: Vec<GiDynamic> = (0..300).rev().map(|i| at(i as f32 * 2.0)).collect();
+        let (kept, over) = instances(&dynamics, &one_tree(), &volume);
+        assert!(over, "300 is past the cap");
+        assert_eq!(kept.len(), MAX_GI_INSTANCES);
+        let farthest = kept.iter().map(|i| i.lo[0]).fold(f32::MIN, f32::max);
+        assert!(
+            farthest < 256.0 * 2.0,
+            "only the 256 nearest are kept; the farthest kept starts at x = {farthest}"
+        );
+        let (all, over) = instances(&dynamics[..200], &one_tree(), &volume);
+        assert!(
+            !over && all.len() == 200,
+            "under the cap, every one is kept"
+        );
+    }
+
+    /// An instance's record: the tree it names, its box in the world, and
+    /// the inverse of its transform. One with no tree (its mesh not read
+    /// back yet) or no inverse (scaled to nothing) is not traced.
+    #[test]
+    fn an_instance_carries_its_tree_box_and_inverse() {
+        let volume = ProbeVolumeParams {
+            origin: Vec3::ZERO,
+            extent: Vec3::ONE,
+            resolution: [2, 2, 2],
+        };
+        let mut moved = at(10.0);
+        moved.model *= Mat4::from_scale(Vec3::new(2.0, 1.0, 1.0));
+        let unloaded = GiDynamic {
+            mesh_id: 8,
+            ..at(0.0)
+        };
+        let flat = GiDynamic {
+            model: Mat4::from_scale(Vec3::new(1.0, 0.0, 1.0)),
+            ..at(0.0)
+        };
+        let (kept, _) = instances(&[moved, unloaded, flat], &one_tree(), &volume);
+        assert_eq!(kept.len(), 1, "only the loaded, invertible one");
+        let i = kept[0];
+        assert_eq!((i.root, i.tri_base), (3, 5));
+        assert_eq!(i.lo, [9.0, -0.5, -0.5]);
+        assert_eq!(i.hi, [11.0, 0.5, 0.5]);
+        let back = Mat4::from_cols_array_2d(&i.world_to_local) * moved.model;
+        assert!(back.abs_diff_eq(Mat4::IDENTITY, 1e-5), "{back}");
     }
 }

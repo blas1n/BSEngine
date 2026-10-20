@@ -5,7 +5,8 @@
 //! triangles, the light formulas, the sky -- and the types here are the bytes
 //! it reads. A consumer appends its own entry point and declares the globals
 //! the modules name (`nodes`, `tris`, `scene`, `sky`; see each `.wgsl` file's
-//! header) under whatever group and bindings it uses. Both tracers then trace
+//! header) under whatever group and bindings it uses, and the instance hooks
+//! `traverse` calls ([`NO_INSTANCES_WGSL`] for none). Both tracers then trace
 //! the same tree with the same formulas: there is one copy of each, so the
 //! bake and the realtime GI cannot drift apart.
 //!
@@ -23,6 +24,19 @@ pub const TRACE_WGSL: &str = concat!(
     include_str!("trace.wgsl"),
     include_str!("light.wgsl"),
 );
+
+/// A consumer with no instances -- the bake: `trace.wgsl`'s instance hooks,
+/// answering that there are none. Appended after [`TRACE_WGSL`] by every
+/// consumer that traces the scene's own tree alone; the realtime GI defines
+/// the hooks itself, over its moving meshes.
+pub const NO_INSTANCES_WGSL: &str = r#"
+fn instance_count() -> u32 {
+    return 0u;
+}
+fn instance_ray(i: u32, o: vec3<f32>, d: vec3<f32>, t_max: f32) -> InstanceRay {
+    return InstanceRay(0u, 0u, o, d, false);
+}
+"#;
 
 /// Most lights a scene carries: the `Scene` uniform's fixed array.
 pub const MAX_GPU_LIGHTS: usize = 64;

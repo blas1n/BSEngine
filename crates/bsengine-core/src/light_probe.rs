@@ -38,11 +38,13 @@ pub enum ProbeUpdate {
     /// Kept up to date while the game runs.
     ///
     /// A light-probe volume's probes are ray traced every frame against the
-    /// static (`LightmapStatic`) geometry with the current lights and sky,
-    /// bounce after bounce: lights switched on, off or moved, and the sky
-    /// changing, show in the indirect light a few frames later. Moving objects
-    /// receive this light but do not bounce or block it, and surfaces bounce
-    /// their material's base colour (no textures). At most [`MAX_PROBES`].
+    /// scene's renderers with the current lights and sky, bounce after
+    /// bounce: lights switched on, off or moved, the sky changing, and
+    /// objects moving show in the indirect light a few frames later.
+    /// `LightmapStatic` renderers are one tree, rebuilt when that set
+    /// changes; every other one is traced where it is each frame unless it is
+    /// `ExcludeFromGi` (skinned meshes are left out). Surfaces bounce their
+    /// material's base colour (no textures). At most [`MAX_PROBES`].
     ///
     /// A reflection probe is captured again, one cube face a frame and
     /// filtered once its six faces are in -- Unity's "Individual faces" time

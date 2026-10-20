@@ -41,6 +41,8 @@ pub mod decal;
 pub mod depth_of_field;
 /// Editor-side dockable panel trait and registry.
 pub mod editor_panel;
+/// Leaves a moving renderer out of realtime GI.
+pub mod exclude_from_gi;
 /// Components that make an entity's transform track another entity.
 pub mod follow;
 /// Fast approximate antialiasing (FXAA) settings for a camera.
@@ -195,6 +197,7 @@ pub use custom_shader::CustomShader;
 pub use decal::{Decal, MAX_DECALS};
 pub use depth_of_field::DepthOfField;
 pub use editor_panel::{EditorPanel, EditorPanelContext, EditorPanelRegistry};
+pub use exclude_from_gi::ExcludeFromGi;
 pub use follow::{Follow, LookAt};
 pub use fxaa::Fxaa;
 pub use gi_config::GiSettings;

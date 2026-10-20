@@ -147,8 +147,9 @@ impl GpuBaker {
             label: Some("lightmap bake"),
             source: wgpu::ShaderSource::Wgsl(
                 format!(
-                    "{}{}",
+                    "{}{}{}",
                     crate::gpu_scene::TRACE_WGSL,
+                    crate::gpu_scene::NO_INSTANCES_WGSL,
                     include_str!("gpu.wgsl")
                 )
                 .into(),
@@ -1008,7 +1009,12 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("trace_wgsl consumer"),
             source: wgpu::ShaderSource::Wgsl(
-                format!("{}{PROBE_WGSL}", crate::gpu_scene::TRACE_WGSL).into(),
+                format!(
+                    "{}{}{PROBE_WGSL}",
+                    crate::gpu_scene::TRACE_WGSL,
+                    crate::gpu_scene::NO_INSTANCES_WGSL
+                )
+                .into(),
             ),
         });
         use crate::gpu_scene::{sky_layout_entry, storage_layout_entry, uniform_layout_entry};

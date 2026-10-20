@@ -7,6 +7,8 @@
 // why the floor beside the red wall goes red and the boulder's side facing
 // the green wall goes green. Nothing is baked: the volume is `update: Realtime`, and as
 // the light circles (assets/scripts/light.js) the bounced light follows it.
+// The ball is not static: it is traced where it is each frame, so its
+// indirect shadow rolls with it.
 // There is no sky to speak of (the sun is black, its ambient near zero), so
 // every bit of light off the walls' unlit sides is bounce.
 SceneDescriptor(entities: [
@@ -87,11 +89,14 @@ SceneDescriptor(entities: [
         ],
     ),
     EntityDescriptor(
-        // Not static: a moving object receives the volume's light but does
-        // not bounce or block it.
+        // Not static, and rolling (assets/scripts/ball.js): the volume traces
+        // it where it is each frame, so it blocks and bounces the probes'
+        // light as it goes -- every renderer takes part unless it is
+        // `ExcludeFromGi`.
         name: "Ball",
         primitive: Some(Sphere),
         transform: Some((position: (-1.2, 0.5, 0.6), scale: (1.0, 1.0, 1.0))),
+        script: Some("assets/scripts/ball.js"),
         components: [
             ("bsengine_core::material::Material", "(base_color: (0.9, 0.9, 0.9), metallic: 0.0, roughness: 0.6, emissive: (0.0, 0.0, 0.0), opacity: 1.0)"),
         ],

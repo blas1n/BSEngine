@@ -50,7 +50,10 @@ struct SmaaGpu {
     /// 1 when the colour target is sRGB: it samples as linear light, and
     /// luma edge detection is defined on gamma-encoded values.
     srgb_input: u32,
-    _pad: [u32; 3],
+    /// SDR white in the target under HDR output, 0 otherwise: luma is divided
+    /// by it and clamped to 1 before encoding, so the threshold sees 0..1.
+    hdr_scale: f32,
+    _pad: [u32; 2],
 }
 
 const COMMON_WGSL: &str = r#"
@@ -65,7 +68,7 @@ struct Smaa {
     max_search_steps_diag: f32,
     corners: u32,
     srgb_input: u32,
-    _pad0: u32, _pad1: u32, _pad2: u32,
+    hdr_scale: f32, _pad1: u32, _pad2: u32,
 }
 
 @vertex
@@ -95,7 +98,9 @@ fn linear_to_srgb(c: vec3<f32>) -> vec3<f32> {
 
 fn luma(uv: vec2<f32>) -> f32 {
     var c = textureSampleLevel(color_tex, point_sampler, uv, 0.0).rgb;
-    if smaa.srgb_input != 0u {
+    if smaa.hdr_scale > 0.0 {
+        c = linear_to_srgb(clamp(c / smaa.hdr_scale, vec3<f32>(0.0), vec3<f32>(1.0)));
+    } else if smaa.srgb_input != 0u {
         c = linear_to_srgb(c);
     }
     return dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
@@ -666,6 +671,7 @@ impl SmaaPass {
         color: &wgpu::TextureView,
         size: (u32, u32),
         output_format: wgpu::TextureFormat,
+        hdr_scale: f32,
         tex2d_bgl: &wgpu::BindGroupLayout,
         post_sampler: &wgpu::Sampler,
     ) {
@@ -686,7 +692,8 @@ impl SmaaPass {
             max_search_steps_diag: steps_diag as f32,
             corners: corners as u32,
             srgb_input: output_format.is_srgb() as u32,
-            _pad: [0; 3],
+            hdr_scale,
+            _pad: [0; 2],
         };
         queue.write_buffer(&self.uniform, 0, bytemuck::bytes_of(&data));
 

@@ -3310,6 +3310,12 @@ pub struct WgpuSurface {
     /// Whether this adapter can multisample every geometry-pass target 4x
     /// (see `request_device`). Without it MSAA stays off, whatever is asked.
     msaa_supported: bool,
+    /// HDR display output, when the output is a float target and it was asked
+    /// for (`Self::new_with_hdr`); `None` is SDR.
+    hdr_output: Option<bsengine_core::HdrOutputSettings>,
+    /// Under HDR output, the layer the UI is drawn into and laid over the
+    /// frame at paper white (`crate::hdr_output`).
+    ui_layer: Option<crate::hdr_output::UiLayer>,
     /// The sample count the geometry passes draw with: 1 (off) or
     /// [`crate::msaa::MSAA_SAMPLES`]. Set by [`Self::set_msaa`].
     msaa_samples: u32,
@@ -3325,6 +3331,16 @@ impl WgpuSurface {
     /// Initializes the wgpu adapter/device/swapchain for `window` and builds
     /// every pipeline, buffer, and bind group the main render loop needs.
     pub async fn new(window: Arc<winit::window::Window>) -> Result<Self, String> {
+        Self::new_with_hdr(window, bsengine_core::HdrOutputSettings::default()).await
+    }
+
+    /// [`Self::new`], with HDR display output when `hdr` asks for it and the
+    /// surface offers a float swapchain (`Rgba16Float`, which wgpu presents as
+    /// scRGB). Otherwise SDR, as `new` -- logged when HDR was asked for.
+    pub async fn new_with_hdr(
+        window: Arc<winit::window::Window>,
+        hdr: bsengine_core::HdrOutputSettings,
+    ) -> Result<Self, String> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..Default::default()
@@ -3339,13 +3355,19 @@ impl WgpuSurface {
 
         let size = window.inner_size();
         let caps = surface.get_capabilities(&adapter);
-        let format = caps
-            .formats
-            .iter()
-            .copied()
-            .find(|f| f.is_srgb())
-            .unwrap_or(caps.formats[0]);
-        let view_formats = srgb_view_of(format).into_iter().collect();
+        let hdr_format = choose_hdr_format(&caps.formats, hdr);
+        let format = hdr_format.unwrap_or_else(|| {
+            caps.formats
+                .iter()
+                .copied()
+                .find(|f| f.is_srgb())
+                .unwrap_or(caps.formats[0])
+        });
+        let view_formats = if hdr_format.is_some() {
+            Vec::new()
+        } else {
+            srgb_view_of(format).into_iter().collect()
+        };
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -3359,7 +3381,7 @@ impl WgpuSurface {
         };
         surface.configure(&device, &config);
 
-        Self::build(
+        let mut this = Self::build(
             device,
             queue,
             crate::output::Output::Window {
@@ -3371,7 +3393,41 @@ impl WgpuSurface {
             timestamp_supported,
             instancing_supported,
             msaa_supported,
-        )
+        )?;
+        if hdr_format.is_some() {
+            this.apply_hdr_output(hdr);
+        }
+        Ok(this)
+    }
+
+    /// Switches this renderer, whose output is a float target, to HDR
+    /// output: the composite writes scRGB, FXAA and SMAA normalise luma by
+    /// paper white, and the UI is drawn into a layer of its own and laid over
+    /// the frame at paper white (`crate::hdr_output`).
+    fn apply_hdr_output(&mut self, hdr: bsengine_core::HdrOutputSettings) {
+        let gpu = crate::post_process::HdrOutputGpu::from_settings(Some(hdr));
+        self.post_process.set_hdr_output(&self.queue, gpu);
+        self.egui_renderer = egui_wgpu::Renderer::new(
+            &self.device,
+            crate::hdr_output::UI_LAYER_FORMAT,
+            None,
+            1,
+            false,
+        );
+        self.ui_layer = Some(crate::hdr_output::UiLayer::new(
+            &self.device,
+            &self.queue,
+            self.output.width(),
+            self.output.height(),
+            self.output.format(),
+            gpu.scale,
+        ));
+        self.hdr_output = Some(hdr);
+    }
+
+    /// Whether this renderer outputs HDR (scRGB), and with what settings.
+    pub fn hdr_output(&self) -> Option<bsengine_core::HdrOutputSettings> {
+        self.hdr_output
     }
 
     /// Creates a renderer with no window at all.
@@ -3395,6 +3451,7 @@ impl WgpuSurface {
                 texture,
                 width,
                 height,
+                format: crate::output::OFFSCREEN_FORMAT,
             },
             fast_render,
             timestamp_supported,
@@ -3417,17 +3474,71 @@ impl WgpuSurface {
                 texture,
                 width,
                 height,
-            } => Ok(crate::output::read_pixels(
+                ..
+            } => {
+                if let Some(hdr) = self.hdr_output {
+                    // An HDR frame as an SDR screen would show it: SDR white
+                    // at paper white, everything brighter clipped, encoded.
+                    let scale = hdr.paper_white_nits / 80.0;
+                    return Ok(self
+                        .read_pixels_hdr()?
+                        .chunks_exact(4)
+                        .flat_map(|p| {
+                            let enc = |v: f32| {
+                                let c = (v / scale).clamp(0.0, 1.0);
+                                let s = if c <= 0.003_130_8 {
+                                    c * 12.92
+                                } else {
+                                    1.055 * c.powf(1.0 / 2.4) - 0.055
+                                };
+                                (s * 255.0).round() as u8
+                            };
+                            [
+                                enc(p[0]),
+                                enc(p[1]),
+                                enc(p[2]),
+                                (p[3].clamp(0.0, 1.0) * 255.0).round() as u8,
+                            ]
+                        })
+                        .collect());
+                }
+                Ok(crate::output::read_pixels(
+                    &self.device,
+                    &self.queue,
+                    texture,
+                    *width,
+                    *height,
+                ))
+            }
+            crate::output::Output::Window { .. } => Err(
+                "read_pixels needs an offscreen renderer; a swapchain texture is not COPY_SRC"
+                    .to_string(),
+            ),
+        }
+    }
+
+    /// The last frame of an HDR-output renderer as it went to the display:
+    /// linear scRGB (1.0 = 80 nits), four floats a pixel, top row first.
+    /// `Err` for an SDR renderer or a window.
+    pub fn read_pixels_hdr(&self) -> Result<Vec<f32>, String> {
+        match &self.output {
+            crate::output::Output::Offscreen {
+                texture,
+                width,
+                height,
+                format: wgpu::TextureFormat::Rgba16Float,
+            } => Ok(crate::output::read_texels(
                 &self.device,
                 &self.queue,
                 texture,
                 *width,
                 *height,
-            )),
-            crate::output::Output::Window { .. } => Err(
-                "read_pixels needs an offscreen renderer; a swapchain texture is not COPY_SRC"
-                    .to_string(),
-            ),
+                8,
+            )
+            .chunks_exact(2)
+            .map(|h| f16_to_f32(u16::from_le_bytes([h[0], h[1]])))
+            .collect()),
+            _ => Err("read_pixels_hdr needs an offscreen HDR-output renderer".to_string()),
         }
     }
 
@@ -3817,12 +3928,44 @@ impl WgpuSurface {
                 texture,
                 width,
                 height,
+                format: crate::output::OFFSCREEN_FORMAT,
             },
             false,
             timestamp_supported,
             instancing_supported,
             msaa_supported,
         )
+    }
+
+    /// [`Self::offscreen_for_testing`] with HDR display output: the target is
+    /// `Rgba16Float` and holds scRGB, read with [`Self::read_pixels_hdr`].
+    #[doc(hidden)]
+    pub fn offscreen_hdr_for_testing(
+        width: u32,
+        height: u32,
+        hdr: bsengine_core::HdrOutputSettings,
+    ) -> Result<Self, String> {
+        let (device, queue, timestamp_supported, instancing_supported, msaa_supported) =
+            Self::shared_test_device().clone();
+        let format = wgpu::TextureFormat::Rgba16Float;
+        let texture =
+            crate::output::create_offscreen_texture_with_format(&device, width, height, format);
+        let mut this = Self::build(
+            device,
+            queue,
+            crate::output::Output::Offscreen {
+                texture,
+                width,
+                height,
+                format,
+            },
+            false,
+            timestamp_supported,
+            instancing_supported,
+            msaa_supported,
+        )?;
+        this.apply_hdr_output(hdr);
+        Ok(this)
     }
 
     /// Everything after the output target is settled: pipelines, buffers, bind
@@ -5297,6 +5440,8 @@ impl WgpuSurface {
             prev_unjittered_view_proj: Mat4::IDENTITY,
             prev_camera_pos: Vec3::ZERO,
             msaa_supported,
+            hdr_output: None,
+            ui_layer: None,
             msaa_samples: 1,
             msaa_targets: None,
             depth_resolve,
@@ -8845,10 +8990,16 @@ impl WgpuSurface {
                     .begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("egui ui pass"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &view,
+                            // Under HDR output, a layer of its own, cleared:
+                            // see `crate::hdr_output`.
+                            view: self.ui_layer.as_ref().map_or(&view, |l| l.view()),
                             resolve_target: None,
                             ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Load,
+                                load: if self.ui_layer.is_some() {
+                                    wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
+                                } else {
+                                    wgpu::LoadOp::Load
+                                },
                                 store: wgpu::StoreOp::Store,
                             },
                         })],
@@ -8863,6 +9014,9 @@ impl WgpuSurface {
                     .forget_lifetime();
                 self.egui_renderer
                     .render(&mut egui_pass, &clipped_primitives, &screen_descriptor);
+            }
+            if let Some(layer) = &self.ui_layer {
+                layer.composite(&mut encoder, &view);
             }
             for id in &full_output.textures_delta.free {
                 self.egui_renderer.free_texture(id);
@@ -8994,6 +9148,9 @@ impl WgpuSurface {
         self.particle_depth_view_proj = None;
         self.post_process
             .resize_targets(&self.device, &self.depth_view, width, height);
+        if let Some(layer) = &mut self.ui_layer {
+            layer.resize(&self.device, width, height);
+        }
         // Screen-sized, and its view is bound in group 2 -- so the light bind
         // group has to be rebuilt after it, or the mesh shader reads a view
         // into the texture that just went away.
@@ -9395,6 +9552,30 @@ fn srgb_view_of(format: wgpu::TextureFormat) -> Option<wgpu::TextureFormat> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The swapchain format under HDR output: the float one when it is asked
+    /// for and offered, SDR otherwise -- off, or a surface with no float
+    /// format (an older display path, or a browser) -- never an error.
+    #[test]
+    fn hdr_output_takes_the_float_swapchain_only_when_asked_and_offered() {
+        use wgpu::TextureFormat as F;
+        let on = bsengine_core::HdrOutputSettings {
+            enabled: true,
+            ..Default::default()
+        };
+        let offered = [F::Bgra8UnormSrgb, F::Rgba16Float];
+        assert_eq!(choose_hdr_format(&offered, on), Some(F::Rgba16Float));
+        assert_eq!(
+            choose_hdr_format(&offered, bsengine_core::HdrOutputSettings::default()),
+            None,
+            "off unless asked for"
+        );
+        assert_eq!(
+            choose_hdr_format(&[F::Bgra8UnormSrgb, F::Bgra8Unorm], on),
+            None,
+            "SDR when the surface has no float swapchain"
+        );
+    }
 
     /// A browser's canvas formats get an sRGB view; a surface that is sRGB
     /// already, or has no sRGB twin, gets none (the desktop path, unchanged).
@@ -11131,4 +11312,27 @@ struct TimestampReadback {
     state: std::sync::Arc<std::sync::Mutex<ReadbackState>>,
     pass_names: Vec<&'static str>,
     frame: u64,
+}
+
+/// The swapchain format for HDR output: `Rgba16Float` when `hdr` asks for it
+/// and the surface offers it, which wgpu presents as scRGB (Vulkan's extended
+/// sRGB, Metal's EDR, DXGI's FP16). `None` -- SDR -- otherwise, logged when HDR
+/// was asked for and could not be had, so a project that set it is not left
+/// wondering. A browser renders SDR: WebGPU's HDR canvas is not something this
+/// wgpu configures.
+fn choose_hdr_format(
+    formats: &[wgpu::TextureFormat],
+    hdr: bsengine_core::HdrOutputSettings,
+) -> Option<wgpu::TextureFormat> {
+    if !hdr.enabled {
+        return None;
+    }
+    if !cfg!(target_arch = "wasm32") && formats.contains(&wgpu::TextureFormat::Rgba16Float) {
+        return Some(wgpu::TextureFormat::Rgba16Float);
+    }
+    tracing::warn!(
+        "[render] hdr_output asked for, but this surface has no float swapchain \
+         (it offers {formats:?}); rendering SDR"
+    );
+    None
 }

@@ -33,6 +33,8 @@ pub(crate) enum Output {
         texture: crate::profiler::TrackedTexture,
         width: u32,
         height: u32,
+        /// [`OFFSCREEN_FORMAT`], or `Rgba16Float` for an HDR-output test.
+        format: wgpu::TextureFormat,
     },
 }
 
@@ -47,7 +49,7 @@ impl Output {
                 .first()
                 .copied()
                 .unwrap_or(config.format),
-            Output::Offscreen { .. } => OFFSCREEN_FORMAT,
+            Output::Offscreen { format, .. } => *format,
         }
     }
 
@@ -111,8 +113,9 @@ impl Output {
                 texture,
                 width: w,
                 height: h,
+                format,
             } => {
-                *texture = create_offscreen_texture(device, width, height);
+                *texture = create_offscreen_texture_with_format(device, width, height, *format);
                 *w = width;
                 *h = height;
             }
@@ -136,7 +139,20 @@ pub(crate) fn read_pixels(
     width: u32,
     height: u32,
 ) -> Vec<u8> {
-    let unpadded_bytes_per_row = width * 4;
+    read_texels(device, queue, texture, width, height, 4)
+}
+
+/// [`read_pixels`] for any texel size: the bytes of every texel, tightly
+/// packed, top row first. 8 for an `Rgba16Float` target.
+pub(crate) fn read_texels(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+    width: u32,
+    height: u32,
+    bytes_per_texel: u32,
+) -> Vec<u8> {
+    let unpadded_bytes_per_row = width * bytes_per_texel;
     let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
     let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(align) * align;
 
@@ -202,6 +218,16 @@ pub(crate) fn create_offscreen_texture(
     width: u32,
     height: u32,
 ) -> crate::profiler::TrackedTexture {
+    create_offscreen_texture_with_format(device, width, height, OFFSCREEN_FORMAT)
+}
+
+/// [`create_offscreen_texture`] in `format`.
+pub(crate) fn create_offscreen_texture_with_format(
+    device: &wgpu::Device,
+    width: u32,
+    height: u32,
+    format: wgpu::TextureFormat,
+) -> crate::profiler::TrackedTexture {
     crate::profiler::create_tracked_texture(
         device,
         &wgpu::TextureDescriptor {
@@ -214,7 +240,7 @@ pub(crate) fn create_offscreen_texture(
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: OFFSCREEN_FORMAT,
+            format,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         },

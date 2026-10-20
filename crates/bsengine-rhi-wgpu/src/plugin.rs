@@ -135,14 +135,22 @@ fn create_surface_system(world: &mut World, mode: SurfaceMode) {
     let surface = match mode {
         SurfaceMode::Windowed => {
             let handle = world.get_resource::<WindowHandle>().cloned();
+            // The project's HDR output setting, inserted before `Startup`: the
+            // swapchain's format is chosen once, here.
+            let hdr = world
+                .get_resource::<bsengine_core::HdrOutputSettings>()
+                .copied()
+                .unwrap_or_default();
             match handle {
-                Some(handle) => match pollster::block_on(WgpuSurface::new(handle.0)) {
-                    Ok(surface) => Some(surface),
-                    Err(e) => {
-                        tracing::warn!("wgpu surface not created: {e}");
-                        None
+                Some(handle) => {
+                    match pollster::block_on(WgpuSurface::new_with_hdr(handle.0, hdr)) {
+                        Ok(surface) => Some(surface),
+                        Err(e) => {
+                            tracing::warn!("wgpu surface not created: {e}");
+                            None
+                        }
                     }
-                },
+                }
                 None => None,
             }
         }

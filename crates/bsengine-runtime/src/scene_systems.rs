@@ -221,6 +221,24 @@ pub struct RenderSection {
     /// (`bsengine_core::GiSettings`).
     #[serde(default = "default_gi_rays_per_frame")]
     pub gi_rays_per_frame: u32,
+    /// HDR display output (`bsengine_core::HdrOutputSettings`): off unless
+    /// asked for.
+    #[serde(default)]
+    pub hdr_output: bool,
+    /// How bright SDR white shows under HDR output, in nits.
+    #[serde(default = "default_hdr_paper_white_nits")]
+    pub hdr_paper_white_nits: f32,
+    /// The display's peak under HDR output, in nits.
+    #[serde(default = "default_hdr_max_nits")]
+    pub hdr_max_nits: f32,
+}
+
+fn default_hdr_paper_white_nits() -> f32 {
+    bsengine_core::hdr_output::DEFAULT_PAPER_WHITE_NITS
+}
+
+fn default_hdr_max_nits() -> f32 {
+    bsengine_core::hdr_output::DEFAULT_MAX_NITS
 }
 
 fn default_gi_rays_per_frame() -> u32 {
@@ -271,6 +289,9 @@ impl Default for RenderSection {
             texture_mip_bias: default_texture_mip_bias(),
             msaa: default_msaa(),
             gi_rays_per_frame: default_gi_rays_per_frame(),
+            hdr_output: false,
+            hdr_paper_white_nits: default_hdr_paper_white_nits(),
+            hdr_max_nits: default_hdr_max_nits(),
         }
     }
 }
@@ -1110,6 +1131,40 @@ mod tests {
                 && m.render.soft_shadows != d.soft,
             "the fixture must differ from the defaults in every field or this \
              test cannot tell parsing from falling back"
+        );
+    }
+
+    /// HDR output's three fields are read from the file -- with values unlike
+    /// the defaults, for the reason `render_section_reads_every_shadow_field`
+    /// gives -- and are off, and the same defaults `HdrOutputSettings` has,
+    /// when the table leaves them out.
+    #[test]
+    fn render_section_reads_the_hdr_output_fields() {
+        let d = bsengine_core::HdrOutputSettings::default();
+        let absent: super::ProjectManifest =
+            toml::from_str("[project]\nname = \"t\"\nentry_scene = \"s.ron\"\n[render]\n").unwrap();
+        assert_eq!(
+            (
+                absent.render.hdr_output,
+                absent.render.hdr_paper_white_nits,
+                absent.render.hdr_max_nits
+            ),
+            (d.enabled, d.paper_white_nits, d.max_nits),
+            "left out, HDR output is off with HdrOutputSettings' defaults"
+        );
+        let m: super::ProjectManifest = toml::from_str(
+            "[project]\nname = \"t\"\nentry_scene = \"s.ron\"\n[render]\n\
+             hdr_output = true\nhdr_paper_white_nits = 250.0\nhdr_max_nits = 1600.0\n",
+        )
+        .unwrap();
+        assert!(m.render.hdr_output);
+        assert_eq!(m.render.hdr_paper_white_nits, 250.0);
+        assert_eq!(m.render.hdr_max_nits, 1600.0);
+        assert!(
+            m.render.hdr_output != d.enabled
+                && m.render.hdr_paper_white_nits != d.paper_white_nits
+                && m.render.hdr_max_nits != d.max_nits,
+            "the fixture must differ from the defaults in every field"
         );
     }
 

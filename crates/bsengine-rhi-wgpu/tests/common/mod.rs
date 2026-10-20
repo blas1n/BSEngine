@@ -459,6 +459,30 @@ impl Harness {
         Self::build(true)
     }
 
+    /// A harness whose renderer outputs HDR (`hdr`): a float target holding
+    /// linear scRGB, on the process's shared test device. [`Self::render`]
+    /// still returns the frame as SDR would show it; [`Self::last_hdr`] has
+    /// the float values.
+    #[allow(dead_code)] // only pixels_hdr.rs builds one
+    pub fn new_hdr(hdr: bsengine_core::HdrOutputSettings) -> Self {
+        let surface = WgpuSurface::offscreen_hdr_for_testing(WIDTH, HEIGHT, hdr)
+            .expect("these tests need an adapter; a skip would look like a pass");
+        let registry = GpuMeshRegistry::new(surface.device_arc());
+        let textures = GpuTextureRegistry::new(surface.device_arc(), surface.queue_arc());
+        Self {
+            surface,
+            registry,
+            textures,
+        }
+    }
+
+    /// The last frame of an HDR harness as it went to the display: linear
+    /// scRGB (1.0 = 80 nits), four floats a pixel, top row first.
+    #[allow(dead_code)] // only pixels_hdr.rs reads one
+    pub fn last_hdr(&self) -> Vec<f32> {
+        self.surface.read_pixels_hdr().expect("an HDR harness")
+    }
+
     /// Resizes the renderer to the size it already has: every screen-sized
     /// target is made anew, at a size a test can still read back. Anything
     /// that kept a view into the old targets would go on reading them.

@@ -49,6 +49,8 @@ pub mod fxaa;
 pub mod gi_config;
 /// World-space transform resulting from local transform + parent hierarchy.
 pub mod global_transform;
+/// The project's MSAA setting.
+pub mod hdr_output;
 /// Named on-screen HUD text overlay resource.
 pub mod hud_texts;
 /// The one `import:` value a sidecar carries: a texture's or a model's
@@ -81,7 +83,6 @@ pub mod model_import;
 pub mod morph_weights;
 /// Camera motion blur along how the camera moved since the last frame.
 pub mod motion_blur;
-/// The project's MSAA setting.
 pub mod msaa_config;
 /// Native crashes (signals, structured exceptions): a minidump and a report,
 /// written by a monitor process.
@@ -198,6 +199,7 @@ pub use follow::{Follow, LookAt};
 pub use fxaa::Fxaa;
 pub use gi_config::GiSettings;
 pub use global_transform::GlobalTransform;
+pub use hdr_output::HdrOutputSettings;
 pub use hud_texts::HudTexts;
 pub use import_settings::ImportSettings;
 pub use inspector::{

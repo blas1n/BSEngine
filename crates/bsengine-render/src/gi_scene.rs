@@ -9,14 +9,15 @@
 //! they cannot.
 //!
 //! "Static" is [`LightmapStatic`]: Unity's single "Contribute GI" flag is the
-//! model -- one marker says an object takes part in global illumination,
-//! whether that is baked or realtime.
+//! model -- one marker says an object is baked, and is one tree for realtime
+//! GI. Realtime GI also traces every other renderer where it is each frame
+//! ([`dynamic_rows`]) unless it is [`ExcludeFromGi`].
 
-use bevy_ecs::prelude::{Entity, World};
+use bevy_ecs::prelude::{Entity, Without, World};
 use bsengine_bake::{BakeLight, BakeTriangle, Contribution, Sky};
 use bsengine_core::{
-    DirectionalLight, GlobalTransform, LightBakeMode, LightmapStatic, Material, PointLight,
-    RectLight, SkyboxPath, SpotLight, Transform,
+    DirectionalLight, ExcludeFromGi, GlobalTransform, LightBakeMode, LightmapStatic, Material,
+    PointLight, RectLight, SkyboxPath, SpotLight, Transform, Visible,
 };
 use glam::{Mat3, Mat4, Vec3};
 
@@ -60,6 +61,50 @@ pub fn static_rows(world: &mut World) -> Vec<StaticRow> {
                 albedo,
                 emissive,
                 resolution_scale: s.resolution_scale,
+            }
+        })
+        .collect()
+}
+
+/// One moving entity, as realtime GI traces it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DynamicRow {
+    /// `MeshRenderer::mesh_id`.
+    pub mesh_id: u64,
+    /// Local to world, this frame.
+    pub model: Mat4,
+    /// As [`StaticRow::albedo`].
+    pub albedo: Vec3,
+    /// As [`StaticRow::emissive`].
+    pub emissive: Vec3,
+}
+
+/// Every other renderer realtime GI traces, in entity order: each one with a
+/// mesh that is not [`LightmapStatic`], not hidden ([`Visible`]), and not
+/// [`ExcludeFromGi`]. The default is that a renderer takes part -- Lumen's
+/// and RTXGI's, and Unreal's "Affect Dynamic Indirect Lighting" -- so a crate
+/// a script slides across the room shadows and lights the probes where it is
+/// now. (The lightmap bake reads [`static_rows`] alone: a bake cannot follow
+/// a moving thing.)
+pub fn dynamic_rows(world: &mut World) -> Vec<DynamicRow> {
+    let mut q = world.query_filtered::<(
+        &crate::MeshRenderer,
+        &Transform,
+        Option<&GlobalTransform>,
+        Option<&Material>,
+        Option<&Visible>,
+    ), (Without<LightmapStatic>, Without<ExcludeFromGi>)>();
+    q.iter(world)
+        .filter(|(.., vis)| vis.map(|v| v.is_visible).unwrap_or(true))
+        .map(|(mesh, t, gt, mat, _)| {
+            let (albedo, emissive) = mat
+                .map(|m| (*m.base_color, *m.emissive))
+                .unwrap_or((Vec3::ONE, Vec3::ZERO));
+            DynamicRow {
+                mesh_id: mesh.mesh_id,
+                model: gt.map(|g| g.to_matrix()).unwrap_or_else(|| t.to_matrix()),
+                albedo,
+                emissive,
             }
         })
         .collect()

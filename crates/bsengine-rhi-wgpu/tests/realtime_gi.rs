@@ -209,6 +209,7 @@ fn the_update_compiles_for_d3d12() {
 struct GiScene {
     scene: Surface,
     statics: Vec<bsengine_rhi_wgpu::realtime_gi::GiStatic>,
+    dynamics: Vec<bsengine_rhi_wgpu::realtime_gi::GiDynamic>,
     lights: Vec<bsengine_bake::BakeLight>,
     sky: std::sync::Arc<bsengine_bake::Sky>,
 }
@@ -229,6 +230,7 @@ impl GiScene {
         Self {
             scene,
             statics: Vec::new(),
+            dynamics: Vec::new(),
             lights: Vec::new(),
             sky: std::sync::Arc::new(bsengine_bake::Sky::Uniform(sky)),
         }
@@ -245,6 +247,27 @@ impl GiScene {
         });
     }
 
+    /// A moving entity: a quad with `corners` in its own space, placed by
+    /// `model`. Returns its index in `dynamics`, to move it by.
+    fn add_dynamic(
+        &mut self,
+        corners: [Vec3; 4],
+        model: Mat4,
+        albedo: Vec3,
+        emissive: Vec3,
+    ) -> usize {
+        self.scene.push_quad(corners, Vec3::ZERO);
+        let mesh_id = self.scene.draw_calls.last().unwrap().0;
+        self.dynamics
+            .push(bsengine_rhi_wgpu::realtime_gi::GiDynamic {
+                mesh_id,
+                model,
+                albedo,
+                emissive,
+            });
+        self.dynamics.len() - 1
+    }
+
     fn input(
         &self,
         volume: ProbeVolumeParams,
@@ -257,6 +280,7 @@ impl GiScene {
             hysteresis,
             rays_per_frame,
             statics: self.statics.clone(),
+            dynamics: self.dynamics.clone(),
             lights: self.lights.clone(),
             sky: self.sky.clone(),
         }
@@ -273,7 +297,12 @@ impl GiScene {
     /// fixed frame count is what flakes on a cold CI machine).
     fn run(&mut self, input: &bsengine_rhi_wgpu::realtime_gi::RealtimeGiInput, n: u32) {
         let target = self.updates() + n;
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(300);
+        // Ten minutes, against a build measured at about 2 min 40 s on CI's
+        // software D3D12 (the first of these tests landed then, #1987's
+        // run) and 37% longer since the update traces instances (9.3 s
+        // against 6.8 s under FXC on a desktop). Five minutes was already
+        // within a factor of two of failing for no fault of the code.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(600);
         while self.updates() < target {
             assert!(
                 std::time::Instant::now() < deadline,
@@ -591,6 +620,29 @@ fn bench_realtime_gi() {
             Vec3::ZERO,
         );
     }
+    // `BENCH_INSTANCES=n`: as many moving panels as well, one mesh shared, in
+    // a row across the room above the floor -- what the instance list costs
+    // every ray.
+    let instances: usize = std::env::var("BENCH_INSTANCES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    for i in 0..instances {
+        let x = 0.1 + 0.8 * i as f32 / instances.max(1) as f32;
+        let model = Mat4::from_translation(Vec3::new(x, 0.5, 0.5));
+        if i == 0 {
+            s.add_dynamic(
+                quad_corners(Vec3::splat(-0.02), Vec3::X * 0.04, Vec3::Y * 0.04),
+                model,
+                Vec3::splat(0.6),
+                Vec3::ZERO,
+            );
+        } else {
+            let first = s.dynamics[0];
+            s.dynamics
+                .push(bsengine_rhi_wgpu::realtime_gi::GiDynamic { model, ..first });
+        }
+    }
     s.lights = vec![bsengine_bake::BakeLight::Point {
         position: Vec3::splat(0.5),
         color: Vec3::ONE,
@@ -614,8 +666,9 @@ fn bench_realtime_gi() {
         device.poll(wgpu::Maintain::Wait);
     }
     eprintln!(
-        "BENCH realtime gi: 4096 probes x 64 rays, {} triangles: {:.2} ms per frame (update + frame)",
+        "BENCH realtime gi: 4096 probes x 64 rays, {} triangles, {} instances: {:.2} ms per frame (update + frame)",
         s.statics.len() * 2,
+        s.dynamics.len(),
         t.elapsed().as_secs_f64() * 1000.0 / n as f64
     );
 }
@@ -664,6 +717,189 @@ fn a_changed_static_set_is_read_back_once_and_then_traced() {
         (open - sky).abs() < 0.01,
         "the floor is gone, the sky remains: {open}"
     );
+}
+
+// ---- moving geometry -----------------------------------------------------
+
+/// The grid of the floor tests: probes at y = 0.5 and 2.5.
+fn floor_volume() -> ProbeVolumeParams {
+    ProbeVolumeParams {
+        origin: Vec3::new(-1.0, 0.5, -1.0),
+        extent: Vec3::splat(2.0),
+        resolution: [2, 2, 2],
+    }
+}
+
+/// A 100 x 100 quad at y = 0 in its own space, facing +y.
+fn floor_quad() -> [Vec3; 4] {
+    quad_corners(
+        Vec3::new(-50.0, 0.0, 50.0),
+        Vec3::X * 100.0,
+        Vec3::NEG_Z * 100.0,
+    )
+}
+
+/// The floor quad turned over and lifted to y = 3: a ceiling, facing down.
+fn ceiling_model() -> Mat4 {
+    Mat4::from_translation(Vec3::new(0.0, 3.0, 0.0)) * Mat4::from_rotation_x(std::f32::consts::PI)
+}
+
+/// A moving renderer is traced where it is this frame, and moving it
+/// rebuilds nothing. The static test above, with the floor an instance: it
+/// glows below the probes, then moves far away and the sky shows where it
+/// was -- with no readback beyond the first, which built its mesh's tree
+/// once. (A static floor moved the same way costs a second readback and a
+/// tree rebuilt over the whole static set.)
+#[test]
+fn a_moving_renderer_is_traced_where_it_is_with_nothing_rebuilt() {
+    let sky = 0.2f32;
+    let mut s = GiScene::new(Vec3::splat(sky));
+    let floor = s.add_dynamic(floor_quad(), Mat4::IDENTITY, Vec3::ZERO, Vec3::splat(2.0));
+    let input = s.input(floor_volume(), 0.0, 1 << 20);
+    s.run(&input, 3);
+    assert_eq!(
+        s.scene.surface.realtime_gi_instances(),
+        1,
+        "premise: traced"
+    );
+    let glowing = s.irradiance(0, Vec3::NEG_Y).x;
+    assert!(
+        (glowing - 2.0).abs() < 0.05,
+        "the moving floor glows below the probes: {glowing}"
+    );
+    s.dynamics[floor].model = Mat4::from_translation(Vec3::new(0.0, -1.0e4, 0.0));
+    let moved = s.input(floor_volume(), 0.0, 1 << 20);
+    s.run(&moved, 3);
+    let open = s.irradiance(0, Vec3::NEG_Y).x;
+    assert!(
+        (open - sky).abs() < 0.01,
+        "moved away, it leaves the sky where it was: {open}"
+    );
+    assert_eq!(
+        s.scene.surface.realtime_gi_readbacks(),
+        1,
+        "moving an instance reads nothing back and rebuilds no tree"
+    );
+}
+
+/// The transform is applied both ways -- the ray into the mesh's space, the
+/// normal back out of it. The floor quad, turned over and lifted, is a
+/// ceiling glowing down at the probes: they see it above (facing up, its
+/// emission) and the sky below. Untransformed, the ray would meet the quad
+/// where its mesh is, at y = 0 below the probes; with the normal left in
+/// mesh space, the ceiling's underside would face away from them -- a back
+/// face, which reads black.
+#[test]
+fn a_turned_and_lifted_renderer_faces_where_it_is_placed() {
+    let sky = 0.2f32;
+    let mut s = GiScene::new(Vec3::splat(sky));
+    s.add_dynamic(floor_quad(), ceiling_model(), Vec3::ZERO, Vec3::splat(2.0));
+    let input = s.input(floor_volume(), 0.0, 1 << 20);
+    s.run(&input, 3);
+    let up = s.irradiance(0, Vec3::Y).x;
+    let down = s.irradiance(0, Vec3::NEG_Y).x;
+    assert!((up - 2.0).abs() < 0.05, "the ceiling glows above: {up}");
+    // 0.05, not the 0.01 the open-sky tests hold: here the sky below sits
+    // under a hemisphere ten times brighter, and 256 rays project that step
+    // to SH with about 1% of the contrast in error (0.187 measured). Either
+    // failure this test is for is far outside it -- the untransformed quad
+    // lies below the probes and reads 2 here, the untransformed normal reads
+    // 0 above.
+    assert!((down - sky).abs() < 0.05, "and the sky is below: {down}");
+}
+
+/// Distances in a scaled mesh's space are the world's: the ray's direction
+/// goes in unnormalised, so the parameter of a hit there is the parameter in
+/// the world, and an instance nearer than the static tree's hit wins. A
+/// black slab, its mesh 200 wide scaled to 20, lies at y = 0.25 over a
+/// static floor glowing at y = 0. From a probe at y = 0.5 the slab is 0.25
+/// away and the floor 0.5: the slab hides the floor. (Renormalised, the
+/// slab's parameter would read ten times its distance, 2.5 -- behind the
+/// floor -- and the floor would show through.)
+#[test]
+fn a_scaled_renderer_hides_what_is_behind_it() {
+    let mut s = GiScene::new(Vec3::splat(0.2));
+    s.add(floor_quad(), Vec3::ZERO, Vec3::splat(2.0));
+    let input = s.input(floor_volume(), 0.0, 1 << 20);
+    s.run(&input, 3);
+    let bare = s.irradiance(0, Vec3::NEG_Y).x;
+    assert!(
+        (bare - 2.0).abs() < 0.05,
+        "premise: the floor glows below: {bare}"
+    );
+    s.add_dynamic(
+        quad_corners(
+            Vec3::new(-100.0, 0.0, 100.0),
+            Vec3::X * 200.0,
+            Vec3::NEG_Z * 200.0,
+        ),
+        Mat4::from_translation(Vec3::new(0.0, 0.25, 0.0)) * Mat4::from_scale(Vec3::splat(0.1)),
+        Vec3::ZERO,
+        Vec3::ZERO,
+    );
+    let covered = s.input(floor_volume(), 0.0, 1 << 20);
+    s.run(&covered, 3);
+    let hidden = s.irradiance(0, Vec3::NEG_Y).x;
+    assert!(hidden < 0.05, "the slab hides the floor: {hidden}");
+}
+
+/// A moving renderer casts the shadows the probes see: the sun's shadow ray
+/// at a hit point (`light.wgsl`'s `occluded`, which stops at the first hit)
+/// meets instances as the probe rays do. The open floor of
+/// `a_light_switched_off_leaves_the_probes` reflects 0.577 under the sun;
+/// with a black ceiling above the probes, the floor below is in its shadow
+/// and the probes see almost nothing there.
+#[test]
+fn a_moving_renderer_shadows_the_light_bounced_to_the_probes() {
+    let (sky, rho, sun) = (0.2f32, 0.5f32, 3.0f32);
+    let mut s = GiScene::new(Vec3::splat(sky));
+    s.add(floor_quad(), Vec3::splat(rho), Vec3::ZERO);
+    s.lights = vec![bsengine_bake::BakeLight::Directional {
+        direction: Vec3::NEG_Y,
+        color: Vec3::splat(sun),
+        contribution: bsengine_bake::Contribution::Indirect,
+    }];
+    let open = s.input(floor_volume(), 0.0, 1 << 20);
+    s.run(&open, 6);
+    let lit = s.irradiance(0, Vec3::NEG_Y).x;
+    let want_lit = rho * (sun / std::f32::consts::PI + sky);
+    assert!(
+        (lit - want_lit).abs() < want_lit * 0.03,
+        "premise: the open floor is lit: {lit} vs {want_lit}"
+    );
+    s.add_dynamic(floor_quad(), ceiling_model(), Vec3::ZERO, Vec3::ZERO);
+    let roofed = s.input(floor_volume(), 0.0, 1 << 20);
+    s.run(&roofed, 6);
+    let shaded = s.irradiance(0, Vec3::NEG_Y).x;
+    assert!(
+        shaded < 0.1 * want_lit,
+        "under the ceiling, the floor is in shadow: {shaded}"
+    );
+}
+
+/// One mesh drawn by two moving entities is one tree, read back once, and
+/// each entity bounces its own material: the floor quad below glowing 2, the
+/// same quad above as a ceiling glowing 1. The triangles are shared; the
+/// colour comes from the instance a ray met them through.
+#[test]
+fn renderers_sharing_a_mesh_share_its_tree_and_keep_their_materials() {
+    let mut s = GiScene::new(Vec3::ZERO);
+    s.add_dynamic(floor_quad(), Mat4::IDENTITY, Vec3::ZERO, Vec3::splat(2.0));
+    let mesh_id = s.dynamics[0].mesh_id;
+    s.dynamics.push(bsengine_rhi_wgpu::realtime_gi::GiDynamic {
+        mesh_id,
+        model: ceiling_model(),
+        albedo: Vec3::ZERO,
+        emissive: Vec3::splat(1.0),
+    });
+    let input = s.input(floor_volume(), 0.0, 1 << 20);
+    s.run(&input, 3);
+    assert_eq!(s.scene.surface.realtime_gi_instances(), 2, "premise: both");
+    let down = s.irradiance(0, Vec3::NEG_Y).x;
+    let up = s.irradiance(0, Vec3::Y).x;
+    assert!((down - 2.0).abs() < 0.05, "the floor's own glow: {down}");
+    assert!((up - 1.0).abs() < 0.05, "the ceiling's own glow: {up}");
+    assert_eq!(s.scene.surface.realtime_gi_readbacks(), 1);
 }
 
 /// A white quad filling the frame at z = 0.5, facing the camera (+z), and
@@ -1015,7 +1251,7 @@ fn whole_back_wall(relocation: bool) -> Vec<f32> {
     let rows: Vec<usize> = (0..64).filter(|&y| at(32, y) != bg).collect();
     let cols: Vec<usize> = (0..64).filter(|&x| at(x, 32) != bg).collect();
     let (x0, x1, y0, y1) = (cols[0], cols[cols.len() - 1], rows[0], rows[rows.len() - 1]);
-    let mut sums = vec![(0u32, 0u32); 10];
+    let mut sums = [(0u32, 0u32); 10];
     for y in y0..=y1 {
         for x in x0..=x1 {
             let d = (x - x0).min(x1 - x).min(y - y0).min(y1 - y).min(9);

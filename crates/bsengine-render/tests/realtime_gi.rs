@@ -83,7 +83,7 @@ fn a_realtime_volume_is_traced_not_baked_and_a_once_volume_baked() {
     // Against the clock, not a frame count: the update's pipelines are
     // built on a thread, which under FXC on CI's software D3D12 adapter
     // takes over a minute (`realtime_gi::PipelineState`).
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(300);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(600); // see rhi tests/realtime_gi.rs `run`
     while surface_of(&app).realtime_gi_updates() < 2 {
         assert!(
             std::time::Instant::now() < deadline,
@@ -111,5 +111,105 @@ fn a_realtime_volume_is_traced_not_baked_and_a_once_volume_baked() {
         surface_of(&app).realtime_gi_updates(),
         updates,
         "and the realtime update has stopped"
+    );
+}
+
+/// Which renderers the realtime volume traces as moving instances: every
+/// one by default, but not a `LightmapStatic` one (that is the static tree),
+/// not a hidden one, and not one marked `ExcludeFromGi`. Five renderers, one
+/// of each and two plain, trace as two instances -- and moving one of them
+/// reads nothing back: the readback count stays at the first.
+#[test]
+fn every_moving_renderer_takes_part_unless_excluded_hidden_or_static() {
+    use bsengine_core::{ExcludeFromGi, LightProbeVolume, LightmapStatic, ProbeUpdate, Visible};
+    let mut app = new_app();
+    app.add_plugins(bsengine_asset::AssetPlugin);
+    app.add_plugins(WgpuRHIPlugin::windowed());
+    app.add_plugins(RenderPlugin);
+    let surface = bsengine_rhi_wgpu::surface::WgpuSurface::offscreen_for_testing(64, 64)
+        .expect("these tests need an adapter; a skip here would look like a pass");
+    app.insert_resource(GpuMeshRegistry::new(surface.device_arc()));
+    app.insert_resource(bsengine_rhi_wgpu::GpuTextureRegistry::new(
+        surface.device_arc(),
+        surface.queue_arc(),
+    ));
+    app.insert_resource(bsengine_rhi_wgpu::WgpuSurfaceResource(surface));
+    app.update();
+    let v = |x: f32, z: f32| Vertex {
+        position: [x, 0.0, z],
+        color: [1.0, 1.0, 1.0],
+        normal: [0.0, 1.0, 0.0],
+        uv: [0.0, 0.0],
+        uv2: [0.0, 0.0],
+    };
+    let mesh_id = app.world_mut().resource_mut::<GpuMeshRegistry>().register(
+        &[v(-1.0, 1.0), v(1.0, 1.0), v(1.0, -1.0), v(-1.0, -1.0)],
+        &[0, 1, 2, 0, 2, 3],
+    );
+    app.world_mut().spawn((
+        Camera::default(),
+        Transform::from_position(Vec3::new(0.0, 3.0, 10.0)),
+    ));
+    let plain = app
+        .world_mut()
+        .spawn((MeshRenderer { mesh_id }, Transform::default()))
+        .id();
+    app.world_mut().spawn((
+        MeshRenderer { mesh_id },
+        Transform::from_position(Vec3::new(2.0, 0.0, 0.0)),
+        Material::default(),
+    ));
+    app.world_mut().spawn((
+        MeshRenderer { mesh_id },
+        Transform::default(),
+        ExcludeFromGi,
+    ));
+    app.world_mut().spawn((
+        MeshRenderer { mesh_id },
+        Transform::default(),
+        Visible::hidden(),
+    ));
+    app.world_mut().spawn((
+        MeshRenderer { mesh_id },
+        Transform::default(),
+        LightmapStatic::default(),
+    ));
+    app.world_mut().spawn((
+        LightProbeVolume {
+            update: ProbeUpdate::Realtime,
+            resolution: [2, 2, 2],
+            half_extents: Vec3::splat(1.0).into(),
+            ..LightProbeVolume::default()
+        },
+        Transform::from_position(Vec3::new(0.0, 1.5, 0.0)),
+    ));
+    let run = |app: &mut bevy_app::App, n: u32| {
+        let target = surface_of(app).realtime_gi_updates() + n;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(600); // see rhi tests/realtime_gi.rs `run`
+        while surface_of(app).realtime_gi_updates() < target {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the realtime volume never updated"
+            );
+            app.update();
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    };
+    run(&mut app, 2);
+    assert_eq!(
+        surface_of(&app).realtime_gi_instances(),
+        2,
+        "the two plain renderers, and none of the excluded, hidden or static ones"
+    );
+    let readbacks = surface_of(&app).realtime_gi_readbacks();
+    app.world_mut()
+        .get_mut::<Transform>(plain)
+        .unwrap()
+        .position = Vec3::new(0.0, 0.5, 0.0).into();
+    run(&mut app, 2);
+    assert_eq!(
+        surface_of(&app).realtime_gi_readbacks(),
+        readbacks,
+        "a renderer that moves is traced where it is, with nothing read back"
     );
 }

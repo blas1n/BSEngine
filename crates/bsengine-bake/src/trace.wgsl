@@ -6,6 +6,8 @@
 //   var<storage, read> nodes: array<Node>;
 //   var<storage, read> tris: array<Tri>;
 //   var<uniform> scene: Scene;          (light.wgsl; `node_count` is read here)
+//
+// and two functions, `instance_count` and `instance_ray` (see `traverse`).
 
 struct Node {
     lo: vec3<f32>,
@@ -66,16 +68,29 @@ fn tri_hit(i: u32, o: vec3<f32>, d: vec3<f32>) -> f32 {
     return select(-1.0, dist, dist > 1e-6);
 }
 
+// `instance` is NO_HIT for the scene's own tree, and otherwise the consumer's
+// instance the triangle was found through (`trace_instances`).
 struct Hit {
     t: f32,
     tri: u32,
+    instance: u32,
 };
 
-fn traverse(o: vec3<f32>, d: vec3<f32>, t_max: f32, stop_at_first: bool) -> Hit {
-    var best = Hit(t_max, NO_HIT);
-    if scene.node_count == 0u {
-        return best;
-    }
+// One tree laid out at `root` in `nodes`, its triangles at `tri_base` in
+// `tris`: the scene's own (both 0), or one of a consumer's per-mesh trees
+// appended after it. A tree's node and triangle indices are its own, so the
+// same flat layout serves at any offset. `best` is the nearest hit so far,
+// which the tree must beat.
+fn traverse_tree(
+    root: u32,
+    tri_base: u32,
+    instance: u32,
+    o: vec3<f32>,
+    d: vec3<f32>,
+    best_so_far: Hit,
+    stop_at_first: bool,
+) -> Hit {
+    var best = best_so_far;
     let inv = safe_inv(d);
     // 32 entries: the tree is at most `bvh::MAX_DEPTH` (30) deep, and a
     // traversal never holds more than one entry per level plus one. Larger
@@ -86,15 +101,15 @@ fn traverse(o: vec3<f32>, d: vec3<f32>, t_max: f32, stop_at_first: bool) -> Hit 
     while top > 0u {
         top -= 1u;
         let index = stack[top];
-        let node = nodes[index];
+        let node = nodes[root + index];
         if !box_hit(node.lo, node.hi, o, inv, best.t) {
             continue;
         }
         if node.count > 0u {
             for (var k = node.start; k < node.start + node.count; k++) {
-                let t = tri_hit(k, o, d);
+                let t = tri_hit(tri_base + k, o, d);
                 if t > 0.0 && t < best.t {
-                    best = Hit(t, k);
+                    best = Hit(t, tri_base + k, instance);
                     if stop_at_first {
                         return best;
                     }
@@ -104,6 +119,45 @@ fn traverse(o: vec3<f32>, d: vec3<f32>, t_max: f32, stop_at_first: bool) -> Hit 
             stack[top] = index + 1u;
             stack[top + 1u] = node.start;
             top += 2u;
+        }
+    }
+    return best;
+}
+
+// A consumer's instance as one ray meets it: which tree, the ray in that
+// tree's space, and whether the ray reaches the instance's bounds at all.
+struct InstanceRay {
+    root: u32,
+    tri_base: u32,
+    o: vec3<f32>,
+    d: vec3<f32>,
+    enters: bool,
+};
+
+// The scene's own tree, then the consumer's instances: every consumer
+// defines `instance_count() -> u32` and `instance_ray(i, o, d, t_max) ->
+// InstanceRay`. The bake has none (`gpu_scene::NO_INSTANCES_WGSL`); the
+// realtime GI's moving meshes are its instances, so a shadow ray in
+// `light.wgsl` is blocked by them as the probe rays are. One loop over the
+// trees, so `traverse_tree` has one call site: FXC (wgpu's D3D12 compiler)
+// inlines every call, and this stack loop is what it is slow at -- two call
+// sites would compile it twice.
+fn traverse(o: vec3<f32>, d: vec3<f32>, t_max: f32, stop_at_first: bool) -> Hit {
+    var best = Hit(t_max, NO_HIT, NO_HIT);
+    let trees = instance_count() + 1u;
+    for (var i = 0u; i < trees; i++) {
+        var ray = InstanceRay(0u, 0u, o, d, scene.node_count > 0u);
+        var instance = NO_HIT;
+        if i > 0u {
+            instance = i - 1u;
+            ray = instance_ray(instance, o, d, best.t);
+        }
+        if !ray.enters {
+            continue;
+        }
+        best = traverse_tree(ray.root, ray.tri_base, instance, ray.o, ray.d, best, stop_at_first);
+        if stop_at_first && best.tri != NO_HIT {
+            return best;
         }
     }
     return best;

@@ -1,11 +1,12 @@
 //! Feeds the renderer's realtime light-probe volume
 //! (`bsengine_rhi_wgpu::realtime_gi`) from the world, every frame: the
-//! volume, the static set, the lights as they are now, and the sky.
+//! volume, the static set, every other renderer where it is now, the lights
+//! as they are now, and the sky.
 
 use crate::gi_scene;
 use bevy_ecs::prelude::{Local, World};
 use bsengine_core::{GlobalTransform, LightProbeVolume, ProbeUpdate, Transform};
-use bsengine_rhi_wgpu::realtime_gi::{GiStatic, RealtimeGiInput};
+use bsengine_rhi_wgpu::realtime_gi::{GiDynamic, GiStatic, RealtimeGiInput};
 use std::sync::Arc;
 
 /// The sky last decoded, kept until the skybox or the ambient changes: a
@@ -43,6 +44,15 @@ pub(crate) fn feed_realtime_gi(world: &mut World, mut sky_cache: Local<SkyCache>
                 emissive: r.emissive,
             })
             .collect();
+        let dynamics = gi_scene::dynamic_rows(world)
+            .into_iter()
+            .map(|r| GiDynamic {
+                mesh_id: r.mesh_id,
+                model: r.model,
+                albedo: r.albedo,
+                emissive: r.emissive,
+            })
+            .collect();
         let lights = gi_scene::lights(world, gi_scene::realtime_contribution);
         let ambient = gi_scene::ambient(world);
         let path = gi_scene::skybox_path(world);
@@ -71,6 +81,7 @@ pub(crate) fn feed_realtime_gi(world: &mut World, mut sky_cache: Local<SkyCache>
                 .unwrap_or_default()
                 .rays_per_frame,
             statics,
+            dynamics,
             lights,
             sky,
         }

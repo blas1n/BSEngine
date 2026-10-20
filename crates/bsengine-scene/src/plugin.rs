@@ -985,6 +985,7 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     app.register_type::<bsengine_core::RectLight>();
     app.register_type::<bsengine_core::LightBakeMode>();
     app.register_type::<bsengine_core::LightmapStatic>();
+    app.register_type::<bsengine_core::ExcludeFromGi>();
     app.register_type::<bsengine_core::Material>();
     app.register_type::<bsengine_core::TexturePath>();
     app.register_type::<bsengine_core::ParticleEmitter>();

@@ -1131,6 +1131,44 @@ fn reconstruct_view_pos(uv: vec2<f32>, depth: f32) -> vec3<f32> {
     return view_pos.xyz / view_pos.w;
 }
 
+fn view_pos_at(uv: vec2<f32>) -> vec3<f32> {
+    return reconstruct_view_pos(uv, load_depth(uv));
+}
+
+// The view-space normal, from depth. On each axis the neighbour nearer in
+// depth is the one differenced, so a pixel on a silhouette takes its own
+// surface's slope rather than the jump to whatever is behind it; and the
+// normal is turned to face the camera (the eye is the view-space origin).
+// The first version crossed "right" with "down" -- the uv's y runs down the
+// screen -- and so pointed every normal away from the camera: each surface hid
+// half its own samples, and every flat surface in view went dark.
+fn view_normal(uv: vec2<f32>, pos: vec3<f32>, texel: vec2<f32>) -> vec3<f32> {
+    let l = view_pos_at(uv - vec2<f32>(texel.x, 0.0));
+    let r = view_pos_at(uv + vec2<f32>(texel.x, 0.0));
+    let u = view_pos_at(uv - vec2<f32>(0.0, texel.y));
+    let d = view_pos_at(uv + vec2<f32>(0.0, texel.y));
+    let dx = select(pos - l, r - pos, abs(r.z - pos.z) < abs(pos.z - l.z));
+    let dy = select(pos - u, d - pos, abs(d.z - pos.z) < abs(pos.z - u.z));
+    var n = normalize(cross(dx, dy));
+    if dot(n, -pos) < 0.0 {
+        n = -n;
+    }
+    return n;
+}
+
+// A 4x4 ordered set of rotations, one per pixel of each 4x4 tile: the blur
+// pass that follows averages exactly one tile, so the rotations' pattern
+// cancels and every pixel ends up sampled at all sixteen rotations. Without
+// a per-pixel rotation every pixel sampled the same eight directions, and an
+// occluder showed up as eight offset copies of itself -- the translucent discs
+// around the spheres in games/gi-demo, and the bands along its walls.
+fn rotation_at(frag: vec2<f32>) -> f32 {
+    var bayer = array<f32, 16>(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0,
+                               3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
+    let p = vec2<u32>(frag) % vec2<u32>(4u);
+    return (bayer[p.y * 4u + p.x] + 0.5) / 16.0 * 6.2831853;
+}
+
 @fragment
 fn fs_ssao(in: FullscreenOut) -> @location(0) vec4<f32> {
     if config.ssao_enabled == 0u {
@@ -1143,23 +1181,32 @@ fn fs_ssao(in: FullscreenOut) -> @location(0) vec4<f32> {
     let pos = reconstruct_view_pos(in.uv, depth);
     let dims = vec2<f32>(textureDimensions(depth_tex, 0));
     let texel = vec2<f32>(1.0 / dims.x, 1.0 / dims.y);
-    let pos_r = reconstruct_view_pos(in.uv + vec2<f32>(texel.x, 0.0), load_depth(in.uv + vec2<f32>(texel.x, 0.0)));
-    let pos_u = reconstruct_view_pos(in.uv + vec2<f32>(0.0, texel.y), load_depth(in.uv + vec2<f32>(0.0, texel.y)));
-    let normal = normalize(cross(pos_r - pos, pos_u - pos));
-    var hemisphere: array<vec3<f32>, 8> = array<vec3<f32>, 8>(
-        vec3<f32>( 0.5411,  0.5,     0.5),
-        vec3<f32>(-0.5411,  0.5,     0.5),
-        vec3<f32>( 0.5,    -0.5411,  0.5),
-        vec3<f32>(-0.5,    -0.5411,  0.5),
-        vec3<f32>( 0.7071,  0.0,     0.3),
-        vec3<f32>(-0.7071,  0.0,     0.3),
-        vec3<f32>( 0.0,     0.7071,  0.3),
-        vec3<f32>( 0.0,    -0.7071,  0.3),
-    );
+    let normal = view_normal(in.uv, pos, texel);
+    // The kernel's frame: the normal, and a tangent turned by this pixel's
+    // rotation about it.
+    let a = rotation_at(in.pos.xy);
+    let spin = vec3<f32>(cos(a), sin(a), 0.0);
+    var tangent = spin - normal * dot(spin, normal);
+    if dot(tangent, tangent) < 1e-6 {
+        tangent = vec3<f32>(0.0, cos(a), sin(a)) - normal * dot(vec3<f32>(0.0, cos(a), sin(a)), normal);
+    }
+    tangent = normalize(tangent);
+    let bitangent = cross(normal, tangent);
+
+    let n = clamp(config.ssao_sample_count, 4u, 32u);
     var occlusion = 0.0;
-    let max_samples = min(config.ssao_sample_count, 8u);
-    for (var i: u32 = 0u; i < max_samples; i++) {
-        let s = normalize(hemisphere[i] + normal * 0.5);
+    for (var i: u32 = 0u; i < n; i++) {
+        // A hemisphere about the normal, spread by the golden angle, never
+        // flatter than 10 degrees off the surface (a sample in the plane
+        // compares depth against the surface it lies on), and denser near
+        // the centre, where occlusion matters most -- the usual kernel.
+        let t = (f32(i) + 0.5) / f32(n);
+        let up = mix(1.0, 0.17, t);
+        let around = sqrt(max(1.0 - up * up, 0.0));
+        let phi = f32(i) * 2.39996323;
+        let scale = mix(0.1, 1.0, t * t);
+        let k = vec3<f32>(around * cos(phi), around * sin(phi), up) * scale;
+        let s = tangent * k.x + bitangent * k.y + normal * k.z;
         let sample_pos = pos + s * config.ssao_radius;
         let clip = cam.proj * vec4<f32>(sample_pos, 1.0);
         if clip.w <= 0.0 { continue; }
@@ -1168,13 +1215,78 @@ fn fs_ssao(in: FullscreenOut) -> @location(0) vec4<f32> {
         if sample_uv.x < 0.0 || sample_uv.x > 1.0 || sample_uv.y < 0.0 || sample_uv.y > 1.0 {
             continue;
         }
-        let actual_pos = reconstruct_view_pos(sample_uv, load_depth(sample_uv));
-        let range_check = smoothstep(0.0, 1.0, config.ssao_radius / max(abs(pos.z - actual_pos.z), 0.0001));
+        let actual_pos = view_pos_at(sample_uv);
+        // Something in front of the sample point hides it -- unless that
+        // something is far in front of this pixel: counted fully within the
+        // radius, fading out by twice it, so an object across the room does
+        // not occlude the wall. (The usual `smoothstep(0, 1, r / |dz|)` never
+        // reaches zero: an object four radii in front still counted a sixth,
+        // and printed a faint copy of itself on the floor below.)
+        let range_check = 1.0 - smoothstep(config.ssao_radius, 2.0 * config.ssao_radius, abs(pos.z - actual_pos.z));
         if actual_pos.z >= sample_pos.z + config.ssao_bias {
             occlusion += range_check;
         }
     }
-    let ao = 1.0 - (occlusion / f32(max_samples)) * config.ssao_intensity;
+    let ao = clamp(1.0 - (occlusion / f32(n)) * config.ssao_intensity, 0.0, 1.0);
+    return vec4<f32>(ao, ao, ao, 1.0);
+}
+"#;
+
+/// The occlusion averaged over the 4x4 tile its per-pixel rotations repeat on
+/// (see `rotation_at` in [`SSAO_WGSL`]), skipping pixels at another depth so an
+/// object's occlusion does not bleed onto what lies behind it. Without this
+/// pass every pixel would show only its own one rotation of the kernel.
+const SSAO_BLUR_WGSL: &str = r#"
+struct FullscreenOut {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+struct SsaoCamera {
+    proj: mat4x4<f32>,
+    inv_proj: mat4x4<f32>,
+}
+@group(0) @binding(0) var depth_tex: texture_depth_2d;
+@group(1) @binding(0) var ao_raw: texture_2d<f32>;
+@group(1) @binding(1) var ao_raw_sampler: sampler;
+@group(2) @binding(0) var<uniform> cam: SsaoCamera;
+
+@vertex
+fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> FullscreenOut {
+    var positions = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -3.0), vec2<f32>(-1.0, 1.0), vec2<f32>(3.0, 1.0),
+    );
+    let p = positions[vi];
+    var out: FullscreenOut;
+    out.pos = vec4<f32>(p.x, p.y, 0.0, 1.0);
+    out.uv = vec2<f32>(p.x * 0.5 + 0.5, -p.y * 0.5 + 0.5);
+    return out;
+}
+
+// Distance from the camera, from a depth sample.
+fn view_depth(depth: f32) -> f32 {
+    let v = cam.inv_proj * vec4<f32>(0.0, 0.0, depth, 1.0);
+    return -v.z / v.w;
+}
+
+@fragment
+fn fs_ssao_blur(in: FullscreenOut) -> @location(0) vec4<f32> {
+    let dims = vec2<i32>(textureDimensions(ao_raw, 0));
+    let centre = vec2<i32>(in.pos.xy);
+    let z0 = view_depth(textureLoad(depth_tex, centre, 0));
+    var sum = 0.0;
+    var weight = 0.0;
+    for (var y: i32 = -2; y < 2; y++) {
+        for (var x: i32 = -2; x < 2; x++) {
+            let p = clamp(centre + vec2<i32>(x, y), vec2<i32>(0), dims - vec2<i32>(1));
+            let z = view_depth(textureLoad(depth_tex, p, 0));
+            // Within a tenth of the distance: the same surface, or one
+            // touching it; anything further is something else.
+            let w = select(0.0, 1.0, abs(z - z0) <= 0.1 * z0);
+            sum += textureLoad(ao_raw, p, 0).r * w;
+            weight += w;
+        }
+    }
+    let ao = select(1.0, sum / weight, weight > 0.0);
     return vec4<f32>(ao, ao, ao, 1.0);
 }
 "#;
@@ -2153,6 +2265,11 @@ struct PostProcessTargets {
     ao_texture: crate::profiler::TrackedTexture,
     ao_view: wgpu::TextureView,
     ao_bg: wgpu::BindGroup,
+    /// The occlusion as the SSAO pass computes it, one kernel rotation per
+    /// pixel, before the blur pass averages it into `ao_view`.
+    ao_raw_texture: crate::profiler::TrackedTexture,
+    ao_raw_view: wgpu::TextureView,
+    ao_raw_bg: wgpu::BindGroup,
     /// World-space normal in rgb and roughness in alpha, written by the opaque
     /// pass alongside its colour.
     ///
@@ -2202,6 +2319,10 @@ pub struct PostProcessState {
     _bloom_texture: crate::profiler::TrackedTexture,
     ao_view: wgpu::TextureView,
     _ao_texture: crate::profiler::TrackedTexture,
+    /// The SSAO pass's unblurred output (see `PostProcessTargets::ao_raw_view`).
+    ao_raw_view: wgpu::TextureView,
+    _ao_raw_texture: crate::profiler::TrackedTexture,
+    ao_raw_bg: wgpu::BindGroup,
     /// LDR output of the composite pass. Composite used to write straight to
     /// the swapchain; it writes here instead so the TAA pass has a readable
     /// copy of this frame's finished colour -- a pass cannot sample the
@@ -2377,6 +2498,8 @@ pub struct PostProcessState {
     pub bloom_pipeline: wgpu::RenderPipeline,
     /// Pipeline for the SSAO occlusion shader.
     pub ssao_pipeline: wgpu::RenderPipeline,
+    /// Averages the SSAO pass's output over the 4x4 tile of its rotations.
+    ssao_blur_pipeline: wgpu::RenderPipeline,
     /// Traces the reflections into [`Self::ssr_view`].
     ssr_pipeline: wgpu::RenderPipeline,
     /// Adds that buffer onto the scene.
@@ -3134,6 +3257,8 @@ impl PostProcessState {
         let bloom_pipeline = Self::make_bloom_pipeline(device, &tex2d_bgl, &config_bgl);
         let ssao_pipeline =
             Self::make_ssao_pipeline(device, &depth_bgl, &config_bgl, &ssao_cam_bgl);
+        let ssao_blur_pipeline =
+            Self::make_ssao_blur_pipeline(device, &depth_bgl, &tex2d_bgl, &ssao_cam_bgl);
 
         let ssr_cam_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("pp ssr cam bgl"),
@@ -3211,6 +3336,9 @@ impl PostProcessState {
             _bloom_texture: targets.bloom_texture,
             ao_view: targets.ao_view,
             _ao_texture: targets.ao_texture,
+            ao_raw_view: targets.ao_raw_view,
+            _ao_raw_texture: targets.ao_raw_texture,
+            ao_raw_bg: targets.ao_raw_bg,
             ldr_view: targets.ldr_view,
             fxaa_view: targets.fxaa_view,
             _fxaa_texture: targets.fxaa_texture,
@@ -3279,6 +3407,7 @@ impl PostProcessState {
             fog_pipeline,
             bloom_pipeline,
             ssao_pipeline,
+            ssao_blur_pipeline,
             ssr_pipeline,
             ssr_composite_pipeline,
             ssr_cam_buffer,
@@ -3334,6 +3463,8 @@ impl PostProcessState {
         let bloom_view = bloom_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let ao_texture = make_tex("pp ao", AO_FORMAT);
         let ao_view = ao_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let ao_raw_texture = make_tex("pp ao raw", AO_FORMAT);
+        let ao_raw_view = ao_raw_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let normal_texture = make_tex("pp normal", NORMAL_FORMAT);
         let normal_view = normal_texture.create_view(&wgpu::TextureViewDescriptor::default());
         // Copyable as well, for `WgpuSurface::read_velocity`: the post passes
@@ -3402,6 +3533,7 @@ impl PostProcessState {
         let fog_hdr_bg = make_tex2d_bg("pp fog hdr bg", &fog_hdr_view);
         let bloom_bg = make_tex2d_bg("pp bloom bg", &bloom_view);
         let ao_bg = make_tex2d_bg("pp ao bg", &ao_view);
+        let ao_raw_bg = make_tex2d_bg("pp ao raw bg", &ao_raw_view);
         let normal_bg = make_tex2d_bg("pp normal bg", &normal_view);
         let ssr_bg = make_tex2d_bg("pp ssr bg", &ssr_view);
         let ldr_bg = make_tex2d_bg("pp ldr bg", &ldr_view);
@@ -3439,6 +3571,9 @@ impl PostProcessState {
             ao_texture,
             ao_view,
             ao_bg,
+            ao_raw_texture,
+            ao_raw_view,
+            ao_raw_bg,
             normal_texture,
             normal_view,
             normal_bg,
@@ -3753,6 +3888,48 @@ impl PostProcessState {
         })
     }
 
+    fn make_ssao_blur_pipeline(
+        device: &wgpu::Device,
+        depth_bgl: &wgpu::BindGroupLayout,
+        tex2d_bgl: &wgpu::BindGroupLayout,
+        ssao_cam_bgl: &wgpu::BindGroupLayout,
+    ) -> wgpu::RenderPipeline {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("ssao blur shader"),
+            source: wgpu::ShaderSource::Wgsl(SSAO_BLUR_WGSL.into()),
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("ssao blur pll"),
+            bind_group_layouts: &[depth_bgl, tex2d_bgl, ssao_cam_bgl],
+            push_constant_ranges: &[],
+        });
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("ssao blur pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_fullscreen",
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_ssao_blur",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: AO_FORMAT,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        })
+    }
+
     fn make_dof_pipeline(
         device: &wgpu::Device,
         tex2d_bgl: &wgpu::BindGroupLayout,
@@ -3999,6 +4176,9 @@ impl PostProcessState {
         self._bloom_texture = t.bloom_texture;
         self.ao_view = t.ao_view;
         self._ao_texture = t.ao_texture;
+        self.ao_raw_view = t.ao_raw_view;
+        self._ao_raw_texture = t.ao_raw_texture;
+        self.ao_raw_bg = t.ao_raw_bg;
         self.normal_view = t.normal_view;
         self._normal_texture = t.normal_texture;
         self.normal_bg = t.normal_bg;
@@ -4601,7 +4781,7 @@ impl PostProcessState {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("ssao pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.ao_view,
+                    view: &self.ao_raw_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
@@ -4615,6 +4795,31 @@ impl PostProcessState {
                 pass.set_pipeline(&self.ssao_pipeline);
                 pass.set_bind_group(0, &self.depth_bg, &[]);
                 pass.set_bind_group(1, &self.config_bg, &[]);
+                pass.set_bind_group(2, &self.ssao_cam_bg, &[]);
+                pass.draw(0..3, 0..1);
+                draw_calls += 1;
+                triangles += 1;
+            }
+        }
+
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("ssao blur pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.ao_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                ..Default::default()
+            });
+            if !fast_render {
+                pass.set_pipeline(&self.ssao_blur_pipeline);
+                pass.set_bind_group(0, &self.depth_bg, &[]);
+                pass.set_bind_group(1, &self.ao_raw_bg, &[]);
                 pass.set_bind_group(2, &self.ssao_cam_bg, &[]);
                 pass.draw(0..3, 0..1);
                 draw_calls += 1;

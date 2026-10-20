@@ -201,9 +201,15 @@ fn the_normal_fade_drops_a_decal_on_a_surface_it_barely_grazes() {
 /// would be equally bright in light and in shadow -- and every other test in
 /// this file would still pass.
 ///
-/// Written as a difference of differences so it needs no hand-picked
-/// coordinates: how much the decal changed a pixel is measured where the floor
-/// is lit and where it is shadowed, and the two are compared.
+/// How much the decal changed a pixel is compared where the caster's shadow
+/// falls and where the floor is lit. Which pixels those are comes from a frame
+/// without the caster, not from how dark the floor happens to be: this test
+/// first sorted the decal's pixels by brightness and took the darkest tenth
+/// as "shadowed" -- but the shadow covers a few hundred of its 20,000 pixels,
+/// so that tenth was mostly lit floor, and the test passed only because SSAO
+/// darkened the floor under the caster. With SSAO fixed it failed (lit 103,
+/// "shadowed" 88). And in linear light, because what a shadow multiplies is
+/// light, and sRGB's curve squeezes a step high up its range.
 #[test]
 fn a_decal_in_shadow_is_dimmed_by_the_shadow() {
     let mut h = Harness::new();
@@ -214,67 +220,86 @@ fn a_decal_in_shadow_is_dimmed_by_the_shadow() {
     // it rather than underneath where the camera cannot see it.
     let caster = Draw::new(cube, Vec3::new(-1.5, 2.0, 0.0))
         .scaled(Vec3::new(1.5, 1.5, 1.5), Vec3::new(-1.5, 2.0, 0.0));
+    let light = Light {
+        direction: Vec3::new(-0.6, -1.0, -0.2).normalize(),
+        // Far below the harness default of 0.15. Ambient reaches shadowed
+        // floor too, so a bright ambient lifts the shadow until "dimmed by
+        // the shadow" and "not dimmed at all" are a few percent apart --
+        // which is a fixture making the property nearly unobservable
+        // rather than a property that is nearly absent.
+        ambient: Vec3::splat(0.02),
+        ..Light::default()
+    };
     let shadowed = Scene {
         draws: vec![floor(cube), caster],
-        light: Light {
-            direction: Vec3::new(-0.6, -1.0, -0.2).normalize(),
-            // Far below the harness default of 0.15. Ambient reaches shadowed
-            // floor too, so a bright ambient lifts the shadow until "dimmed by
-            // the shadow" and "not dimmed at all" are a few percent apart --
-            // which is a fixture making the property nearly unobservable
-            // rather than a property that is nearly absent.
-            ambient: Vec3::splat(0.02),
-            ..Light::default()
-        },
+        light: light.clone(),
         ..lit_scene(cube)
     };
 
+    let no_caster = h.render(&Scene {
+        light,
+        ..lit_scene(cube)
+    });
     let without = h.render(&shadowed);
     let with = h.render(&Scene {
         decals: vec![decal(Vec3::new(12.0, 2.0, 12.0), red)],
         ..shadowed
     });
 
-    // Every pixel the decal actually touched, paired with how bright the floor
-    // was there *before* it. Only touched pixels count, so the sky and the
-    // caster's own faces cannot skew either side.
-    let mut touched: Vec<(u8, i32)> = Vec::new();
+    // Red, not luma: the floor is a blue-grey, and red is the channel this
+    // decal writes.
+    let touched = |x: u32, y: u32| with.at(x, y)[0] > without.at(x, y)[0];
+    // The shadow: floor the caster took most of the light from (and not the
+    // caster itself, which is brighter, not darker). Lit: floor the caster
+    // left exactly as it was.
+    let in_shadow = |x: u32, y: u32| {
+        let (b, n) = (without.at(x, y), no_caster.at(x, y));
+        luminance(b) < 0.5 * luminance(n)
+    };
+    let in_light = |x: u32, y: u32| without.at(x, y) == no_caster.at(x, y);
+    let delta = |x: u32, y: u32| linear(with.at(x, y)[0]) - linear(without.at(x, y)[0]);
+
+    let (mut lit, mut dark) = (Vec::new(), Vec::new());
     for y in 0..without.height {
         for x in 0..without.width {
-            let before = without.at(x, y);
-            let after = with.at(x, y);
-            let delta = after[0] as i32 - before[0] as i32;
-            if delta > 0 {
-                // Redness, not luma: the floor is a blue-grey and its shadow a
-                // darker one, so the red channel separates them and is also the
-                // channel this decal writes.
-                touched.push((before[0], delta));
+            if !touched(x, y) {
+                continue;
+            }
+            if in_shadow(x, y) {
+                dark.push(delta(x, y));
+            } else if in_light(x, y) {
+                lit.push(delta(x, y));
             }
         }
     }
-    // Compared at the extremes rather than side of a midpoint. A midpoint puts
-    // the shadow's soft edge on both sides, and that edge is where the two
-    // explanations agree -- which is exactly the part that cannot tell them
-    // apart. The deciles are the pixels where the floor is unambiguously lit
-    // and unambiguously shadowed, and the split is taken from the data rather
-    // than from a brightness written here.
-    touched.sort_by_key(|&(before, _)| before);
-    let decile = (touched.len() / 10).max(1);
-    let dark_deltas: Vec<i32> = touched[..decile].iter().map(|&(_, d)| d).collect();
-    let lit_deltas: Vec<i32> = touched[touched.len() - decile..]
-        .iter()
-        .map(|&(_, d)| d)
-        .collect();
-    let (darkest, brightest) = (touched[0].0, touched[touched.len() - 1].0);
-
-    let mean = |v: &[i32]| v.iter().sum::<i32>() as f32 / v.len() as f32;
-    let (lit, dark) = (mean(&lit_deltas), mean(&dark_deltas));
+    // Premise: the decal covers both, in numbers worth averaging.
     assert!(
-        dark < lit * 0.75,
+        dark.len() > 50 && lit.len() > 1000,
+        "premise: decal pixels in shadow {} and in light {}",
+        dark.len(),
+        lit.len()
+    );
+    let mean = |v: &[f32]| v.iter().sum::<f32>() / v.len() as f32;
+    let (lit, dark) = (mean(&lit), mean(&dark));
+    assert!(
+        dark < lit * 0.5,
         "the decal should be markedly dimmer where the floor is shadowed, \
          because what changed is albedo and the shadow still multiplies it: \
-         lit {lit:.1}, shadowed {dark:.1} (floor red {darkest}..{brightest} \
-         over {} touched pixels)",
-        touched.len()
+         lit {lit:.3}, shadowed {dark:.3} (linear red)"
     );
+}
+
+/// An sRGB-encoded channel as linear light, 0..1.
+fn linear(c: u8) -> f32 {
+    let c = c as f32 / 255.0;
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// A pixel's brightness in display values, for "darker than" comparisons.
+fn luminance(p: [u8; 4]) -> f32 {
+    0.2126 * p[0] as f32 + 0.7152 * p[1] as f32 + 0.0722 * p[2] as f32
 }

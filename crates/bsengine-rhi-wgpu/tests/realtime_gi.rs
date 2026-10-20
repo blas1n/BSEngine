@@ -857,11 +857,12 @@ fn a_closed_room_is_lit_evenly_through_the_volume() {
         let input = s.input(volume, 0.5, 1 << 20);
         s.run(&input, 24);
         let pixels = s.scene.surface.read_pixels().expect("offscreen readback");
-        // The middle row, pixels 17..47: x from -0.47 to 0.47, across the
-        // probes at x = +-0.44 (cells 0.89 wide). Not wider: the renderer
-        // brightens the frame's outer 16-pixel tiles by a step of its own,
-        // with or without a probe volume (a screen-space pass, not GI).
-        (17..47)
+        // The middle row, all but the edge pixels: across six probe cells
+        // (0.89 wide). It used to stop at 17..47, because SSAO darkened every
+        // flat surface except a band along the frame's edge, where its
+        // samples left the screen -- a step of 16 levels at pixel 14 that
+        // looked like a tiling of the frame and was not GI.
+        (1..63)
             .map(|x| pixels[(32 * 64 + x) * 4])
             .collect::<Vec<u8>>()
     };
@@ -918,8 +919,14 @@ fn a_buried_probe_drops_out_of_the_lookup() {
                 Vec3::Y * 20.0,
             ),
             Vec3::ZERO,
-            Vec3::splat(2.0),
+            // Half what it was, and the harness sun off: the quad is lit by
+            // the probes alone and sits mid-range, where a change shows. At
+            // 2.0 with the sun on it read 223 -> 248, against the tonemap's
+            // ceiling -- the margin it had came from SSAO darkening the flat
+            // quad, which it no longer does.
+            Vec3::splat(1.0),
         );
+        s.scene.sun = Some((Vec3::ZERO, Vec3::ZERO));
         s
     };
     let darkened = visibility_scene(&mut build(), false);

@@ -1768,10 +1768,21 @@ pub(crate) const PROBE_COEFFS_SIZE: u64 = (crate::sh::SH_COEFF_COUNT * 16) as u6
 /// scene.
 pub(crate) const PROBE_GRID_SIZE: u64 = PROBE_GRID_HEADER_SIZE
     + 2 * PROBE_COEFFS_SIZE * bsengine_core::MAX_PROBES as u64
-    + 2 * PROBE_MOMENTS_SIZE * bsengine_core::MAX_PROBES as u64;
+    + 2 * PROBE_MOMENTS_SIZE * bsengine_core::MAX_PROBES as u64
+    + 2 * PROBE_OFFSET_SIZE * bsengine_core::MAX_PROBES as u64;
 /// Bytes of one probe's distance moments: 16 x 16 octahedral texels as two
 /// f16 each, four to a `vec4`, each `vec4` written by one thread.
 pub(crate) const PROBE_MOMENTS_SIZE: u64 = 64 * 16;
+/// Bytes of one probe's relocation entry: where it moved to (`OFFSETS_BASE`
+/// in `realtime_gi`'s shader).
+pub(crate) const PROBE_OFFSET_SIZE: u64 = 16;
+/// Where the moments and the offsets start in the shader's `coeffs`, in
+/// `vec4` entries. The WGSL writes these as literals (a `const` there cannot
+/// be computed from the Rust side); `probe_grid_layout_matches_the_shader`
+/// holds the two together.
+pub(crate) const PROBE_MOMENTS_BASE: u64 = 2 * 9 * bsengine_core::MAX_PROBES as u64;
+pub(crate) const PROBE_OFFSETS_BASE: u64 =
+    PROBE_MOMENTS_BASE + 2 * (PROBE_MOMENTS_SIZE / 16) * bsengine_core::MAX_PROBES as u64;
 
 /// The header of `ProbeGrid` in [`MESH_WGSL`]; the coefficients follow it in
 /// the same buffer, written separately (see [`WgpuSurface::bake_probes`]) so
@@ -1813,6 +1824,9 @@ pub struct ProbeGridReadback {
     pub extent: [f32; 3],
     pub resolution: [u32; 3],
     pub coeffs: Vec<[[f32; 4]; crate::sh::SH_COEFF_COUNT]>,
+    /// Per probe of the same half: `xyz` where relocation moved it from its
+    /// lattice point (`w` unused). All zero for a baked volume.
+    pub offsets: Vec<[f32; 4]>,
 }
 
 /// The world-space box and grid one probe bake was performed for.
@@ -6404,6 +6418,16 @@ impl WgpuSurface {
         }
     }
 
+    /// Switches the realtime volume's probe relocation and classification,
+    /// which are always on, for tests that look at visibility alone or at
+    /// what relocation adds. The volume must have updated once.
+    #[doc(hidden)]
+    pub fn set_realtime_gi_relocation_for_testing(&mut self, on: bool) {
+        if let Some(gi) = &mut self.realtime_gi {
+            gi.relocation = on;
+        }
+    }
+
     /// Reads [`Self::probe_buffer`] back -- the header and the half it names
     /// for shading -- so a test can assert on
     /// what the shader is actually about to sample rather than on a CPU-side
@@ -6443,6 +6467,12 @@ impl WgpuSurface {
             &bytes[half..half + PROBE_COEFFS_SIZE as usize * bsengine_core::MAX_PROBES],
         )
         .to_vec();
+        let offsets_at = PROBE_GRID_HEADER_SIZE as usize
+            + (PROBE_OFFSETS_BASE as usize + header.coeff_offset as usize) * 16;
+        let offsets = bytemuck::cast_slice::<u8, [f32; 4]>(
+            &bytes[offsets_at..offsets_at + 16 * bsengine_core::MAX_PROBES],
+        )
+        .to_vec();
         drop(bytes);
         staging.unmap();
         ProbeGridReadback {
@@ -6451,6 +6481,7 @@ impl WgpuSurface {
             extent: header.extent,
             resolution: header.resolution,
             coeffs,
+            offsets,
         }
     }
 

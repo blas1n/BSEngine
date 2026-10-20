@@ -1001,6 +1001,19 @@ struct VertOut {{
         }
     }
 
+    /// Realtime reflection refreshes finished so far (six faces captured
+    /// again and filtered into a probe's slot).
+    #[allow(dead_code)] // only pixels_reflection_probe.rs counts them
+    pub fn reflection_refreshes(&self) -> u32 {
+        self.surface.reflection_refreshes()
+    }
+
+    /// Cube-face scene passes every probe capture has encoded so far.
+    #[allow(dead_code)] // only pixels_reflection_probe.rs counts them
+    pub fn cube_face_passes(&self) -> u32 {
+        self.surface.cube_face_passes()
+    }
+
     /// The sample count the last frame's geometry passes drew with -- 1
     /// where MSAA is off or this adapter cannot do it, which an MSAA test
     /// checks as its premise.

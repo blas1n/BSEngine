@@ -1865,8 +1865,9 @@ struct CubeCaptureTarget<'a> {
 /// One reflection probe as [`WgpuSurface::render_frame`] receives it: where
 /// its capture is taken and the box it governs.
 ///
-/// Re-captured under the same rule as [`ProbeVolumeParams`]: when the list of
-/// these differs from the last capture, not when the scene inside changes.
+/// Captured whole under the same rule as [`ProbeVolumeParams`]: when the list
+/// of these differs from the last capture, not when the scene inside changes.
+/// A `realtime` one is also captured again, a face a frame, all the time.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ReflectionProbeParams {
     /// World-space capture position and box centre.
@@ -1877,6 +1878,18 @@ pub struct ReflectionProbeParams {
     pub box_projection: bool,
     /// Brightness multiplier on the reflection.
     pub intensity: f32,
+    /// Kept up to date (`bsengine_core::ProbeUpdate::Realtime`): captured
+    /// again one cube face a frame, and filtered into its slot once all six
+    /// are in.
+    pub realtime: bool,
+}
+
+/// Where the realtime reflection refresh is: the probe slot being captured
+/// again, and the face it captures next.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ReflectionRefresh {
+    slot: usize,
+    face: usize,
 }
 
 /// Side of one captured reflection-probe face, and of each face of the
@@ -3172,6 +3185,19 @@ pub struct WgpuSurface {
     /// The probes [`Self::reflection_cubes`] currently holds, in slot order.
     /// Compared against each frame's list exactly as `baked_probe_volume` is.
     captured_reflection_probes: Vec<ReflectionProbeParams>,
+    /// The realtime reflection probes' refresh: which one, which face next.
+    /// `None` until a realtime probe is captured, and again after every whole
+    /// capture (which reuses the capture cube the refresh fills face by face).
+    reflection_refresh: Option<ReflectionRefresh>,
+    /// Realtime reflection refreshes finished -- six faces captured and
+    /// filtered into a slot -- for tests.
+    reflection_refreshes: u32,
+    /// Cube-face scene passes encoded by `capture_cube_faces`, by any capture,
+    /// for tests: what holds the realtime refresh to its one face a frame. A
+    /// refresh that captured all six faces every frame would still filter only
+    /// on the sixth and look the same in every pixel -- only the cost differs.
+    /// Atomic because the capture takes `&self` and the surface is a Bevy resource.
+    cube_face_passes: std::sync::atomic::AtomicU32,
     /// See [`Self::last_color_grading`].
     last_color_grading: Option<bsengine_core::ColorGrading>,
     /// See [`Self::last_soft_shadows`].
@@ -5408,6 +5434,9 @@ impl WgpuSurface {
             reflection_capture_depth_view,
             reflection_capture_pipeline,
             captured_reflection_probes: Vec::new(),
+            reflection_refresh: None,
+            reflection_refreshes: 0,
+            cube_face_passes: std::sync::atomic::AtomicU32::new(0),
             last_color_grading: None,
             last_soft_shadows: bsengine_core::shadow_config::DEFAULT_SOFT_SHADOWS,
             last_ui_texts: Vec::new(),
@@ -6092,6 +6121,7 @@ impl WgpuSurface {
             registry,
             tex_registry,
             positions,
+            0..6,
             CubeCaptureTarget {
                 texture: &self.probe_capture_texture,
                 depth_view: &self.probe_capture_depth_view,
@@ -6118,6 +6148,7 @@ impl WgpuSurface {
         registry: &GpuMeshRegistry,
         tex_registry: Option<&crate::texture::GpuTextureRegistry>,
         positions: &[Vec3],
+        faces: std::ops::Range<usize>,
         target: CubeCaptureTarget,
     ) {
         let (light_view_proj, cascade_layer) = cascades.widest();
@@ -6160,7 +6191,9 @@ impl WgpuSurface {
         }
 
         for probe_idx in 0..probe_count {
-            for face in 0..6usize {
+            for face in faces.clone() {
+                self.cube_face_passes
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let slot = probe_idx * 6 + face;
                 let layer_view = target.texture.create_view(&wgpu::TextureViewDescriptor {
                     label: Some("probe capture layer view"),
@@ -6455,6 +6488,7 @@ impl WgpuSurface {
                 registry,
                 tex_registry,
                 &[probe.center],
+                0..6,
                 CubeCaptureTarget {
                     texture: &self.reflection_capture_texture,
                     depth_view: &self.reflection_capture_depth_view,
@@ -6463,45 +6497,7 @@ impl WgpuSurface {
                 },
             );
             self.queue.submit(std::iter::once(encoder.finish()));
-
-            let (prefiltered, _view) = crate::ibl::prefilter_from_cubemap(
-                &self.device,
-                &self.queue,
-                &capture_cube_view,
-                &self.ibl_sampler,
-            );
-            let mut encoder = self
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("reflection probe copy encoder"),
-                });
-            for mip in 0..crate::ibl::PREFILTER_MIP_LEVELS {
-                let size = (REFLECTION_FACE_SIZE >> mip).max(1);
-                encoder.copy_texture_to_texture(
-                    wgpu::ImageCopyTexture {
-                        texture: &prefiltered,
-                        mip_level: mip,
-                        origin: wgpu::Origin3d::ZERO,
-                        aspect: wgpu::TextureAspect::All,
-                    },
-                    wgpu::ImageCopyTexture {
-                        texture: &self.reflection_cubes,
-                        mip_level: mip,
-                        origin: wgpu::Origin3d {
-                            x: 0,
-                            y: 0,
-                            z: (slot * 6) as u32,
-                        },
-                        aspect: wgpu::TextureAspect::All,
-                    },
-                    wgpu::Extent3d {
-                        width: size,
-                        height: size,
-                        depth_or_array_layers: 6,
-                    },
-                );
-            }
-            self.queue.submit(std::iter::once(encoder.finish()));
+            self.filter_capture_into_slot(&capture_cube_view, slot);
 
             data.entries[slot] = ReflectionProbeEntryData {
                 center: probe.center.to_array(),
@@ -6516,6 +6512,147 @@ impl WgpuSurface {
         // removing the last probe must stop its reflection, not freeze it.
         self.queue
             .write_buffer(&self.reflection_probe_buffer, 0, bytemuck::bytes_of(&data));
+    }
+
+    /// Filters the reflection capture cube -- six faces, all in -- through the
+    /// sky's own prefilter and copies every mip into probe `slot`'s layers of
+    /// [`Self::reflection_cubes`]. Shared by the whole capture and the
+    /// realtime refresh, so a refreshed probe's mips mean what a baked one's
+    /// do.
+    fn filter_capture_into_slot(&self, capture_cube_view: &wgpu::TextureView, slot: usize) {
+        let (prefiltered, _view) = crate::ibl::prefilter_from_cubemap(
+            &self.device,
+            &self.queue,
+            capture_cube_view,
+            &self.ibl_sampler,
+        );
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("reflection probe copy encoder"),
+            });
+        for mip in 0..crate::ibl::PREFILTER_MIP_LEVELS {
+            let size = (REFLECTION_FACE_SIZE >> mip).max(1);
+            encoder.copy_texture_to_texture(
+                wgpu::ImageCopyTexture {
+                    texture: &prefiltered,
+                    mip_level: mip,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::ImageCopyTexture {
+                    texture: &self.reflection_cubes,
+                    mip_level: mip,
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: (slot * 6) as u32,
+                    },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::Extent3d {
+                    width: size,
+                    height: size,
+                    depth_or_array_layers: 6,
+                },
+            );
+        }
+        self.queue.submit(std::iter::once(encoder.finish()));
+    }
+
+    /// One step of the realtime reflection refresh: one face of one realtime
+    /// probe captured again; on the sixth, the cube filtered into the probe's
+    /// slot, and the turn passed to the next realtime probe. Unity's
+    /// "Individual faces" time slicing: a probe costs one scene pass a frame,
+    /// not six plus the filter's thirty, and is never shown half refreshed --
+    /// the slot changes only once all six faces are new. With no realtime
+    /// probe, nothing.
+    fn refresh_realtime_reflection(
+        &mut self,
+        cascades: &crate::shadow::DirectionalCascades,
+        draw_calls: &[(u64, Mat4, Option<u64>, MaterialParams, Option<String>)],
+        registry: &GpuMeshRegistry,
+        tex_registry: Option<&crate::texture::GpuTextureRegistry>,
+    ) {
+        let realtime: Vec<usize> = self
+            .captured_reflection_probes
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p.realtime)
+            .map(|(i, _)| i)
+            .collect();
+        let Some(&first) = realtime.first() else {
+            self.reflection_refresh = None;
+            return;
+        };
+        let step = match self.reflection_refresh {
+            Some(r) if realtime.contains(&r.slot) => r,
+            _ => ReflectionRefresh {
+                slot: first,
+                face: 0,
+            },
+        };
+        let center = self.captured_reflection_probes[step.slot].center;
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("reflection refresh encoder"),
+            });
+        self.capture_cube_faces(
+            &mut encoder,
+            cascades,
+            draw_calls,
+            registry,
+            tex_registry,
+            &[center],
+            step.face..step.face + 1,
+            CubeCaptureTarget {
+                texture: &self.reflection_capture_texture,
+                depth_view: &self.reflection_capture_depth_view,
+                pipeline: &self.reflection_capture_pipeline,
+                flip_y: true,
+            },
+        );
+        self.queue.submit(std::iter::once(encoder.finish()));
+        self.reflection_refresh = Some(if step.face < 5 {
+            ReflectionRefresh {
+                face: step.face + 1,
+                ..step
+            }
+        } else {
+            let view = self
+                .reflection_capture_texture
+                .create_view(&wgpu::TextureViewDescriptor {
+                    label: Some("reflection capture cube view"),
+                    dimension: Some(wgpu::TextureViewDimension::Cube),
+                    ..Default::default()
+                });
+            self.filter_capture_into_slot(&view, step.slot);
+            self.reflection_refreshes += 1;
+            let next = realtime
+                .iter()
+                .copied()
+                .find(|&s| s > step.slot)
+                .unwrap_or(first);
+            ReflectionRefresh {
+                slot: next,
+                face: 0,
+            }
+        });
+    }
+
+    /// Realtime reflection refreshes finished so far -- a probe's six faces
+    /// captured again and filtered into its slot -- for tests.
+    #[doc(hidden)]
+    pub fn reflection_refreshes(&self) -> u32 {
+        self.reflection_refreshes
+    }
+
+    /// Cube-face scene passes encoded by every probe capture so far, for tests.
+    #[doc(hidden)]
+    pub fn cube_face_passes(&self) -> u32 {
+        self.cube_face_passes
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// The realtime probe volume for the next frame, or `None` for none. Set
@@ -7090,6 +7227,10 @@ impl WgpuSurface {
                 reflections_to_capture,
             );
             self.captured_reflection_probes = reflections_to_capture.to_vec();
+            self.reflection_refresh = None;
+        }
+        if !self.fast_render {
+            self.refresh_realtime_reflection(cascades, draw_calls, registry, tex_registry);
         }
 
         // Per-frame draw-call/triangle counters for the profiler. Local to
@@ -10917,6 +11058,7 @@ mod tests {
             half_extents: Vec3::splat(6.0),
             box_projection: false,
             intensity: 1.0,
+            realtime: false,
         }]);
         let faces = scene.read_reflection_slot(0);
 
@@ -10983,6 +11125,7 @@ mod tests {
             half_extents: Vec3::splat(6.0),
             box_projection: false,
             intensity: 1.0,
+            realtime: false,
         }]);
         let faces = scene.read_reflection_slot(0);
         let n = REFLECTION_FACE_SIZE;

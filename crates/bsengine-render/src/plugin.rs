@@ -1022,6 +1022,7 @@ fn render_frame(
                         half_extents: *probe.half_extents,
                         box_projection: probe.box_projection,
                         intensity: probe.intensity,
+                        realtime: probe.update == bsengine_core::ProbeUpdate::Realtime,
                     },
                 )
             })
@@ -3411,6 +3412,7 @@ mod tests {
                     half_extents: Vec3::new(1.0, 2.0, 3.0).into(),
                     box_projection: true,
                     intensity: 0.5,
+                    update: bsengine_core::ProbeUpdate::Realtime,
                 },
                 Transform::from_position(Vec3::new(1.0, 2.0, 3.0)),
             ))
@@ -3440,6 +3442,10 @@ mod tests {
         assert_eq!(probes[0].half_extents, Vec3::new(1.0, 2.0, 3.0));
         assert!(probes[0].box_projection);
         assert_eq!(probes[0].intensity, 0.5);
+        assert!(
+            probes[0].realtime && !probes[1].realtime,
+            "the refresh mode reaches the surface: realtime for the first, once for the second"
+        );
         assert_eq!(
             probes[1].center,
             Vec3::new(11.0, 1.0, 1.0),

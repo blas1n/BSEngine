@@ -23,22 +23,33 @@ pub const MAX_PROBES: usize = 4096;
 // Every baked volume has to fit the grid it is uploaded into.
 const _: () = assert!(MAX_BAKED_PROBES <= MAX_PROBES);
 
-/// How a [`LightProbeVolume`]'s probes get their light.
+/// How a probe keeps what it captured: a [`LightProbeVolume`]'s probes, or a
+/// [`crate::ReflectionProbe`] (Unity's Reflection Probe "Refresh Mode",
+/// Godot's `ReflectionProbe.update_mode`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Reflect)]
 #[reflect(Default)]
 pub enum ProbeUpdate {
-    /// Baked once, when the volume appears or changes, by capturing the scene
-    /// around each probe. Sees everything the camera would, moving objects
-    /// and textures included, but not what changes afterwards. At most
-    /// [`MAX_BAKED_PROBES`] probes.
+    /// Captured once, when the probe appears or its own settings change.
+    /// Sees everything the camera would, moving objects and textures
+    /// included, but not what changes afterwards. A light-probe volume bakes
+    /// at most [`MAX_BAKED_PROBES`] probes this way.
     #[default]
     Once,
-    /// Ray traced every frame against the static (`LightmapStatic`) geometry
-    /// with the current lights and sky, bounce after bounce: lights switched
-    /// on, off or moved, and the sky changing, show in the indirect light a
-    /// few frames later. Moving objects receive this light but do not bounce
-    /// or block it, and surfaces bounce their material's base colour (no
-    /// textures). At most [`MAX_PROBES`] probes.
+    /// Kept up to date while the game runs.
+    ///
+    /// A light-probe volume's probes are ray traced every frame against the
+    /// static (`LightmapStatic`) geometry with the current lights and sky,
+    /// bounce after bounce: lights switched on, off or moved, and the sky
+    /// changing, show in the indirect light a few frames later. Moving objects
+    /// receive this light but do not bounce or block it, and surfaces bounce
+    /// their material's base colour (no textures). At most [`MAX_PROBES`].
+    ///
+    /// A reflection probe is captured again, one cube face a frame and
+    /// filtered once its six faces are in -- Unity's "Individual faces" time
+    /// slicing -- so it shows the scene as it is, moving objects included,
+    /// twelve frames behind at most: a change made just after its face was
+    /// captured shows when the next refresh ends. Realtime probes take turns,
+    /// so with n of them it is 12 n.
     Realtime,
 }
 

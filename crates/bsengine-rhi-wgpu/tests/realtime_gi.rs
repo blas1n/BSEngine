@@ -392,9 +392,10 @@ fn hysteresis_blends_each_update_into_the_last() {
     assert!((got - want).abs() < want * 0.01, "{got} vs {want}");
 }
 
-/// The budget: rays for a quarter of the probes a frame means each
-/// frame updates the next quarter, and four frames cover every probe
-/// exactly -- the round robin neither skips nor repeats.
+/// The budget: rays for a quarter of the probes a frame -- each probe's 256
+/// shading rays and its 32 relocation rays -- means each frame updates the
+/// next quarter, and four frames cover every probe exactly -- the round robin
+/// neither skips nor repeats.
 #[test]
 fn the_ray_budget_updates_the_grid_a_slice_at_a_time() {
     let mut s = furnace_scene(0.4, 0.5);
@@ -402,7 +403,7 @@ fn the_ray_budget_updates_the_grid_a_slice_at_a_time() {
         resolution: [4, 4, 4],
         ..inner_volume()
     };
-    let input = s.input(volume, 0.5, 256 * 16);
+    let input = s.input(volume, 0.5, (256 + 32) * 16);
     for frame in 1..=4 {
         s.run(&input, 1);
         assert_eq!(s.with_history(64), 16 * frame, "after {frame} frames");
@@ -669,7 +670,7 @@ fn a_changed_static_set_is_read_back_once_and_then_traced() {
 /// a 2 x 2 x 2 realtime grid around it from z = 0 to z = 1.6: the scene of
 /// the two visibility tests. Returns the centre pixel after a few updates
 /// with visibility on or off.
-fn visibility_scene(s: &mut GiScene, visibility: bool) -> [u8; 3] {
+fn visibility_scene(s: &mut GiScene, visibility: bool, relocation: bool) -> [u8; 3] {
     // z from 0 to 1.6: the probes at z = 1.6 are beyond the wall (at 1.2),
     // and the cell is shallow enough that a surface's bias (0.3 of the 1.6
     // spacing, 0.48) keeps the quad's lookup point in front of the wall
@@ -684,6 +685,9 @@ fn visibility_scene(s: &mut GiScene, visibility: bool) -> [u8; 3] {
     s.scene
         .surface
         .set_realtime_gi_visibility_for_testing(visibility);
+    s.scene
+        .surface
+        .set_realtime_gi_relocation_for_testing(relocation);
     s.run(&input, 4);
     let pixels = s.scene.surface.read_pixels().expect("offscreen readback");
     let at = (32 * 64 + 32) * 4;
@@ -929,10 +933,325 @@ fn a_buried_probe_drops_out_of_the_lookup() {
         s.scene.sun = Some((Vec3::ZERO, Vec3::ZERO));
         s
     };
-    let darkened = visibility_scene(&mut build(), false);
-    let seen = visibility_scene(&mut build(), true);
+    // Relocation off: it would move these probes out of boxes this small,
+    // and the test is about what visibility does with a probe that stays in.
+    let darkened = visibility_scene(&mut build(), false, false);
+    let seen = visibility_scene(&mut build(), true, false);
     assert!(
         (0..3).all(|c| seen[c] as i32 > darkened[c] as i32 + 40),
         "the buried probes drop out and the far ones light the quad: {darkened:?} -> {seen:?}"
+    );
+}
+
+/// The furnace room of the test above, but seen whole: from inside, the back
+/// wall to its edges, where it meets the floor, the ceiling and the side walls.
+/// The probes stand 0.1 behind every wall, as in games/gi-demo. Returns the
+/// back wall's pixels (red channel), all but its outermost ring.
+/// A closed furnace room, x and y from -3 to 3, z from 0.5 to 6.5, every
+/// wall glowing 0.15 with albedo 0.5; the back wall (z = 0.5, facing +z) is
+/// the one drawn.
+fn furnace_room() -> GiScene {
+    let mut s = GiScene::new(Vec3::ZERO);
+    let (e, rho) = (0.15f32, 0.5f32);
+    let (lo, hi) = (Vec3::new(-3.0, -3.0, 0.5), Vec3::new(3.0, 3.0, 6.5));
+    let size = hi - lo;
+    for (min, u, v) in [
+        (lo, Vec3::X * size.x, Vec3::Y * size.y),
+        (
+            Vec3::new(hi.x, lo.y, hi.z),
+            Vec3::NEG_X * size.x,
+            Vec3::Y * size.y,
+        ),
+        (lo, Vec3::Y * size.y, Vec3::Z * size.z),
+        (
+            Vec3::new(hi.x, lo.y, hi.z),
+            Vec3::Y * size.y,
+            Vec3::NEG_Z * size.z,
+        ),
+        (
+            Vec3::new(lo.x, lo.y, hi.z),
+            Vec3::X * size.x,
+            Vec3::NEG_Z * size.z,
+        ),
+        (
+            Vec3::new(lo.x, hi.y, lo.z),
+            Vec3::X * size.x,
+            Vec3::Z * size.z,
+        ),
+    ] {
+        s.add(quad_corners(min, u, v), Vec3::splat(rho), Vec3::splat(e));
+    }
+    let back = s.scene.draw_calls.len() - 6;
+    s.scene.draw_calls[back].3.base_color = Vec3::splat(rho);
+    s.scene.draw_calls[back].3.emissive = Vec3::splat(e);
+    s.scene.sun = Some((Vec3::ZERO, Vec3::ZERO));
+    s
+}
+
+fn whole_back_wall(relocation: bool) -> Vec<f32> {
+    let mut s = furnace_room();
+    let eye = Vec3::new(0.0, 0.0, 6.2);
+    s.scene.camera = (
+        Mat4::perspective_rh(1.2, 1.0, 0.05, 50.0)
+            * Mat4::look_at_rh(eye, Vec3::new(0.0, 0.0, 0.0), Vec3::Y),
+        eye,
+    );
+    let volume = ProbeVolumeParams {
+        origin: Vec3::new(-3.1, -3.1, 0.4),
+        extent: Vec3::new(6.2, 6.2, 6.2),
+        resolution: [8, 8, 8],
+    };
+    let input = s.input(volume, 0.5, 1 << 20);
+    s.run(&input, 1);
+    s.scene
+        .surface
+        .set_realtime_gi_relocation_for_testing(relocation);
+    s.run(&input, 32);
+    let pixels = s.scene.surface.read_pixels().expect("offscreen readback");
+    // The wall's pixels by distance from its edge, in pixels: the mean of
+    // each ring, 1 to 8 pixels in, and of everything further in.
+    let at = |x: usize, y: usize| pixels[(y * 64 + x) * 4];
+    let bg = at(0, 0);
+    let rows: Vec<usize> = (0..64).filter(|&y| at(32, y) != bg).collect();
+    let cols: Vec<usize> = (0..64).filter(|&x| at(x, 32) != bg).collect();
+    let (x0, x1, y0, y1) = (cols[0], cols[cols.len() - 1], rows[0], rows[rows.len() - 1]);
+    let mut sums = vec![(0u32, 0u32); 10];
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            let d = (x - x0).min(x1 - x).min(y - y0).min(y1 - y).min(9);
+            sums[d].0 += at(x, y) as u32;
+            sums[d].1 += 1;
+        }
+    }
+    sums.iter()
+        .map(|&(s, n)| s as f32 / n.max(1) as f32)
+        .collect()
+}
+
+/// Relocation: a furnace room is as bright at its edges as in its middle.
+/// The probes on the volume's boundary stand 0.1 behind the walls, as in
+/// games/gi-demo; visibility drops them, and near an edge of the wall the
+/// surviving probes are too few -- a dark band ran round every wall, notched
+/// once per probe (the demo's "wavy bands"). Moved in front of the walls they
+/// light it like the rest. Measured as the mean of the ring one pixel in from
+/// the wall's edge (0.12 m) against the middle: 38 below it without
+/// relocation (the premise, from a frame with relocation off), 5 with.
+#[test]
+fn a_closed_room_is_lit_evenly_to_its_edges() {
+    let fixed = whole_back_wall(false);
+    assert!(
+        fixed[1] < fixed[9] - 20.0,
+        "premise: without relocation a dark band runs round the wall: {fixed:.1?}"
+    );
+    let moved = whole_back_wall(true);
+    assert!(
+        (moved[1] - moved[9]).abs() <= 12.0,
+        "with the probes moved in front of the walls, the edge matches the middle: {moved:.1?}"
+    );
+}
+
+/// A probe behind a one-sided wall, 0.1 from it, sees the wall's back faces
+/// in half its relocation rays: inside something, as far as it can tell. It
+/// moves through the nearest one and a little beyond -- to in front of the
+/// wall, within 0.45 of the spacing of its lattice point -- while a probe
+/// with nothing near it stays put.
+#[test]
+fn a_probe_behind_a_wall_is_moved_in_front_of_it() {
+    let mut s = GiScene::new(Vec3::splat(0.2));
+    // Facing +z, at z = 0.1: the probes at z = 0 are behind it.
+    s.add(
+        quad_corners(Vec3::new(-5.0, -5.0, 0.1), Vec3::X * 10.0, Vec3::Y * 10.0),
+        Vec3::splat(0.5),
+        Vec3::ZERO,
+    );
+    // Spacing 1.2 across, 0.8 in depth: z = 0, 0.8 and 1.6.
+    let volume = ProbeVolumeParams {
+        origin: Vec3::new(-1.2, -1.2, 0.0),
+        extent: Vec3::new(2.4, 2.4, 1.6),
+        resolution: [3, 3, 3],
+    };
+    // A third of the probes a frame, so the probes the last frame did not
+    // update keep their places only by being carried from half to half.
+    let input = s.input(volume, 0.5, (256 + 32) * 9);
+    s.run(&input, 24);
+    let grid = s.scene.surface.read_probe_grid_for_testing();
+    for i in 0..27 {
+        let z = i / 9;
+        let o = grid.offsets[i];
+        if z == 0 {
+            // Along the fixed ray nearest the wall's normal, so not exactly
+            // straight: in front of the wall, and inside the box relocation
+            // keeps a probe to (0.45 of the spacing on each axis).
+            assert!(
+                o[2] > 0.1
+                    && o[2] <= 0.45 * 0.8
+                    && o[0].abs() <= 0.45 * 1.2
+                    && o[1].abs() <= 0.45 * 1.2,
+                "probe {i}, 0.1 behind the wall, should have moved through it: {o:?}"
+            );
+        } else {
+            assert!(
+                o[0] == 0.0 && o[1] == 0.0 && o[2] == 0.0,
+                "probe {i}, with the wall 0.7 or more away, should stay put: {o:?}"
+            );
+        }
+    }
+    // The wall taken away, three metres back: nothing near any probe now,
+    // and each drifts back to its lattice point.
+    s.statics[0].model = Mat4::from_translation(Vec3::new(0.0, 0.0, -3.0));
+    let input = s.input(volume, 0.5, 1 << 20);
+    s.run(&input, 8);
+    let grid = s.scene.surface.read_probe_grid_for_testing();
+    for i in 0..27 {
+        let o = grid.offsets[i];
+        assert!(
+            o[0].abs() < 1e-4 && o[1].abs() < 1e-4 && o[2].abs() < 1e-4,
+            "probe {i}, with the wall gone, should be back on its lattice point: {o:?}"
+        );
+    }
+}
+
+/// A probe deeper inside geometry than relocation may move it -- 0.45 of the
+/// spacing -- stays on its lattice point rather than ending up somewhere in
+/// the middle of the solid.
+#[test]
+fn a_probe_too_deep_inside_stays_where_it_is() {
+    let mut s = GiScene::new(Vec3::splat(0.2));
+    // A solid slab from z = -1 to z = 0.5, its faces outward: the probes at
+    // z = 0 are 0.5 below its top, beyond the 0.36 they may move.
+    let (c, h) = (Vec3::new(0.0, 0.0, -0.25), Vec3::new(5.0, 5.0, 0.75));
+    let inward = [
+        (Vec3::new(0.0, 0.0, 1.0), Vec3::X, Vec3::NEG_Z),
+        (Vec3::new(0.0, 1.0, 0.0), Vec3::X, Vec3::Z),
+        (Vec3::new(0.0, 0.0, 0.0), Vec3::Y, Vec3::Z),
+        (Vec3::new(1.0, 0.0, 1.0), Vec3::Y, Vec3::NEG_Z),
+        (Vec3::new(0.0, 0.0, 0.0), Vec3::X, Vec3::Y),
+        (Vec3::new(1.0, 0.0, 1.0), Vec3::NEG_X, Vec3::Y),
+    ];
+    for (min, u, v) in inward {
+        s.add(
+            quad_corners(c - h + min * 2.0 * h, v * 2.0 * h, u * 2.0 * h),
+            Vec3::splat(0.5),
+            Vec3::ZERO,
+        );
+    }
+    let volume = ProbeVolumeParams {
+        origin: Vec3::new(-1.2, -1.2, 0.0),
+        extent: Vec3::new(2.4, 2.4, 1.6),
+        resolution: [3, 3, 3],
+    };
+    let input = s.input(volume, 0.5, 1 << 20);
+    s.run(&input, 8);
+    let grid = s.scene.surface.read_probe_grid_for_testing();
+    for i in 0..9 {
+        let o = grid.offsets[i];
+        assert!(
+            o[0] == 0.0 && o[1] == 0.0 && o[2] == 0.0,
+            "probe {i}, 0.5 deep, should not have moved: {o:?}"
+        );
+    }
+}
+
+/// A probe too near a surface moves away from it. In a closed room, a probe
+/// 0.05 in front of the back wall -- nearer than a quarter of the spacing --
+/// moves toward the room's most open direction, away from the wall, until it
+/// stands about that quarter-spacing off. (A probe that near reads the wall's
+/// own shading through its moments, and leaks.)
+#[test]
+fn a_probe_too_near_a_surface_moves_away_from_it() {
+    let mut s = furnace_room();
+    // The first layer 0.05 in front of the back wall (z = 0.5).
+    let volume = ProbeVolumeParams {
+        origin: Vec3::new(-2.0, -2.0, 0.55),
+        extent: Vec3::new(4.0, 4.0, 4.0),
+        resolution: [3, 3, 3],
+    };
+    let input = s.input(volume, 0.5, 1 << 20);
+    s.run(&input, 8);
+    let grid = s.scene.surface.read_probe_grid_for_testing();
+    for i in 0..9 {
+        let o = grid.offsets[i];
+        assert!(
+            o[2] >= 0.1,
+            "probe {i}, 0.05 off the wall, should have moved away from it: {o:?}"
+        );
+    }
+}
+
+/// A probe moved out of a solid is traced from where it moved to. A solid
+/// cube stands in the furnace room with lattice probes inside it, near its
+/// faces; relocation moves them out, and from there they see the room. In a
+/// furnace every surface sees the same light, so the cube's front face must
+/// read flat and as bright as the room's walls. Traced from their lattice
+/// points instead -- inside the cube, seeing only its back faces -- those
+/// probes carry no light, and the face reads 158 against walls of 132.
+///
+/// What a furnace cannot show is shading's own use of the moved position (the
+/// direction and distance to the probe in the visibility weights): every probe
+/// here holds the same light, so how they are weighted changes nothing. Its
+/// effect was measured on games/gi-demo instead: with shading looking for the
+/// probes at their lattice points, the boulder's lower front came out
+/// blotched (up to 54 levels off); three harness scenes -- this cube, lit
+/// from one side, resting on the floor -- moved by 2 levels at most.
+#[test]
+fn a_surface_is_lit_by_the_probes_moved_out_from_behind_it() {
+    let mut s = furnace_room();
+    let (e, rho) = (0.15f32, 0.5f32);
+    // Half-size 0.6 round (0.003, 0.003, 3.2): the lattice point (0.443,
+    // 0.443, 3.057) is inside, 0.16 from the top and the right faces --
+    // close enough to move out within 0.45 of the spacing (0.40).
+    let (c, h) = (Vec3::new(0.003, 0.003, 3.2), Vec3::splat(0.6));
+    let inward = [
+        (Vec3::new(0.0, 0.0, 1.0), Vec3::X, Vec3::NEG_Z),
+        (Vec3::new(0.0, 1.0, 0.0), Vec3::X, Vec3::Z),
+        (Vec3::new(0.0, 0.0, 0.0), Vec3::Y, Vec3::Z),
+        (Vec3::new(1.0, 0.0, 1.0), Vec3::Y, Vec3::NEG_Z),
+        (Vec3::new(0.0, 0.0, 0.0), Vec3::X, Vec3::Y),
+        (Vec3::new(1.0, 0.0, 1.0), Vec3::NEG_X, Vec3::Y),
+    ];
+    for (min, u, v) in inward {
+        s.add(
+            quad_corners(c - h + min * 2.0 * h, v * 2.0 * h, u * 2.0 * h),
+            Vec3::splat(rho),
+            Vec3::splat(e),
+        );
+        let i = s.scene.draw_calls.len() - 1;
+        s.scene.draw_calls[i].3.base_color = Vec3::splat(rho);
+        s.scene.draw_calls[i].3.emissive = Vec3::splat(e);
+    }
+    let eye = Vec3::new(0.003, 0.003, 6.2);
+    s.scene.camera = (
+        Mat4::perspective_rh(1.2, 1.0, 0.05, 50.0)
+            * Mat4::look_at_rh(eye, Vec3::new(0.003, 0.003, 0.0), Vec3::Y),
+        eye,
+    );
+    let volume = ProbeVolumeParams {
+        origin: Vec3::new(-3.1, -3.1, 0.4),
+        extent: Vec3::new(6.2, 6.2, 6.2),
+        resolution: [8, 8, 8],
+    };
+    let input = s.input(volume, 0.5, 1 << 20);
+    s.run(&input, 32);
+    let grid = s.scene.surface.read_probe_grid_for_testing();
+    // Premise: a probe was moved out of the cube -- lattice (4, 4, 3).
+    let moved = grid.offsets[(3 * 8 + 4) * 8 + 4];
+    assert!(
+        moved[0].abs() + moved[1].abs() + moved[2].abs() > 0.1,
+        "premise: the probe inside the cube moved out: {moved:?}"
+    );
+    let pixels = s.scene.surface.read_pixels().expect("offscreen readback");
+    let at = |x: usize, y: usize| pixels[(y * 64 + x) * 4];
+    // The front face (z = 3.8, 2.4 from the eye) spans pixels 21..43; the
+    // part well inside it.
+    let face: Vec<u8> = (24..41)
+        .flat_map(|y| (24..41).map(move |x| (x, y)))
+        .map(|(x, y)| at(x, y))
+        .collect();
+    let (lo, hi) = (*face.iter().min().unwrap(), *face.iter().max().unwrap());
+    // The room's own walls in a furnace, measured by the test above: 174.
+    let wall = whole_back_wall(true)[9];
+    assert!(
+        hi - lo <= 6 && (lo as f32 - wall).abs() <= 10.0,
+        "the cube's face should be flat and as bright as the walls ({wall:.0}): {lo}..{hi}"
     );
 }

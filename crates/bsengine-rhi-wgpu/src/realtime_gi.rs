@@ -90,6 +90,20 @@ const MOMENT_TEXELS: u32 = 256u;
 const MOMENT_VEC4S: u32 = 64u;
 // 2 * MAX_PROBES * 9: where the moments start in `coeffs`.
 const MOMENTS_BASE: u32 = 73728u;
+// MOMENTS_BASE + 2 * MAX_PROBES * MOMENT_VEC4S: where the probes' offsets
+// start -- one entry per probe per half, `xyz` where the probe has been moved
+// to from its lattice point (DDGI's relocation). Zero, the buffer's initial
+// value, is "on its lattice point". (DDGI also classifies probes stuck inside
+// geometry as inactive; visibility already gives such a probe no weight --
+// it recorded walls all round, nearer than anything it could light -- and
+// this update does not skip tracing them, so there is nothing for a class to
+// do here.)
+const OFFSETS_BASE: u32 = 598016u;
+
+// Probe `probe`'s offset entry in the half at probe `offset`.
+fn probe_offset(probe: u32, offset: u32) -> vec4<f32> {
+    return probes.coeffs[OFFSETS_BASE + offset + probe];
+}
 
 // The octahedral map (Cigolle et al.): a direction to [-1, 1]^2 and back.
 fn oct_encode(d: vec3<f32>) -> vec2<f32> {
@@ -219,13 +233,17 @@ fn eval_probe_sh_at(world_pos: vec3<f32>, n: vec3<f32>, offset: u32, visibility:
             u32(select(i0.z, i1.z, hi_z)),
         );
         if visibility {
-            let probe_pos = probes.origin + spacing * vec3<f32>(ci);
+            let index = (ci.z * probes.resolution.y + ci.y) * probes.resolution.x + ci.x;
+            // Where the probe actually is: its lattice point, moved out of
+            // whatever geometry it landed in. The trilinear weight above stays
+            // the lattice's -- only what the probe can see moved.
+            let moved = probe_offset(min(index, 4095u), offset);
+            let probe_pos = probes.origin + spacing * vec3<f32>(ci) + moved.xyz;
             let to_probe = normalize(probe_pos - world_pos);
             let wrap = (dot(to_probe, n) + 1.0) * 0.5;
             w *= wrap * wrap + 0.2;
             let v = biased - probe_pos;
             let dist = length(v);
-            let index = (ci.z * probes.resolution.y + ci.y) * probes.resolution.x + ci.x;
             let m = probe_moments(min(index, 4095u), v / max(dist, 1e-4), offset);
             if dist > m.x {
                 let variance = abs(m.y - m.x * m.x);
@@ -297,6 +315,9 @@ struct GiParams {
     visibility: u32,
     // This frame's turn of the ray set, the same for every probe.
     rotation: mat3x3<f32>,
+    // Whether probes are relocated and classified. Always on; a test turns
+    // it off to look at visibility alone.
+    relocation: u32,
 };
 
 @group(0) @binding(0) var<storage, read> nodes: array<Node>;
@@ -310,8 +331,20 @@ struct GiParams {
 var<workgroup> partial: array<array<vec3<f32>, 9>, 64>;
 // Every ray's direction and distance, for the moments.
 var<workgroup> ray_hits: array<vec4<f32>, 256>;
+// The relocation rays: direction, and the distance to what they hit --
+// negative for a back face, RELOCATE_MISS for nothing.
+var<workgroup> fixed_hits: array<vec4<f32>, 32>;
 
-fn probe_position(index: u32) -> vec3<f32> {
+// DDGI's relocation and classification read their own rays: a fixed set,
+// the same every frame, so that the decision to move a probe does not swing
+// with the frame's rotation of the shading rays (RTXGI's "fixed rays").
+const RELOCATE_RAYS: u32 = 32u;
+const RELOCATE_MISS: f32 = 1.0e30;
+// More than a quarter of them on back faces: the probe is inside something.
+const INSIDE_BACKFACES: u32 = 8u;
+
+// Probe `index`'s lattice point.
+fn probe_lattice_position(index: u32) -> vec3<f32> {
     let r = probes.resolution;
     let ix = index % r.x;
     let iy = (index / r.x) % r.y;
@@ -376,8 +409,8 @@ fn accumulate_sh(acc: ptr<function, array<vec3<f32>, 9>>, d: vec3<f32>, l: vec3<
     (*acc)[8] += l * (0.546274 * (d.x * d.x - d.y * d.y));
 }
 
-// Every coefficient and moment of the grid carried from the read half to the
-// write half, before `cs_update` overwrites its slice there. A pass of its own
+// Every coefficient, moment and offset of the grid carried from the read half
+// to the write half, before `cs_update` overwrites its slice there. A pass of its own
 // because a buffer cannot be copied onto itself (WebGPU's
 // copyBufferToBuffer refuses source == destination).
 @compute @workgroup_size(64, 1, 1)
@@ -389,11 +422,75 @@ fn cs_carry(@builtin(global_invocation_id) gid: vec3<u32>) {
         return;
     }
     let j = i - sh;
-    if j >= gi.total_probes * MOMENT_VEC4S {
+    let moments = gi.total_probes * MOMENT_VEC4S;
+    if j < moments {
+        probes.coeffs[MOMENTS_BASE + gi.write_offset * MOMENT_VEC4S + j] =
+            probes.coeffs[MOMENTS_BASE + gi.read_offset * MOMENT_VEC4S + j];
         return;
     }
-    probes.coeffs[MOMENTS_BASE + gi.write_offset * MOMENT_VEC4S + j] =
-        probes.coeffs[MOMENTS_BASE + gi.read_offset * MOMENT_VEC4S + j];
+    let k = j - moments;
+    if k >= gi.total_probes {
+        return;
+    }
+    probes.coeffs[OFFSETS_BASE + gi.write_offset + k] =
+        probes.coeffs[OFFSETS_BASE + gi.read_offset + k];
+}
+
+// DDGI's relocation (Majercik et al. 2021, as RTXGI implements it): from the
+// fixed rays, where to move the probe next, and whether it is inside geometry.
+// A probe inside something -- more than a quarter of its rays met back faces
+// -- moves through the nearest back face and a little beyond; one too near a
+// surface moves away from it, toward the most open direction; one with room
+// to spare drifts back toward its lattice point. Never further from that
+// point than 0.45 of the spacing on any axis, so a probe stays in its own
+// cell.
+fn relocate(old: vec3<f32>, spacing: vec3<f32>) -> vec3<f32> {
+    let near = 0.25 * min(min(spacing.x, spacing.y), spacing.z);
+    var backfaces = 0u;
+    var closest_back = RELOCATE_MISS;
+    var closest_back_dir = vec3<f32>(0.0);
+    var closest_front = RELOCATE_MISS;
+    var closest_front_dir = vec3<f32>(0.0);
+    var farthest_front = 0.0;
+    var farthest_front_dir = vec3<f32>(0.0);
+    for (var j = 0u; j < RELOCATE_RAYS; j++) {
+        let h = fixed_hits[j];
+        if h.w < 0.0 {
+            backfaces += 1u;
+            if -h.w < closest_back {
+                closest_back = -h.w;
+                closest_back_dir = h.xyz;
+            }
+        } else {
+            if h.w < closest_front {
+                closest_front = h.w;
+                closest_front_dir = h.xyz;
+            }
+            if h.w > farthest_front {
+                farthest_front = h.w;
+                farthest_front_dir = h.xyz;
+            }
+        }
+    }
+    var full = old;
+    if backfaces > INSIDE_BACKFACES {
+        full = old + closest_back_dir * (closest_back + 0.5 * near);
+    } else if closest_front < near {
+        // Away, toward the most open direction -- unless that is back
+        // toward the surface it is too near.
+        if dot(closest_front_dir, farthest_front_dir) <= 0.0 {
+            full = old + farthest_front_dir * min(farthest_front, near);
+        }
+    } else if closest_front > near {
+        let back = min(closest_front - near, length(old));
+        if back > 0.0 {
+            full = old - normalize(old) * back;
+        }
+    }
+    if all(abs(full) < 0.45 * spacing) {
+        return full;
+    }
+    return old;
 }
 
 @compute @workgroup_size(64, 1, 1)
@@ -402,9 +499,12 @@ fn cs_update(
     @builtin(local_invocation_index) lid: u32,
 ) {
     let probe = (gi.first_probe + wg.x) % gi.total_probes;
-    let p = probe_position(probe);
+    // Traced from where the probe has been moved to (last frame's half).
+    let old_offset = probe_offset(probe, gi.read_offset);
+    let p = probe_lattice_position(probe) + old_offset.xyz;
     let cells = max(vec3<f32>(probes.resolution) - vec3<f32>(1.0), vec3<f32>(1.0));
-    let max_dist = 1.5 * length(probes.extent / cells);
+    let spacing = probes.extent / cells;
+    let max_dist = 1.5 * length(spacing);
     var acc: array<vec3<f32>, 9>;
     for (var c = 0u; c < 9u; c++) {
         acc[c] = vec3<f32>(0.0);
@@ -418,8 +518,25 @@ fn cs_update(
         ray_hits[r] = vec4<f32>(d, result.dist);
         accumulate_sh(&acc, d, l);
     }
+    // The relocation rays: geometry only, no shading.
+    if lid < RELOCATE_RAYS {
+        let d = fibonacci(lid, RELOCATE_RAYS);
+        let hit = traverse(p, d, 3.0e38, false);
+        var dist = RELOCATE_MISS;
+        if hit.tri != NO_HIT {
+            dist = select(hit.t, -hit.t, dot(tris[hit.tri].n.xyz, d) >= 0.0);
+        }
+        fixed_hits[lid] = vec4<f32>(d, dist);
+    }
     partial[lid] = acc;
     workgroupBarrier();
+    if lid == 0u {
+        var moved = vec3<f32>(0.0);
+        if gi.relocation != 0u {
+            moved = relocate(old_offset.xyz, spacing);
+        }
+        probes.coeffs[OFFSETS_BASE + gi.write_offset + probe] = vec4<f32>(moved, 0.0);
+    }
     let read = (gi.read_offset + probe) * 9u;
     let has_history = probes.coeffs[read].w > 0.5;
     // Four moment texels per thread, one entry of `coeffs`: every ray weighted
@@ -478,6 +595,9 @@ struct GiParams {
     visibility: u32,
     /// Columns, each padded to a vec4 as a uniform `mat3x3` lays them out.
     rotation: [[f32; 4]; 3],
+    relocation: u32,
+    /// The uniform struct rounds up to its 16-byte alignment.
+    _pad: [u32; 3],
 }
 
 /// One static entity, as the update traces it.
@@ -666,6 +786,9 @@ pub(crate) struct RealtimeGi {
     /// Whether shading and the bounce term weigh probes by visibility. Always
     /// on; a test turns it off to measure the leak it prevents.
     pub(crate) visibility: bool,
+    /// Whether the update relocates and classifies probes. Always on; a test
+    /// turns it off to see visibility on its own, or what relocation adds.
+    pub(crate) relocation: bool,
 }
 
 /// One device's layout and pipelines.
@@ -755,6 +878,7 @@ impl RealtimeGi {
             readbacks_started: 0,
             updates: 0,
             visibility: true,
+            relocation: true,
         }
     }
 
@@ -1005,7 +1129,8 @@ impl RealtimeGi {
         let sky_view = self.sky_view(device, queue, &input.sky);
 
         let rays = input.rays_per_probe.clamp(64, 256).div_ceil(64) * 64;
-        let per_frame = (input.rays_per_frame / rays).clamp(1, total);
+        // Each probe also traces the 32 fixed relocation rays.
+        let per_frame = (input.rays_per_frame / (rays + 32)).clamp(1, total);
         let first = self.cursor % total;
         self.cursor = (first + per_frame) % total;
         let read = self.current;
@@ -1025,6 +1150,8 @@ impl RealtimeGi {
                 rotation.y_axis.extend(0.0).to_array(),
                 rotation.z_axis.extend(0.0).to_array(),
             ],
+            relocation: u32::from(self.relocation),
+            _pad: [0; 3],
         };
         queue.write_buffer(&self.params, 0, bytemuck::bytes_of(&params));
         // The header: shade with the half this update writes.
@@ -1085,8 +1212,8 @@ impl RealtimeGi {
             // Every probe carried over, then the slice overwritten: two
             // dispatches, which WebGPU orders (each is its own usage scope).
             pass.set_pipeline(&pipelines.carry);
-            // Nine SH entries and 64 moment entries a probe.
-            pass.dispatch_workgroups((total * (9 + 64)).div_ceil(64), 1, 1);
+            // Nine SH entries, 64 moment entries and an offset a probe.
+            pass.dispatch_workgroups((total * (9 + 64 + 1)).div_ceil(64), 1, 1);
             pass.set_pipeline(&pipelines.update);
             pass.set_bind_group(0, &bind, &[]);
             pass.dispatch_workgroups(per_frame, 1, 1);
@@ -1138,4 +1265,23 @@ pub fn build_pipelines_for_testing(
     gi.wait_for_pipelines();
     let built = started.elapsed();
     (returned, built, gi.pipelines_ready())
+}
+
+#[cfg(test)]
+mod tests {
+    /// The shader indexes `coeffs` by literal offsets -- a WGSL `const`
+    /// cannot be computed from the Rust side -- so a change to the buffer's
+    /// layout on either side alone would have the shader reading moments as
+    /// offsets, or SH as moments, with nothing failing to compile.
+    #[test]
+    fn probe_grid_layout_matches_the_shader() {
+        let wgsl = crate::realtime_gi::probe_grid_wgsl!();
+        for (name, value) in [
+            ("MOMENTS_BASE", crate::surface::PROBE_MOMENTS_BASE),
+            ("OFFSETS_BASE", crate::surface::PROBE_OFFSETS_BASE),
+        ] {
+            let line = format!("const {name}: u32 = {value}u;");
+            assert!(wgsl.contains(&line), "the shader should declare `{line}`");
+        }
+    }
 }

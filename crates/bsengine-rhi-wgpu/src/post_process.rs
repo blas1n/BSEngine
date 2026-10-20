@@ -1316,6 +1316,17 @@ struct PostProcessConfig {
 // buffer plus these two, so no other pass's bindings move.
 @group(3) @binding(1) var lut_tex: texture_2d<f32>;
 @group(3) @binding(2) var lut_sampler: sampler;
+// HDR display output (`HdrOutputSettings`): `enabled` when the target is a
+// float scRGB swapchain; `scale` turns SDR white into scRGB (paper white
+// nits / 80); `peak` is the display's brightest as a multiple of SDR white
+// (max nits / paper white nits).
+struct HdrOutput {
+    enabled: u32,
+    scale: f32,
+    peak: f32,
+    _pad: f32,
+}
+@group(3) @binding(3) var<uniform> hdr_out: HdrOutput;
 
 @vertex
 fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> FullscreenOut {
@@ -1417,6 +1428,44 @@ fn apply_tonemap(color: vec3<f32>) -> vec3<f32> {
     return aces(scaled);
 }
 
+// The SDR curve for one channel (or, for Reinhard-on-luminance, for the
+// luminance), without the final clamp: identity where tonemapping is off.
+fn sdr_curve(x: f32) -> f32 {
+    let v = vec3<f32>(x);
+    if config.tonemap_enabled == 0u || config.tonemap_mode == 0u { return x; }
+    if config.tonemap_mode == 1u || config.tonemap_mode == 2u { return reinhard(v).x; }
+    if config.tonemap_mode == 4u { return filmic(v).x; }
+    return aces(v).x;
+}
+
+// HDR output's tonemap for one value: the SDR curve exactly, up to
+// scene-linear 1.0 -- so mid-tones look as they do in SDR -- and above it an
+// exponential shoulder with the curve's value and slope at 1.0, rolling off to
+// the display's peak instead of to white. Scaling the SDR curve itself to the
+// peak (k f(x / k)) is the obvious alternative and is wrong: ACES's toe is not
+// linear, and mid-grey comes out at half its SDR brightness.
+fn hdr_curve(x: f32) -> f32 {
+    if x <= 1.0 {
+        return sdr_curve(x);
+    }
+    let s = sdr_curve(1.0);
+    let slope = (sdr_curve(1.01) - sdr_curve(0.99)) / 0.02;
+    let room = max(hdr_out.peak - s, 1e-4);
+    return s + room * (1.0 - exp(-slope * (x - 1.0) / room));
+}
+
+// `apply_tonemap` for HDR output: the same curve per channel (or on the
+// luminance, for Reinhard-on-luminance), extended by `hdr_curve`. In units of
+// SDR white, 0 to `hdr_out.peak`.
+fn apply_tonemap_hdr(color: vec3<f32>) -> vec3<f32> {
+    let x = max(color * pow(2.0, config.tonemap_exposure), vec3<f32>(0.0));
+    if config.tonemap_enabled != 0u && config.tonemap_mode == 2u {
+        let lum = dot(x, vec3<f32>(0.2126, 0.7152, 0.0722));
+        return x * (hdr_curve(lum) / max(lum, 0.0001));
+    }
+    return vec3<f32>(hdr_curve(x.r), hdr_curve(x.g), hdr_curve(x.b));
+}
+
 @fragment
 fn fs_composite(in: FullscreenOut) -> @location(0) vec4<f32> {
     let hdr   = textureSample(hdr_tex,   hdr_sampler,   in.uv).rgb;
@@ -1426,6 +1475,16 @@ fn fs_composite(in: FullscreenOut) -> @location(0) vec4<f32> {
     // Graded only when a camera asked for it: with no `ColorGrading` the
     // branch is skipped on a uniform, and the frame is the tonemapped colour
     // exactly as before grading existed.
+    if hdr_out.enabled != 0u {
+        // Linear scRGB out: graded where SDR is (its 0..1, the range a grade
+        // and a LUT are authored for), the highlights above it kept as they
+        // are, and SDR white put at paper white.
+        var c = apply_tonemap_hdr(combined);
+        if config.grade_enabled != 0u {
+            c = apply_grading(min(c, vec3<f32>(1.0))) + max(c - vec3<f32>(1.0), vec3<f32>(0.0));
+        }
+        return vec4<f32>(c * hdr_out.scale, 1.0);
+    }
     var ldr = apply_tonemap(combined);
     if config.grade_enabled != 0u {
         ldr = apply_grading(ldr);
@@ -1654,7 +1713,10 @@ fn fs_motion_blur(in: FullscreenOut) -> @location(0) vec4<f32> {
 ///
 /// Luma is taken in perceptual (gamma) space as FXAA expects: when the target
 /// is sRGB the sampler hands back linear light, and `srgb_input` says to take
-/// its square root first.
+/// its square root first. Under HDR output the target is linear scRGB with SDR
+/// white at `hdr_scale`: luma is divided by it and clamped to 1 first, so the
+/// thresholds see the same 0..1 they do in SDR (highlights above white are
+/// all "white" to the edge test, as they would be on an SDR screen).
 const FXAA_WGSL: &str = r#"
 struct FullscreenOut {
     @builtin(position) pos: vec4<f32>,
@@ -1662,6 +1724,7 @@ struct FullscreenOut {
 }
 struct Fxaa {
     edge_threshold: f32, edge_threshold_min: f32, subpixel: f32, srgb_input: u32,
+    hdr_scale: f32, _p0: f32, _p1: f32, _p2: f32,
 }
 @group(0) @binding(0) var ldr_tex: texture_2d<f32>;
 @group(0) @binding(1) var ldr_sampler: sampler;
@@ -1681,6 +1744,9 @@ fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> FullscreenOut {
 
 fn luma_of(c: vec3<f32>) -> f32 {
     let l = dot(c, vec3<f32>(0.299, 0.587, 0.114));
+    if fxaa.hdr_scale > 0.0 {
+        return sqrt(clamp(l / fxaa.hdr_scale, 0.0, 1.0));
+    }
     if fxaa.srgb_input != 0u {
         return sqrt(l);
     }
@@ -2063,6 +2129,9 @@ struct FxaaGpu {
     edge_threshold_min: f32,
     subpixel: f32,
     srgb_input: u32,
+    /// SDR white in the target under HDR output; 0 otherwise.
+    hdr_scale: f32,
+    _pad: [f32; 3],
 }
 
 const FXAA_SIZE: u64 = std::mem::size_of::<FxaaGpu>() as u64;
@@ -2071,13 +2140,14 @@ const FXAA_SIZE: u64 = std::mem::size_of::<FxaaGpu>() as u64;
 /// the `Rgba8UnormSrgb` images are stored as. See `PostProcessState::set_lut`.
 const LUT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
-/// The composite pass's group 3: config buffer, LUT, LUT sampler.
+/// The composite pass's group 3: config buffer, LUT, LUT sampler, HDR output.
 fn make_composite_config_bg(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
     config_buffer: &wgpu::Buffer,
     lut_view: &wgpu::TextureView,
     sampler: &wgpu::Sampler,
+    hdr_buffer: &wgpu::Buffer,
 ) -> wgpu::BindGroup {
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("pp composite config bg"),
@@ -2095,8 +2165,40 @@ fn make_composite_config_bg(
                 binding: 2,
                 resource: wgpu::BindingResource::Sampler(sampler),
             },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: hdr_buffer.as_entire_binding(),
+            },
         ],
     })
+}
+
+/// The composite pass's HDR output uniform (`hdr_out` in [`COMPOSITE_WGSL`]).
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct HdrOutputGpu {
+    /// Nonzero for an scRGB float target.
+    pub enabled: u32,
+    /// SDR white in scRGB: paper white nits / 80.
+    pub scale: f32,
+    /// The display's peak in units of SDR white: max nits / paper white nits.
+    pub peak: f32,
+    _pad: f32,
+}
+
+impl HdrOutputGpu {
+    /// The uniform for `settings`, or off.
+    pub fn from_settings(settings: Option<bsengine_core::HdrOutputSettings>) -> Self {
+        match settings {
+            Some(s) => Self {
+                enabled: 1,
+                scale: s.paper_white_nits / 80.0,
+                peak: (s.max_nits / s.paper_white_nits).max(1.0),
+                _pad: 0.0,
+            },
+            None => Self::default(),
+        }
+    }
 }
 
 /// GPU-uniform-buffer layout for the camera matrices the SSAO pass needs to
@@ -2408,6 +2510,11 @@ pub struct PostProcessState {
     /// kept to rebuild the group when the LUT changes.
     composite_config_bgl: wgpu::BindGroupLayout,
     composite_config_bg: wgpu::BindGroup,
+    /// [`HdrOutputGpu`], bound in `composite_config_bg`.
+    hdr_buffer: wgpu::Buffer,
+    /// SDR white in the output under HDR (`HdrOutputGpu::scale`), 0 in SDR:
+    /// what FXAA and SMAA divide luma by.
+    hdr_scale: f32,
     _neutral_lut: crate::profiler::TrackedTexture,
     neutral_lut_view: wgpu::TextureView,
     /// The bound LUT strip and its slice count, or `None`.
@@ -2704,8 +2811,29 @@ impl PostProcessState {
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: wgpu::BufferSize::new(
+                                std::mem::size_of::<HdrOutputGpu>() as u64,
+                            ),
+                        },
+                        count: None,
+                    },
                 ],
             });
+        // HDR output's parameters: off (all zero) until `set_hdr_output`.
+        let hdr_buffer = wgpu::util::DeviceExt::create_buffer_init(
+            device,
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("pp hdr output"),
+                contents: bytemuck::bytes_of(&HdrOutputGpu::default()),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            },
+        );
         // Bound whenever no LUT is: a bind group cannot leave a slot empty.
         // `grade_lut_size` is 0 then, so the shader never reads it.
         let neutral_lut = crate::profiler::create_tracked_texture(
@@ -2732,6 +2860,7 @@ impl PostProcessState {
             &config_buffer,
             &neutral_lut_view,
             &sampler,
+            &hdr_buffer,
         );
 
         let dof_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -3373,6 +3502,8 @@ impl PostProcessState {
             config_bg,
             composite_config_bgl,
             composite_config_bg,
+            hdr_buffer,
+            hdr_scale: 0.0,
             dof_pipeline,
             dof_buffer,
             dof_bg,
@@ -4306,6 +4437,8 @@ impl PostProcessState {
                 // thresholds are for perceptual luma, so the shader encodes
                 // it back (approximately, by a square root) first.
                 srgb_input: self.surface_format.is_srgb() as u32,
+                hdr_scale: self.hdr_scale,
+                _pad: [0.0; 3],
             };
             queue.write_buffer(&self.fxaa_buffer, 0, bytemuck::bytes_of(&data));
         }
@@ -4335,9 +4468,18 @@ impl PostProcessState {
             &self.ldr_view,
             size,
             self.surface_format,
+            self.hdr_scale,
             &self.tex2d_bgl,
             &self.sampler,
         );
+    }
+
+    /// Switches the composite to HDR output -- linear scRGB into a float
+    /// target -- or back off; FXAA and SMAA follow, normalising luma by SDR
+    /// white. Set once, when the surface's output format is chosen.
+    pub fn set_hdr_output(&mut self, queue: &wgpu::Queue, hdr: HdrOutputGpu) {
+        queue.write_buffer(&self.hdr_buffer, 0, bytemuck::bytes_of(&hdr));
+        self.hdr_scale = if hdr.enabled != 0 { hdr.scale } else { 0.0 };
     }
 
     /// The velocity buffer's texture, for `WgpuSurface::read_velocity`.
@@ -4385,6 +4527,7 @@ impl PostProcessState {
                 &self.config_buffer,
                 &self.neutral_lut_view,
                 &self.sampler,
+                &self.hdr_buffer,
             );
             return Ok(());
         };
@@ -4449,6 +4592,7 @@ impl PostProcessState {
             &self.config_buffer,
             &view,
             &self.sampler,
+            &self.hdr_buffer,
         );
         self.lut = Some((texture, h));
         Ok(())

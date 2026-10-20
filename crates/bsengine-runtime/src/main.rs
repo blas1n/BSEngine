@@ -649,6 +649,13 @@ pub(crate) fn build_player_app(
     app.insert_resource(bsengine_core::GiSettings {
         rays_per_frame: manifest.render.gi_rays_per_frame,
     });
+    // Before the renderer's `Startup`, which reads it when it makes the
+    // swapchain: the output format is chosen once, there.
+    app.insert_resource(bsengine_core::HdrOutputSettings {
+        enabled: manifest.render.hdr_output,
+        paper_white_nits: manifest.render.hdr_paper_white_nits,
+        max_nits: manifest.render.hdr_max_nits,
+    });
     app.insert_resource(bsengine_core::ShadowSettings {
         distance: manifest.render.shadow_distance,
         cascades: manifest.render.shadow_cascades,

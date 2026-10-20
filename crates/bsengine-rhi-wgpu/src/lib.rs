@@ -27,6 +27,8 @@ pub mod froxel;
 pub mod gizmo;
 /// GPU-simulated particle emitters (compute-shader emit, move, age).
 pub mod gpu_particles;
+/// HDR display output's UI layer, composited at paper white.
+mod hdr_output;
 /// Image-based lighting: cubemap helpers, the BRDF integration LUT, and the
 /// environment preprocessing passes.
 pub mod ibl;

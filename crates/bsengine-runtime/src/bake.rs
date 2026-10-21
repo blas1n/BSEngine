@@ -53,6 +53,8 @@ pub struct BakeReport {
     pub texels_per_unit: f32,
     pub data_path: String,
     pub layer_paths: Vec<String>,
+    /// Each layer's directions (`lightmap_<n>_dir.png`), in layer order.
+    pub direction_paths: Vec<String>,
 }
 
 /// The baker `--backend` names. `gpu` insists -- any adapter, a software one
@@ -320,6 +322,7 @@ fn write_output(
     std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
 
     let mut layer_paths = Vec::new();
+    let mut direction_paths = Vec::new();
     for (n, layer) in output.layers.iter().enumerate() {
         let file = dir.join(format!("lightmap_{n}.png"));
         let bytes = bsengine_bake::encode_rgbm(layer, bsengine_core::LIGHTMAP_RGBM_RANGE);
@@ -329,13 +332,25 @@ fn write_output(
             .map_err(|e| format!("cannot write {}: {e}", file.display()))?;
         write_sidecar(&file)?;
         layer_paths.push(format!("{relative_dir}/lightmap_{n}.png"));
+        // Its directions, beside it: linear like the layer, so the same
+        // sidecar.
+        let dir_file = dir.join(format!("lightmap_{n}_dir.png"));
+        let bytes = bsengine_bake::encode_direction(&output.directions[n]);
+        image::RgbaImage::from_raw(output.layer_size, output.layer_size, bytes)
+            .expect("a layer is layer_size squared")
+            .save(&dir_file)
+            .map_err(|e| format!("cannot write {}: {e}", dir_file.display()))?;
+        write_sidecar(&dir_file)?;
+        direction_paths.push(format!("{relative_dir}/lightmap_{n}_dir.png"));
     }
     // Layers a previous, larger bake left behind would otherwise linger.
     for n in output.layers.len()..bsengine_rhi_wgpu::lightmap::MAX_LIGHTMAPS + 8 {
-        let file = dir.join(format!("lightmap_{n}.png"));
-        if file.exists() {
-            let _ = std::fs::remove_file(&file);
-            let _ = std::fs::remove_file(bsengine_asset::identity::sidecar_path(&file));
+        for name in [format!("lightmap_{n}.png"), format!("lightmap_{n}_dir.png")] {
+            let file = dir.join(name);
+            if file.exists() {
+                let _ = std::fs::remove_file(&file);
+                let _ = std::fs::remove_file(bsengine_asset::identity::sidecar_path(&file));
+            }
         }
     }
 
@@ -347,6 +362,7 @@ fn write_output(
             .map(|(name, p)| bsengine_scene::lightmaps::LightmapEntry {
                 entity: name.clone(),
                 texture: layer_paths[p.layer as usize].clone(),
+                direction: direction_paths[p.layer as usize].clone(),
                 scale_offset: p.scale_offset(output.layer_size),
             })
             .collect(),
@@ -366,6 +382,7 @@ fn write_output(
         texels_per_unit: output.texels_per_unit,
         data_path,
         layer_paths,
+        direction_paths,
     })
 }
 

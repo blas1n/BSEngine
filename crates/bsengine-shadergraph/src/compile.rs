@@ -295,6 +295,8 @@ struct ModelUniform {
     // How much of the ORM map's occlusion (R) darkens the indirect light:
     // glTF's `occlusionTexture.strength`, 0 for a map without occlusion.
     occlusion_strength: f32,
+    // 1 for a directional lightmap (`lightmap_directionality`), 0 otherwise.
+    lightmap_directional: f32,
 };
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
 @group(1) @binding(0) var<uniform> model_data: ModelUniform;

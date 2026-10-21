@@ -97,6 +97,17 @@ fn irradiance(li: Light, p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
     return li.d.xyz * (sum * area / f32(RECT_SAMPLES * RECT_SAMPLES)) * window;
 }
 
+// The direction `li`'s light arrives at `p` from (`scene.rs::light_direction`):
+// toward it, a unit vector; toward a rect light's centre.
+fn light_direction(li: Light, p: vec3<f32>) -> vec3<f32> {
+    if li.kind == 0u {
+        return -normalize(li.a.xyz);
+    }
+    let to = li.a.xyz - p;
+    let len = length(to);
+    return select(vec3<f32>(0.0), to / len, len > 0.0);
+}
+
 fn all_lights(p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
     var e = vec3<f32>(0.0);
     for (var i = 0u; i < scene.light_count; i++) {

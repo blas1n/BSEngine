@@ -22,7 +22,7 @@ pub mod trace;
 pub use gpu::{is_hardware, GpuBaker};
 pub use pack::{Packing, Placement};
 pub use scene::{BakeLight, BakeTriangle, Contribution, Sky};
-pub use trace::TraceSettings;
+pub use trace::{Texel, TraceSettings};
 
 use bvh::Bvh;
 use glam::{Vec2, Vec3};
@@ -82,6 +82,12 @@ pub struct BakeOutput {
     pub layer_size: u32,
     /// One image per layer, row-major, `E / PI` linear.
     pub layers: Vec<Vec<Vec3>>,
+    /// Per layer, where each texel's light came from: the luminance-weighted
+    /// mean incoming direction, in world space, at most unit length (zero
+    /// where none arrived) -- what a directional lightmap shades a bumped
+    /// surface by ([`trace::World::texel_directional`]). Same layout as
+    /// `layers`.
+    pub directions: Vec<Vec<Vec3>>,
     /// Where each renderer went, by renderer index.
     pub placements: Vec<Placement>,
     /// The density the scene was packed at (lower than asked if it overflowed).
@@ -129,10 +135,10 @@ impl LightmapBaker for CpuBaker {
         let jobs = prepared.jobs.par_iter();
         #[cfg(not(feature = "native"))]
         let jobs = prepared.jobs.iter();
-        let values: Vec<Vec3> = jobs
+        let values: Vec<trace::Texel> = jobs
             .map(|j| {
                 let mut rng = Rng::for_texel(settings.trace.seed, j.layer, j.x, j.y);
-                world.texel(j.position, j.normal, settings.bake_direct, &mut rng)
+                world.texel_directional(j.position, j.normal, settings.bake_direct, &mut rng)
             })
             .collect();
         finish(prepared, values, settings)
@@ -183,8 +189,13 @@ pub(crate) fn prepare(input: &BakeInput, settings: &BakeSettings) -> Prepared {
     }
 }
 
-/// Places each texel's value, `values[i]` for `prepared.jobs[i]`, and dilates.
-pub(crate) fn finish(prepared: Prepared, values: Vec<Vec3>, settings: &BakeSettings) -> BakeOutput {
+/// Places each texel's value, `values[i]` for `prepared.jobs[i]`, and dilates
+/// -- the directions as the irradiance, so a chart's rim carries its edge's.
+pub(crate) fn finish(
+    prepared: Prepared,
+    values: Vec<trace::Texel>,
+    settings: &BakeSettings,
+) -> BakeOutput {
     let size = settings.layer_size;
     let Prepared {
         packing,
@@ -193,15 +204,20 @@ pub(crate) fn finish(prepared: Prepared, values: Vec<Vec3>, settings: &BakeSetti
         ..
     } = prepared;
     let mut layers = vec![vec![Vec3::ZERO; (size * size) as usize]; packing.layers as usize];
+    let mut directions = layers.clone();
     for (j, v) in jobs.iter().zip(values) {
-        layers[j.layer as usize][(j.y * size + j.x) as usize] = v;
+        let at = (j.y * size + j.x) as usize;
+        layers[j.layer as usize][at] = v.irradiance;
+        directions[j.layer as usize][at] = v.direction;
     }
-    for (image, mask) in layers.iter_mut().zip(&covered) {
+    for ((image, dirs), mask) in layers.iter_mut().zip(&mut directions).zip(&covered) {
         dilate(image, mask, size, pack::PADDING + 1);
+        dilate(dirs, mask, size, pack::PADDING + 1);
     }
     BakeOutput {
         layer_size: size,
         layers,
+        directions,
         placements: packing.placements,
         texels_per_unit: packing.texels_per_unit,
     }
@@ -324,6 +340,23 @@ pub fn encode_rgbm(texels: &[Vec3], range: f32) -> Vec<u8> {
     out
 }
 
+/// Directions as RGB bytes, `v * 0.5 + 0.5` -- linear, alpha 255. A
+/// direction is at most unit length, so no range is needed; 8 bits give it
+/// steps of 1/127, finer than a normal map's.
+pub fn encode_direction(directions: &[Vec3]) -> Vec<u8> {
+    let channel = |c: f32| ((c.clamp(-1.0, 1.0) * 0.5 + 0.5) * 255.0).round() as u8;
+    directions
+        .iter()
+        .flat_map(|v| [channel(v.x), channel(v.y), channel(v.z), 255])
+        .collect()
+}
+
+/// The inverse of [`encode_direction`], as the shader computes it.
+pub fn decode_direction(rgba: [u8; 4]) -> Vec3 {
+    let [r, g, b, _] = rgba.map(|c| c as f32 / 255.0 * 2.0 - 1.0);
+    Vec3::new(r, g, b)
+}
+
 /// The inverse of [`encode_rgbm`], as the shader computes it.
 pub fn decode_rgbm(rgba: [u8; 4], range: f32) -> Vec3 {
     let [r, g, b, a] = rgba.map(|c| c as f32 / 255.0);
@@ -440,6 +473,19 @@ mod tests {
         assert!(
             (rim - Vec3::ONE).length() < 1e-4,
             "the rim is the edge's value: {rim}"
+        );
+        // And the directions' rim an edge direction -- a zero there would
+        // shade a bumped edge as lit from nowhere (`v = 0`: the plain
+        // lightmap), a seam along every chart. Not the one texel beside it
+        // exactly: the rim averages the covered texels around it, which for
+        // the uniform irradiance above is the same value and for the noisy
+        // directions is not.
+        let size = out.layer_size;
+        let dir = |x: u32, y: u32| out.directions[pl.layer as usize][(y * size + x) as usize];
+        let rim = dir(pl.x - 1, pl.y + 3);
+        assert!(
+            rim.y > 0.3 && rim.length() <= 1.0,
+            "the rim's light comes from above, as the floor's does: {rim}"
         );
     }
 

@@ -45,6 +45,9 @@ pub struct Draw {
     /// The baked lightmap it is lit from: a texture id from the registry and
     /// the `[scale_x, scale_y, offset_x, offset_y]` rectangle it owns.
     pub lightmap: Option<(u64, [f32; 4])>,
+    /// A tangent-space normal map (a registry id, uploaded linear) and the
+    /// strength it is applied at.
+    pub normal_map: Option<(u64, f32)>,
 }
 
 impl Draw {
@@ -61,7 +64,15 @@ impl Draw {
             custom_shader: None,
             previous: None,
             lightmap: None,
+            normal_map: None,
         }
+    }
+
+    /// Shaded with `texture` as its normal map, at `scale`.
+    #[allow(dead_code)] // only pixels_normal_map.rs maps normals
+    pub fn normal_mapped(mut self, texture: u64, scale: f32) -> Self {
+        self.normal_map = Some((texture, scale));
+        self
     }
 
     /// Lit from `texture`'s `scale_offset` rectangle instead of the ambient.
@@ -150,6 +161,8 @@ impl Draw {
                     scale_offset,
                 }
             }),
+            normal_texture: self.normal_map.map(|(t, _)| t),
+            normal_scale: self.normal_map.map_or(1.0, |(_, s)| s),
         }
     }
 }
@@ -585,6 +598,21 @@ impl Harness {
             "width * height RGBA texels"
         );
         self.textures.load_with(width, height, rgba, settings)
+    }
+
+    /// Replaces texture `id`'s pixels under the same id -- what a hot reload
+    /// does, and what gives the object behind the id a new generation.
+    #[allow(dead_code)] // only pixels_normal_map.rs reloads a texture
+    pub fn replace_texture(
+        &mut self,
+        id: u64,
+        settings: bsengine_core::TextureImportSettings,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+    ) -> bool {
+        self.textures
+            .replace_with(id, width, height, rgba, settings)
     }
 
     /// Brings the next mip level of a streamed texture onto the GPU -- what

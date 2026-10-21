@@ -126,6 +126,9 @@ pub struct LoadedGltf {
     /// For each entry in `meshes`, the index into `images` of its base color
     /// texture, if any.
     pub mesh_tex_indices: Vec<Option<usize>>,
+    /// For each entry in `meshes`, its normal map: the index into `images`
+    /// and the material's `normalTexture.scale`.
+    pub mesh_normal_maps: Vec<Option<(usize, f32)>>,
     /// All animation clips found in the file.
     pub animations: Vec<AnimationClip>,
     /// Every node's local rest-pose transform and parent, indexed by glTF node index.
@@ -351,6 +354,7 @@ impl GltfLoader {
 
         let mut meshes = Vec::new();
         let mut mesh_tex_indices = Vec::new();
+        let mut mesh_normal_maps = Vec::new();
         // The first node drawing each mesh: a `weights` animation channel
         // targets a node, and the node is how it reaches the mesh's targets.
         let mut node_of_mesh: std::collections::HashMap<usize, usize> =
@@ -385,6 +389,10 @@ impl GltfLoader {
                     .pbr_metallic_roughness()
                     .base_color_texture()
                     .map(|info| info.texture().source().index());
+                let normal_map = primitive
+                    .material()
+                    .normal_texture()
+                    .map(|n| (n.texture().source().index(), n.scale()));
 
                 let positions: Vec<[f32; 3]> = reader
                     .read_positions()
@@ -532,6 +540,7 @@ impl GltfLoader {
                     node: node_of_mesh.get(&mesh.index()).copied(),
                 });
                 mesh_tex_indices.push(tex_idx);
+                mesh_normal_maps.push(normal_map);
             }
         }
 
@@ -548,6 +557,7 @@ impl GltfLoader {
             meshes,
             images,
             mesh_tex_indices,
+            mesh_normal_maps,
             animations,
             skins,
             nodes,
@@ -975,6 +985,7 @@ mod tests {
             meshes: vec![],
             images: vec![],
             mesh_tex_indices: vec![],
+            mesh_normal_maps: vec![],
             animations: vec![],
             skins: vec![],
             nodes: vec![],
@@ -990,6 +1001,7 @@ mod tests {
             meshes: vec![],
             images: vec![],
             mesh_tex_indices: vec![],
+            mesh_normal_maps: vec![],
             animations: vec![],
             skins: vec![],
             nodes: vec![],

@@ -290,6 +290,8 @@ struct ModelUniform {
     // (`uv2 * xy + zw`) and the array layer it reads, negative for none.
     lightmap_scale_offset: vec4<f32>,
     lightmap_layer: f32,
+    // How far the normal map tilts the normal; 0 for no normal map.
+    normal_scale: f32,
 };
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
 @group(1) @binding(0) var<uniform> model_data: ModelUniform;

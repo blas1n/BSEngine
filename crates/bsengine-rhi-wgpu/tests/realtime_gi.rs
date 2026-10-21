@@ -77,6 +77,7 @@ impl Surface {
                 base_color: Vec3::ZERO,
                 opacity: 1.0,
                 lightmap: None,
+                ..MaterialParams::default()
             },
             None,
         ));

@@ -38,6 +38,8 @@ pub mod instancing;
 pub mod lightmap;
 /// Automatic lightmap UV unwrap (`Vertex::uv2`).
 pub mod lightmap_uv;
+/// A material's textures as one bind group (group 3 of the mesh pipelines).
+pub mod material_textures;
 /// GPU mesh generation and the mesh registry.
 pub mod mesh;
 /// Minimal glTF parsing + a small dedicated render pipeline for the Asset

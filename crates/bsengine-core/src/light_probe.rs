@@ -20,6 +20,14 @@ pub const MAX_BAKED_PROBES: usize = 32;
 /// grid filled by other means than the raster bake is not held to its limit.
 pub const MAX_PROBES: usize = 4096;
 
+/// Largest number of bricks an adaptive volume ([`ProbePlacement::Adaptive`])
+/// holds -- the brick table's size in the same buffer. Even packed as
+/// densely as bricks go, sharing every face, each brick brings 27 probes of
+/// its own, so a layout within [`MAX_PROBES`] has about a 27th as many bricks;
+/// an eighth leaves room for the mixed levels between. The layout holds to
+/// both budgets.
+pub const MAX_PROBE_BRICKS: usize = MAX_PROBES / 8;
+
 // Every baked volume has to fit the grid it is uploaded into.
 const _: () = assert!(MAX_BAKED_PROBES <= MAX_PROBES);
 
@@ -55,8 +63,29 @@ pub enum ProbeUpdate {
     Realtime,
 }
 
-/// A box filled with a regular grid of light probes, giving position-varying
-/// indirect light inside it.
+/// Where a [`LightProbeVolume`] puts its probes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Reflect)]
+#[reflect(Default)]
+pub enum ProbePlacement {
+    /// A regular grid of [`LightProbeVolume::resolution`] probes.
+    #[default]
+    Grid,
+    /// Bricks of 4 x 4 x 4 probes, fine near geometry and coarse in open
+    /// space -- Unity's Adaptive Probe Volumes, Unreal's Volumetric Lightmap,
+    /// Godot's LightmapGI: between [`LightProbeVolume::min_probe_spacing`]
+    /// near the `LightmapStatic` geometry and
+    /// [`LightProbeVolume::max_probe_spacing`] away from it, each level three
+    /// times finer than the last (`bsengine_bake::probe_bricks`).
+    /// `resolution` is not used. Realtime volumes only for now
+    /// ([`ProbeUpdate::Realtime`]): a volume baked [`ProbeUpdate::Once`] is
+    /// captured by rasterising each probe, at most [`MAX_BAKED_PROBES`], and
+    /// bakes its grid instead, with a warning. The bricks are cut when the
+    /// static set or the volume changes, which starts its probes over.
+    Adaptive,
+}
+
+/// A box filled with light probes, giving position-varying indirect light
+/// inside it: a regular grid, or adaptive bricks ([`ProbePlacement`]).
 ///
 /// Probes sit on the grid's **lattice points**, not cell centres: trilinear
 /// interpolation is defined by the eight corners of a cell, so corner
@@ -82,6 +111,14 @@ pub struct LightProbeVolume {
     /// 0..1. Higher is smoother and slower to follow a change; the DDGI
     /// default of 0.97 settles in about a hundred updates.
     pub hysteresis: f32,
+    /// A regular grid, or adaptive bricks.
+    pub placement: ProbePlacement,
+    /// Adaptive only: the probe spacing near geometry, in metres.
+    pub min_probe_spacing: f32,
+    /// Adaptive only: the probe spacing in open space, in metres. The box is
+    /// cut into whole bricks of three spacings, so the spacing used is this or
+    /// a little less.
+    pub max_probe_spacing: f32,
 }
 
 impl Default for LightProbeVolume {
@@ -92,6 +129,11 @@ impl Default for LightProbeVolume {
             update: ProbeUpdate::Once,
             rays_per_probe: 64,
             hysteresis: 0.97,
+            placement: ProbePlacement::Grid,
+            // Unity APV's defaults are 1 and 27 m (three levels); a game
+            // scene here is rooms, so finer: three levels from 4.5 to 0.5.
+            min_probe_spacing: 0.5,
+            max_probe_spacing: 4.5,
         }
     }
 }

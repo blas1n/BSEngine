@@ -73,6 +73,12 @@ pub(crate) fn feed_realtime_gi(world: &mut World, mut sky_cache: Local<SkyCache>
                 extent: half * 2.0,
                 resolution: volume.clamped_resolution(),
             },
+            adaptive: (volume.placement == bsengine_core::ProbePlacement::Adaptive).then_some(
+                bsengine_rhi_wgpu::realtime_gi::AdaptiveSpacing {
+                    min: volume.min_probe_spacing,
+                    max: volume.max_probe_spacing,
+                },
+            ),
             rays_per_probe: volume.clamped_rays_per_probe(),
             hysteresis: volume.clamped_hysteresis(),
             rays_per_frame: world

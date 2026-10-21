@@ -99,6 +99,31 @@ fn a_realtime_volume_is_traced_not_baked_and_a_once_volume_baked() {
         !surface_of(&app).has_baked_probe_volume(),
         "a realtime volume is not also baked"
     );
+    assert!(
+        surface_of(&app).realtime_gi_bricks_for_testing().is_none(),
+        "a grid volume has no bricks"
+    );
+
+    // Adaptive: the component's spacings reach the layout. The 2 m box is
+    // one top brick (the max, 0.75, rounds the 2 m to whole bricks of three
+    // spacings, 0.67), and 0.2 lets it be cut once (0.22).
+    {
+        let mut v = app.world_mut().get_mut::<LightProbeVolume>(volume).unwrap();
+        v.placement = bsengine_core::ProbePlacement::Adaptive;
+        v.min_probe_spacing = 0.2;
+        v.max_probe_spacing = 0.75;
+    }
+    let updates = surface_of(&app).realtime_gi_updates();
+    while surface_of(&app).realtime_gi_updates() < updates + 2 {
+        assert!(std::time::Instant::now() < deadline, "no adaptive update");
+        app.update();
+    }
+    let layout = surface_of(&app)
+        .realtime_gi_bricks_for_testing()
+        .expect("an adaptive volume has bricks");
+    assert_eq!(layout.top, [1, 1, 1]);
+    assert_eq!(layout.levels, 2, "min_probe_spacing reached the layout");
+    assert!((layout.bricks[0].size - Vec3::splat(2.0)).length() < 1e-4);
 
     app.world_mut()
         .get_mut::<LightProbeVolume>(volume)

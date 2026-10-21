@@ -1830,10 +1830,7 @@ pub(crate) const PROBE_COEFFS_SIZE: u64 = (crate::sh::SH_COEFF_COUNT * 16) as u6
 /// realtime one alternates, `crate::realtime_gi`) and two halves of every
 /// probe's distance moments, about 9.6 MiB. Allocated once, whatever the
 /// scene.
-pub(crate) const PROBE_GRID_SIZE: u64 = PROBE_GRID_HEADER_SIZE
-    + 2 * PROBE_COEFFS_SIZE * bsengine_core::MAX_PROBES as u64
-    + 2 * PROBE_MOMENTS_SIZE * bsengine_core::MAX_PROBES as u64
-    + 2 * PROBE_OFFSET_SIZE * bsengine_core::MAX_PROBES as u64;
+pub(crate) const PROBE_GRID_SIZE: u64 = PROBE_GRID_HEADER_SIZE + PROBE_BRICKS_END * 16;
 /// Bytes of one probe's distance moments: 16 x 16 octahedral texels as two
 /// f16 each, four to a `vec4`, each `vec4` written by one thread.
 pub(crate) const PROBE_MOMENTS_SIZE: u64 = 64 * 16;
@@ -1847,6 +1844,26 @@ pub(crate) const PROBE_OFFSET_SIZE: u64 = 16;
 pub(crate) const PROBE_MOMENTS_BASE: u64 = 2 * 9 * bsengine_core::MAX_PROBES as u64;
 pub(crate) const PROBE_OFFSETS_BASE: u64 =
     PROBE_MOMENTS_BASE + 2 * (PROBE_MOMENTS_SIZE / 16) * bsengine_core::MAX_PROBES as u64;
+/// An adaptive volume's tables (`bsengine_bake::probe_bricks`), after the
+/// offsets, written by the CPU when its layout changes and read by shading
+/// and the update alike -- one copy, not two halves: nothing on the GPU
+/// writes them. Per probe, two entries: its position, and its spacing.
+pub(crate) const PROBE_POSITIONS_BASE: u64 =
+    PROBE_OFFSETS_BASE + 2 * (PROBE_OFFSET_SIZE / 16) * bsengine_core::MAX_PROBES as u64;
+/// The brick tree's nodes, four `u32` to an entry: one per top-level brick,
+/// then every group's 27. A group replaces one leaf with 27, so the nodes are
+/// the bricks and the groups -- under twice the bricks.
+pub(crate) const PROBE_NODES_BASE: u64 =
+    PROBE_POSITIONS_BASE + 2 * bsengine_core::MAX_PROBES as u64;
+/// Most nodes the tree holds.
+pub(crate) const MAX_PROBE_NODES: u64 = 2 * bsengine_core::MAX_PROBE_BRICKS as u64;
+/// The bricks, [`PROBE_BRICK_ENTRIES`] entries each: the minimum corner, the
+/// size, and the 64 probe indices four to an entry.
+pub(crate) const PROBE_BRICKS_BASE: u64 = PROBE_NODES_BASE + MAX_PROBE_NODES / 4;
+pub(crate) const PROBE_BRICK_ENTRIES: u64 = 2 + 64 / 4;
+/// The end of the buffer, in entries.
+pub(crate) const PROBE_BRICKS_END: u64 =
+    PROBE_BRICKS_BASE + PROBE_BRICK_ENTRIES * bsengine_core::MAX_PROBE_BRICKS as u64;
 
 /// The header of `ProbeGrid` in [`MESH_WGSL`]; the coefficients follow it in
 /// the same buffer, written separately (see [`WgpuSurface::bake_probes`]) so
@@ -1863,9 +1880,12 @@ pub(crate) struct ProbeGridHeader {
     /// World-space size of the volume (full extent, not half).
     pub(crate) extent: [f32; 3],
     /// Bit 0: the distance moments are filled, so shading weighs probes by
-    /// visibility (a realtime volume; a baked one has none).
+    /// visibility (a realtime volume; a baked one has none). Bit 1: the
+    /// probes are an adaptive volume's bricks, found through the tables at
+    /// [`PROBE_POSITIONS_BASE`] on.
     pub(crate) flags: u32,
-    /// Probes per axis, on the grid's lattice points.
+    /// Probes per axis, on the grid's lattice points; for an adaptive
+    /// volume, its top-level bricks per axis.
     pub(crate) resolution: [u32; 3],
     /// The half to shade with, as a probe index: 0 or `MAX_PROBES`.
     pub(crate) coeff_offset: u32,
@@ -6841,6 +6861,24 @@ impl WgpuSurface {
         self.realtime_gi.as_ref().map_or(0, |g| g.instances_traced)
     }
 
+    /// The realtime volume's brick layout, when it is adaptive, for the tests
+    /// that hold the shader's lookup and the update to it.
+    #[doc(hidden)]
+    pub fn realtime_gi_bricks_for_testing(
+        &self,
+    ) -> Option<bsengine_bake::probe_bricks::BrickLayout> {
+        self.realtime_gi.as_ref().and_then(|g| g.bricks.clone())
+    }
+
+    /// The shader's own lookup (`probe_grid_wgsl`'s `probe_cell` and
+    /// `probe_cell_index`) at each of `points`, against the grid as it is now:
+    /// the eight corner probes, in the corner order shading uses (bit 0 x,
+    /// bit 1 y, bit 2 z), and how far into the cell the point is. Blocks.
+    #[doc(hidden)]
+    pub fn probe_cells_for_testing(&self, points: &[Vec3]) -> Vec<([u32; 8], Vec3)> {
+        crate::realtime_gi::probe_cells(&self.device, &self.queue, &self.probe_buffer, points)
+    }
+
     /// [`Self::read_probe_grid`] for the realtime tests, which run in a
     /// process of their own (`tests/realtime_gi.rs`): a minute of FXC on CI's
     /// software D3D12 must not overlap the other GPU tests.
@@ -10665,9 +10703,17 @@ mod tests {
             MESH_WGSL.contains("var<storage, read> probes: ProbeGrid;"),
             "the probe grid is a read-only storage buffer"
         );
+        // Every clamp of a probe index -- the coefficients', the offsets', the
+        // moments', the brick table's positions -- is the same literal.
+        let right = format!("min(index, {}u)", bsengine_core::MAX_PROBES - 1);
         assert!(
-            MESH_WGSL.contains(&format!("min(idx, {}u)", bsengine_core::MAX_PROBES - 1)),
+            MESH_WGSL.contains(&right),
             "the shader's probe-index clamp must be MAX_PROBES - 1"
+        );
+        assert_eq!(
+            MESH_WGSL.matches("min(index, ").count(),
+            MESH_WGSL.matches(right.as_str()).count(),
+            "every probe-index clamp is MAX_PROBES - 1"
         );
     }
 
@@ -11469,7 +11515,7 @@ mod tests {
     }
 
     /// Probes sit on the grid's lattice points and are indexed x-fastest, and
-    /// the scene shader's `probe_coeff_base` hardcodes that same order. Nothing
+    /// the scene shader's `probe_cell_index` hardcodes that same order. Nothing
     /// but this ties the two together -- swap them and every probe would be
     /// read from the wrong lattice corner, which still looks like lighting.
     #[test]
@@ -11495,7 +11541,7 @@ mod tests {
              volume extrapolating"
         );
         // x fastest, then y, then z: index (z*ry + y)*rx + x, exactly what
-        // `probe_coeff_base` computes in MESH_WGSL.
+        // `probe_cell_index` computes in MESH_WGSL for a grid.
         let [rx, ry, _rz] = params.resolution;
         for (i, p) in positions.iter().enumerate() {
             let x = i as u32 % rx;

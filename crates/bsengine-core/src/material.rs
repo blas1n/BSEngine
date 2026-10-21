@@ -37,6 +37,21 @@ pub struct Material {
     /// How far the normal map's x and y tilt the normal: 1 as authored, 0
     /// flat. glTF's `normalTexture.scale`, Unity's "Bump Scale".
     pub normal_scale: f32,
+    /// Occlusion, roughness and metallic in one image's R, G and B -- glTF's
+    /// packing, and Unreal's and Godot's ORM. G multiplies `roughness` and B
+    /// `metallic`, so with a map those two are factors (1 to take the map as
+    /// it is); R darkens the indirect light. One image rather than three:
+    /// a mesh pipeline may sample sixteen textures and the renderer already
+    /// uses most of them. Uploaded linear, like the normal map. Empty for
+    /// none.
+    pub orm_map: String,
+    /// How much the ORM map's R darkens the indirect light: 1 as authored,
+    /// 0 to ignore it (an ORM whose R holds something else). glTF's
+    /// `occlusionTexture.strength`.
+    pub occlusion_strength: f32,
+    /// The emitted colour, as an image (sRGB); multiplies `emissive`, so
+    /// set that to white to take the map as it is. Empty for none.
+    pub emissive_map: String,
 }
 
 /// The image this entity wants as its base color texture, named by path.
@@ -66,6 +81,9 @@ impl Default for Material {
             opacity: 1.0,
             normal_map: String::new(),
             normal_scale: 1.0,
+            orm_map: String::new(),
+            occlusion_strength: 1.0,
+            emissive_map: String::new(),
         }
     }
 }

@@ -42,6 +42,75 @@ pub struct MorphTarget {
     pub normals: Vec<[f32; 3]>,
 }
 
+/// A primitive's glTF material: its factors, and its textures as indices
+/// into [`LoadedGltf::images`]. The defaults are glTF's own -- metallic and
+/// roughness 1, white, nothing emitted -- what a material that leaves a field
+/// out means.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GltfMaterial {
+    /// `baseColorFactor`, RGBA.
+    pub base_color: [f32; 4],
+    /// Whether `alphaMode` is `BLEND`: only then is the base colour's alpha
+    /// an opacity (`OPAQUE` ignores it; `MASK` is a cutout, not supported,
+    /// and drawn opaque).
+    pub blend: bool,
+    /// `metallicFactor`.
+    pub metallic: f32,
+    /// `roughnessFactor`.
+    pub roughness: f32,
+    /// `emissiveFactor`.
+    pub emissive: [f32; 3],
+    /// `normalTexture`: the image, and its `scale`.
+    pub normal: Option<(usize, f32)>,
+    /// `metallicRoughnessTexture`: G roughness, B metallic.
+    pub metallic_roughness: Option<usize>,
+    /// `occlusionTexture`: R occlusion, and its `strength`.
+    pub occlusion: Option<(usize, f32)>,
+    /// `emissiveTexture`, sRGB.
+    pub emissive_texture: Option<usize>,
+}
+
+impl Default for GltfMaterial {
+    fn default() -> Self {
+        Self {
+            base_color: [1.0; 4],
+            blend: false,
+            metallic: 1.0,
+            roughness: 1.0,
+            emissive: [0.0; 3],
+            normal: None,
+            metallic_roughness: None,
+            occlusion: None,
+            emissive_texture: None,
+        }
+    }
+}
+
+impl GltfMaterial {
+    fn read(material: gltf::Material<'_>) -> Self {
+        let pbr = material.pbr_metallic_roughness();
+        Self {
+            base_color: pbr.base_color_factor(),
+            blend: material.alpha_mode() == gltf::material::AlphaMode::Blend,
+            metallic: pbr.metallic_factor(),
+            roughness: pbr.roughness_factor(),
+            emissive: material.emissive_factor(),
+            normal: material
+                .normal_texture()
+                .map(|n| (n.texture().source().index(), n.scale())),
+            metallic_roughness: pbr
+                .metallic_roughness_texture()
+                .map(|t| t.texture().source().index()),
+            occlusion: material
+                .occlusion_texture()
+                .map(|o| (o.texture().source().index(), o.strength())),
+            emissive_texture: material
+                .emissive_texture()
+                .map(|t| t.texture().source().index()),
+        }
+    }
+}
+
 /// A decoded texture image, converted to raw RGBA8 pixel data.
 pub struct GltfImageData {
     /// Image width in pixels.
@@ -126,9 +195,8 @@ pub struct LoadedGltf {
     /// For each entry in `meshes`, the index into `images` of its base color
     /// texture, if any.
     pub mesh_tex_indices: Vec<Option<usize>>,
-    /// For each entry in `meshes`, its normal map: the index into `images`
-    /// and the material's `normalTexture.scale`.
-    pub mesh_normal_maps: Vec<Option<(usize, f32)>>,
+    /// For each entry in `meshes`, its material as the file gives it.
+    pub mesh_materials: Vec<GltfMaterial>,
     /// All animation clips found in the file.
     pub animations: Vec<AnimationClip>,
     /// Every node's local rest-pose transform and parent, indexed by glTF node index.
@@ -354,7 +422,7 @@ impl GltfLoader {
 
         let mut meshes = Vec::new();
         let mut mesh_tex_indices = Vec::new();
-        let mut mesh_normal_maps = Vec::new();
+        let mut mesh_materials = Vec::new();
         // The first node drawing each mesh: a `weights` animation channel
         // targets a node, and the node is how it reaches the mesh's targets.
         let mut node_of_mesh: std::collections::HashMap<usize, usize> =
@@ -389,10 +457,7 @@ impl GltfLoader {
                     .pbr_metallic_roughness()
                     .base_color_texture()
                     .map(|info| info.texture().source().index());
-                let normal_map = primitive
-                    .material()
-                    .normal_texture()
-                    .map(|n| (n.texture().source().index(), n.scale()));
+                let material = GltfMaterial::read(primitive.material());
 
                 let positions: Vec<[f32; 3]> = reader
                     .read_positions()
@@ -540,7 +605,7 @@ impl GltfLoader {
                     node: node_of_mesh.get(&mesh.index()).copied(),
                 });
                 mesh_tex_indices.push(tex_idx);
-                mesh_normal_maps.push(normal_map);
+                mesh_materials.push(material);
             }
         }
 
@@ -557,7 +622,7 @@ impl GltfLoader {
             meshes,
             images,
             mesh_tex_indices,
-            mesh_normal_maps,
+            mesh_materials,
             animations,
             skins,
             nodes,
@@ -985,7 +1050,7 @@ mod tests {
             meshes: vec![],
             images: vec![],
             mesh_tex_indices: vec![],
-            mesh_normal_maps: vec![],
+            mesh_materials: vec![],
             animations: vec![],
             skins: vec![],
             nodes: vec![],
@@ -1001,7 +1066,7 @@ mod tests {
             meshes: vec![],
             images: vec![],
             mesh_tex_indices: vec![],
-            mesh_normal_maps: vec![],
+            mesh_materials: vec![],
             animations: vec![],
             skins: vec![],
             nodes: vec![],

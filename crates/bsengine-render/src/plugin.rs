@@ -1181,6 +1181,15 @@ fn render_frame(
                         .then(|| cache_for_lightmaps?.id_for_data(&m.normal_map))
                         .flatten(),
                     normal_scale: m.normal_scale,
+                    // Data, like the normal map.
+                    orm_texture: (!m.orm_map.is_empty())
+                        .then(|| cache_for_lightmaps?.id_for_data(&m.orm_map))
+                        .flatten(),
+                    occlusion_strength: m.occlusion_strength,
+                    // Colour, like the albedo.
+                    emissive_texture: (!m.emissive_map.is_empty())
+                        .then(|| cache_for_lightmaps?.id_for(&m.emissive_map))
+                        .flatten(),
                 })
                 .unwrap_or_default();
             // The baked lightmap, once its texture is on the GPU; see
@@ -3178,13 +3187,13 @@ mod tests {
         );
     }
 
-    /// A `Material::normal_map` reaches the draw: of two quads, the one whose
-    /// material names a map is shaded with it once the image is on the GPU,
-    /// and the other is not. Counted at the surface (what it shaded with a
+    /// A material's maps reach the draw: of three quads -- one naming a normal
+    /// map, one an ORM and an emissive map, one nothing -- each map is shaded
+    /// on exactly the quad that names it once the image is on the GPU. Counted at the surface (what it shaded with a
     /// map), so the request, the linear upload, the lookup and the draw
     /// parameters are all between the component and the count.
     #[test]
-    fn a_materials_normal_map_reaches_its_draw() {
+    fn a_materials_maps_reach_its_draw() {
         let (mut app, png) = skybox_app("normal_map");
         app.update();
         let vertex = |x: f32, y: f32| Vertex {
@@ -3208,27 +3217,49 @@ mod tests {
             Camera::default(),
             Transform::from_position(Vec3::new(0.0, 0.0, 10.0)),
         ));
-        for (x, map) in [
-            (-1.5, png.to_str().unwrap().to_string()),
-            (1.5, String::new()),
-        ] {
+        // A file of its own for each map. One file shared would hide a lookup
+        // that took the wrong kind: the normal map's data copy would answer an
+        // ORM looked up as data, the emissive map's colour copy an ORM looked
+        // up as colour -- three mutations survived exactly that way.
+        let file = |name: &str| {
+            let p = png.with_file_name(name);
+            std::fs::copy(&png, &p).unwrap();
+            p.to_str().unwrap().to_string()
+        };
+        let materials = [
+            Material {
+                normal_map: file("normal.png"),
+                ..Default::default()
+            },
+            // The ORM read as data and the emissive map as colour: a lookup
+            // that took either the other way finds no upload of that file,
+            // and its count stays 0.
+            Material {
+                orm_map: file("orm.png"),
+                ..Default::default()
+            },
+            Material {
+                emissive_map: file("emissive.png"),
+                ..Default::default()
+            },
+            Material::default(),
+        ];
+        for (i, material) in materials.into_iter().enumerate() {
             app.world_mut().spawn((
                 MeshRenderer { mesh_id },
-                Transform::from_position(Vec3::new(x, 0.0, 0.0)),
-                Material {
-                    normal_map: map,
-                    ..Default::default()
-                },
+                Transform::from_position(Vec3::new(2.5 * (i as f32 - 1.5), 0.0, 0.0)),
+                material,
             ));
         }
+        let all = bsengine_rhi_wgpu::surface::MappedDraws {
+            normal: 1,
+            orm: 1,
+            emissive: 1,
+        };
         assert!(
-            run_until(&mut app, |app| surface_of(app).normal_mapped_draws() > 0),
-            "the mapped quad was never shaded with its map"
-        );
-        assert_eq!(
-            surface_of(&app).normal_mapped_draws(),
-            1,
-            "only the quad that names one"
+            run_until(&mut app, |app| surface_of(app).mapped_draws() == all),
+            "each map reaches exactly the quad that names it: {:?}",
+            surface_of(&app).mapped_draws()
         );
     }
 

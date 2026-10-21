@@ -5,7 +5,8 @@
 //! normal map needs two textures in one group -- WebGPU has four bind groups
 //! and the other three are taken -- so the group is now the *material's*, built
 //! here from whichever textures it names, and the default for any it does not:
-//! white for the albedo, a flat normal for the normal map.
+//! white for the albedo, the ORM and the emissive map, and a flat normal for
+//! the normal map.
 //!
 //! Each texture keeps its own sampler (filter and wrap are its import
 //! settings), so a group pairs every view with its sampler.
@@ -27,16 +28,24 @@ pub struct MaterialTextureIds {
     pub albedo: Option<u64>,
     /// The tangent-space normal map.
     pub normal: Option<u64>,
+    /// Occlusion, roughness and metallic in R, G and B.
+    pub orm: Option<u64>,
+    /// The emitted colour.
+    pub emissive: Option<u64>,
 }
 
+/// How many textures a material's group holds.
+const TEXTURES: usize = 4;
+
 /// What a cached group was built from: each texture's id and generation.
-type Key = [Option<(u64, u64)>; 2];
+type Key = [Option<(u64, u64)>; TEXTURES];
 
 /// The layout's entries: per texture, its view at `2 k` and its sampler at
-/// `2 k + 1`. Albedo at 0/1, as the single-texture group had it, so a custom
-/// shader that declares only those still matches.
+/// `2 k + 1` -- albedo, normal, ORM, emissive. Albedo at 0/1, as the
+/// single-texture group had it, so a custom shader that declares only those
+/// still matches.
 pub fn layout_entries() -> Vec<wgpu::BindGroupLayoutEntry> {
-    (0..2u32)
+    (0..TEXTURES as u32)
         .flat_map(|k| {
             [
                 wgpu::BindGroupLayoutEntry {
@@ -124,10 +133,19 @@ impl MaterialTextures {
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
+        // White for the ORM and emissive maps too: every channel decodes to
+        // exactly 1.0, so a material without one keeps its factors as they
+        // are (occlusion 1, roughness and metallic times 1, the emissive
+        // colour times 1).
         let default_group = Self::build(
             device,
             &layout,
-            [(&white, &sampler), (&flat_normal, &sampler)],
+            [
+                (&white, &sampler),
+                (&flat_normal, &sampler),
+                (&white, &sampler),
+                (&white, &sampler),
+            ],
         );
         Self {
             layout,
@@ -159,7 +177,7 @@ impl MaterialTextures {
     fn build(
         device: &wgpu::Device,
         layout: &wgpu::BindGroupLayout,
-        textures: [(&wgpu::TextureView, &wgpu::Sampler); 2],
+        textures: [(&wgpu::TextureView, &wgpu::Sampler); TEXTURES],
     ) -> wgpu::BindGroup {
         let entries: Vec<wgpu::BindGroupEntry> = textures
             .iter()
@@ -197,7 +215,12 @@ impl MaterialTextures {
             let id = id?;
             Some((id, registry?.generation(id)?))
         };
-        [resolve(ids.albedo), resolve(ids.normal)]
+        [
+            resolve(ids.albedo),
+            resolve(ids.normal),
+            resolve(ids.orm),
+            resolve(ids.emissive),
+        ]
     }
 
     /// Builds (or keeps) the group for `ids`, and marks it used this frame.
@@ -210,7 +233,7 @@ impl MaterialTextures {
     ) {
         let key = Self::key(ids, registry);
         self.used.insert(key);
-        if key == [None, None] || self.groups.contains_key(&key) {
+        if key == [None; TEXTURES] || self.groups.contains_key(&key) {
             return;
         }
         let group = {
@@ -223,11 +246,16 @@ impl MaterialTextures {
                     })
                     .unwrap_or((default, sampler))
                 };
-            let [albedo, normal] = key;
+            let [albedo, normal, orm, emissive] = key;
             Self::build(
                 device,
                 &self.layout,
-                [pick(albedo, &self.white), pick(normal, &self.flat_normal)],
+                [
+                    pick(albedo, &self.white),
+                    pick(normal, &self.flat_normal),
+                    pick(orm, &self.white),
+                    pick(emissive, &self.white),
+                ],
             )
         };
         self.groups.insert(key, group);

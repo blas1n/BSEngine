@@ -60,6 +60,9 @@ struct ModelUniform {
     lightmap_layer: f32,
     // How far the normal map tilts the normal; 0 for no normal map.
     normal_scale: f32,
+    // How much of the ORM map's occlusion (R) darkens the indirect light:
+    // glTF's `occlusionTexture.strength`, 0 for a map without occlusion.
+    occlusion_strength: f32,
 };
 struct PointLightEntry {
     position: vec3<f32>,
@@ -118,6 +121,13 @@ struct LightUniform {
 // (`material_textures`). Read only when `model_data.normal_scale` is not 0.
 @group(3) @binding(2) var t_normal: texture_2d<f32>;
 @group(3) @binding(3) var s_normal: sampler;
+// Occlusion, roughness and metallic in R, G and B -- glTF's packing -- linear;
+// white (no map) leaves the factors as they are.
+@group(3) @binding(4) var t_orm: texture_2d<f32>;
+@group(3) @binding(5) var s_orm: sampler;
+// Emitted colour, sRGB like the albedo; multiplies `model_data.emissive`.
+@group(3) @binding(6) var t_emissive: texture_2d<f32>;
+@group(3) @binding(7) var s_emissive: sampler;
 @group(2) @binding(1) var shadow_sampler: sampler_comparison;
 @group(2) @binding(2) var shadow_map: texture_depth_2d_array;
 @group(2) @binding(4) var point_shadow_map: texture_2d_array<f32>;
@@ -484,11 +494,16 @@ fn fs_main(in: VertOut) -> SceneOut {
     // shadow, because nothing about the surface would have changed.
     let dbuf = textureLoad(decal_buffer, vec2<i32>(in.clip_pos.xy), 0);
     albedo = albedo * dbuf.a + dbuf.rgb;
-    let metallic = model_data.metallic;
-    let roughness = max(model_data.roughness, 0.04);
+    // The ORM map scales the factors, as glTF defines it: roughness by G,
+    // metallic by B. Sampled whatever the material names -- the default is
+    // white, which a texel decodes to exactly 1.0, so no map changes nothing.
+    let orm = textureSample(t_orm, s_orm, in.uv).rgb;
+    let metallic = model_data.metallic * orm.b;
+    let roughness = max(model_data.roughness * orm.g, 0.04);
     let f0 = mix(vec3<f32>(0.04, 0.04, 0.04), albedo, metallic);
     let n_dot_v = max(dot(n, v), 0.0001);
     let lit = shadow_factor(in.world_pos);
+    let emitted = model_data.emissive * textureSample(t_emissive, s_emissive, in.uv).rgb;
 
     var lo = vec3<f32>(0.0, 0.0, 0.0);
     // A lightmapped draw has every `Baked` light's direct light and shadow in
@@ -645,8 +660,14 @@ fn fs_main(in: VertOut) -> SceneOut {
         // skipped for the whole draw, so the sample is in uniform control flow.
         diffuse_term = lightmap_irradiance(model_data.lightmap_layer, in.lm_uv) * albedo * kd_ibl;
     }
-    let ambient_term = diffuse_term + specular_ibl;
-    let color = ambient_term + lo + model_data.emissive;
+    // Occlusion darkens the light that arrives from everywhere -- ambient,
+    // IBL, probes, the lightmap, the reflections -- and not a light's direct
+    // light, whose shadow already says what blocks it (glTF: "the occlusion
+    // values are linearly sampled... and should be applied to indirect
+    // lighting"; Unity and Unreal alike).
+    let occlusion = mix(1.0, orm.r, model_data.occlusion_strength);
+    let ambient_term = (diffuse_term + specular_ibl) * occlusion;
+    let color = ambient_term + lo + emitted;
     var out: SceneOut;
     out.colour = vec4<f32>(color, model_data.opacity);
     out.normal_roughness = vec4<f32>(n, roughness);
@@ -2075,6 +2096,16 @@ pub struct MaterialParams {
     /// How far the map's x and y tilt the normal: glTF's
     /// `normalTexture.scale`, 1 as authored.
     pub normal_scale: f32,
+    /// Occlusion, roughness and metallic in R, G and B (glTF's packing), by
+    /// registry id, uploaded linear. G and B scale `roughness` and
+    /// `metallic`; R darkens the indirect light by `occlusion_strength`.
+    pub orm_texture: Option<u64>,
+    /// How much the ORM map's R darkens the indirect light: glTF's
+    /// `occlusionTexture.strength`, 1 as authored, 0 for a map whose R is
+    /// not occlusion.
+    pub occlusion_strength: f32,
+    /// The emitted colour's texture (sRGB), multiplying `emissive`.
+    pub emissive_texture: Option<u64>,
 }
 
 impl Default for MaterialParams {
@@ -2088,8 +2119,24 @@ impl Default for MaterialParams {
             lightmap: None,
             normal_texture: None,
             normal_scale: 1.0,
+            orm_texture: None,
+            occlusion_strength: 1.0,
+            emissive_texture: None,
         }
     }
+}
+
+/// How many of a frame's draws each kind of material map reached
+/// ([`WgpuSurface::mapped_draws`]).
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MappedDraws {
+    /// Normal maps.
+    pub normal: u32,
+    /// ORM maps.
+    pub orm: u32,
+    /// Emissive maps.
+    pub emissive: u32,
 }
 
 /// The textures a draw's material group 3 holds: the draw's albedo id (the
@@ -2101,6 +2148,8 @@ fn material_texture_ids(
     crate::material_textures::MaterialTextureIds {
         albedo,
         normal: mat.normal_texture,
+        orm: mat.orm_texture,
+        emissive: mat.emissive_texture,
     }
 }
 
@@ -2133,7 +2182,9 @@ struct ModelUniformData {
     /// same size and the instanced shadow shaders' view (`lightmap_layer`
     /// as a `vec4`) still lines up.
     normal_scale: f32,
-    _lightmap_pad: [f32; 2],
+    /// [`MaterialParams::occlusion_strength`], the second of those floats.
+    occlusion_strength: f32,
+    _lightmap_pad: f32,
 }
 
 #[repr(C)]
@@ -3157,9 +3208,10 @@ pub struct WgpuSurface {
     /// Group 3 of the mesh pipelines: each draw's material textures, built
     /// and cached per frame (`crate::material_textures`).
     material_textures: crate::material_textures::MaterialTextures,
-    /// Draws the last frame shaded with a normal map, for tests: what tells
-    /// "the material named a map" from "a map reached the shader".
-    normal_mapped_draws: u32,
+    /// Draws the last frame shaded with each kind of material map, for
+    /// tests: what tells "the material named a map" from "a map reached the
+    /// shader".
+    mapped_draws: MappedDraws,
     shadow_pipeline: wgpu::RenderPipeline,
     _shadow_map_texture: crate::profiler::TrackedTexture,
     shadow_map_view: wgpu::TextureView,
@@ -3696,11 +3748,11 @@ impl WgpuSurface {
         self.lightmaps.blit_count()
     }
 
-    /// How many draws the last frame shaded with a normal map: a draw whose
-    /// material names one that is on the GPU.
+    /// How many draws the last frame shaded with each kind of material map:
+    /// draws whose material names one that is on the GPU.
     #[doc(hidden)]
-    pub fn normal_mapped_draws(&self) -> u32 {
-        self.normal_mapped_draws
+    pub fn mapped_draws(&self) -> MappedDraws {
+        self.mapped_draws
     }
 
     /// The `ColorGrading` the last frame was rendered with, as
@@ -5489,7 +5541,7 @@ impl WgpuSurface {
             _sampler: sampler,
             default_texture_bind_group,
             material_textures,
-            normal_mapped_draws: 0,
+            mapped_draws: MappedDraws::default(),
             shadow_pipeline,
             _shadow_map_texture: shadow_map_texture,
             shadow_map_view,
@@ -7234,7 +7286,10 @@ impl WgpuSurface {
             );
         }
         let mut staging = vec![0u8; staged_count * MODEL_STRIDE as usize];
-        self.normal_mapped_draws = 0;
+        self.mapped_draws = MappedDraws::default();
+        let on_gpu = |id: Option<u64>| {
+            id.is_some_and(|id| tex_registry.is_some_and(|r| r.generation(id).is_some()))
+        };
         for (i, (_, model, _, mat, _)) in draw_calls.iter().enumerate() {
             if i >= MAX_OBJECTS {
                 break;
@@ -7249,8 +7304,10 @@ impl WgpuSurface {
                 _ => 0.0,
             };
             if normal_scale != 0.0 {
-                self.normal_mapped_draws += 1;
+                self.mapped_draws.normal += 1;
             }
+            self.mapped_draws.orm += u32::from(on_gpu(mat.orm_texture));
+            self.mapped_draws.emissive += u32::from(on_gpu(mat.emissive_texture));
             // Absent (an empty slice, or a draw past its end) means it did
             // not move: the velocity is then the camera's alone.
             let prev_model = prev_models.get(i).unwrap_or(model);
@@ -7270,7 +7327,8 @@ impl WgpuSurface {
                     .map_or([1.0, 1.0, 0.0, 0.0], |l| l.scale_offset),
                 lightmap_layer: lightmap_layers[i],
                 normal_scale,
-                _lightmap_pad: [0.0; 2],
+                occlusion_strength: mat.occlusion_strength,
+                _lightmap_pad: 0.0,
             };
             let base = i * MODEL_STRIDE as usize;
             staging[base..base + std::mem::size_of::<ModelUniformData>()]
@@ -8017,7 +8075,8 @@ impl WgpuSurface {
                 lightmap_layer: -1.0,
                 // Nor a normal map: its shader has no tangents to read one by.
                 normal_scale: 0.0,
-                _lightmap_pad: [0.0; 2],
+                occlusion_strength: 0.0,
+                _lightmap_pad: 0.0,
             };
             self.queue.write_buffer(
                 &self.model_buffer,
@@ -10932,7 +10991,8 @@ mod tests {
                     lightmap_scale_offset: [1.0, 1.0, 0.0, 0.0],
                     lightmap_layer: -1.0,
                     normal_scale: 0.0,
-                    _lightmap_pad: [0.0; 2],
+                    occlusion_strength: 0.0,
+                    _lightmap_pad: 0.0,
                 };
                 self.surface.queue.write_buffer(
                     &self.surface.model_buffer,

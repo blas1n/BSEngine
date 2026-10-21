@@ -45,6 +45,8 @@ pub struct Draw {
     /// The baked lightmap it is lit from: a texture id from the registry and
     /// the `[scale_x, scale_y, offset_x, offset_y]` rectangle it owns.
     pub lightmap: Option<(u64, [f32; 4])>,
+    /// The lightmap's directions (a registry id): a directional lightmap.
+    pub lightmap_direction: Option<u64>,
     /// A tangent-space normal map (a registry id, uploaded linear) and the
     /// strength it is applied at.
     pub normal_map: Option<(u64, f32)>,
@@ -69,6 +71,7 @@ impl Draw {
             previous: None,
             lightmap: None,
             normal_map: None,
+            lightmap_direction: None,
             orm_map: None,
             emissive_map: None,
         }
@@ -98,6 +101,14 @@ impl Draw {
     /// Lit from `texture`'s `scale_offset` rectangle instead of the ambient.
     pub fn lightmapped(mut self, texture: u64, scale_offset: [f32; 4]) -> Self {
         self.lightmap = Some((texture, scale_offset));
+        self
+    }
+
+    /// And the lightmap is directional: `directions` holds where its light
+    /// came from.
+    #[allow(dead_code)] // only pixels_lightmap.rs bakes directions
+    pub fn directional(mut self, directions: u64) -> Self {
+        self.lightmap_direction = Some(directions);
         self
     }
 
@@ -178,6 +189,7 @@ impl Draw {
             lightmap: self.lightmap.map(|(texture_id, scale_offset)| {
                 bsengine_rhi_wgpu::LightmapParams {
                     texture_id,
+                    direction_id: self.lightmap_direction,
                     scale_offset,
                 }
             }),

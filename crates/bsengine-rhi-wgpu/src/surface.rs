@@ -63,6 +63,8 @@ struct ModelUniform {
     // How much of the ORM map's occlusion (R) darkens the indirect light:
     // glTF's `occlusionTexture.strength`, 0 for a map without occlusion.
     occlusion_strength: f32,
+    // 1 for a directional lightmap (`lightmap_directionality`), 0 otherwise.
+    lightmap_directional: f32,
 };
 struct PointLightEntry {
     position: vec3<f32>,
@@ -658,7 +660,16 @@ fn fs_main(in: VertOut) -> SceneOut {
         //
         // The layer is the object's, a uniform: this branch is taken or
         // skipped for the whole draw, so the sample is in uniform control flow.
-        diffuse_term = lightmap_irradiance(model_data.lightmap_layer, in.lm_uv) * albedo * kd_ibl;
+        var baked = lightmap_irradiance(model_data.lightmap_layer, in.lm_uv);
+        // A directional lightmap shades the surface's own normal -- the
+        // normal map's, the decals' -- by where the baked light came from;
+        // the bake's normal was the vertex normal. Also per draw, so uniform.
+        if (model_data.lightmap_directional > 0.5) {
+            baked = baked * lightmap_directionality(
+                model_data.lightmap_layer, in.lm_uv, n, normalize(in.world_normal)
+            );
+        }
+        diffuse_term = baked * albedo * kd_ibl;
     }
     // Occlusion darkens the light that arrives from everywhere -- ambient,
     // IBL, probes, the lightmap, the reflections -- and not a light's direct
@@ -2204,7 +2215,9 @@ struct ModelUniformData {
     normal_scale: f32,
     /// [`MaterialParams::occlusion_strength`], the second of those floats.
     occlusion_strength: f32,
-    _lightmap_pad: f32,
+    /// 1 when the lightmap is directional -- its directions are in the atlas
+    /// `MAX_LIGHTMAPS` layers above -- 0 otherwise: the last of them.
+    lightmap_directional: f32,
 }
 
 #[repr(C)]
@@ -7310,7 +7323,7 @@ impl WgpuSurface {
             tex_registry,
             &draw_calls[..staged_count]
                 .iter()
-                .map(|(_, _, _, mat, _)| mat.lightmap.map(|l| l.texture_id))
+                .map(|(_, _, _, mat, _)| mat.lightmap.map(|l| (l.texture_id, l.direction_id)))
                 .collect::<Vec<_>>(),
         );
         // Each draw's material textures as one group 3 (`material_textures`),
@@ -7363,10 +7376,10 @@ impl WgpuSurface {
                 lightmap_scale_offset: mat
                     .lightmap
                     .map_or([1.0, 1.0, 0.0, 0.0], |l| l.scale_offset),
-                lightmap_layer: lightmap_layers[i],
+                lightmap_layer: lightmap_layers[i].0,
                 normal_scale,
                 occlusion_strength: mat.occlusion_strength,
-                _lightmap_pad: 0.0,
+                lightmap_directional: f32::from(u8::from(lightmap_layers[i].1)),
             };
             let base = i * MODEL_STRIDE as usize;
             staging[base..base + std::mem::size_of::<ModelUniformData>()]
@@ -8114,7 +8127,7 @@ impl WgpuSurface {
                 // Nor a normal map: its shader has no tangents to read one by.
                 normal_scale: 0.0,
                 occlusion_strength: 0.0,
-                _lightmap_pad: 0.0,
+                lightmap_directional: 0.0,
             };
             self.queue.write_buffer(
                 &self.model_buffer,
@@ -11038,7 +11051,7 @@ mod tests {
                     lightmap_layer: -1.0,
                     normal_scale: 0.0,
                     occlusion_strength: 0.0,
-                    _lightmap_pad: 0.0,
+                    lightmap_directional: 0.0,
                 };
                 self.surface.queue.write_buffer(
                     &self.surface.model_buffer,

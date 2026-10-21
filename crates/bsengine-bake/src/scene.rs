@@ -208,6 +208,18 @@ pub(crate) fn irradiance(light: &BakeLight, p: Vec3, n: Vec3, bvh: &Bvh, rng: &m
     }
 }
 
+/// The direction `light`'s light arrives at `p` from: toward the light, a
+/// unit vector. For a rect light, toward its centre -- what a directional
+/// lightmap keeps of it (the panel's spread is in the irradiance already).
+pub(crate) fn light_direction(light: &BakeLight, p: Vec3) -> Vec3 {
+    match *light {
+        BakeLight::Directional { direction, .. } => -direction.normalize_or_zero(),
+        BakeLight::Point { position, .. }
+        | BakeLight::Spot { position, .. }
+        | BakeLight::Rect { position, .. } => (position - p).normalize_or_zero(),
+    }
+}
+
 fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
     let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)

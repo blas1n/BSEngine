@@ -828,6 +828,7 @@ fn load_scene_applies_the_scenes_baked_lightmaps() {
             entity: "Floor".into(),
             texture: "assets/lightmaps/level/lightmap_0.png".into(),
             scale_offset: [0.5, 0.25, 0.125, 0.0],
+            direction: String::new(),
         }],
     };
     std::fs::write(

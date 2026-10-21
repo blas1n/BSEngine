@@ -30,6 +30,10 @@ struct Params {
 @group(0) @binding(0) var<storage, read> nodes: array<Node>;
 @group(0) @binding(1) var<storage, read> tris: array<Tri>;
 @group(0) @binding(2) var<storage, read> jobs: array<Job>;
+// Two entries a texel: `out[2 i]` the radiance sum, `out[2 i + 1]` the
+// luminance-weighted direction sum (xyz) and the weights' sum (w) -- one
+// buffer, not two, because this pass already binds the four storage buffers
+// the WebGPU baseline guarantees.
 @group(0) @binding(3) var<storage, read_write> out: array<vec4<f32>>;
 @group(0) @binding(4) var<uniform> params: Params;
 @group(0) @binding(5) var<uniform> scene: Scene;
@@ -85,12 +89,19 @@ fn cs_bake(@builtin(global_invocation_id) gid: vec3<u32>) {
     let texel_seed = pcg(params.seed ^ pcg(job.layer ^ pcg(x ^ pcg(y))));
     let n = job.normal;
     let origin = job.pos + n * EPS;
-    // A running sum, divided by `total_samples` once every pass is in
+    // Running sums, divided by `total_samples` once every pass is in
     // (`gpu.rs`). The buffer starts zeroed.
-    var sum = out[index].xyz;
+    var sum = out[2u * index].xyz;
+    var toward = out[2u * index + 1u];
     for (var s = params.sample_offset; s < params.sample_offset + params.sample_count; s++) {
         rng_state = pcg(texel_seed ^ pcg(s));
-        sum += incoming(origin, cosine_hemisphere(n));
+        let d = cosine_hemisphere(n);
+        let l = incoming(origin, d);
+        sum += l;
+        // `trace.rs::World::texel_directional`: each sample's direction,
+        // weighted by the luminance it brought.
+        let w = luminance(l);
+        toward += vec4<f32>(d * w, w);
     }
     // The direct term once, in the first pass, weighted so the final divide
     // leaves it whole.
@@ -99,9 +110,18 @@ fn cs_bake(@builtin(global_invocation_id) gid: vec3<u32>) {
         for (var i = 0u; i < scene.light_count; i++) {
             let li = scene.lights[i];
             if li.contribution == 1u {
-                sum += irradiance(li, origin, n) / PI * f32(params.total_samples);
+                let e = irradiance(li, origin, n) / PI * f32(params.total_samples);
+                sum += e;
+                let w = luminance(e);
+                toward += vec4<f32>(light_direction(li, origin) * w, w);
             }
         }
     }
-    out[index] = vec4<f32>(sum, 1.0);
+    out[2u * index] = vec4<f32>(sum, 1.0);
+    out[2u * index + 1u] = toward;
+}
+
+// Rec. 709 luminance, as `trace.rs::luminance`.
+fn luminance(c: vec3<f32>) -> f32 {
+    return dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
 }

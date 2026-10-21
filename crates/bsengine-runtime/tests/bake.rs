@@ -326,6 +326,57 @@ fn a_baked_suns_direct_light_is_in_the_lightmap() {
     );
 }
 
+/// Each layer's directions are written beside it as `lightmap_<n>_dir.png`,
+/// linear like the layer, and the data names them per entry. What they hold
+/// is where the light came from: on the open floor the sky alone arrives from
+/// above, and a baked sun pulls the mean toward itself -- toward
+/// `(0.3, 0.2)` in x/z, the reverse of its direction. (The direction's own
+/// arithmetic is `bsengine-bake`'s; this is the runtime writing what it got.)
+#[test]
+fn a_bake_writes_where_each_texels_light_came_from() {
+    let open_floor = |probe: &Probe| {
+        let out = probe.bake();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let data = probe.data();
+        let floor = data.entries.iter().find(|e| e.entity == "Floor").unwrap();
+        assert_eq!(
+            floor.direction,
+            floor.texture.replace(".png", "_dir.png"),
+            "the entry names its layer's directions"
+        );
+        let file = probe.0.join(&floor.direction);
+        let meta = std::fs::read_to_string(format!("{}.meta", file.display()))
+            .expect("the directions have a sidecar");
+        assert!(
+            meta.contains("srgb: false"),
+            "directions are linear: {meta}"
+        );
+        let img = image::open(&file).expect("a PNG").to_rgba8();
+        let (w, h) = img.dimensions();
+        let [sx, sy, ox, oy] = floor.scale_offset;
+        let p = img.get_pixel(
+            (((ox + 0.06 * sx) * w as f32) as u32).min(w - 1),
+            (((oy + 0.06 * sy) * h as f32) as u32).min(h - 1),
+        );
+        bsengine_bake::decode_direction([p[0], p[1], p[2], p[3]])
+    };
+    let sky = open_floor(&Probe::create_with("Indirect", ""));
+    let baked = open_floor(&Probe::create_with("Baked", ""));
+    assert!(
+        sky.y > 0.3 && sky.length() < 1.02,
+        "premise: the sky's light comes from above, and a mean is no longer than 1: {sky}"
+    );
+    let toward_sun = (baked - sky).x * 0.3 + (baked - sky).z * 0.2;
+    assert!(
+        toward_sun > 0.02,
+        "the baked sun pulls the mean toward itself: {baked} vs {sky}"
+    );
+}
+
 /// A baked scene's lightmaps ship with it: a packaged build (both a loose
 /// copy and a single archive) carries the data file and every layer it
 /// names, each with the sidecar that says it is linear -- without which the
@@ -351,11 +402,16 @@ fn a_package_carries_the_scenes_lightmaps() {
         out
     };
 
+    let direction = probe.data().entries[0].direction.clone();
+    assert!(!direction.is_empty(), "premise: the bake is directional");
+
     let loose = package("loose");
     for file in [
         "assets/scenes/main.lightmaps",
         layer.as_str(),
         &format!("{layer}.meta"),
+        direction.as_str(),
+        &format!("{direction}.meta"),
     ] {
         assert!(loose.join(file).is_file(), "the loose build has {file}");
     }
@@ -363,7 +419,11 @@ fn a_package_carries_the_scenes_lightmaps() {
     let pak = package("pak");
     let archive = bsengine_asset::pak::Pak::open(pak.join(bsengine_asset::cook::PAK_FILE_NAME))
         .expect("the archive opens");
-    for file in ["assets/scenes/main.lightmaps", layer.as_str()] {
+    for file in [
+        "assets/scenes/main.lightmaps",
+        layer.as_str(),
+        direction.as_str(),
+    ] {
         assert!(archive.get(file).is_some(), "the archive has {file}");
     }
     let meta = archive

@@ -917,9 +917,10 @@ mod tests {
         probe.write("assets/scenes/main.ron", r#"(entities: [(name: "Floor")])"#);
         probe.write(
             "assets/scenes/main.lightmaps",
-            r#"(scene_fingerprint: "x", entries: [(entity: "Floor", texture: "assets/lightmaps/main/lightmap_0.png", scale_offset: (1.0, 1.0, 0.0, 0.0))])"#,
+            r#"(scene_fingerprint: "x", entries: [(entity: "Floor", texture: "assets/lightmaps/main/lightmap_0.png", scale_offset: (1.0, 1.0, 0.0, 0.0), direction: "assets/lightmaps/main/lightmap_0_dir.png")])"#,
         );
         probe.write("assets/lightmaps/main/lightmap_0.png", "png");
+        probe.write("assets/lightmaps/main/lightmap_0_dir.png", "png");
         probe.write("assets/lightmaps/other/lightmap_0.png", "not this scene's");
 
         let cooked = probe.cook();
@@ -932,6 +933,14 @@ mod tests {
             cooked
                 .assets
                 .contains("assets/lightmaps/main/lightmap_0.png"),
+            "{:?}",
+            cooked.assets
+        );
+        // A directional bake's directions, which only the data names.
+        assert!(
+            cooked
+                .assets
+                .contains("assets/lightmaps/main/lightmap_0_dir.png"),
             "{:?}",
             cooked.assets
         );

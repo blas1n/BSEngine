@@ -1693,11 +1693,9 @@ const _: () = assert!(
     std::mem::size_of::<LightUniformData>() as u64 == LIGHT_UNIFORM_SIZE,
     "LightUniformData must stay exactly LIGHT_UNIFORM_SIZE bytes"
 );
-// Vertex stride: position(12) + color(12) + normal(12) + uv(8) + uv2(8) = 52 bytes.
-// The attributes below read only the first 44: `uv2` (offset 44) gets a shader
-// location in the change that first samples a lightmap.
-const VERTEX_STRIDE: u64 = std::mem::size_of::<crate::mesh::Vertex>() as u64;
-const _: () = assert!(VERTEX_STRIDE == 52);
+// Vertex stride: position(12) + color(12) + normal(12) + uv(8) + uv2(8) +
+// tangent(16) = 68 bytes, asserted where `Vertex` is defined.
+use crate::mesh::VERTEX_STRIDE;
 /// Edge length of one directional shadow cascade, in texels.
 ///
 /// 1024 across [`crate::shadow::MAX_CASCADES`] layers is 4 x 1024 x 1024 x 4
@@ -4719,6 +4717,13 @@ impl WgpuSurface {
                     format: wgpu::VertexFormat::Float32x2,
                     offset: 44,
                     shader_location: 4,
+                },
+                // The tangent, for normal maps; legal to leave undeclared for
+                // the same reason as `uv2`.
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x4,
+                    offset: 52,
+                    shader_location: 5,
                 },
             ],
         };
@@ -10627,6 +10632,7 @@ mod tests {
                     normal: normal.to_array(),
                     uv: [0.0, 0.0],
                     uv2: [0.0, 0.0],
+                    tangent: [0.0; 4],
                 })
                 .collect();
             let mesh_id = registry.register(&vertices, &[0, 1, 2, 0, 2, 3]);
@@ -10669,6 +10675,7 @@ mod tests {
                     normal: normal.to_array(),
                     uv: [0.0, 0.0],
                     uv2: [0.0, 0.0],
+                    tangent: [0.0; 4],
                 })
                 .collect();
             let mesh_id = self.registry.register(&vertices, &[0, 1, 2, 0, 2, 3]);

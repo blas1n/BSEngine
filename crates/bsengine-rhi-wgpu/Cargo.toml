@@ -26,6 +26,8 @@ glam.workspace = true
 image.workspace = true
 blake3.workspace = true
 texpresso.workspace = true
+# `tangents`: MikkTSpace for meshes that bring no tangents.
+bevy_mikktspace.workspace = true
 pollster.workspace = true
 tracing.workspace = true
 gltf.workspace = true

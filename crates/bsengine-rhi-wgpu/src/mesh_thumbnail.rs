@@ -81,6 +81,7 @@ pub fn load_thumbnail_mesh(path: &Path) -> Option<ThumbnailMesh> {
                 uv,
                 // A thumbnail never samples a lightmap.
                 uv2: [0.0, 0.0],
+                tangent: [0.0; 4],
             })
             .collect();
 

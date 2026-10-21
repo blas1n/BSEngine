@@ -558,6 +558,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy_mikktspace"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bff34eb29ff4b8a8688bc7299f14fb6b597461ca80fec03ed7d22939ab33e48f"
+
+[[package]]
 name = "bevy_ptr"
 version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1135,6 +1141,7 @@ dependencies = [
  "base64 0.22.1",
  "bevy_app",
  "bevy_ecs",
+ "bevy_mikktspace",
  "bevy_reflect",
  "blake3",
  "bsengine-app",

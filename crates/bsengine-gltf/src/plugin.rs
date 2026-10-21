@@ -1255,9 +1255,41 @@ mod tests {
             worst_normal <= 1e-3,
             "and so must the normals: worst is off by {worst_normal}"
         );
+        // The tangents turn with the skin as the normals do -- the same
+        // linear part, normalised, which is why the reference is the
+        // normal's own blend -- and keep their handedness. Premise: they
+        // were generated at all, or every one is a zero that "matches".
+        let tangent =
+            |v: &bsengine_rhi_wgpu::Vertex| Vec3::new(v.tangent[0], v.tangent[1], v.tangent[2]);
+        assert!(
+            skinned
+                .rest_vertices
+                .iter()
+                .all(|v| v.tangent[3].abs() == 1.0),
+            "premise: the rest pose has tangents"
+        );
+        let worst_tangent = got
+            .iter()
+            .zip(skinned.rest_vertices.iter().zip(&skinned.skin))
+            .map(|(g, (r, s))| (tangent(g) - blend_vertex_normal(tangent(r), s, &joints)).length())
+            .fold(0.0_f32, f32::max);
+        assert!(
+            worst_tangent <= 1e-3,
+            "and so must the tangents: worst is off by {worst_tangent}"
+        );
+        let turned = got
+            .iter()
+            .zip(&skinned.rest_vertices)
+            .map(|(g, r)| (tangent(g) - tangent(r)).length())
+            .fold(0.0_f32, f32::max);
+        assert!(
+            turned > 0.05,
+            "premise: the pose turns the tangents ({turned})"
+        );
         for (g, r) in got.iter().zip(&skinned.rest_vertices) {
             assert_eq!(g.color, r.color, "colour passes through the blend");
             assert_eq!(g.uv, r.uv, "uv passes through the blend");
+            assert_eq!(g.tangent[3], r.tangent[3], "the handedness passes through");
         }
     }
 

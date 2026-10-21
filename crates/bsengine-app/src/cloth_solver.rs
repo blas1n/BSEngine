@@ -166,6 +166,11 @@ pub fn grid(columns: u32, rows: u32, spacing: f32) -> Option<(Vec<Vertex>, Vec<u
                 ],
                 // Cloth is dynamic: nothing bakes it, so it has no lightmap UVs.
                 uv2: [0.0, 0.0],
+                // `u` runs along +x and `v` along +z, with the normal +y:
+                // tangent +x, and the bitangent `cross(+y, +x) * w` is +z
+                // only for `w` = -1. Kept up to date as the sheet bends by
+                // `tangents::accumulate` (`cloth::simulate_cloth`).
+                tangent: [1.0, 0.0, 0.0, -1.0],
             });
         }
     }

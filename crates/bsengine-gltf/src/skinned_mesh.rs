@@ -2459,6 +2459,7 @@ mod tests {
                 normal: [0.0, 1.0, 0.0],
                 uv: [0.0, 0.0],
                 uv2: [0.0, 0.0],
+                tangent: [0.0; 4],
             }],
             skin: vec![VertexSkin {
                 joints: [3, 0, 0, 0],
@@ -2582,6 +2583,7 @@ mod tests {
             normal: [0.0, 1.0, 0.0],
             uv: [0.0, 0.0],
             uv2: [0.0, 0.0],
+            tangent: [0.0; 4],
         }];
         let skin = vec![VertexSkin {
             joints: [0, 0, 0, 0],

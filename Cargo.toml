@@ -88,6 +88,13 @@ image             = { version = "0.25", default-features = false, features = ["p
 # Block compression (BC1/BC3) for texture import, in pure Rust: no ISPC
 # toolchain (intel_tex_2) and no C++ (basis-universal) in the build.
 texpresso         = { version = "2", features = ["rayon"] }
+# Vertex tangents by MikkTSpace -- what glTF prescribes when a model brings
+# none, and what Blender, Substance and the three reference engines bake and
+# shade normal maps with. Pure Rust, no dependencies. Default features only:
+# those are byte-identical to the C original the DCC tools run, and a normal
+# map is only right under the tangents it was baked against (the `corrected-*`
+# features fix that implementation's bugs, and so stop matching it).
+bevy_mikktspace   = "1"
 # Data parallelism inside a system -- per-entity culling in the renderer's draw
 # collection. The version texpresso already pulls in, so no second copy.
 rayon             = "1.12.0"

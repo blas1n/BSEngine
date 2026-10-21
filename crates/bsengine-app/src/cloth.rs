@@ -455,6 +455,11 @@ fn simulate_cloth(
             vertex.position = position.to_array();
         }
         cloth_solver::recompute_normals(vertices, indices);
+        // And the tangents a normal map on the cloth reads, after the normals
+        // they are made perpendicular to: Lengyel's, not MikkTSpace's, which
+        // is the same frame on this regular grid at a fraction of the cost a
+        // sheet pays every frame.
+        bsengine_rhi_wgpu::tangents::accumulate(vertices, indices);
 
         sim.uploaded = match (mesh_registry.as_mut(), queue.as_ref()) {
             (Some(registry), Some(queue)) => {
@@ -719,6 +724,20 @@ mod tests {
             "a hanging sheet's normal must have tipped away from straight up, \
              got {bottom:?}"
         );
+        // And the tangents turn with them: still unit, still perpendicular to
+        // the normal it now has -- the frame a normal map on the curtain is
+        // read in. Left as the flat grid's +x, it would no longer be
+        // perpendicular, and the map would shade the folds sideways.
+        for (k, v) in sim.vertices.iter().enumerate() {
+            let t = Vec3::new(v.tangent[0], v.tangent[1], v.tangent[2]);
+            let n = Vec3::from(v.normal);
+            assert!((t.length() - 1.0).abs() < 1.0e-4, "vertex {k}: {t}");
+            assert!(
+                t.dot(n).abs() < 1.0e-4,
+                "vertex {k}: tangent {t}, normal {n}"
+            );
+            assert_eq!(v.tangent[3], -1.0, "vertex {k}: the grid's handedness");
+        }
     }
 
     #[test]

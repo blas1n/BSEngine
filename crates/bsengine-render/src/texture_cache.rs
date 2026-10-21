@@ -528,6 +528,7 @@ mod tests {
                     if i < 3 { uv_extent } else { 0.0 },
                 ],
                 uv2: [0.0, 0.0],
+                tangent: [0.0; 4],
             })
             .collect();
         (vertices, vec![0, 2, 4, 1, 3, 5])

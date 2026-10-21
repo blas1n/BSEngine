@@ -27,7 +27,7 @@
 //!
 //! # Layout
 //!
-//! The rest vertices and the output share [`Vertex`]'s layout -- 13 floats,
+//! The rest vertices and the output share [`Vertex`]'s layout -- 17 floats,
 //! no padding -- and the shader addresses them as `array<f32>` by index
 //! rather than as a struct, because a `vec3<f32>` inside a storage-buffer
 //! struct is padded to 16 bytes in WGSL and the `Vertex` the render passes
@@ -71,13 +71,13 @@ impl MorphDeltas<'_> {
     };
 }
 
-/// Floats per [`Vertex`], which the shader hardcodes as `13u`: this is the
+/// Floats per [`Vertex`], which the shader hardcodes as `17u`: this is the
 /// check that keeps the two in step, since a `Vertex` that grew a field
 /// would otherwise skin every vertex out of the wrong floats with no error.
 const FLOATS_PER_VERTEX: u64 = (std::mem::size_of::<Vertex>() / 4) as u64;
 const _: () = assert!(
-    FLOATS_PER_VERTEX == 13,
-    "the compute skinning shader hardcodes 13 floats per Vertex"
+    FLOATS_PER_VERTEX == 17,
+    "the compute skinning shader hardcodes 17 floats per Vertex"
 );
 /// Threads per workgroup, matching `@workgroup_size` in the shader.
 const WORKGROUP: u32 = 64;
@@ -122,11 +122,11 @@ struct Params {
 @group(0) @binding(4) var<uniform> params: Params;
 // Morph target deltas live at the end of `rest`, after the V rest vertices:
 // six floats per vertex per target -- position xyz then normal xyz --
-// target-major, so target t's vertex i starts at V * 13 + (t * V + i) * 6.
+// target-major, so target t's vertex i starts at V * 17 + (t * V + i) * 6.
 // In `rest` rather than a buffer of their own because this pass already uses
 // the four storage buffers per stage the WebGPU baseline guarantees.
 
-const FLOATS_PER_VERTEX: u32 = 13u;
+const FLOATS_PER_VERTEX: u32 = 17u;
 
 @compute @workgroup_size(64, 1, 1)
 fn cs_skin(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -137,6 +137,10 @@ fn cs_skin(@builtin(global_invocation_id) gid: vec3<u32>) {
     let base = i * FLOATS_PER_VERTEX;
     var p = vec3<f32>(rest[base], rest[base + 1u], rest[base + 2u]);
     var n = vec3<f32>(rest[base + 6u], rest[base + 7u], rest[base + 8u]);
+    // The tangent, which morph targets do not move (glTF's TANGENT morph
+    // deltas are not read): the mesh shader makes it perpendicular to the
+    // morphed normal again, which is all a blend shape's small bend needs.
+    let t = vec3<f32>(rest[base + 13u], rest[base + 14u], rest[base + 15u]);
     // Morph targets first, in the mesh's own space, then the skin: the
     // order glTF defines ("morphed, then skinned") and every engine uses --
     // a smile has to move with the jaw bone, not be bent by it.
@@ -155,6 +159,7 @@ fn cs_skin(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     var pos = vec3<f32>(0.0);
     var nrm = vec3<f32>(0.0);
+    var tan = vec3<f32>(0.0);
     for (var k = 0u; k < 4u; k = k + 1u) {
         let w = s.weights[k];
         if (w == 0.0) {
@@ -168,12 +173,22 @@ fn cs_skin(@builtin(global_invocation_id) gid: vec3<u32>) {
         pos = pos + w * (m * vec4<f32>(p, 1.0)).xyz;
         let linear = mat3x3<f32>(m[0].xyz, m[1].xyz, m[2].xyz);
         nrm = nrm + w * (linear * n);
+        // A direction in the surface, so the linear part as is -- not its
+        // inverse transpose, which is for normals (equal under the uniform
+        // scale the normal already assumes).
+        tan = tan + w * (linear * t);
     }
     let len = length(nrm);
     if (len > 0.0) {
         nrm = nrm / len;
     } else {
         nrm = vec3<f32>(0.0);
+    }
+    let tlen = length(tan);
+    if (tlen > 0.0) {
+        tan = tan / tlen;
+    } else {
+        tan = vec3<f32>(0.0);
     }
 
     out[base] = pos.x;
@@ -189,6 +204,11 @@ fn cs_skin(@builtin(global_invocation_id) gid: vec3<u32>) {
     out[base + 10u] = rest[base + 10u];
     out[base + 11u] = rest[base + 11u];
     out[base + 12u] = rest[base + 12u];
+    out[base + 13u] = tan.x;
+    out[base + 14u] = tan.y;
+    out[base + 15u] = tan.z;
+    // The handedness is the mesh's, which no rotation changes.
+    out[base + 16u] = rest[base + 16u];
 }
 "#;
 
@@ -630,6 +650,10 @@ impl GpuMeshRegistry {
         } else {
             morph
         };
+        // The rest pose's tangents, generated as a static mesh's are: the
+        // pass then turns them with the skin (`SHADER`).
+        let with_tangents = crate::mesh::with_tangents(vertices, indices);
+        let vertices: &[Vertex] = &with_tangents;
         let device: Arc<wgpu::Device> = self.device.clone();
         if self.skinning.is_none() {
             self.skinning = Some(SkinningPipeline::new(&device));
@@ -717,6 +741,9 @@ mod tests {
             // Nonzero and unlike `uv`, so a pass that copies the wrong
             // floats (or drops these two) cannot read as correct.
             uv2: [0.3125, 0.6875],
+            // Given, so registration keeps it rather than generating one, and
+            // left-handed, so a pass that wrote back +1 would show.
+            tangent: [1.0, 0.0, 0.0, -1.0],
         }
     }
 
@@ -782,10 +809,26 @@ mod tests {
             "half and half: {:?}",
             out[2]
         );
+        // The tangent turns as the normal does: +X stays under joint 0,
+        // becomes +Y under joint 1's quarter turn, and the normalised mean
+        // of the two half and half.
+        let tangent = |v: &Vertex| [v.tangent[0], v.tangent[1], v.tangent[2]];
+        assert!(
+            close(tangent(&out[0]), [1.0, 0.0, 0.0]),
+            "{:?}",
+            out[0].tangent
+        );
+        assert!(
+            close(tangent(&out[1]), [0.0, 1.0, 0.0]),
+            "{:?}",
+            out[1].tangent
+        );
+        assert!(close(tangent(&out[2]), [d, d, 0.0]), "{:?}", out[2].tangent);
         for v in &out {
             assert_eq!(v.color, [0.25, 0.5, 0.75], "colour passes through");
             assert_eq!(v.uv, [0.125, 0.875], "uv passes through");
             assert_eq!(v.uv2, [0.3125, 0.6875], "uv2 passes through");
+            assert_eq!(v.tangent[3], -1.0, "the handedness passes through");
         }
     }
 

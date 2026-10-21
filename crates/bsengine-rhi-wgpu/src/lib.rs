@@ -76,6 +76,8 @@ pub mod spot_shadow;
 /// Swapchain/frame lifecycle and the main scene render pass.
 pub mod surface;
 pub mod taa_jitter;
+/// Vertex tangents (MikkTSpace), the frame a normal map is read in.
+pub mod tangents;
 /// GPU texture loading and the texture registry.
 pub mod texture;
 pub mod theme;

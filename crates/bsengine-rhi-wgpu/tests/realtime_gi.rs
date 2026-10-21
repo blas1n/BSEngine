@@ -62,6 +62,7 @@ impl Surface {
                 normal: normal.to_array(),
                 uv: [0.0, 0.0],
                 uv2: [0.0, 0.0],
+                tangent: [0.0; 4],
             })
             .collect();
         let mesh_id = self.registry.register(&vertices, &[0, 1, 2, 0, 2, 3]);

@@ -50,6 +50,7 @@ fn a_realtime_volume_is_traced_not_baked_and_a_once_volume_baked() {
         normal: [0.0, 1.0, 0.0],
         uv: [0.0, 0.0],
         uv2: [0.0, 0.0],
+        tangent: [0.0; 4],
     };
     let mesh_id = app.world_mut().resource_mut::<GpuMeshRegistry>().register(
         &[v(-5.0, 5.0), v(5.0, 5.0), v(5.0, -5.0), v(-5.0, -5.0)],
@@ -141,6 +142,7 @@ fn every_moving_renderer_takes_part_unless_excluded_hidden_or_static() {
         normal: [0.0, 1.0, 0.0],
         uv: [0.0, 0.0],
         uv2: [0.0, 0.0],
+        tangent: [0.0; 4],
     };
     let mesh_id = app.world_mut().resource_mut::<GpuMeshRegistry>().register(
         &[v(-1.0, 1.0), v(1.0, 1.0), v(1.0, -1.0), v(-1.0, -1.0)],

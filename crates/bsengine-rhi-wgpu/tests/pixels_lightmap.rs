@@ -70,6 +70,7 @@ fn quad(h: &mut Harness) -> u64 {
         normal: [0.0, 0.0, 1.0],
         uv: [0.25, 0.25],
         uv2: [u, v],
+        tangent: [0.0; 4],
     };
     h.mesh(
         &[

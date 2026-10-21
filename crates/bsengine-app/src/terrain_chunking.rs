@@ -329,6 +329,7 @@ pub fn generate_chunks_with_splatmap(
                         ],
                         // Terrain gets its own (planar) lightmap UVs in a later change.
                         uv2: [0.0, 0.0],
+                        tangent: [0.0; 4],
                     });
                 }
             }

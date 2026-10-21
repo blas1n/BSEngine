@@ -464,6 +464,12 @@ impl GltfLoader {
                 let uv2s: Option<Vec<[f32; 2]>> =
                     reader.read_tex_coords(1).map(|t| t.into_f32().collect());
 
+                // The tangents the model's normal maps were baked against, when
+                // it brings them (glTF `TANGENT`: xyz and the handedness in w).
+                // Absent, they are MikkTSpace's, generated below -- what the
+                // spec says to do and what the baker most likely used.
+                let tangents: Option<Vec<[f32; 4]>> = reader.read_tangents().map(|t| t.collect());
+
                 let vertices: Vec<Vertex> = positions
                     .into_iter()
                     .zip(colors)
@@ -479,6 +485,11 @@ impl GltfLoader {
                             .as_ref()
                             .and_then(|u| u.get(i).copied())
                             .unwrap_or([0.0, 0.0]),
+                        // A `w` of 0 is "none", which the generation below fills.
+                        tangent: tangents
+                            .as_ref()
+                            .and_then(|t| t.get(i).copied())
+                            .unwrap_or([0.0; 4]),
                     })
                     .collect();
 
@@ -499,6 +510,16 @@ impl GltfLoader {
                     } else {
                         (vertices, indices)
                     };
+                // After the unwrap, which only copies vertices (tangent and
+                // all) onto chart borders, so a model's own tangents survive
+                // it. Here rather than left to the GPU registry, which would
+                // fill them too, because the skinned path keeps this mesh as
+                // its CPU rest pose (`SkinnedMesh::rest_vertices`) and the
+                // compute pass is held to it.
+                let mut vertices = vertices;
+                if bsengine_rhi_wgpu::tangents::missing(&vertices) {
+                    bsengine_rhi_wgpu::tangents::generate(&mut vertices, &indices);
+                }
 
                 meshes.push(MeshData {
                     name: name.clone(),
@@ -756,6 +777,78 @@ mod tests {
 }}"#,
             base64(&buffer)
         )
+    }
+
+    /// One triangle in the XY plane with `u` along +x, and -- when asked for --
+    /// a `TANGENT` of (0, 0, 1, -1): one no generator would give this
+    /// triangle, so a loader that regenerated (or dropped) the file's
+    /// tangents cannot read as one that kept them.
+    fn tangent_gltf(with_tangents: bool) -> String {
+        fn f32s(values: &[f32]) -> Vec<u8> {
+            values.iter().flat_map(|v| v.to_le_bytes()).collect()
+        }
+        let mut buffer = f32s(&[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
+        buffer.extend(f32s(&[0.0, 0.0, 1.0, 0.0, 0.0, 1.0]));
+        buffer.extend(f32s(&[0.0, 0.0, 1.0, 0.0, 0.0, 1.0]));
+        buffer.extend(f32s(&[0.0, 0.0, 1.0, -1.0].repeat(3)));
+        buffer.extend(f32s(&[0.0, 0.0, 1.0].repeat(3)));
+        let tangent = if with_tangents {
+            ", \"TANGENT\": 3"
+        } else {
+            ""
+        };
+        format!(
+            r#"{{
+  "asset": {{"version": "2.0"}},
+  "scene": 0,
+  "scenes": [{{"nodes": [0]}}],
+  "nodes": [{{"mesh": 0}}],
+  "meshes": [{{"primitives": [{{"attributes": {{"POSITION": 0, "TEXCOORD_0": 1, "TEXCOORD_1": 2, "NORMAL": 4{tangent}}}}}]}}],
+  "buffers": [{{"byteLength": 168, "uri": "data:application/octet-stream;base64,{}"}}],
+  "bufferViews": [
+    {{"buffer": 0, "byteOffset": 0, "byteLength": 36}},
+    {{"buffer": 0, "byteOffset": 36, "byteLength": 24}},
+    {{"buffer": 0, "byteOffset": 60, "byteLength": 24}},
+    {{"buffer": 0, "byteOffset": 84, "byteLength": 48}},
+    {{"buffer": 0, "byteOffset": 132, "byteLength": 36}}
+  ],
+  "accessors": [
+    {{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3", "min": [0, 0, 0], "max": [1, 1, 0]}},
+    {{"bufferView": 1, "componentType": 5126, "count": 3, "type": "VEC2"}},
+    {{"bufferView": 2, "componentType": 5126, "count": 3, "type": "VEC2"}},
+    {{"bufferView": 3, "componentType": 5126, "count": 3, "type": "VEC4"}},
+    {{"bufferView": 4, "componentType": 5126, "count": 3, "type": "VEC3"}}
+  ]
+}}"#,
+            base64(&buffer)
+        )
+    }
+
+    /// A model's `TANGENT` is loaded as it is -- the frame its normal maps
+    /// were baked in -- and a model without one gets MikkTSpace's at load,
+    /// before anything (the skinned path's CPU rest pose included) keeps the
+    /// vertices: +x along `u`, right-handed, on this triangle.
+    #[test]
+    fn a_models_tangents_are_kept_and_missing_ones_generated_at_load() {
+        let load = |with: bool| {
+            GltfLoader::load_full_from_slice(
+                tangent_gltf(with).as_bytes(),
+                &ModelImportSettings::default(),
+            )
+            .expect("the fixture loads")
+        };
+        let kept = load(true);
+        for v in &kept.meshes[0].vertices {
+            assert_eq!(v.tangent, [0.0, 0.0, 1.0, -1.0], "the file's own");
+        }
+        let generated = load(false);
+        for v in &generated.meshes[0].vertices {
+            let t = v.tangent;
+            assert!(
+                (t[0] - 1.0).abs() < 1e-5 && t[1].abs() < 1e-5 && t[2].abs() < 1e-5 && t[3] == 1.0,
+                "MikkTSpace's: {t:?}"
+            );
+        }
     }
 
     #[test]

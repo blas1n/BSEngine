@@ -652,6 +652,7 @@ mod tests {
             normal: [0.0, 1.0, 0.0],
             uv: [0.0; 2],
             uv2: [0.0; 2],
+            tangent: [0.0; 4],
         };
         let mut vertices = Vec::new();
         for s in 0..=steps {

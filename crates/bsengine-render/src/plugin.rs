@@ -3183,6 +3183,7 @@ mod tests {
             normal: [0.0, 0.0, 1.0],
             uv: [0.0, 0.0],
             uv2: [0.0, 0.0],
+            tangent: [0.0; 4],
         };
         let mesh_id = app.world_mut().resource_mut::<GpuMeshRegistry>().register(
             &[
@@ -3245,6 +3246,7 @@ mod tests {
             normal: [0.0, 0.0, 1.0],
             uv: [0.0, 0.0],
             uv2: [0.0, 0.0],
+            tangent: [0.0; 4],
         };
         let mesh_id = app.world_mut().resource_mut::<GpuMeshRegistry>().register(
             &[
@@ -3324,6 +3326,7 @@ mod tests {
                         normal: [0.0, 1.0, 0.0],
                         uv: [0.0, 0.0],
                         uv2: [0.0, 0.0],
+                        tangent: [0.0; 4],
                     },
                     Vertex {
                         position: [1.0, 0.0, 0.0],
@@ -3331,6 +3334,7 @@ mod tests {
                         normal: [0.0, 1.0, 0.0],
                         uv: [1.0, 0.0],
                         uv2: [0.0, 0.0],
+                        tangent: [0.0; 4],
                     },
                     Vertex {
                         position: [0.0, 1.0, 0.0],
@@ -3338,6 +3342,7 @@ mod tests {
                         normal: [0.0, 1.0, 0.0],
                         uv: [0.0, 1.0],
                         uv2: [0.0, 0.0],
+                        tangent: [0.0; 4],
                     },
                 ],
                 &[0, 1, 2],
@@ -3964,6 +3969,7 @@ mod tests {
                         normal: [0.0, 1.0, 0.0],
                         uv: [0.0, 0.0],
                         uv2: [0.0, 0.0],
+                        tangent: [0.0; 4],
                     },
                     Vertex {
                         position: [1.0, 0.0, 0.0],
@@ -3971,6 +3977,7 @@ mod tests {
                         normal: [0.0, 1.0, 0.0],
                         uv: [1.0, 0.0],
                         uv2: [0.0, 0.0],
+                        tangent: [0.0; 4],
                     },
                     Vertex {
                         position: [0.0, 1.0, 0.0],
@@ -3978,6 +3985,7 @@ mod tests {
                         normal: [0.0, 1.0, 0.0],
                         uv: [0.0, 1.0],
                         uv2: [0.0, 0.0],
+                        tangent: [0.0; 4],
                     },
                 ],
                 &[0, 1, 2],

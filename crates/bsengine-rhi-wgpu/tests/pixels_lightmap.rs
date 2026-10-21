@@ -388,3 +388,213 @@ fn a_lightmapped_surface_skips_baked_lights_and_only_those() {
         );
     }
 }
+
+// ---- directional lightmaps ---------------------------------------------
+
+/// The quad of the tests above with `uv` running as `uv2` does, so its
+/// generated tangents are a real frame -- +x, handedness -1 (`v` runs down,
+/// against `cross(+z, +x) = +y`) -- for a normal map to tilt it in. The
+/// first quad's `uv` is one point, which gives no tangent to speak of.
+fn bumpable_quad(h: &mut Harness) -> u64 {
+    let vertex = |x: f32, y: f32, u: f32, v: f32| Vertex {
+        position: [x, y, 0.0],
+        color: [1.0; 3],
+        normal: [0.0, 0.0, 1.0],
+        uv: [u, v],
+        uv2: [u, v],
+        tangent: [0.0; 4],
+    };
+    h.mesh(
+        &[
+            vertex(-1.0, -1.0, 0.0, 1.0),
+            vertex(1.0, -1.0, 1.0, 1.0),
+            vertex(1.0, 1.0, 1.0, 0.0),
+            vertex(-1.0, 1.0, 0.0, 0.0),
+        ],
+        &[0, 1, 2, 0, 2, 3],
+    )
+}
+
+/// A 16x16 directions texture, every texel `direction`, encoded as the bake
+/// writes it (`v * 0.5 + 0.5`, linear).
+fn directions(h: &mut Harness, direction: Vec3) -> u64 {
+    let enc = |c: f32| ((c * 0.5 + 0.5) * 255.0).round() as u8;
+    let texel = [enc(direction.x), enc(direction.y), enc(direction.z), 255];
+    let rgba: Vec<u8> = (0..16 * 16).flat_map(|_| texel).collect();
+    h.texture_with(
+        TextureImportSettings {
+            srgb: false,
+            mipmaps: false,
+            ..TextureImportSettings::default()
+        },
+        16,
+        16,
+        &rgba,
+    )
+}
+
+/// A one-texel normal map tilting the quad `degrees` toward its tangent (+x).
+fn tilt(h: &mut Harness, degrees: f32) -> u64 {
+    let (s, c) = degrees.to_radians().sin_cos();
+    let enc = |v: f32| ((v * 0.5 + 0.5) * 255.0).round() as u8;
+    h.texture_with(
+        TextureImportSettings {
+            srgb: false,
+            mipmaps: false,
+            ..TextureImportSettings::default()
+        },
+        1,
+        1,
+        &[enc(s), enc(0.0), enc(c), 255],
+    )
+}
+
+/// The red channel at the centre, back to linear: the sRGB encode the frame
+/// went through, undone, so ratios are the shader's.
+fn linear_red(p: &Pixels, x: u32) -> f32 {
+    let c = rgb(p, x, CY)[0] as f32 / 255.0;
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// The baked light, 45 degrees off the quad's normal toward +x, and all of
+/// it from there (unit length).
+fn from_the_right() -> Vec3 {
+    Vec3::new(1.0, 0.0, 1.0).normalize()
+}
+
+/// Where the normal is the bake's, a directional lightmap is the plain one,
+/// to the bit: `(1 + v.n) / (1 + v.n_bake)` is exactly 1. The hard side --
+/// any other reading of the factor (the wrong normal for either, the wrong
+/// layer) tilts a flat surface's light.
+#[test]
+fn a_directional_lightmap_lights_a_flat_surface_as_the_plain_one_does() {
+    let mut h = Harness::new();
+    let mesh = bumpable_quad(&mut h);
+    let lightmap = atlas(&mut h, [0.3; 3], [0.3; 3]);
+    let dirs = directions(&mut h, from_the_right());
+    let plain = h.render(&scene(
+        vec![white_quad(mesh).lightmapped(lightmap, [1.0, 1.0, 0.0, 0.0])],
+        Vec3::ZERO,
+    ));
+    let directional = h.render(&scene(
+        vec![white_quad(mesh)
+            .lightmapped(lightmap, [1.0, 1.0, 0.0, 0.0])
+            .directional(dirs)],
+        Vec3::ZERO,
+    ));
+    assert!(
+        rgb(&plain, CX, CY)[0] > 60,
+        "premise: the lightmap lights it"
+    );
+    assert_eq!(
+        plain.max_channel_diff(&directional),
+        0,
+        "a flat surface is lit as the plain lightmap lights it"
+    );
+}
+
+/// A bumped surface is lit by where the baked light came from: tilted 45
+/// degrees toward it, the factor is `2 / (1 + cos 45)` = 1.17; tilted 45
+/// degrees away, `1 / (1 + cos 45)` = 0.59 -- closed forms, held to 4%.
+/// Premise: without the directions the bumped quad is lit exactly as the
+/// flat one (a plain lightmap does not see the normal), so the change is
+/// the directions' alone.
+#[test]
+fn a_bumped_surface_is_lit_by_where_the_baked_light_came_from() {
+    let mut h = Harness::new();
+    let mesh = bumpable_quad(&mut h);
+    let lightmap = atlas(&mut h, [0.3; 3], [0.3; 3]);
+    let dirs = directions(&mut h, from_the_right());
+    let (toward, away) = (tilt(&mut h, 45.0), tilt(&mut h, -45.0));
+    let draw = |bump: Option<u64>, directional: bool| {
+        let mut d = white_quad(mesh).lightmapped(lightmap, [1.0, 1.0, 0.0, 0.0]);
+        if let Some(b) = bump {
+            d = d.normal_mapped(b, 1.0);
+        }
+        if directional {
+            d = d.directional(dirs);
+        }
+        d
+    };
+    let red = |h: &mut Harness, d: Draw| linear_red(&h.render(&scene(vec![d], Vec3::ZERO)), CX);
+    let flat = red(&mut h, draw(None, true));
+    let bumped_plain = red(&mut h, draw(Some(toward), false));
+    assert!(
+        (bumped_plain - flat).abs() < 0.01 * flat,
+        "premise: a plain lightmap ignores the bump: {bumped_plain} vs {flat}"
+    );
+    let cos45 = std::f32::consts::FRAC_1_SQRT_2;
+    let lit = red(&mut h, draw(Some(toward), true)) / flat;
+    let shaded = red(&mut h, draw(Some(away), true)) / flat;
+    assert!(
+        (lit - 2.0 / (1.0 + cos45)).abs() < 0.04 * lit,
+        "turned toward the light: {lit} vs {}",
+        2.0 / (1.0 + cos45)
+    );
+    assert!(
+        (shaded - 1.0 / (1.0 + cos45)).abs() < 0.04 * shaded,
+        "turned away from it: {shaded} vs {}",
+        1.0 / (1.0 + cos45)
+    );
+}
+
+/// Each lightmap's directions are its own layer's: two atlases in one
+/// frame, their light from opposite sides, the same bump on both -- each
+/// quad lit by its own closed form (`2 / (1 + cos 45)` facing its light,
+/// `1 / (1 + cos 45)` at right angles to it), against the same frame drawn
+/// without directions. Both values, not "one is the brighter": a quad that
+/// read another layer's directions -- or an empty one, `v = -1`, which
+/// blacks it out -- still leaves the first brighter than the second.
+#[test]
+fn each_lightmap_reads_its_own_directions() {
+    let mut h = Harness::new();
+    let mesh = bumpable_quad(&mut h);
+    let (a, b) = (
+        atlas(&mut h, [0.3; 3], [0.3; 3]),
+        atlas(&mut h, [0.3; 3], [0.3; 3]),
+    );
+    let right = directions(&mut h, from_the_right());
+    let left = directions(&mut h, Vec3::new(-1.0, 0.0, 1.0).normalize());
+    let toward = tilt(&mut h, 45.0);
+    let quad_at = |x: f32, lm: u64, dirs: Option<u64>| {
+        let d = Draw::new(mesh, Vec3::new(x, 0.0, 0.0))
+            .scaled(Vec3::splat(0.45), Vec3::new(x, 0.0, 0.0))
+            .colour(Vec3::ONE)
+            .roughness(1.0)
+            .lightmapped(lm, [1.0, 1.0, 0.0, 0.0])
+            .normal_mapped(toward, 1.0);
+        match dirs {
+            Some(dirs) => d.directional(dirs),
+            None => d,
+        }
+    };
+    let both = |h: &mut Harness, r: Option<u64>, l: Option<u64>| {
+        let p = h.render(&scene(
+            vec![quad_at(-0.5, a, r), quad_at(0.5, b, l)],
+            Vec3::ZERO,
+        ));
+        (linear_red(&p, CX - 9), linear_red(&p, CX + 9))
+    };
+    let (plain_a, plain_b) = both(&mut h, None, None);
+    assert!(
+        plain_a > 0.05 && plain_b > 0.05,
+        "premise: both quads are in view and lit: {plain_a} {plain_b}"
+    );
+    let (lit_a, lit_b) = both(&mut h, Some(right), Some(left));
+    let cos45 = std::f32::consts::FRAC_1_SQRT_2;
+    let (facing, across) = (2.0 / (1.0 + cos45), 1.0 / (1.0 + cos45));
+    assert!(
+        (lit_a / plain_a - facing).abs() < 0.04 * facing,
+        "the first faces its light: {} vs {facing}",
+        lit_a / plain_a
+    );
+    assert!(
+        (lit_b / plain_b - across).abs() < 0.04 * across,
+        "the second is at right angles to its own: {} vs {across}",
+        lit_b / plain_b
+    );
+}

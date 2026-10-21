@@ -39,6 +39,10 @@ pub struct LightmapEntry {
     pub texture: String,
     /// Its rectangle of the layer (`Lightmap::scale_offset`).
     pub scale_offset: [f32; 4],
+    /// The layer's directions (`Lightmap::direction_path`); empty in a file
+    /// baked before directional lightmaps, which then loads non-directional.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub direction: String,
 }
 
 /// Where a scene's lightmap data lives: beside it, the scene's extension
@@ -99,6 +103,7 @@ pub fn apply(world: &mut bevy_ecs::world::World, scene_path: &str, scene_text: &
             Some(&e) => {
                 world.entity_mut(e).insert(bsengine_core::Lightmap {
                     texture_path: entry.texture.clone(),
+                    direction_path: entry.direction.clone(),
                     scale_offset: entry.scale_offset,
                 });
                 applied += 1;
@@ -146,6 +151,7 @@ mod tests {
                 entity: "Floor".into(),
                 texture: "assets/lightmaps/level/lightmap_0.png".into(),
                 scale_offset: [0.5, 0.5, 0.25, 0.0],
+                direction: "assets/lightmaps/level/lightmap_0_dir.png".into(),
             }],
         };
         std::fs::write(
@@ -163,7 +169,17 @@ mod tests {
             .expect("Floor has one");
         assert_eq!(lm.texture_path, "assets/lightmaps/level/lightmap_0.png");
         assert_eq!(lm.scale_offset, [0.5, 0.5, 0.25, 0.0]);
+        assert_eq!(
+            lm.direction_path,
+            "assets/lightmaps/level/lightmap_0_dir.png"
+        );
         assert!(world.get::<bsengine_core::Lightmap>(wall).is_none());
+
+        // A file baked before directional lightmaps names no direction, and
+        // still loads: its entities shade non-directionally.
+        let old = "(scene_fingerprint: \"x\", entries: [(entity: \"Floor\", texture: \"t.png\", scale_offset: (1.0, 1.0, 0.0, 0.0))])";
+        let parsed: LightmapData = ron::from_str(old).expect("an old file still parses");
+        assert!(parsed.entries[0].direction.is_empty());
 
         // A scene that was never baked: nothing, and no error.
         let mut other = bevy_ecs::world::World::new();

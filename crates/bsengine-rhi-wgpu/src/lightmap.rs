@@ -16,7 +16,10 @@
 //! # Encoding
 //!
 //! Layers hold RGBM ([`bsengine_core::LIGHTMAP_RGBM_RANGE`]) in a **linear**
-//! 8-bit format. The source texture must therefore be linear too (`srgb:
+//! 8-bit format. A directional lightmap's directions (`Lightmap::direction_path`,
+//! `v * 0.5 + 0.5`) sit in the layer [`MAX_LIGHTMAPS`] above their
+//! irradiance's -- the same array, so no binding more.
+//! The source texture must therefore be linear too (`srgb:
 //! false` in its sidecar): the blit copies whatever the sampler returns, and a
 //! source that was decoded from sRGB on the way in would be stored as if its
 //! encoded values were the light.
@@ -40,6 +43,9 @@ const ATLAS_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 pub struct LightmapParams {
     /// The texture's id in the [`crate::texture::GpuTextureRegistry`].
     pub texture_id: u64,
+    /// Its directions' texture, for a directional lightmap; `None` shades
+    /// with the irradiance alone.
+    pub direction_id: Option<u64>,
     /// Applied as `uv2 * scale + offset`.
     pub scale_offset: [f32; 4],
 }
@@ -64,6 +70,21 @@ const LIGHTMAP_RGBM_RANGE: f32 = 8.0;
 fn lightmap_irradiance(layer: f32, uv: vec2<f32>) -> vec3<f32> {
     let texel = textureSample(lightmap_atlas, spot_cookie_sampler, uv, i32(layer));
     return texel.rgb * texel.a * LIGHTMAP_RGBM_RANGE;
+}
+
+// The directional factor at a surface facing `n` whose bake faced `n_bake`:
+// `(1 + v.n) / (1 + v.n_bake)`, `v` the texel's mean incoming direction.
+// Linear in the normal, as Unity's dominant-direction lightmap and Unreal's
+// L1 lightmap are; exactly 1 where the normal is the bake's, so a flat
+// surface is lit as the plain lightmap lights it; at most 2, since `v` is no
+// longer than 1 and comes from `n_bake`'s side. The directions sit
+// `LIGHTMAP_DIRECTION_OFFSET` layers above their irradiance.
+const LIGHTMAP_DIRECTION_OFFSET: i32 = 4;
+fn lightmap_directionality(layer: f32, uv: vec2<f32>, n: vec3<f32>, n_bake: vec3<f32>) -> f32 {
+    let v = textureSample(
+        lightmap_atlas, spot_cookie_sampler, uv, i32(layer) + LIGHTMAP_DIRECTION_OFFSET
+    ).xyz * 2.0 - vec3<f32>(1.0);
+    return max(1.0 + dot(v, n), 0.0) / max(1.0 + dot(v, n_bake), 1e-4);
 }
 "#
     };
@@ -96,7 +117,8 @@ impl LightmapAtlas {
             size: wgpu::Extent3d {
                 width: LIGHTMAP_SIZE,
                 height: LIGHTMAP_SIZE,
-                depth_or_array_layers: MAX_LIGHTMAPS as u32,
+                // The irradiance layers, then each one's directions.
+                depth_or_array_layers: 2 * MAX_LIGHTMAPS as u32,
             },
             mip_level_count: 1,
             sample_count: 1,
@@ -110,7 +132,7 @@ impl LightmapAtlas {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
             ..Default::default()
         });
-        let layer_views = (0..MAX_LIGHTMAPS as u32)
+        let layer_views = (0..2 * MAX_LIGHTMAPS as u32)
             .map(|layer| {
                 texture.create_view(&wgpu::TextureViewDescriptor {
                     label: Some("lightmap layer"),
@@ -193,58 +215,73 @@ impl LightmapAtlas {
             blit_pipeline,
             blit_layout,
             blit_sampler,
-            resident: vec![None; MAX_LIGHTMAPS],
+            resident: vec![None; 2 * MAX_LIGHTMAPS],
             blits: 0,
         }
     }
 
     /// Draws the textures this frame's renderers name into the array and
     /// returns each renderer's layer, `-1.0` for none -- the value the shader
-    /// reads as "no lightmap".
+    /// reads as "no lightmap" -- and whether its directions are there too.
     ///
-    /// Renderers sharing a texture share its layer. A texture that is not on
-    /// the GPU yet (still loading, or a bad path) is no lightmap: the surface
-    /// shades as it would without one rather than going black while it loads.
-    /// A layer already holding the texture at its current generation is left
-    /// alone, so a steady scene draws nothing here.
+    /// Renderers sharing a texture share its layer (and its directions, the
+    /// first renderer's to name them). A texture that is not on the GPU yet
+    /// (still loading, or a bad path) is no lightmap: the surface shades as
+    /// it would without one rather than going black while it loads; a
+    /// direction texture not there yet is a non-directional lightmap. A layer
+    /// already holding the texture at its current generation is left alone,
+    /// so a steady scene draws nothing here.
     pub(crate) fn update(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         registry: Option<&crate::texture::GpuTextureRegistry>,
-        textures: &[Option<u64>],
-    ) -> Vec<f32> {
-        let mut layers = vec![-1.0; textures.len()];
+        textures: &[Option<(u64, Option<u64>)>],
+    ) -> Vec<(f32, bool)> {
+        let mut layers = vec![(-1.0, false); textures.len()];
         let Some(registry) = registry else {
             return layers;
         };
-        let mut assigned: Vec<(u64, u64)> = Vec::new();
-        for (slot, id) in textures.iter().enumerate() {
-            let Some(id) = *id else { continue };
-            let (Some(_), Some(generation)) = (registry.get_view(id), registry.generation(id))
-            else {
+        let on_gpu = |id: u64| registry.get_view(id).and(registry.generation(id));
+        // Per layer: the irradiance (id, generation), and its directions'.
+        let mut assigned: Vec<((u64, u64), Option<(u64, u64)>)> = Vec::new();
+        for (slot, entry) in textures.iter().enumerate() {
+            let Some((id, direction)) = *entry else {
                 continue;
             };
-            if let Some(layer) = assigned.iter().position(|(a, _)| *a == id) {
-                layers[slot] = layer as f32;
+            let Some(generation) = on_gpu(id) else {
                 continue;
-            }
-            if assigned.len() == MAX_LIGHTMAPS {
-                continue;
-            }
-            layers[slot] = assigned.len() as f32;
-            assigned.push((id, generation));
+            };
+            let layer = match assigned.iter().position(|((a, _), _)| *a == id) {
+                Some(layer) => layer,
+                None if assigned.len() == MAX_LIGHTMAPS => continue,
+                None => {
+                    let dir = direction.and_then(|d| Some((d, on_gpu(d)?)));
+                    assigned.push(((id, generation), dir));
+                    assigned.len() - 1
+                }
+            };
+            layers[slot] = (layer as f32, assigned[layer].1.is_some());
         }
 
+        // Every layer to draw: the irradiance at its index, its directions
+        // `MAX_LIGHTMAPS` above.
+        let wanted: Vec<(usize, (u64, u64))> = assigned
+            .iter()
+            .enumerate()
+            .flat_map(|(layer, (irr, dir))| {
+                std::iter::once((layer, *irr)).chain(dir.map(|d| (layer + MAX_LIGHTMAPS, d)))
+            })
+            .collect();
         let mut encoder = None;
-        for (layer, entry) in assigned.iter().enumerate() {
-            if self.resident[layer] == Some(*entry) {
+        for &(layer, entry) in &wanted {
+            if self.resident[layer] == Some(entry) {
                 continue;
             }
             let Some(view) = registry.get_view(entry.0) else {
                 continue;
             };
-            self.resident[layer] = Some(*entry);
+            self.resident[layer] = Some(entry);
             self.blits += 1;
             let encoder = encoder.get_or_insert_with(|| {
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -283,11 +320,13 @@ impl LightmapAtlas {
             pass.set_bind_group(0, &bind_group, &[]);
             pass.draw(0..3, 0..1);
         }
-        // Layers past the ones assigned this frame no longer hold what the
-        // table says, in the sense that the next frame may assign them
-        // something else: forget them so a texture coming back is redrawn.
-        for layer in assigned.len()..MAX_LIGHTMAPS {
-            self.resident[layer] = None;
+        // Layers not drawn into this frame no longer hold what the table
+        // says, in the sense that the next frame may assign them something
+        // else: forget them so a texture coming back is redrawn.
+        for layer in 0..2 * MAX_LIGHTMAPS {
+            if !wanted.iter().any(|&(l, _)| l == layer) {
+                self.resident[layer] = None;
+            }
         }
         if let Some(encoder) = encoder {
             queue.submit(Some(encoder.finish()));
@@ -320,5 +359,25 @@ mod tests {
             .and_then(|v| v.trim().trim_end_matches(';').parse().ok())
             .expect("the range parses");
         assert_eq!(value, LIGHTMAP_RGBM_RANGE);
+    }
+
+    /// The shader finds a layer's directions `LIGHTMAP_DIRECTION_OFFSET`
+    /// above it and `update` draws them `MAX_LIGHTMAPS` above: one number, or
+    /// every directional surface reads another lightmap's directions (or an
+    /// empty layer, whose `v = -1` darkens it). The pixel test with two
+    /// lightmaps sees a mismatch too; this names it.
+    #[test]
+    fn the_wgsl_direction_offset_is_max_lightmaps() {
+        let wgsl = lightmap_wgsl!();
+        let line = wgsl
+            .lines()
+            .find(|l| l.contains("const LIGHTMAP_DIRECTION_OFFSET"))
+            .expect("the shader declares the offset");
+        let value: usize = line
+            .split('=')
+            .nth(1)
+            .and_then(|v| v.trim().trim_end_matches(';').parse().ok())
+            .expect("the offset parses");
+        assert_eq!(value, super::MAX_LIGHTMAPS);
     }
 }

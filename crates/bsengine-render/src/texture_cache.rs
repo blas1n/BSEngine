@@ -540,9 +540,15 @@ pub(crate) fn lightmap_params(
     cache: Option<&TextureCache>,
 ) -> Option<bsengine_rhi_wgpu::LightmapParams> {
     let lightmap = lightmap.filter(|l| l.is_set())?;
-    let texture_id = cache?.id_for(&lightmap.texture_path)?;
+    let cache = cache?;
+    let texture_id = cache.id_for(&lightmap.texture_path)?;
     Some(bsengine_rhi_wgpu::LightmapParams {
         texture_id,
+        // The data copy (linear, like the bake writes it): a direction
+        // decoded as sRGB would point every texel's light the wrong way.
+        direction_id: (!lightmap.direction_path.is_empty())
+            .then(|| cache.id_for_data(&lightmap.direction_path))
+            .flatten(),
         scale_offset: lightmap.scale_offset,
     })
 }
@@ -651,6 +657,17 @@ pub fn resolve_texture_paths(
     // decals and point cookies each shipped without once.
     for path in &data_maps {
         cache.upload_data(path, &asset_server, &mut textures, &mut registry);
+    }
+    // A directional lightmap's directions, data like the maps above.
+    for lightmap in lightmaps.iter() {
+        if !lightmap.direction_path.is_empty() {
+            cache.upload_data(
+                &lightmap.direction_path,
+                &asset_server,
+                &mut textures,
+                &mut registry,
+            );
+        }
     }
     for path in &colour_maps {
         cache.upload(path, &asset_server, &mut textures, &mut registry);
@@ -1603,6 +1620,7 @@ mod tests {
         let lightmap = bsengine_core::Lightmap {
             texture_path: REAL_TEXTURE.into(),
             scale_offset: [0.25, 0.5, 0.125, 0.75],
+            ..Default::default()
         };
         let params = |app: &bevy_app::App, l: Option<&bsengine_core::Lightmap>| {
             lightmap_params(l, app.world().get_resource::<TextureCache>())
@@ -1634,9 +1652,49 @@ mod tests {
             params(&app, Some(&lightmap)),
             Some(bsengine_rhi_wgpu::LightmapParams {
                 texture_id: id,
+                direction_id: None,
                 scale_offset: [0.25, 0.5, 0.125, 0.75],
             }),
             "the draw carries the texture's id and the component's rectangle"
+        );
+    }
+
+    /// A directional lightmap's directions are requested on the component's
+    /// say-so and reach the draw as the image's *data* copy: the same file as
+    /// the irradiance here, so the two ids differ only if the directions went
+    /// up linear (an sRGB-decoded direction points the light the wrong way).
+    #[test]
+    fn a_directional_lightmaps_directions_reach_the_draw_as_data() {
+        let mut app = test_app();
+        let lightmap = bsengine_core::Lightmap {
+            texture_path: REAL_TEXTURE.into(),
+            direction_path: REAL_TEXTURE.into(),
+            scale_offset: [1.0, 1.0, 0.0, 0.0],
+        };
+        app.world_mut().spawn(lightmap.clone());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let ids = loop {
+            let cache = app.world().resource::<TextureCache>();
+            if let (Some(colour), Some(data)) =
+                (cache.id_for(REAL_TEXTURE), cache.id_for_data(REAL_TEXTURE))
+            {
+                break (colour, data);
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the directions were never uploaded"
+            );
+            app.update();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        };
+        assert_ne!(ids.0, ids.1, "premise: colour and data are two copies");
+        let params = lightmap_params(Some(&lightmap), app.world().get_resource::<TextureCache>())
+            .expect("the irradiance is up");
+        assert_eq!(params.texture_id, ids.0);
+        assert_eq!(
+            params.direction_id,
+            Some(ids.1),
+            "the directions' linear copy"
         );
     }
 

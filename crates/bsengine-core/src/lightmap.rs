@@ -40,6 +40,14 @@ pub struct Lightmap {
     ///
     /// Empty means no lightmap, and the renderer shades as it always did.
     pub texture_path: String,
+    /// The directional half of the lightmap: per texel, where the baked
+    /// light came from -- the luminance-weighted mean incoming direction in
+    /// world space, stored `v * 0.5 + 0.5` and **linear** like the atlas.
+    /// With it a normal-mapped surface is shaded by the baked light's
+    /// direction (`E * (1 + v.n) / (1 + v.n_bake)`, exactly the plain
+    /// lightmap where the normal is the bake's); empty, it is not --
+    /// Unity's "Non-Directional" against "Directional".
+    pub direction_path: String,
     /// Which rectangle of the atlas is this renderer's: `[scale_x, scale_y,
     /// offset_x, offset_y]`, applied as `uv2 * scale + offset`. The default
     /// `[1, 1, 0, 0]` is a renderer that owns the whole atlas.
@@ -50,6 +58,7 @@ impl Default for Lightmap {
     fn default() -> Self {
         Self {
             texture_path: String::new(),
+            direction_path: String::new(),
             scale_offset: [1.0, 1.0, 0.0, 0.0],
         }
     }

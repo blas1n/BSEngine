@@ -190,13 +190,15 @@ impl GpuBaker {
         }
     }
 
-    /// Every job's `E / PI`, traced on the GPU.
+    /// Every job's `E / PI` and light direction, traced on the GPU, in passes
+    /// of about `rays_per_pass` ([`RAYS_PER_PASS`] but in a test).
     fn trace(
         &self,
         prepared: &crate::Prepared,
         input: &BakeInput,
         settings: &BakeSettings,
-    ) -> Vec<Vec3> {
+        rays_per_pass: u64,
+    ) -> Vec<crate::Texel> {
         let jobs = &prepared.jobs;
         if jobs.is_empty() {
             return Vec::new();
@@ -261,7 +263,8 @@ impl GpuBaker {
             bytemuck::bytes_of(&scene),
             wgpu::BufferUsages::UNIFORM,
         );
-        let out_size = (jobs.len() * 16) as u64;
+        // Two vec4s a texel: radiance, then direction and weight (`gpu.wgsl`).
+        let out_size = (jobs.len() * 32) as u64;
         let out_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("bake out"),
             size: out_size,
@@ -313,7 +316,7 @@ impl GpuBaker {
         let total = trace.samples.max(1);
         let rays_per_sample =
             jobs.len() as u64 * u64::from(trace.bounces + 1) * (1 + u64::from(light_count));
-        let per_pass = (RAYS_PER_PASS / rays_per_sample.max(1)).clamp(1, u64::from(total)) as u32;
+        let per_pass = (rays_per_pass / rays_per_sample.max(1)).clamp(1, u64::from(total)) as u32;
         let chunk = MAX_GROUPS * 64;
         let mut sample_offset = 0u32;
         while sample_offset < total {
@@ -378,11 +381,20 @@ impl GpuBaker {
         rx.recv()
             .expect("map_async reported nothing")
             .expect("the bake output could not be read back");
-        let values: Vec<[f32; 4]> = bytemuck::cast_slice(&slice.get_mapped_range()).to_vec();
+        let values: Vec<[[f32; 4]; 2]> = bytemuck::cast_slice(&slice.get_mapped_range()).to_vec();
         let n = total as f32;
         values
             .iter()
-            .map(|v| Vec3::new(v[0], v[1], v[2]) / n)
+            .map(|[v, d]| crate::Texel {
+                irradiance: Vec3::new(v[0], v[1], v[2]) / n,
+                // Both sums carry the same `total_samples` factor, so their
+                // ratio is the mean direction as it stands.
+                direction: if d[3] > 0.0 {
+                    Vec3::new(d[0], d[1], d[2]) / d[3]
+                } else {
+                    Vec3::ZERO
+                },
+            })
             .collect()
     }
 }
@@ -398,7 +410,24 @@ impl LightmapBaker for GpuBaker {
 
     fn bake(&self, input: &BakeInput, settings: &BakeSettings) -> BakeOutput {
         let prepared = crate::prepare(input, settings);
-        let values = self.trace(&prepared, input, settings);
+        let values = self.trace(&prepared, input, settings, RAYS_PER_PASS);
+        crate::finish(prepared, values, settings)
+    }
+}
+
+#[cfg(all(test, feature = "native"))]
+impl GpuBaker {
+    /// [`LightmapBaker::bake`] in passes of about `rays_per_pass`: a test's
+    /// scene is too small to need a second pass at the real budget, and what
+    /// a pass carries to the next is exactly what one pass never exercises.
+    fn bake_in_passes(
+        &self,
+        input: &BakeInput,
+        settings: &BakeSettings,
+        rays_per_pass: u64,
+    ) -> BakeOutput {
+        let prepared = crate::prepare(input, settings);
+        let values = self.trace(&prepared, input, settings, rays_per_pass);
         crate::finish(prepared, values, settings)
     }
 }
@@ -485,6 +514,16 @@ mod tests {
         (p.y..p.y + p.side)
             .flat_map(|y| (p.x..p.x + p.side).map(move |x| (x, y)))
             .map(|(x, y)| out.layers[p.layer as usize][(y * size + x) as usize])
+            .collect()
+    }
+
+    /// [`texels_of`] for the directions.
+    fn directions_of(out: &BakeOutput, renderer: usize) -> Vec<Vec3> {
+        let p = out.placements[renderer];
+        let size = out.layer_size;
+        (p.y..p.y + p.side)
+            .flat_map(|y| (p.x..p.x + p.side).map(move |x| (x, y)))
+            .map(|(x, y)| out.directions[p.layer as usize][(y * size + x) as usize])
             .collect()
     }
 
@@ -599,6 +638,26 @@ mod tests {
         for (c, g) in cpu.iter().zip(&gpu) {
             assert!((*c - *g).length() < 1e-5, "{c} vs {g}");
         }
+        // And the direction it came from: the sun's, exactly, on both --
+        // light from one direction, so unit length.
+        let directions = |baker: &dyn LightmapBaker| {
+            directions_of(
+                &baker.bake(
+                    &BakeInput {
+                        triangles: &tris,
+                        renderers: &renderers(1),
+                        lights: &sun(Contribution::Baked),
+                        sky: &sky,
+                    },
+                    &settings(4, 1, true),
+                ),
+                0,
+            )
+        };
+        let toward = -Vec3::new(0.3, -1.0, 0.2).normalize();
+        for d in directions(&CpuBaker).iter().chain(&directions(baker())) {
+            assert!((*d - toward).length() < 1e-4, "{d} vs {toward}");
+        }
     }
 
     /// The reference: a room of a red wall, a white wall and a floor, lit by
@@ -685,6 +744,36 @@ mod tests {
         errors.sort_by(f32::total_cmp);
         let p95 = errors[errors.len() * 95 / 100];
         assert!(p95 < 0.15, "95th percentile per-texel error {p95}");
+
+        // The directions the two backends bake agree as their irradiance
+        // does: every light kind's direction, and the bounce's.
+        let dirs = |baker: &dyn LightmapBaker| {
+            directions_of(
+                &baker.bake(
+                    &BakeInput {
+                        triangles: &tris,
+                        renderers: &renderers(3),
+                        lights: &lights,
+                        sky: &sky,
+                    },
+                    &settings(512, 3, true),
+                ),
+                0,
+            )
+        };
+        let (dc, dg) = (dirs(&CpuBaker), dirs(baker()));
+        assert!(
+            dc.iter().all(|d| d.length() > 0.1),
+            "premise: every floor texel has a direction"
+        );
+        let mut off: Vec<f32> = dc
+            .iter()
+            .zip(&dg)
+            .map(|(c, g)| (*c - *g).length())
+            .collect();
+        off.sort_by(f32::total_cmp);
+        let p95 = off[off.len() * 95 / 100];
+        assert!(p95 < 0.15, "95th percentile direction difference {p95}");
     }
 
     /// Six inward-facing quads of a unit box around the origin's cell, every
@@ -1198,5 +1287,43 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
                 .collect()
         };
         assert_eq!(bits(&bake()), bits(&bake()));
+    }
+
+    /// How many passes a bake is split into does not change it: each sample
+    /// seeds from its own index, and each pass adds to what the last left --
+    /// the irradiance's sum and the directions' weighted sum alike. A baked
+    /// sun makes the second visible: its direct term is added in the first
+    /// pass only, so a pass that started its directions from zero would end
+    /// with the sky's direction and lose the sun's.
+    #[test]
+    fn a_bake_in_many_passes_is_the_bake_in_one() {
+        let tris = floor(0, Vec3::splat(0.5));
+        let sky = Sky::Uniform(Vec3::splat(0.5));
+        let sun = [BakeLight::Directional {
+            direction: Vec3::new(0.6, -1.0, 0.2).normalize(),
+            color: Vec3::splat(2.0),
+            contribution: Contribution::Baked,
+        }];
+        let input = BakeInput {
+            triangles: &tris,
+            renderers: &renderers(1),
+            lights: &sun,
+            sky: &sky,
+        };
+        let s = settings(16, 1, true);
+        let one = baker().bake(&input, &s);
+        // A floor's 64 texels x 2 bounces x (1 + 1 light) = 256 rays a
+        // sample: a budget of 256 is a pass per sample, 16 passes.
+        let many = baker().bake_in_passes(&input, &s, 256);
+        let (t1, tn) = (texels_of(&one, 0), texels_of(&many, 0));
+        let (d1, dn) = (directions_of(&one, 0), directions_of(&many, 0));
+        assert!(
+            d1.iter().all(|d| d.x < -0.05),
+            "premise: the sun, shining toward +x, pulls every direction toward -x: {:?}",
+            &d1[..4]
+        );
+        for (a, b) in t1.iter().zip(&tn).chain(d1.iter().zip(&dn)) {
+            assert!((*a - *b).length() < 1e-4, "{a} vs {b}");
+        }
     }
 }

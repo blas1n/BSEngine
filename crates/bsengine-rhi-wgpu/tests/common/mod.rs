@@ -48,6 +48,10 @@ pub struct Draw {
     /// A tangent-space normal map (a registry id, uploaded linear) and the
     /// strength it is applied at.
     pub normal_map: Option<(u64, f32)>,
+    /// An ORM map (a registry id, uploaded linear) and the occlusion strength.
+    pub orm_map: Option<(u64, f32)>,
+    /// An emissive map (a registry id, colour).
+    pub emissive_map: Option<u64>,
 }
 
 impl Draw {
@@ -65,7 +69,23 @@ impl Draw {
             previous: None,
             lightmap: None,
             normal_map: None,
+            orm_map: None,
+            emissive_map: None,
         }
+    }
+
+    /// Shaded with `texture` as its ORM map, occlusion at `strength`.
+    #[allow(dead_code)] // only pixels_orm_emissive.rs uses one
+    pub fn orm_mapped(mut self, texture: u64, strength: f32) -> Self {
+        self.orm_map = Some((texture, strength));
+        self
+    }
+
+    /// Emitting through `texture`, times its emissive colour.
+    #[allow(dead_code)] // only pixels_orm_emissive.rs uses one
+    pub fn emissive_mapped(mut self, texture: u64) -> Self {
+        self.emissive_map = Some(texture);
+        self
     }
 
     /// Shaded with `texture` as its normal map, at `scale`.
@@ -163,6 +183,9 @@ impl Draw {
             }),
             normal_texture: self.normal_map.map(|(t, _)| t),
             normal_scale: self.normal_map.map_or(1.0, |(_, s)| s),
+            orm_texture: self.orm_map.map(|(t, _)| t),
+            occlusion_strength: self.orm_map.map_or(1.0, |(_, s)| s),
+            emissive_texture: self.emissive_map,
         }
     }
 }

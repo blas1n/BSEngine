@@ -292,6 +292,9 @@ struct ModelUniform {
     lightmap_layer: f32,
     // How far the normal map tilts the normal; 0 for no normal map.
     normal_scale: f32,
+    // How much of the ORM map's occlusion (R) darkens the indirect light:
+    // glTF's `occlusionTexture.strength`, 0 for a map without occlusion.
+    occlusion_strength: f32,
 };
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
 @group(1) @binding(0) var<uniform> model_data: ModelUniform;

@@ -232,23 +232,166 @@ struct GltfLoaded {
     mesh_ids: Vec<u64>,
     /// GPU texture ids created for this asset, in `LoadedGltf::images` order.
     texture_ids: Vec<u64>,
-    /// The linear copies of the images used as normal maps: (index into
-    /// `LoadedGltf::images`, GPU id).
-    normal_texture_ids: Vec<(usize, u64)>,
+    /// The images the materials use as data -- normal and ORM maps -- each
+    /// uploaded linear under an id of its own.
+    data_texture_ids: Vec<(DataImage, u64)>,
 }
 
-/// The name a model's embedded image is registered under as a normal map
-/// (`TextureCache::insert_named`): what `Material::normal_map` holds for it,
-/// since an embedded image has no path of its own.
-pub fn normal_map_name(model_path: &str, image: usize) -> String {
-    format!("{model_path}#normal{image}")
+/// An image a model's materials read as data rather than colour, built from
+/// the file's images: a normal map is one of them as it is; an ORM map is
+/// the metallic-roughness image (G, B) and the occlusion image (R), packed
+/// into one when they are two.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DataImage {
+    /// `normalTexture`'s image.
+    Normal(usize),
+    /// `metallicRoughnessTexture`'s and `occlusionTexture`'s images.
+    Orm {
+        /// G roughness, B metallic.
+        metallic_roughness: Option<usize>,
+        /// R occlusion.
+        occlusion: Option<usize>,
+    },
 }
 
-/// glTF's normal textures are data: uploaded linear, with the default sampler.
-fn normal_map_settings() -> bsengine_core::TextureImportSettings {
+/// The name a model's data image is registered under
+/// (`TextureCache::insert_named`): what `Material::normal_map` or
+/// `Material::orm_map` holds for it, since an embedded image has no path of
+/// its own.
+pub fn data_image_name(model_path: &str, image: DataImage) -> String {
+    let index = |i: Option<usize>| i.map_or_else(|| "-".to_string(), |i| i.to_string());
+    match image {
+        DataImage::Normal(i) => format!("{model_path}#normal{i}"),
+        DataImage::Orm {
+            metallic_roughness,
+            occlusion,
+        } => format!(
+            "{model_path}#orm{}_{}",
+            index(metallic_roughness),
+            index(occlusion)
+        ),
+    }
+}
+
+/// The name a model's emissive image is registered under: its colour copy,
+/// which is already decoded as the sRGB glTF says it is.
+pub fn emissive_image_name(model_path: &str, image: usize) -> String {
+    format!("{model_path}#emissive{image}")
+}
+
+/// glTF's normal and ORM textures are data: uploaded linear, with the default
+/// sampler.
+fn data_image_settings() -> bsengine_core::TextureImportSettings {
     bsengine_core::TextureImportSettings {
         srgb: false,
         ..Default::default()
+    }
+}
+
+/// The pixels of a data image: a file image as it is, or -- for an ORM made
+/// of two -- the metallic-roughness image with its R replaced by the
+/// occlusion's, sampled nearest where the two differ in size (glTF allows
+/// it). An occlusion image alone keeps G and B white, so the factors stand.
+/// `None` for an index the file does not have.
+fn data_image_pixels(
+    image: DataImage,
+    images: &[crate::loader::GltfImageData],
+) -> Option<(u32, u32, Vec<u8>)> {
+    let whole = |i: usize| {
+        images
+            .get(i)
+            .map(|img| (img.width, img.height, img.rgba.clone()))
+    };
+    match image {
+        DataImage::Normal(i) => whole(i),
+        // One image holding all three -- glTF's ORM packing -- or a
+        // metallic-roughness image alone (its R unread: the material's
+        // occlusion strength is 0).
+        DataImage::Orm {
+            metallic_roughness: Some(mr),
+            occlusion: None,
+        } => whole(mr),
+        DataImage::Orm {
+            metallic_roughness: Some(mr),
+            occlusion: Some(occ),
+        } if occ == mr => whole(mr),
+        DataImage::Orm {
+            metallic_roughness: None,
+            occlusion: Some(occ),
+        } => {
+            let (w, h, mut rgba) = whole(occ)?;
+            for texel in rgba.chunks_exact_mut(4) {
+                texel[1] = 255;
+                texel[2] = 255;
+            }
+            Some((w, h, rgba))
+        }
+        DataImage::Orm {
+            metallic_roughness: Some(mr),
+            occlusion: Some(occ),
+        } => {
+            let (w, h, mut rgba) = whole(mr)?;
+            let o = images.get(occ)?;
+            for y in 0..h {
+                for x in 0..w {
+                    let ox = (x as u64 * o.width as u64 / w as u64) as usize;
+                    let oy = (y as u64 * o.height as u64 / h as u64) as usize;
+                    rgba[((y * w + x) * 4) as usize] = o.rgba[(oy * o.width as usize + ox) * 4];
+                }
+            }
+            Some((w, h, rgba))
+        }
+        DataImage::Orm {
+            metallic_roughness: None,
+            occlusion: None,
+        } => None,
+    }
+}
+
+/// The data images a material reads: its normal map and its ORM map.
+fn data_images_of(m: &crate::loader::GltfMaterial) -> impl Iterator<Item = DataImage> {
+    let orm = (m.metallic_roughness.is_some() || m.occlusion.is_some()).then_some(DataImage::Orm {
+        metallic_roughness: m.metallic_roughness,
+        occlusion: m.occlusion.map(|(i, _)| i),
+    });
+    m.normal
+        .map(|(i, _)| DataImage::Normal(i))
+        .into_iter()
+        .chain(orm)
+}
+
+/// A glTF material as the engine's: its factors, and its maps by the names
+/// `load_gltf_assets` registered them under.
+fn material_from_gltf(
+    m: &crate::loader::GltfMaterial,
+    texture_id: Option<u64>,
+    model_path: &str,
+) -> Material {
+    let orm = data_images_of(m).find(|d| matches!(d, DataImage::Orm { .. }));
+    Material {
+        texture_id,
+        base_color: glam::Vec3::new(m.base_color[0], m.base_color[1], m.base_color[2]).into(),
+        // Only a `BLEND` material's alpha is an opacity; `OPAQUE` says to
+        // ignore it, and `MASK` (a cutout) is drawn opaque.
+        opacity: if m.blend { m.base_color[3] } else { 1.0 },
+        metallic: m.metallic,
+        roughness: m.roughness,
+        emissive: glam::Vec3::from(m.emissive).into(),
+        normal_map: m
+            .normal
+            .map(|(i, _)| data_image_name(model_path, DataImage::Normal(i)))
+            .unwrap_or_default(),
+        normal_scale: m.normal.map_or(1.0, |(_, scale)| scale),
+        orm_map: orm
+            .map(|o| data_image_name(model_path, o))
+            .unwrap_or_default(),
+        // An ORM made from a metallic-roughness image alone has whatever
+        // that image's R holds, which glTF does not define: occlusion off.
+        occlusion_strength: m.occlusion.map_or(0.0, |(_, strength)| strength),
+        emissive_map: m
+            .emissive_texture
+            .map(|i| emissive_image_name(model_path, i))
+            .unwrap_or_default(),
     }
 }
 
@@ -341,24 +484,33 @@ fn load_gltf_assets(
         } else {
             vec![None; loaded.images.len()]
         };
-        // An image a material uses as its normal map, again but linear: glTF
-        // stores a normal texture as data, and the copy above is decoded as
-        // sRGB, which would turn every texel's normal. Once per image, named
-        // for the materials to find (`normal_map_name`).
-        let mut normal_ids: Vec<(usize, u64)> = Vec::new();
+        // The images the materials read as data -- normal maps, ORM maps --
+        // again but linear: glTF stores them as data, and the copies above
+        // are decoded as sRGB, which would turn every normal and shift every
+        // roughness. Once per image (or pair, for an ORM packed from two),
+        // named for the materials to find (`data_image_name`). An emissive
+        // image is colour, and its copy above is the one: it is only named.
+        let mut data_ids: Vec<(DataImage, u64)> = Vec::new();
         if let Some(tr) = tex_registry.as_mut() {
-            for &(image, _) in loaded.mesh_normal_maps.iter().flatten() {
-                if normal_ids.iter().any(|&(i, _)| i == image) {
-                    continue;
+            for m in &loaded.mesh_materials {
+                for image in data_images_of(m) {
+                    if data_ids.iter().any(|&(d, _)| d == image) {
+                        continue;
+                    }
+                    let Some((w, h, rgba)) = data_image_pixels(image, &loaded.images) else {
+                        continue;
+                    };
+                    let id = tr.load_with(w, h, &rgba, data_image_settings());
+                    if let Some(cache) = texture_cache.as_mut() {
+                        cache.insert_named(&data_image_name(&asset.path, image), id);
+                    }
+                    data_ids.push((image, id));
                 }
-                let Some(img) = loaded.images.get(image) else {
-                    continue;
-                };
-                let id = tr.load_with(img.width, img.height, &img.rgba, normal_map_settings());
-                if let Some(cache) = texture_cache.as_mut() {
-                    cache.insert_named(&normal_map_name(&asset.path, image), id);
+                if let (Some(i), Some(cache)) = (m.emissive_texture, texture_cache.as_mut()) {
+                    if let Some(id) = tex_ids.get(i).copied().flatten() {
+                        cache.insert_named(&emissive_image_name(&asset.path, i), id);
+                    }
                 }
-                normal_ids.push((image, id));
             }
         }
 
@@ -412,15 +564,11 @@ fn load_gltf_assets(
             };
             mesh_ids.push(mesh_id);
             let texture_id = tex_idx.and_then(|i| tex_ids.get(i).copied().flatten());
-            let normal = loaded.mesh_normal_maps.get(k).copied().flatten();
-            let mat = Material {
+            let mat = material_from_gltf(
+                &loaded.mesh_materials.get(k).cloned().unwrap_or_default(),
                 texture_id,
-                normal_map: normal
-                    .map(|(image, _)| normal_map_name(&asset.path, image))
-                    .unwrap_or_default(),
-                normal_scale: normal.map_or(1.0, |(_, scale)| scale),
-                ..Default::default()
-            };
+                &asset.path,
+            );
 
             if first {
                 let mut e = commands.entity(entity);
@@ -494,7 +642,7 @@ fn load_gltf_assets(
                 handle: handle.clone(),
                 mesh_ids,
                 texture_ids: tex_ids.iter().flatten().copied().collect(),
-                normal_texture_ids: normal_ids,
+                data_texture_ids: data_ids,
             });
         }
     }
@@ -717,14 +865,15 @@ fn rebuild_modified_gltf(
                         );
                     }
                 }
-                // The normal maps' linear copies, which the loop above does
-                // not reach: each is an id of its own.
-                for &(image, tex_id) in &loaded.normal_texture_ids {
-                    let Some(img) = data.images.get(image) else {
+                // The data images' linear copies, which the loop above does
+                // not reach: each is an id of its own, rebuilt from the
+                // reloaded images as at load.
+                for &(image, tex_id) in &loaded.data_texture_ids {
+                    let Some((w, h, rgba)) = data_image_pixels(image, &data.images) else {
                         continue;
                     };
-                    let settings = normal_map_settings();
-                    if !reg.replace_with(tex_id, img.width, img.height, &img.rgba, settings) {
+                    let settings = data_image_settings();
+                    if !reg.replace_with(tex_id, w, h, &rgba, settings) {
                         warn!(
                             "normal map id {tex_id} recorded at load time is no longer \
                              loaded; whatever samples it keeps the pre-reload map"
@@ -1257,7 +1406,10 @@ mod tests {
             material.texture_id.is_none(),
             "premise: no base colour texture"
         );
-        assert_eq!(material.normal_map, normal_map_name(&path, 0));
+        assert_eq!(
+            material.normal_map,
+            data_image_name(&path, DataImage::Normal(0))
+        );
         assert_eq!(material.normal_scale, 0.5);
         let id = app
             .world()
@@ -1272,6 +1424,208 @@ mod tests {
         assert!(
             !settings.srgb,
             "a normal map is uploaded linear: {settings:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn image(
+        width: u32,
+        height: u32,
+        texel: impl Fn(u32, u32) -> [u8; 4],
+    ) -> crate::loader::GltfImageData {
+        let mut rgba = Vec::new();
+        for y in 0..height {
+            for x in 0..width {
+                rgba.extend_from_slice(&texel(x, y));
+            }
+        }
+        crate::loader::GltfImageData {
+            width,
+            height,
+            rgba,
+        }
+    }
+
+    /// The ORM a material reads, from the images glTF gives it: occlusion
+    /// (R) from the occlusion image and roughness and metallic (G, B) from the
+    /// metallic-roughness one when they are two -- sampled nearest when their
+    /// sizes differ -- and white G and B for an occlusion image alone, so
+    /// the factors stand. Each image's other channels are distinct, so a
+    /// channel taken from the wrong one shows.
+    #[test]
+    fn an_orm_is_packed_from_a_gltfs_two_images() {
+        // 2 x 1: R 10/20, G 30, B 40 -- the metallic-roughness image.
+        let mr = image(2, 1, |x, _| [10 + 10 * x as u8, 30, 40, 255]);
+        // 1 x 1: R 200 -- the occlusion image, smaller.
+        let occ = image(1, 1, |_, _| [200, 7, 9, 255]);
+        let images = [mr, occ];
+        let packed = data_image_pixels(
+            DataImage::Orm {
+                metallic_roughness: Some(0),
+                occlusion: Some(1),
+            },
+            &images,
+        )
+        .unwrap();
+        assert_eq!(packed.0, 2, "the metallic-roughness image's size");
+        assert_eq!(packed.2, vec![200, 30, 40, 255, 200, 30, 40, 255]);
+
+        let alone = data_image_pixels(
+            DataImage::Orm {
+                metallic_roughness: None,
+                occlusion: Some(1),
+            },
+            &images,
+        )
+        .unwrap();
+        assert_eq!(
+            alone.2,
+            vec![200, 255, 255, 255],
+            "occlusion alone, factors kept"
+        );
+
+        let same = data_image_pixels(
+            DataImage::Orm {
+                metallic_roughness: Some(0),
+                occlusion: Some(0),
+            },
+            &images,
+        )
+        .unwrap();
+        assert_eq!(
+            same.2, images[0].rgba,
+            "one image holding all three, as it is"
+        );
+    }
+
+    /// A glTF material's factors reach `Material` as glTF means them: base
+    /// colour and emission, metallic and roughness; alpha only for a `BLEND`
+    /// material; and the occlusion strength 0 when the ORM's R is not
+    /// occlusion (a metallic-roughness image with no occlusion image).
+    #[test]
+    fn a_gltf_materials_factors_become_the_materials() {
+        let m = crate::loader::GltfMaterial {
+            base_color: [0.5, 0.25, 0.125, 0.4],
+            blend: false,
+            metallic: 0.7,
+            roughness: 0.3,
+            emissive: [0.9, 0.8, 0.0],
+            metallic_roughness: Some(2),
+            emissive_texture: Some(3),
+            ..Default::default()
+        };
+        let mat = material_from_gltf(&m, None, "m.glb");
+        assert_eq!(*mat.base_color, glam::Vec3::new(0.5, 0.25, 0.125));
+        assert_eq!(mat.opacity, 1.0, "OPAQUE ignores alpha");
+        assert_eq!((mat.metallic, mat.roughness), (0.7, 0.3));
+        assert_eq!(*mat.emissive, glam::Vec3::new(0.9, 0.8, 0.0));
+        assert_eq!(
+            mat.orm_map,
+            data_image_name(
+                "m.glb",
+                DataImage::Orm {
+                    metallic_roughness: Some(2),
+                    occlusion: None
+                }
+            )
+        );
+        assert_eq!(mat.occlusion_strength, 0.0, "no occlusion image: R unread");
+        assert_eq!(mat.emissive_map, emissive_image_name("m.glb", 3));
+        assert!(mat.normal_map.is_empty());
+
+        let blended = material_from_gltf(
+            &crate::loader::GltfMaterial {
+                blend: true,
+                occlusion: Some((1, 0.6)),
+                ..m
+            },
+            None,
+            "m.glb",
+        );
+        assert_eq!(blended.opacity, 0.4, "BLEND takes alpha as opacity");
+        assert_eq!(blended.occlusion_strength, 0.6);
+    }
+
+    /// Through the real plugin: a glTF whose metallic-roughness and
+    /// occlusion are two images, and with an emissive one, spawns a
+    /// `Material` whose ORM name resolves to a linear upload and whose
+    /// emissive name resolves to the sRGB colour copy -- the two are opposite
+    /// on purpose, so a map uploaded the other's way shows.
+    #[test]
+    fn a_gltfs_orm_is_uploaded_linear_and_its_emissive_map_as_colour() {
+        const PNG_1X1: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNoaPj/HwAGggL/s75RMwAAAABJRU5ErkJggg==";
+        fn f32s(values: &[f32]) -> Vec<u8> {
+            values.iter().flat_map(|v| v.to_le_bytes()).collect()
+        }
+        let mut buffer = f32s(&[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
+        buffer.extend(f32s(&[0.0, 0.0, 1.0, 0.0, 0.0, 1.0]));
+        let image = format!(r#"{{"uri": "data:image/png;base64,{PNG_1X1}"}}"#);
+        let gltf = format!(
+            r#"{{
+  "asset": {{"version": "2.0"}},
+  "scene": 0,
+  "scenes": [{{"nodes": [0]}}],
+  "nodes": [{{"mesh": 0}}],
+  "meshes": [{{"primitives": [{{"attributes": {{"POSITION": 0, "TEXCOORD_0": 1}}, "material": 0}}]}}],
+  "materials": [{{
+    "pbrMetallicRoughness": {{"metallicRoughnessTexture": {{"index": 0}}}},
+    "occlusionTexture": {{"index": 1, "strength": 0.8}},
+    "emissiveTexture": {{"index": 2}},
+    "emissiveFactor": [1, 1, 1]
+  }}],
+  "textures": [{{"source": 0}}, {{"source": 1}}, {{"source": 2}}],
+  "images": [{image}, {image}, {image}],
+  "buffers": [{{"byteLength": 60, "uri": "data:application/octet-stream;base64,{}"}}],
+  "bufferViews": [
+    {{"buffer": 0, "byteOffset": 0, "byteLength": 36}},
+    {{"buffer": 0, "byteOffset": 36, "byteLength": 24}}
+  ],
+  "accessors": [
+    {{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3", "min": [0, 0, 0], "max": [1, 1, 0]}},
+    {{"bufferView": 1, "componentType": 5126, "count": 3, "type": "VEC2"}}
+  ]
+}}"#,
+            crate::loader::base64(&buffer)
+        );
+        let dir = std::env::temp_dir().join(format!("bsengine-gltf-orm-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("orm.gltf");
+        std::fs::write(&file, gltf).unwrap();
+        let path = file.to_str().unwrap().to_owned();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
+        app.add_plugins(GltfPlugin);
+        app.init_resource::<bsengine_render::texture_cache::TextureCache>();
+        insert_headless_gpu_registries(&mut app);
+        let e = app.world_mut().spawn(GltfAsset::new(path.clone())).id();
+        for _ in 0..200 {
+            app.update();
+            if app.world().get::<GltfLoaded>(e).is_some() {
+                break;
+            }
+        }
+        let material = app
+            .world()
+            .get::<Material>(e)
+            .expect("the triangle spawned")
+            .clone();
+        assert_eq!(material.occlusion_strength, 0.8);
+        let cache = app
+            .world()
+            .resource::<bsengine_render::texture_cache::TextureCache>();
+        let registry = app.world().resource::<GpuTextureRegistry>();
+        let orm = cache
+            .id_for_data(&material.orm_map)
+            .expect("the ORM resolves");
+        let emissive = cache
+            .id_for(&material.emissive_map)
+            .expect("the emissive map resolves");
+        assert!(!registry.get_settings(orm).unwrap().srgb, "the ORM is data");
+        assert!(
+            registry.get_settings(emissive).unwrap().srgb,
+            "the emissive map is colour"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }

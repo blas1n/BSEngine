@@ -572,13 +572,20 @@ pub fn resolve_texture_paths(
         return;
     };
 
-    // Normal maps, as data. Gathered from the same query as the albedo -- a
-    // second query reading `Material` would conflict with this one writing
-    // it -- and requested below, after the albedo.
-    let mut normal_maps: Vec<String> = Vec::new();
+    // A material's other maps: the normal and ORM maps as data, the emissive
+    // map as colour. Gathered from the same query as the albedo -- a second
+    // query reading `Material` would conflict with this one writing it -- and
+    // requested below, after the albedo.
+    let mut data_maps: Vec<String> = Vec::new();
+    let mut colour_maps: Vec<String> = Vec::new();
     for (wanted, mut material) in wanting.iter_mut() {
-        if !material.normal_map.is_empty() {
-            normal_maps.push(material.normal_map.clone());
+        for map in [&material.normal_map, &material.orm_map] {
+            if !map.is_empty() {
+                data_maps.push(map.clone());
+            }
+        }
+        if !material.emissive_map.is_empty() {
+            colour_maps.push(material.emissive_map.clone());
         }
         let Some(wanted) = wanted else {
             continue;
@@ -642,8 +649,11 @@ pub fn resolve_texture_paths(
     // Normal maps, as data: looked up by path when the frame is built
     // (`id_for_data`), so requested here like the paths above -- the step
     // decals and point cookies each shipped without once.
-    for path in &normal_maps {
+    for path in &data_maps {
         cache.upload_data(path, &asset_server, &mut textures, &mut registry);
+    }
+    for path in &colour_maps {
+        cache.upload(path, &asset_server, &mut textures, &mut registry);
     }
 }
 

@@ -35,12 +35,21 @@ struct CachedTexture {
     slot: bsengine_asset::AssetSlot<TextureAsset>,
     /// `Some` once the image is on the GPU.
     id: Option<u64>,
+    /// Whether this entry has asked for the file to be read again because
+    /// the asset it found had already released its pixels (see
+    /// [`poll_and_upload`]). Asked once, not every frame.
+    reloading: bool,
 }
 
 /// One entry per texture path.
 #[derive(Resource, Default)]
 pub struct TextureCache {
     by_path: HashMap<String, CachedTexture>,
+    /// The same, for paths used as *data* -- normal maps -- and uploaded
+    /// linear whatever the sidecar says ([`Self::upload_data`]). A separate
+    /// map, so an image used both ways (rare, but legal) is two GPU copies
+    /// rather than one copy that is wrong for one of its uses.
+    by_path_data: HashMap<String, CachedTexture>,
     /// Textures whose pixels are pushed in each frame rather than loaded
     /// from a file -- a video's frames ([`Self::set_frame`]) -- by name.
     dynamic: HashMap<String, u64>,
@@ -53,6 +62,23 @@ impl TextureCache {
             .get(path)
             .copied()
             .or_else(|| self.by_path.get(path).and_then(|c| c.id))
+    }
+
+    /// [`Self::id_for`] for a path used as data ([`Self::upload_data`]): the
+    /// linear copy. A name registered with [`Self::insert_named`] answers
+    /// both, since whoever registered it uploaded it the way it is used.
+    pub fn id_for_data(&self, path: &str) -> Option<u64> {
+        self.dynamic
+            .get(path)
+            .copied()
+            .or_else(|| self.by_path_data.get(path).and_then(|c| c.id))
+    }
+
+    /// Names a texture already on the GPU, so a material can name it like a
+    /// file: what a loaded model does with its embedded images, which have
+    /// no path of their own.
+    pub fn insert_named(&mut self, name: &str, id: u64) {
+        self.dynamic.insert(name.to_string(), id);
     }
 
     /// Shows `rgba` as the texture named `name`: uploaded the first time,
@@ -139,23 +165,131 @@ impl TextureCache {
             .or_insert_with(|| CachedTexture {
                 slot: bsengine_asset::AssetSlot::requesting(asset_server, path),
                 id: None,
+                reloading: false,
             });
-
-        match entry.slot.poll(asset_server, textures) {
-            bsengine_asset::Polled::Arrived => {
-                if let Some(tex) = textures.get(entry.slot.handle()) {
-                    entry.id =
-                        Some(registry.load_with(tex.width, tex.height, &tex.data, tex.settings));
-                    release_if_asked(textures, entry.slot.handle(), path);
-                }
-            }
-            bsengine_asset::Polled::Failed(e) => {
-                tracing::warn!("[texture] '{path}' failed to load: {e}");
-            }
-            bsengine_asset::Polled::Nothing => {}
+        let (id, uploaded) = poll_and_upload(entry, path, false, asset_server, textures, registry);
+        if uploaded {
+            self.release_once_all_uploaded(path, textures);
         }
-        entry.id
+        id
     }
+
+    /// [`Self::upload`] for an image used as data -- a normal map -- which is
+    /// uploaded linear whatever its sidecar says, as Godot does when it finds
+    /// an image used as a normal map (Unity asks first; both end with the
+    /// texture imported as one). Decoded as sRGB, a normal map's every texel
+    /// would point the wrong way. The sidecar's other settings -- filter,
+    /// wrap, mips -- stand.
+    pub fn upload_data(
+        &mut self,
+        path: &str,
+        asset_server: &bevy_asset::AssetServer,
+        textures: &mut bevy_asset::Assets<TextureAsset>,
+        registry: &mut GpuTextureRegistry,
+    ) -> Option<u64> {
+        if let Some(&id) = self.dynamic.get(path) {
+            return Some(id);
+        }
+        let entry = self
+            .by_path_data
+            .entry(path.to_string())
+            .or_insert_with(|| CachedTexture {
+                slot: bsengine_asset::AssetSlot::requesting(asset_server, path),
+                id: None,
+                reloading: false,
+            });
+        let (id, uploaded) = poll_and_upload(entry, path, true, asset_server, textures, registry);
+        if uploaded {
+            self.release_once_all_uploaded(path, textures);
+        }
+        id
+    }
+
+    /// Releases `path`'s pixels, when its sidecar asks for that, only once
+    /// every copy of it this cache keeps -- colour and data -- is on the GPU.
+    /// An image both copies want is one asset: released after the first
+    /// upload, it would leave the second nothing to upload (a zero-length
+    /// write wgpu rejects, as a panic).
+    fn release_once_all_uploaded(
+        &self,
+        path: &str,
+        textures: &mut bevy_asset::Assets<TextureAsset>,
+    ) {
+        let pending =
+            |m: &HashMap<String, CachedTexture>| m.get(path).is_some_and(|e| e.id.is_none());
+        if pending(&self.by_path) || pending(&self.by_path_data) {
+            return;
+        }
+        if let Some(entry) = self
+            .by_path
+            .get(path)
+            .or_else(|| self.by_path_data.get(path))
+        {
+            release_if_asked(textures, entry.slot.handle(), path);
+        }
+    }
+}
+
+/// `settings` as uploaded for a use: linear for data.
+fn for_use(
+    settings: bsengine_core::TextureImportSettings,
+    data: bool,
+) -> bsengine_core::TextureImportSettings {
+    if data {
+        bsengine_core::TextureImportSettings {
+            srgb: false,
+            ..settings
+        }
+    } else {
+        settings
+    }
+}
+
+/// Polls `entry`'s load and uploads it once it is there.
+///
+/// An image whose pixels are already released -- another use of it uploaded
+/// first, and the asset was released before this one asked (a material that
+/// starts using an image as its normal map at runtime, say) -- is read from
+/// its file again, and uploaded when that lands: the asset is shared, so
+/// there are no pixels to upload until then. The release that follows waits
+/// for every use ([`TextureCache::release_once_all_uploaded`]).
+///
+/// Returns the id, and whether this call uploaded: only then may the caller
+/// release. Released on a frame that uploaded nothing, a hot reload's fresh
+/// pixels would go before `reupload_modified_textures` could rebuild from
+/// them -- the skybox's reload test caught exactly that.
+fn poll_and_upload(
+    entry: &mut CachedTexture,
+    path: &str,
+    data: bool,
+    asset_server: &bevy_asset::AssetServer,
+    textures: &mut bevy_asset::Assets<TextureAsset>,
+    registry: &mut GpuTextureRegistry,
+) -> (Option<u64>, bool) {
+    let mut uploaded = false;
+    if let bsengine_asset::Polled::Failed(e) = entry.slot.poll(asset_server, textures) {
+        tracing::warn!("[texture] '{path}' failed to load: {e}");
+    }
+    if entry.id.is_none() {
+        if let Some(tex) = textures.get(entry.slot.handle()) {
+            if tex.pixels_released {
+                if !entry.reloading {
+                    asset_server.reload(path.to_string());
+                    entry.reloading = true;
+                }
+            } else {
+                entry.id = Some(registry.load_with(
+                    tex.width,
+                    tex.height,
+                    &tex.data,
+                    for_use(tex.settings, data),
+                ));
+                entry.reloading = false;
+                uploaded = true;
+            }
+        }
+    }
+    (entry.id, uploaded)
 }
 
 /// Re-uploads a cached texture whose asset was modified -- a saved edit to
@@ -181,7 +315,13 @@ pub fn reupload_modified_textures(
         let Some(registry) = registry.as_mut() else {
             continue;
         };
-        for (path, entry) in cache.by_path.iter() {
+        let colour = cache.by_path.iter().map(|(p, e)| (p, e, false));
+        let data = cache.by_path_data.iter().map(|(p, e)| (p, e, true));
+        // Released after every copy is rebuilt, not after each: the copies of
+        // an image used as colour and as data share the asset, and the second
+        // would find nothing to rebuild from (and keep the pre-edit pixels).
+        let mut rebuilt: Vec<String> = Vec::new();
+        for (path, entry, as_data) in colour.chain(data) {
             if entry.slot.handle().id() != *id {
                 continue;
             }
@@ -194,13 +334,22 @@ pub fn reupload_modified_textures(
             if tex.pixels_released {
                 continue;
             }
-            if !registry.replace_with(gpu_id, tex.width, tex.height, &tex.data, tex.settings) {
+            if !registry.replace_with(
+                gpu_id,
+                tex.width,
+                tex.height,
+                &tex.data,
+                for_use(tex.settings, as_data),
+            ) {
                 tracing::warn!(
                     "[texture] '{path}' was modified but its GPU texture {gpu_id} is no longer \
                      registered; whatever samples it keeps the pre-edit pixels"
                 );
             }
-            release_if_asked(&mut textures, entry.slot.handle(), path);
+            rebuilt.push(path.clone());
+        }
+        for path in rebuilt {
+            cache.release_once_all_uploaded(&path, &mut textures);
         }
     }
 }
@@ -407,7 +556,7 @@ pub(crate) fn lightmap_params(
 #[allow(clippy::too_many_arguments)] // Bevy system params
 pub fn resolve_texture_paths(
     mut cache: ResMut<TextureCache>,
-    mut wanting: Query<(&TexturePath, &mut Material)>,
+    mut wanting: Query<(Option<&TexturePath>, &mut Material)>,
     ui_state: Option<Res<bsengine_core::UiState>>,
     spot_lights: Query<&bsengine_core::SpotLight>,
     point_lights: Query<&bsengine_core::PointLight>,
@@ -423,7 +572,17 @@ pub fn resolve_texture_paths(
         return;
     };
 
+    // Normal maps, as data. Gathered from the same query as the albedo -- a
+    // second query reading `Material` would conflict with this one writing
+    // it -- and requested below, after the albedo.
+    let mut normal_maps: Vec<String> = Vec::new();
     for (wanted, mut material) in wanting.iter_mut() {
+        if !material.normal_map.is_empty() {
+            normal_maps.push(material.normal_map.clone());
+        }
+        let Some(wanted) = wanted else {
+            continue;
+        };
         if material.texture_id.is_some() {
             continue;
         }
@@ -478,6 +637,13 @@ pub fn resolve_texture_paths(
         if !path.is_empty() {
             cache.upload(path, &asset_server, &mut textures, &mut registry);
         }
+    }
+
+    // Normal maps, as data: looked up by path when the frame is built
+    // (`id_for_data`), so requested here like the paths above -- the step
+    // decals and point cookies each shipped without once.
+    for path in &normal_maps {
+        cache.upload_data(path, &asset_server, &mut textures, &mut registry);
     }
 }
 
@@ -1296,6 +1462,116 @@ mod tests {
             ..Default::default()
         };
         assert!(uploaded_for(decal, OTHER));
+    }
+
+    /// A material's normal map reaches the GPU on the material's say-so --
+    /// it is looked up by path when the frame is built, so something must
+    /// request it -- and as data: uploaded linear though the file's sidecar
+    /// says sRGB (the default, and what this fixture's says), and not under
+    /// the colour lookup, which would hand a draw the sRGB-decoded copy.
+    #[test]
+    fn a_materials_normal_map_is_uploaded_linear() {
+        let mut app = test_app();
+        app.world_mut().spawn(Material {
+            normal_map: REAL_TEXTURE.into(),
+            ..Default::default()
+        });
+        for _ in 0..60 {
+            app.update();
+        }
+        let cache = app.world().resource::<TextureCache>();
+        let id = cache
+            .id_for_data(REAL_TEXTURE)
+            .expect("the normal map was requested and uploaded");
+        assert!(cache.id_for(REAL_TEXTURE).is_none(), "not as a colour");
+        let settings = app
+            .world()
+            .resource::<GpuTextureRegistry>()
+            .get_settings(id)
+            .expect("on the GPU");
+        assert!(!settings.srgb, "uploaded linear: {settings:?}");
+    }
+
+    /// One image named both as a material's albedo and as its normal map is
+    /// two uploads of one asset -- colour and data -- and the pixels the
+    /// sidecar asks to release (the default) are released only after both:
+    /// released after the first, they left the second a zero-length write,
+    /// which wgpu rejects by panicking. Premise: the release is on for this
+    /// fixture, and happens once both are up.
+    #[test]
+    fn an_image_used_as_colour_and_as_data_is_uploaded_both_ways() {
+        let mut app = test_app();
+        app.world_mut().spawn((
+            TexturePath(REAL_TEXTURE.into()),
+            Material {
+                normal_map: REAL_TEXTURE.into(),
+                ..Default::default()
+            },
+        ));
+        for _ in 0..60 {
+            app.update();
+        }
+        let cache = app.world().resource::<TextureCache>();
+        let colour = cache.id_for(REAL_TEXTURE).expect("the colour copy");
+        let data = cache.id_for_data(REAL_TEXTURE).expect("the data copy");
+        assert_ne!(colour, data, "two GPU copies");
+        let handle = cache.asset_handle(REAL_TEXTURE).unwrap().clone();
+        let released = app
+            .world()
+            .resource::<bevy_asset::Assets<TextureAsset>>()
+            .get(&handle)
+            .is_some_and(|t| t.pixels_released);
+        assert!(
+            released,
+            "premise: the pixels are released once both are up"
+        );
+    }
+
+    /// And a second use that arrives after the first has released the
+    /// pixels -- the albedo up and released, then a material starting to use
+    /// the same image as its normal map -- has the file read again and is
+    /// uploaded from that, rather than from the empty asset.
+    #[test]
+    fn a_second_use_after_the_pixels_were_released_reads_the_file_again() {
+        let mut app = test_app();
+        let entity = app
+            .world_mut()
+            .spawn((TexturePath(REAL_TEXTURE.into()), Material::default()))
+            .id();
+        for _ in 0..60 {
+            app.update();
+        }
+        let handle = app
+            .world()
+            .resource::<TextureCache>()
+            .asset_handle(REAL_TEXTURE)
+            .expect("requested")
+            .clone();
+        assert!(
+            app.world()
+                .resource::<bevy_asset::Assets<TextureAsset>>()
+                .get(&handle)
+                .is_some_and(|t| t.pixels_released),
+            "premise: the albedo is up and its pixels released"
+        );
+        app.world_mut()
+            .get_mut::<Material>(entity)
+            .unwrap()
+            .normal_map = REAL_TEXTURE.into();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while app
+            .world()
+            .resource::<TextureCache>()
+            .id_for_data(REAL_TEXTURE)
+            .is_none()
+        {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the normal map was never uploaded"
+            );
+            app.update();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
     }
 
     /// A lightmap's atlas reaches the GPU on the component's say-so alone:

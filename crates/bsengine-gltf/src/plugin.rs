@@ -232,6 +232,24 @@ struct GltfLoaded {
     mesh_ids: Vec<u64>,
     /// GPU texture ids created for this asset, in `LoadedGltf::images` order.
     texture_ids: Vec<u64>,
+    /// The linear copies of the images used as normal maps: (index into
+    /// `LoadedGltf::images`, GPU id).
+    normal_texture_ids: Vec<(usize, u64)>,
+}
+
+/// The name a model's embedded image is registered under as a normal map
+/// (`TextureCache::insert_named`): what `Material::normal_map` holds for it,
+/// since an embedded image has no path of its own.
+pub fn normal_map_name(model_path: &str, image: usize) -> String {
+    format!("{model_path}#normal{image}")
+}
+
+/// glTF's normal textures are data: uploaded linear, with the default sampler.
+fn normal_map_settings() -> bsengine_core::TextureImportSettings {
+    bsengine_core::TextureImportSettings {
+        srgb: false,
+        ..Default::default()
+    }
 }
 
 fn load_gltf_assets(
@@ -248,6 +266,7 @@ fn load_gltf_assets(
     >,
     mut mesh_registry: Option<ResMut<GpuMeshRegistry>>,
     mut tex_registry: Option<ResMut<GpuTextureRegistry>>,
+    mut texture_cache: Option<ResMut<bsengine_render::texture_cache::TextureCache>>,
     mut gltf_assets: ResMut<bevy_asset::Assets<LoadedGltf>>,
     asset_server: Res<bevy_asset::AssetServer>,
 ) {
@@ -322,6 +341,26 @@ fn load_gltf_assets(
         } else {
             vec![None; loaded.images.len()]
         };
+        // An image a material uses as its normal map, again but linear: glTF
+        // stores a normal texture as data, and the copy above is decoded as
+        // sRGB, which would turn every texel's normal. Once per image, named
+        // for the materials to find (`normal_map_name`).
+        let mut normal_ids: Vec<(usize, u64)> = Vec::new();
+        if let Some(tr) = tex_registry.as_mut() {
+            for &(image, _) in loaded.mesh_normal_maps.iter().flatten() {
+                if normal_ids.iter().any(|&(i, _)| i == image) {
+                    continue;
+                }
+                let Some(img) = loaded.images.get(image) else {
+                    continue;
+                };
+                let id = tr.load_with(img.width, img.height, &img.rgba, normal_map_settings());
+                if let Some(cache) = texture_cache.as_mut() {
+                    cache.insert_named(&normal_map_name(&asset.path, image), id);
+                }
+                normal_ids.push((image, id));
+            }
+        }
 
         let mut first = true;
         // Recorded for `GltfLoaded`. Collected across the whole loop -- including
@@ -329,7 +368,12 @@ fn load_gltf_assets(
         // replacing under those ids is exactly how those entities get updated,
         // and none of them are findable from this one later.
         let mut mesh_ids: Vec<u64> = Vec::with_capacity(loaded.meshes.len());
-        for (mesh_data, tex_idx) in loaded.meshes.iter().zip(loaded.mesh_tex_indices.iter()) {
+        for (k, (mesh_data, tex_idx)) in loaded
+            .meshes
+            .iter()
+            .zip(loaded.mesh_tex_indices.iter())
+            .enumerate()
+        {
             // The first mesh is the one that gets skinning (see the
             // `SkinnedMesh` insert below); it is registered as a skinned mesh
             // so the GPU blends its vertices each frame. The same gate as
@@ -368,8 +412,13 @@ fn load_gltf_assets(
             };
             mesh_ids.push(mesh_id);
             let texture_id = tex_idx.and_then(|i| tex_ids.get(i).copied().flatten());
+            let normal = loaded.mesh_normal_maps.get(k).copied().flatten();
             let mat = Material {
                 texture_id,
+                normal_map: normal
+                    .map(|(image, _)| normal_map_name(&asset.path, image))
+                    .unwrap_or_default(),
+                normal_scale: normal.map_or(1.0, |(_, scale)| scale),
                 ..Default::default()
             };
 
@@ -445,6 +494,7 @@ fn load_gltf_assets(
                 handle: handle.clone(),
                 mesh_ids,
                 texture_ids: tex_ids.iter().flatten().copied().collect(),
+                normal_texture_ids: normal_ids,
             });
         }
     }
@@ -664,6 +714,20 @@ fn rebuild_modified_gltf(
                         warn!(
                             "texture id {tex_id} recorded at load time is no longer \
                              loaded; whatever samples it keeps the pre-reload pixels"
+                        );
+                    }
+                }
+                // The normal maps' linear copies, which the loop above does
+                // not reach: each is an id of its own.
+                for &(image, tex_id) in &loaded.normal_texture_ids {
+                    let Some(img) = data.images.get(image) else {
+                        continue;
+                    };
+                    let settings = normal_map_settings();
+                    if !reg.replace_with(tex_id, img.width, img.height, &img.rgba, settings) {
+                        warn!(
+                            "normal map id {tex_id} recorded at load time is no longer \
+                             loaded; whatever samples it keeps the pre-reload map"
                         );
                     }
                 }
@@ -1131,6 +1195,87 @@ mod tests {
     /// skinning system from every test built on it. `WgpuRHIPlugin` inserts all
     /// three together at surface-creation time, so supplying a strict subset
     /// here would be a configuration the engine itself never produces.
+    /// A glTF material's `normalTexture` reaches the entity's `Material` --
+    /// named for its embedded image, at the file's scale -- and that name
+    /// resolves to a copy of the image uploaded *linear*: glTF stores normal
+    /// textures as data, and the colour copy beside it is sRGB. Premise: the
+    /// file has no base colour texture, so the only image in it is the map.
+    #[test]
+    fn a_gltf_normal_texture_becomes_the_materials_normal_map_uploaded_linear() {
+        const PNG_1X1: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNoaPj/HwAGggL/s75RMwAAAABJRU5ErkJggg==";
+        fn f32s(values: &[f32]) -> Vec<u8> {
+            values.iter().flat_map(|v| v.to_le_bytes()).collect()
+        }
+        let mut buffer = f32s(&[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
+        buffer.extend(f32s(&[0.0, 0.0, 1.0, 0.0, 0.0, 1.0]));
+        let gltf = format!(
+            r#"{{
+  "asset": {{"version": "2.0"}},
+  "scene": 0,
+  "scenes": [{{"nodes": [0]}}],
+  "nodes": [{{"mesh": 0}}],
+  "meshes": [{{"primitives": [{{"attributes": {{"POSITION": 0, "TEXCOORD_0": 1}}, "material": 0}}]}}],
+  "materials": [{{"normalTexture": {{"index": 0, "scale": 0.5}}}}],
+  "textures": [{{"source": 0}}],
+  "images": [{{"uri": "data:image/png;base64,{PNG_1X1}"}}],
+  "buffers": [{{"byteLength": 60, "uri": "data:application/octet-stream;base64,{}"}}],
+  "bufferViews": [
+    {{"buffer": 0, "byteOffset": 0, "byteLength": 36}},
+    {{"buffer": 0, "byteOffset": 36, "byteLength": 24}}
+  ],
+  "accessors": [
+    {{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3", "min": [0, 0, 0], "max": [1, 1, 0]}},
+    {{"bufferView": 1, "componentType": 5126, "count": 3, "type": "VEC2"}}
+  ]
+}}"#,
+            crate::loader::base64(&buffer)
+        );
+        let dir = std::env::temp_dir().join(format!("bsengine-gltf-normal-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("normal.gltf");
+        std::fs::write(&file, gltf).unwrap();
+        let path = file.to_str().unwrap().to_owned();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
+        app.add_plugins(GltfPlugin);
+        app.init_resource::<bsengine_render::texture_cache::TextureCache>();
+        insert_headless_gpu_registries(&mut app);
+        let e = app.world_mut().spawn(GltfAsset::new(path.clone())).id();
+        for _ in 0..200 {
+            app.update();
+            if app.world().get::<GltfLoaded>(e).is_some() {
+                break;
+            }
+        }
+        let material = app
+            .world()
+            .get::<Material>(e)
+            .expect("the triangle spawned");
+        assert!(
+            material.texture_id.is_none(),
+            "premise: no base colour texture"
+        );
+        assert_eq!(material.normal_map, normal_map_name(&path, 0));
+        assert_eq!(material.normal_scale, 0.5);
+        let id = app
+            .world()
+            .resource::<bsengine_render::texture_cache::TextureCache>()
+            .id_for_data(&material.normal_map)
+            .expect("the name resolves to the uploaded map");
+        let settings = app
+            .world()
+            .resource::<GpuTextureRegistry>()
+            .get_settings(id)
+            .expect("on the GPU");
+        assert!(
+            !settings.srgb,
+            "a normal map is uploaded linear: {settings:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     fn insert_headless_gpu_registries(app: &mut bevy_app::App) {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),

@@ -26,6 +26,17 @@ pub struct Material {
     /// [`ReflectColor`] is shared with `emissive` and with light colours, where
     /// an alpha channel would mean nothing.
     pub opacity: f32,
+    /// The tangent-space normal map, as a path (or the name a loaded model
+    /// registered an embedded image under); empty for none. Read in the
+    /// frame of the mesh's tangents -- MikkTSpace's, or the model's own --
+    /// with green as +v (glTF's and Blender's convention; a map baked for
+    /// DirectX conventions has green flipped). Uploaded linear whatever its
+    /// sidecar says: a normal map is data, and decoding it as sRGB would
+    /// turn every texel's angle.
+    pub normal_map: String,
+    /// How far the normal map's x and y tilt the normal: 1 as authored, 0
+    /// flat. glTF's `normalTexture.scale`, Unity's "Bump Scale".
+    pub normal_scale: f32,
 }
 
 /// The image this entity wants as its base color texture, named by path.
@@ -53,6 +64,8 @@ impl Default for Material {
             emissive: Vec3::ZERO.into(),
             base_color: Vec3::ONE.into(),
             opacity: 1.0,
+            normal_map: String::new(),
+            normal_scale: 1.0,
         }
     }
 }

@@ -58,6 +58,8 @@ struct ModelUniform {
     // (`uv2 * xy + zw`) and the array layer it reads, negative for none.
     lightmap_scale_offset: vec4<f32>,
     lightmap_layer: f32,
+    // How far the normal map tilts the normal; 0 for no normal map.
+    normal_scale: f32,
 };
 struct PointLightEntry {
     position: vec3<f32>,
@@ -112,6 +114,10 @@ struct LightUniform {
 @group(2) @binding(0) var<uniform> light: LightUniform;
 @group(3) @binding(0) var t_diffuse: texture_2d<f32>;
 @group(3) @binding(1) var s_diffuse: sampler;
+// The material's tangent-space normal map, linear, with its own sampler
+// (`material_textures`). Read only when `model_data.normal_scale` is not 0.
+@group(3) @binding(2) var t_normal: texture_2d<f32>;
+@group(3) @binding(3) var s_normal: sampler;
 @group(2) @binding(1) var shadow_sampler: sampler_comparison;
 @group(2) @binding(2) var shadow_map: texture_depth_2d_array;
 @group(2) @binding(4) var point_shadow_map: texture_2d_array<f32>;
@@ -169,6 +175,9 @@ struct VertIn {
     @location(3) uv: vec2<f32>,
     // The lightmap coordinates (`Vertex::uv2`).
     @location(4) uv2: vec2<f32>,
+    // The tangent a normal map is read against (`Vertex::tangent`): xyz
+    // along +u, w the handedness.
+    @location(5) tangent: vec4<f32>,
 }
 struct VertOut {
     @builtin(position) clip_pos: vec4<f32>,
@@ -184,6 +193,8 @@ struct VertOut {
     // This vertex's place in the lightmap, already moved into the rectangle
     // its object owns.
     @location(6) lm_uv: vec2<f32>,
+    // The tangent in world space, and its handedness.
+    @location(7) world_tangent: vec4<f32>,
 }
 @vertex
 fn vs_main(in: VertIn) -> VertOut {
@@ -200,9 +211,37 @@ fn vs_main(in: VertIn) -> VertOut {
         model_data.model[2].xyz,
     );
     out.world_normal = normalize(normal_matrix * in.normal);
+    // A direction in the surface, so the model's linear part as it is (the
+    // normal takes the same matrix here -- correct under uniform scale, the
+    // simplification the renderer already makes). Not normalised: the
+    // fragment stage makes it perpendicular to the interpolated normal and
+    // normalises then.
+    out.world_tangent = vec4<f32>(normal_matrix * in.tangent.xyz, in.tangent.w);
     out.uv = in.uv;
     out.lm_uv = in.uv2 * model_data.lightmap_scale_offset.xy + model_data.lightmap_scale_offset.zw;
     return out;
+}
+
+// The shading normal a tangent-space normal map gives. The tangent is made
+// perpendicular to the interpolated normal first (Gram-Schmidt): neither is
+// unit or orthogonal after interpolation, and a morph target moves the normal
+// and not the tangent. The bitangent is `cross(n, t) * w` -- glTF's and
+// MikkTSpace's convention, which is what the map was baked in. glTF's
+// `normalTexture.scale` multiplies x and y before normalising. A tangent with
+// nothing left of it (degenerate UVs) gives back the normal untouched.
+fn normal_mapped(n: vec3<f32>, tangent: vec4<f32>, uv: vec2<f32>, scale: f32) -> vec3<f32> {
+    // Sampled first: a `textureSample` after the per-fragment early return
+    // below would be in non-uniform control flow, which WGSL refuses (the
+    // implicit derivatives it needs are undefined there).
+    let m = textureSample(t_normal, s_normal, uv).xyz * 2.0 - vec3<f32>(1.0);
+    let t = tangent.xyz - n * dot(n, tangent.xyz);
+    let len = length(t);
+    if (len < 1e-6) {
+        return n;
+    }
+    let tt = t / len;
+    let b = cross(n, tt) * select(1.0, -1.0, tangent.w < 0.0);
+    return normalize(tt * (m.x * scale) + b * (m.y * scale) + n * m.z);
 }
 // The directional shadow lookup, filtered. `soft` is `camera.shadow_filter`
 // (`ShadowSettings::soft`): hard reads the one texel the point falls in;
@@ -425,7 +464,13 @@ struct SceneOut {
 
 @fragment
 fn fs_main(in: VertOut) -> SceneOut {
-    let geom_n = normalize(in.world_normal);
+    var geom_n = normalize(in.world_normal);
+    // The material's normal map, under any decal: a decal is painted onto the
+    // surface as it is, bumps and all, so it blends with the mapped normal.
+    // `normal_scale` is per draw, so the branch is uniform.
+    if (model_data.normal_scale != 0.0) {
+        geom_n = normal_mapped(geom_n, in.world_tangent, in.uv, model_data.normal_scale);
+    }
     // A surface with no decal reads (0, 0, 0, 1) here and keeps its own normal
     // exactly.
     let dnorm = textureLoad(decal_normal_buffer, vec2<i32>(in.clip_pos.xy), 0);
@@ -2024,6 +2069,12 @@ pub struct MaterialParams {
     /// diffuse ambient/IBL/probe term; a texture that is not on the GPU yet
     /// is no lightmap, so the draw shades as it would without one.
     pub lightmap: Option<crate::lightmap::LightmapParams>,
+    /// The tangent-space normal map, by registry id, uploaded linear. `None`,
+    /// or an id not on the GPU yet, shades with the vertex normal.
+    pub normal_texture: Option<u64>,
+    /// How far the map's x and y tilt the normal: glTF's
+    /// `normalTexture.scale`, 1 as authored.
+    pub normal_scale: f32,
 }
 
 impl Default for MaterialParams {
@@ -2035,7 +2086,21 @@ impl Default for MaterialParams {
             base_color: Vec3::ONE,
             opacity: 1.0,
             lightmap: None,
+            normal_texture: None,
+            normal_scale: 1.0,
         }
+    }
+}
+
+/// The textures a draw's material group 3 holds: the draw's albedo id (the
+/// draw call's third field) and its material's maps.
+fn material_texture_ids(
+    albedo: Option<u64>,
+    mat: &MaterialParams,
+) -> crate::material_textures::MaterialTextureIds {
+    crate::material_textures::MaterialTextureIds {
+        albedo,
+        normal: mat.normal_texture,
     }
 }
 
@@ -2061,10 +2126,14 @@ struct ModelUniformData {
     /// its lightmap layer; read as `uv2 * scale + offset`.
     lightmap_scale_offset: [f32; 4],
     /// Which lightmap atlas layer this object reads, `-1.0` for none (the
-    /// shader's "no lightmap"). Three floats of padding keep the struct a
-    /// multiple of 16 bytes. 208 of `MODEL_STRIDE`'s 256 bytes.
+    /// shader's "no lightmap"). 208 of `MODEL_STRIDE`'s 256 bytes.
     lightmap_layer: f32,
-    _lightmap_pad: [f32; 3],
+    /// [`MaterialParams::normal_scale`], or 0 for "no normal map" -- the
+    /// first of what were three floats of padding, so the struct is the
+    /// same size and the instanced shadow shaders' view (`lightmap_layer`
+    /// as a `vec4`) still lines up.
+    normal_scale: f32,
+    _lightmap_pad: [f32; 2],
 }
 
 #[repr(C)]
@@ -3085,6 +3154,12 @@ pub struct WgpuSurface {
     _white_texture: crate::profiler::TrackedTexture,
     _sampler: wgpu::Sampler,
     default_texture_bind_group: wgpu::BindGroup,
+    /// Group 3 of the mesh pipelines: each draw's material textures, built
+    /// and cached per frame (`crate::material_textures`).
+    material_textures: crate::material_textures::MaterialTextures,
+    /// Draws the last frame shaded with a normal map, for tests: what tells
+    /// "the material named a map" from "a map reached the shader".
+    normal_mapped_draws: u32,
     shadow_pipeline: wgpu::RenderPipeline,
     _shadow_map_texture: crate::profiler::TrackedTexture,
     shadow_map_view: wgpu::TextureView,
@@ -3619,6 +3694,13 @@ impl WgpuSurface {
     /// behind it is rebuilt.
     pub fn lightmap_layers_drawn(&self) -> u64 {
         self.lightmaps.blit_count()
+    }
+
+    /// How many draws the last frame shaded with a normal map: a draw whose
+    /// material names one that is on the GPU.
+    #[doc(hidden)]
+    pub fn normal_mapped_draws(&self) -> u32 {
+        self.normal_mapped_draws
     }
 
     /// The `ColorGrading` the last frame was rendered with, as
@@ -4259,8 +4341,9 @@ impl WgpuSurface {
             ..Default::default()
         });
 
-        let (white_texture, sampler, texture_bgl, default_texture_bind_group) =
+        let (white_texture, sampler, _texture_bgl, default_texture_bind_group) =
             Self::create_default_texture(&device, &queue);
+        let material_textures = crate::material_textures::MaterialTextures::new(&device, &queue);
 
         // --- shadow map ---
         let shadow_map_texture = crate::profiler::create_tracked_texture(
@@ -4927,7 +5010,12 @@ impl WgpuSurface {
         let probe_capture_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("probe capture pipeline layout"),
-                bind_group_layouts: &[&probe_capture_bgl, &model_bgl, &light_bgl, &texture_bgl],
+                bind_group_layouts: &[
+                    &probe_capture_bgl,
+                    &model_bgl,
+                    &light_bgl,
+                    material_textures.layout(),
+                ],
                 push_constant_ranges: &[],
             });
         let probe_capture_pipeline =
@@ -5096,7 +5184,12 @@ impl WgpuSurface {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("mesh pipeline layout"),
-            bind_group_layouts: &[&camera_bgl, &model_bgl, &light_bgl, &texture_bgl],
+            bind_group_layouts: &[
+                &camera_bgl,
+                &model_bgl,
+                &light_bgl,
+                material_textures.layout(),
+            ],
             push_constant_ranges: &[],
         });
 
@@ -5395,6 +5488,8 @@ impl WgpuSurface {
             _white_texture: white_texture,
             _sampler: sampler,
             default_texture_bind_group,
+            material_textures,
+            normal_mapped_draws: 0,
             shadow_pipeline,
             _shadow_map_texture: shadow_map_texture,
             shadow_map_view,
@@ -6244,7 +6339,7 @@ impl WgpuSurface {
                 pass.set_pipeline(target.pipeline);
                 pass.set_bind_group(0, &self.probe_capture_bind_group, &[uniform_offset]);
                 pass.set_bind_group(2, &self.light_bind_group, &[]);
-                for (i, (mesh_id, _, tex_id, _, _)) in draw_calls.iter().enumerate() {
+                for (i, (mesh_id, _, tex_id, mat, _)) in draw_calls.iter().enumerate() {
                     if i >= MAX_OBJECTS {
                         break;
                     }
@@ -6256,9 +6351,9 @@ impl WgpuSurface {
                     // camera uniform, which this pass does not have, and a
                     // custom shader's output is not decomposable into direct
                     // light anyway.
-                    let tex_bg = tex_id
-                        .and_then(|id| tex_registry.and_then(|r| r.get_bind_group(id)))
-                        .unwrap_or(&self.default_texture_bind_group);
+                    let tex_bg = self
+                        .material_textures
+                        .group(material_texture_ids(*tex_id, mat), tex_registry);
                     let offset = (i as u64 * MODEL_STRIDE) as u32;
                     pass.set_bind_group(1, &self.model_bind_group, &[offset]);
                     pass.set_bind_group(3, tex_bg, &[]);
@@ -7128,10 +7223,33 @@ impl WgpuSurface {
                 .map(|(_, _, _, mat, _)| mat.lightmap.map(|l| l.texture_id))
                 .collect::<Vec<_>>(),
         );
+        // Each draw's material textures as one group 3 (`material_textures`),
+        // built before any pass binds one: the passes borrow `self` shared.
+        self.material_textures.begin_frame();
+        for (_, _, tex_id, mat, _) in draw_calls.iter() {
+            self.material_textures.prepare(
+                &self.device,
+                material_texture_ids(*tex_id, mat),
+                tex_registry,
+            );
+        }
         let mut staging = vec![0u8; staged_count * MODEL_STRIDE as usize];
+        self.normal_mapped_draws = 0;
         for (i, (_, model, _, mat, _)) in draw_calls.iter().enumerate() {
             if i >= MAX_OBJECTS {
                 break;
+            }
+            // 0 means "no normal map", which the shader skips outright: a map
+            // not on the GPU yet is no map, and the default flat texture would
+            // not read back as exactly flat (`material_textures`).
+            let normal_scale = match mat.normal_texture {
+                Some(id) if tex_registry.is_some_and(|r| r.generation(id).is_some()) => {
+                    mat.normal_scale
+                }
+                _ => 0.0,
+            };
+            if normal_scale != 0.0 {
+                self.normal_mapped_draws += 1;
             }
             // Absent (an empty slice, or a draw past its end) means it did
             // not move: the velocity is then the camera's alone.
@@ -7151,7 +7269,8 @@ impl WgpuSurface {
                     .lightmap
                     .map_or([1.0, 1.0, 0.0, 0.0], |l| l.scale_offset),
                 lightmap_layer: lightmap_layers[i],
-                _lightmap_pad: [0.0; 3],
+                normal_scale,
+                _lightmap_pad: [0.0; 2],
             };
             let base = i * MODEL_STRIDE as usize;
             staging[base..base + std::mem::size_of::<ModelUniformData>()]
@@ -7896,7 +8015,9 @@ impl WgpuSurface {
                 // Terrain has no lightmap UVs; its pipeline does not read these.
                 lightmap_scale_offset: [1.0, 1.0, 0.0, 0.0],
                 lightmap_layer: -1.0,
-                _lightmap_pad: [0.0; 3],
+                // Nor a normal map: its shader has no tangents to read one by.
+                normal_scale: 0.0,
+                _lightmap_pad: [0.0; 2],
             };
             self.queue.write_buffer(
                 &self.model_buffer,
@@ -8259,7 +8380,7 @@ impl WgpuSurface {
             pass.set_bind_group(2, &self.light_bind_group, &[]);
 
             for &i in &opaque {
-                let (mesh_id, _, tex_id, _, custom_path) = &draw_calls[i];
+                let (mesh_id, _, tex_id, mat, custom_path) = &draw_calls[i];
                 let Some(mesh) = registry.get(*mesh_id) else {
                     continue;
                 };
@@ -8268,9 +8389,9 @@ impl WgpuSurface {
                     .and_then(|p| custom_pipelines.get(p))
                     .unwrap_or(mesh_pipeline);
                 pass.set_pipeline(pipeline);
-                let tex_bg = tex_id
-                    .and_then(|id| tex_registry.and_then(|r| r.get_bind_group(id)))
-                    .unwrap_or(&self.default_texture_bind_group);
+                let tex_bg = self
+                    .material_textures
+                    .group(material_texture_ids(*tex_id, mat), tex_registry);
                 let offset = (i as u64 * MODEL_STRIDE) as u32;
                 pass.set_bind_group(1, &self.model_bind_group, &[offset]);
                 pass.set_bind_group(3, tex_bg, &[]);
@@ -8391,7 +8512,7 @@ impl WgpuSurface {
             pass.set_bind_group(0, &self.camera_bind_group, &[]);
             pass.set_bind_group(2, &self.light_bind_group, &[]);
             for &i in &transparent {
-                let (mesh_id, _, tex_id, _, custom_path) = &draw_calls[i];
+                let (mesh_id, _, tex_id, mat, custom_path) = &draw_calls[i];
                 let Some(mesh) = registry.get(*mesh_id) else {
                     continue;
                 };
@@ -8403,9 +8524,9 @@ impl WgpuSurface {
                     .and_then(|p| custom_pipelines.get(p))
                     .unwrap_or(transparent_pipeline);
                 pass.set_pipeline(pipeline);
-                let tex_bg = tex_id
-                    .and_then(|id| tex_registry.and_then(|r| r.get_bind_group(id)))
-                    .unwrap_or(&self.default_texture_bind_group);
+                let tex_bg = self
+                    .material_textures
+                    .group(material_texture_ids(*tex_id, mat), tex_registry);
                 let offset = (i as u64 * MODEL_STRIDE) as u32;
                 pass.set_bind_group(1, &self.model_bind_group, &[offset]);
                 pass.set_bind_group(3, tex_bg, &[]);
@@ -10312,9 +10433,14 @@ mod tests {
             lighting + textures(&terrain_texture_bgl_entries()) > limit,
             "premise: with the lightmap array the terrain WOULD be over the limit,              so the variant is what keeps it under -- if this fails the variant is              no longer needed and should go"
         );
-        // Mesh, transparent and custom-shader pipelines: group 3 is one
-        // texture and its sampler.
-        assert!(lighting < limit, "{lighting} in group 2 alone");
+        // Mesh, transparent and custom-shader pipelines: group 3 is the
+        // material's textures (`material_textures`), every one of which a
+        // new map adds -- the budget the PBR maps were planned against.
+        let mesh = lighting + textures(&crate::material_textures::layout_entries());
+        assert!(
+            mesh <= limit,
+            "the mesh pipeline binds {mesh} sampled textures; WebGPU allows {limit}"
+        );
     }
 
     #[test]
@@ -10649,6 +10775,7 @@ mod tests {
                     base_color: Vec3::ZERO,
                     opacity: 1.0,
                     lightmap: None,
+                    ..MaterialParams::default()
                 },
                 None,
             )];
@@ -10690,6 +10817,7 @@ mod tests {
                     base_color: Vec3::ZERO,
                     opacity: 1.0,
                     lightmap: None,
+                    ..MaterialParams::default()
                 },
                 None,
             ));
@@ -10803,7 +10931,8 @@ mod tests {
                     // Zero would mean "layer 0" to the shader, not "none".
                     lightmap_scale_offset: [1.0, 1.0, 0.0, 0.0],
                     lightmap_layer: -1.0,
-                    _lightmap_pad: [0.0; 3],
+                    normal_scale: 0.0,
+                    _lightmap_pad: [0.0; 2],
                 };
                 self.surface.queue.write_buffer(
                     &self.surface.model_buffer,

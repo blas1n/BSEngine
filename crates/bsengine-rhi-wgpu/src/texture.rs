@@ -1675,6 +1675,13 @@ impl GpuTextureRegistry {
         self.textures.get(&id).map(|t| &t._view)
     }
 
+    /// The sampler a texture's import settings (filter, wrap) made, for a
+    /// consumer that binds it in a bind group of its own -- a material's,
+    /// which holds several textures (`crate::material_textures`).
+    pub fn get_sampler(&self, id: u64) -> Option<&wgpu::Sampler> {
+        self.textures.get(&id).map(|t| &t._sampler)
+    }
+
     /// Looks up a previously loaded texture's pixel dimensions by id.
     pub fn get_size(&self, id: u64) -> Option<(u32, u32)> {
         self.textures.get(&id).map(|t| (t.width, t.height))

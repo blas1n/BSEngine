@@ -1087,6 +1087,10 @@ fn render_frame(
     // thread and one order (measured in #1910) -- so the query is gathered
     // into a Vec and rayon splits that. rayon's `collect` keeps the input
     // order, so the draw list comes out exactly as the serial loop made it.
+    // A `DrawCall` is ~200 bytes and the other two variants none, which the
+    // lint flags; boxing it would be an allocation per draw per frame for a
+    // value that lives only until the `collect` below.
+    #[allow(clippy::large_enum_variant)]
     enum Culled {
         Drawn(DrawCall),
         Hidden,
@@ -1171,6 +1175,12 @@ fn render_frame(
                     base_color: *m.base_color,
                     opacity: m.opacity,
                     lightmap: None,
+                    // The linear copy, once it is on the GPU: until then the
+                    // draw shades with its vertex normal.
+                    normal_texture: (!m.normal_map.is_empty())
+                        .then(|| cache_for_lightmaps?.id_for_data(&m.normal_map))
+                        .flatten(),
+                    normal_scale: m.normal_scale,
                 })
                 .unwrap_or_default();
             // The baked lightmap, once its texture is on the GPU; see
@@ -3165,6 +3175,60 @@ mod tests {
         assert!(
             super::rect_light_entry(&shadowed, Some(&gt), &Transform::default()).shadows,
             "and the panel's own choice reaches the renderer"
+        );
+    }
+
+    /// A `Material::normal_map` reaches the draw: of two quads, the one whose
+    /// material names a map is shaded with it once the image is on the GPU,
+    /// and the other is not. Counted at the surface (what it shaded with a
+    /// map), so the request, the linear upload, the lookup and the draw
+    /// parameters are all between the component and the count.
+    #[test]
+    fn a_materials_normal_map_reaches_its_draw() {
+        let (mut app, png) = skybox_app("normal_map");
+        app.update();
+        let vertex = |x: f32, y: f32| Vertex {
+            position: [x, y, 0.0],
+            color: [1.0, 1.0, 1.0],
+            normal: [0.0, 0.0, 1.0],
+            uv: [x, y],
+            uv2: [0.0, 0.0],
+            tangent: [0.0; 4],
+        };
+        let mesh_id = app.world_mut().resource_mut::<GpuMeshRegistry>().register(
+            &[
+                vertex(-1.0, -1.0),
+                vertex(1.0, -1.0),
+                vertex(1.0, 1.0),
+                vertex(-1.0, 1.0),
+            ],
+            &[0, 1, 2, 0, 2, 3],
+        );
+        app.world_mut().spawn((
+            Camera::default(),
+            Transform::from_position(Vec3::new(0.0, 0.0, 10.0)),
+        ));
+        for (x, map) in [
+            (-1.5, png.to_str().unwrap().to_string()),
+            (1.5, String::new()),
+        ] {
+            app.world_mut().spawn((
+                MeshRenderer { mesh_id },
+                Transform::from_position(Vec3::new(x, 0.0, 0.0)),
+                Material {
+                    normal_map: map,
+                    ..Default::default()
+                },
+            ));
+        }
+        assert!(
+            run_until(&mut app, |app| surface_of(app).normal_mapped_draws() > 0),
+            "the mapped quad was never shaded with its map"
+        );
+        assert_eq!(
+            surface_of(&app).normal_mapped_draws(),
+            1,
+            "only the quad that names one"
         );
     }
 

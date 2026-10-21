@@ -119,26 +119,30 @@ fn probe_offset(probe: u32, offset: u32) -> vec4<f32> {
 // tree. After the offsets, one copy written by the CPU: per probe its
 // position and its spacing; the tree's nodes, four to an entry -- one per
 // top-level brick (`resolution` of them, x fastest), each either a brick
-// (BRICK_LEAF and its index) or the first of a group's 27 children; and per
+// (`-(index + 1)`) or the first of a group's 27 children (its index); and per
 // brick its minimum corner, its size and its 64 probe indices, x fastest.
+//
+// The indices are stored as the floats they are -- 928 as 928.0, exact below
+// 2^24 -- not as u32 bits read back with bitcast: the bits of a small integer
+// are a denormal float, and D3D12 flushes those to zero on the load, so every
+// index read 0 there (and only there: Vulkan keeps them).
 const POSITIONS_BASE: u32 = 606208u;
 const NODES_BASE: u32 = 614400u;
 const BRICKS_BASE: u32 = 614656u;
 const BRICK_ENTRIES: u32 = 18u;
 const MAX_BRICK: u32 = 511u;
 const MAX_BRICK_LEVELS: u32 = 4u;
-const BRICK_LEAF: u32 = 2147483648u;
 // No brick: a grid's cell.
 const NO_BRICK: u32 = 4294967295u;
 
 fn probes_adaptive() -> bool {
     return (probes.flags & 2u) != 0u;
 }
-fn brick_node(i: u32) -> u32 {
+fn brick_node(i: u32) -> f32 {
     // The tree holds under 2 * (MAX_BRICK + 1) nodes; a stray index stays
     // inside the table rather than reading the bricks as nodes.
     let j = min(i, 2u * MAX_BRICK + 1u);
-    return bitcast<u32>(probes.coeffs[NODES_BASE + j / 4u][j % 4u]);
+    return probes.coeffs[NODES_BASE + j / 4u][j % 4u];
 }
 
 // The eight probes around a point: the cell's lower corner, how far into it
@@ -164,14 +168,14 @@ fn probe_cell(world_pos: vec3<f32>) -> ProbeCell {
         let c = vec3<u32>(cell);
         var node = brick_node((c.z * probes.resolution.y + c.y) * probes.resolution.x + c.x);
         for (var level = 0u; level < MAX_BRICK_LEVELS; level++) {
-            if (node & BRICK_LEAF) != 0u {
+            if node < 0.0 {
                 break;
             }
             let g = clamp(floor(f * 3.0), vec3<f32>(0.0), vec3<f32>(2.0));
             f = f * 3.0 - g;
-            node = brick_node(node + u32(g.x) + 3u * (u32(g.y) + 3u * u32(g.z)));
+            node = brick_node(u32(node) + u32(g.x) + 3u * (u32(g.y) + 3u * u32(g.z)));
         }
-        let brick = min(node & ~BRICK_LEAF, MAX_BRICK);
+        let brick = min(u32(max(-node, 1.0)) - 1u, MAX_BRICK);
         let local = f * 3.0;
         let i0 = clamp(floor(local), vec3<f32>(0.0), vec3<f32>(2.0));
         let size = probes.coeffs[BRICKS_BASE + brick * BRICK_ENTRIES + 1u].xyz;
@@ -203,7 +207,7 @@ fn probe_cell_index(cell: ProbeCell, ci: vec3<u32>) -> u32 {
     }
     let k = ci.x + 4u * (ci.y + 4u * ci.z);
     let e = probes.coeffs[BRICKS_BASE + cell.brick * BRICK_ENTRIES + 2u + k / 4u];
-    return bitcast<u32>(e[k % 4u]);
+    return u32(e[k % 4u]);
 }
 // An adaptive volume's probe `index`: where it is, and its spacing.
 fn brick_probe_position(index: u32) -> vec3<f32> {
@@ -1895,16 +1899,27 @@ fn upload_bricks(
             bytemuck::cast_slice(&positions),
         );
     }
-    let mut packed = nodes.to_vec();
-    packed.resize(nodes.len().div_ceil(4) * 4, 0);
+    // As floats, not bits (see `probe_grid_wgsl`): a brick `-(index + 1)`,
+    // a group its first child's index.
+    let mut packed: Vec<f32> = nodes
+        .iter()
+        .map(|&n| {
+            if n & bsengine_bake::probe_bricks::LEAF != 0 {
+                -(((n & !bsengine_bake::probe_bricks::LEAF) + 1) as f32)
+            } else {
+                n as f32
+            }
+        })
+        .collect();
+    packed.resize(nodes.len().div_ceil(4) * 4, 0.0);
     if !packed.is_empty() {
         queue.write_buffer(buffer, at(PROBE_NODES_BASE), bytemuck::cast_slice(&packed));
     }
-    let mut table: Vec<u32> = Vec::with_capacity(bricks.len() * 72);
+    let mut table: Vec<f32> = Vec::with_capacity(bricks.len() * 72);
     for b in bricks {
-        table.extend(b.lo.extend(0.0).to_array().map(f32::to_bits));
-        table.extend(b.size.extend(0.0).to_array().map(f32::to_bits));
-        table.extend(b.probes);
+        table.extend(b.lo.extend(0.0).to_array());
+        table.extend(b.size.extend(0.0).to_array());
+        table.extend(b.probes.map(|p| p as f32));
     }
     if !table.is_empty() {
         queue.write_buffer(buffer, at(PROBE_BRICKS_BASE), bytemuck::cast_slice(&table));
@@ -1973,7 +1988,6 @@ mod tests {
                 "MAX_BRICK_LEVELS",
                 u64::from(bsengine_bake::probe_bricks::MAX_LEVELS),
             ),
-            ("BRICK_LEAF", u64::from(bsengine_bake::probe_bricks::LEAF)),
         ] {
             let line = format!("const {name}: u32 = {value}u;");
             assert!(wgsl.contains(&line), "the shader should declare `{line}`");

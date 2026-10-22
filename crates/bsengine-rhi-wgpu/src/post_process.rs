@@ -1470,14 +1470,24 @@ fn fs_temporal(@builtin(position) frag: vec4<f32>) -> TemporalOut {
     if any(prev_uv < vec2<f32>(0.0)) || any(prev_uv > vec2<f32>(1.0)) {
         return out;
     }
-    let recorded = textureSampleLevel(history_depth_tex, history_samp, prev_uv, 0.0).r;
+    // Where that is among the history's own pixels, whose samples stand at
+    // the first screen pixel of each block (`sample_coord`): at half
+    // resolution, screen position `p` is trace position `(p - 0.5) / 2 + 0.5`.
+    // ⚠️ Not `prev_uv` itself: that puts each trace pixel's own sample a
+    // quarter of a pixel off its centre, and the filtered read then mixes in
+    // a quarter of the neighbour's -- across an edge, the other surface's
+    // light, blended into this one's history frame after frame.
+    let scale = max(cam.params2.w, 1.0);
+    let history_size = vec2<f32>(textureDimensions(history_tex, 0));
+    let history_uv = ((prev_uv * dims - vec2<f32>(0.5)) / scale + vec2<f32>(0.5)) / history_size;
+    let recorded = textureSampleLevel(history_depth_tex, history_samp, history_uv, 0.0).r;
     // The same surface last frame stood where the previous camera saw it at
     // `prev_clip.w`; a history that recorded something else there is
     // another surface's -- the one this pixel's surface was hidden behind.
     if recorded <= 0.0 || abs(recorded - prev_clip.w) > 0.05 * prev_clip.w {
         return out;
     }
-    let history = textureSampleLevel(history_tex, history_samp, prev_uv, 0.0);
+    let history = textureSampleLevel(history_tex, history_samp, history_uv, 0.0);
     out.light = mix(history, current, cam.params2.y);
     return out;
 }

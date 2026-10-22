@@ -942,3 +942,17 @@ fn zz_explore_pole() {
     }}
     eprintln!("DBG width {width} alone n={} max={:?} sampled n={} max={:?} mean={}", alone.len(), alone.iter().max(), sampled.len(), sampled.iter().max(), sampled.iter().sum::<i32>() as f32 / sampled.len().max(1) as f32);
 }
+
+#[test]
+fn zz_explore_bilinear() {
+    let (half, full) = (settled(floor_and_wall(RED), on()), settled(floor_and_wall(RED), full_res(on())));
+    // per-pixel signed and abs differences over the floor band beside the wall
+    let (mut signed, mut abs, mut n) = (0.0f32, 0.0f32, 0.0f32);
+    for y in HEIGHT / 2..HEIGHT * 3 / 4 {
+        for x in NEAR.0..NEAR.1 {
+            let d = linear(half.at(x, y)[0]) - linear(full.at(x, y)[0]);
+            signed += d; abs += d.abs(); n += 1.0;
+        }
+    }
+    eprintln!("DBG bil signed {} abs {}", signed / n, abs / n);
+}

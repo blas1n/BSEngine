@@ -347,55 +347,81 @@ fn frames_accumulate_into_less_noise_and_the_same_light() {
     );
 }
 
-/// A surface just uncovered has no history: where the wall stood, the floor
-/// now showing is the floor's first frame, not a blend into what the wall
-/// gathered. Its view depth is not what the history recorded there. The
-/// floor glows while the wall stands, so what the wall gathered -- the
-/// floor's light -- is far from anything the bare floor's own trace finds
-/// (nothing), and a blend into it would show.
+/// A surface just uncovered has no history: where the wall stood, the far
+/// wall now showing is that wall's first frame, not a blend into what the
+/// near wall gathered. Its view depth is not what the history recorded
+/// there. The floor glows while the near wall stands, so what the near wall
+/// gathered -- the floor's light, from close by -- is far from what the far
+/// wall's own trace finds, and a blend into it would show.
+///
+/// The far wall is what makes this a measurement: with nothing behind the
+/// near wall, the uncovered pixels are background, which the temporal pass
+/// leaves alone whatever it does with a history -- the first version of
+/// this test compared background with background and passed with the
+/// rejection deleted.
 #[test]
 fn an_uncovered_surface_starts_its_history_over() {
     let mut h = Harness::new();
     let (f, w) = (floor(&mut h), wall(&mut h));
-    let glowing = || {
-        Draw::new(f, Vec3::ZERO)
-            .colour(FLOOR)
-            .roughness(1.0)
-            .emissive(Vec3::splat(0.4))
+    let draws = move |near: bool| {
+        let mut far = Draw::new(w, Vec3::ZERO).colour(FLOOR).roughness(1.0);
+        // Three further along x, and reaching below the floor's plane, so
+        // that it fills every ray that went past the near wall's place.
+        far.transform = glam::Mat4::from_scale_rotation_translation(
+            Vec3::new(1.0, 2.0, 1.0),
+            glam::Quat::IDENTITY,
+            Vec3::new(3.0, -3.0, 0.0),
+        );
+        let mut d = vec![
+            Draw::new(f, Vec3::ZERO)
+                .colour(FLOOR)
+                .roughness(1.0)
+                .emissive(Vec3::splat(0.4)),
+            far,
+        ];
+        if near {
+            d.push(Draw::new(w, Vec3::ZERO).colour(Vec3::ONE));
+        }
+        d
     };
     for frame in 0..20 {
-        let wall_draw = Draw::new(w, Vec3::ZERO).colour(Vec3::ONE);
-        h.render_at_frame(&scene(vec![glowing(), wall_draw], on()), frame);
+        h.render_at_frame(&scene(draws(true), on()), frame);
     }
-    let uncovered = h.render_at_frame(&scene(vec![glowing()], on()), 20);
-    let fresh = first_frame(on(), move |h| {
-        let f = floor(h);
-        vec![Draw::new(f, Vec3::ZERO)
-            .colour(FLOOR)
-            .roughness(1.0)
-            .emissive(Vec3::splat(0.4))]
-    });
-    // Where the wall stood: the columns it covered, middle rows.
+    let uncovered = h.render_at_frame(&scene(draws(false), on()), 20);
+    // The same frame's rays, on a renderer with no history at all.
+    let fresh = {
+        let mut h = Harness::new();
+        let (f2, w2) = (floor(&mut h), wall(&mut h));
+        assert_eq!((f2, w2), (f, w), "premise: the same mesh ids");
+        h.render_at_frame(&scene(draws(false), on()), 20)
+    };
+    // Where the near wall stood: the columns it covered, middle rows -- the
+    // pixels of those that show the far wall now (lit brighter than the
+    // background's 80); the rest still look past it.
     let mut worst = 0i32;
-    let mut brightest = 0u8;
+    let (mut n, mut brightest) = (0, 0u8);
     for y in HEIGHT * 3 / 8..HEIGHT / 2 {
         for x in WIDTH * 14 / 24..WIDTH * 17 / 24 {
+            if fresh.at(x, y)[0] <= 100 {
+                continue;
+            }
+            n += 1;
+            brightest = brightest.max(fresh.at(x, y)[0]);
             for c in 0..3 {
                 worst = worst
                     .max((i32::from(uncovered.at(x, y)[c]) - i32::from(fresh.at(x, y)[c])).abs());
-                brightest = brightest.max(fresh.at(x, y)[c]);
             }
         }
     }
-    // Premise: the floor is not clipped there -- a glow of 1 was, and hid
-    // any blend into the wall's history under 255.
+    // Premise: the far wall fills a good part of the near wall's place, and
+    // is not clipped, which would hide a blend under 255.
     assert!(
-        brightest < 240,
-        "premise: the floor is not clipped: {brightest}"
+        n > 200 && brightest < 240,
+        "premise: the far wall, unclipped: {n} pixels, up to {brightest}"
     );
     assert!(
         worst <= 3,
-        "the uncovered floor is its own first frame: off by {worst}"
+        "the uncovered wall is its own first frame: off by {worst}"
     );
 }
 

@@ -1129,8 +1129,10 @@ struct SsgiCamera {
     cam_pos: vec4<f32>,
     // x rays, y steps, z stride in world units, w thickness in NDC depth.
     params: vec4<f32>,
-    // x intensity.
+    // x intensity, y the history's blend, z whether the history holds a
+    // previous frame (the temporal pass's).
     params2: vec4<f32>,
+    prev_view_proj: mat4x4<f32>,
 };
 
 @group(0) @binding(0) var scene_tex: texture_2d<f32>;
@@ -1284,6 +1286,169 @@ fn fs_composite(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
 }
 "#;
 
+/// Screen-space GI's temporal accumulation: this frame's trace blended into
+/// the history of where the same surface was last frame -- found by its
+/// velocity, or by the depth and the two cameras where it has none, as TAA
+/// finds it -- and the history thrown away where the surface there is not
+/// the same one (its view depth then is not what last frame recorded, by
+/// more than 5%): a surface just uncovered, or a new frame's first. Writes
+/// the blend and this pixel's view depth, next frame's history.
+const SSGI_TEMPORAL_WGSL: &str = r#"
+struct SsgiCamera {
+    view: mat4x4<f32>,
+    proj: mat4x4<f32>,
+    inv_view_proj: mat4x4<f32>,
+    cam_pos: vec4<f32>,
+    params: vec4<f32>,
+    // x intensity, y the history's blend (the share of this frame), z 1 when
+    // the history holds a previous frame.
+    params2: vec4<f32>,
+    prev_view_proj: mat4x4<f32>,
+};
+@group(0) @binding(0) var current_tex: texture_2d<f32>;
+@group(0) @binding(1) var current_samp: sampler;
+@group(1) @binding(0) var history_tex: texture_2d<f32>;
+@group(1) @binding(1) var history_depth_tex: texture_2d<f32>;
+@group(1) @binding(2) var history_samp: sampler;
+@group(2) @binding(0) var depth_tex: texture_depth_2d;
+@group(2) @binding(1) var velocity_tex: texture_2d<f32>;
+@group(3) @binding(0) var<uniform> cam: SsgiCamera;
+
+struct TemporalOut {
+    @location(0) light: vec4<f32>,
+    @location(1) depth: vec4<f32>,
+};
+
+@vertex
+fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
+    var p = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -1.0),
+        vec2<f32>(3.0, -1.0),
+        vec2<f32>(-1.0, 3.0),
+    );
+    return vec4<f32>(p[vi], 0.0, 1.0);
+}
+
+@fragment
+fn fs_temporal(@builtin(position) frag: vec4<f32>) -> TemporalOut {
+    let coord = vec2<i32>(frag.xy);
+    let dims = vec2<f32>(textureDimensions(depth_tex, 0));
+    let uv = frag.xy / dims;
+    let current = textureLoad(current_tex, coord, 0);
+    let depth = textureLoad(depth_tex, coord, 0);
+    var out: TemporalOut;
+    out.light = current;
+    out.depth = vec4<f32>(0.0);
+    if depth >= 1.0 {
+        return out;
+    }
+    let ndc = vec4<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth, 1.0);
+    let world_h = cam.inv_view_proj * ndc;
+    let world = world_h.xyz / world_h.w;
+    // The view depth, as clip w: what the history records of this pixel.
+    let w_now = (cam.proj * cam.view * vec4<f32>(world, 1.0)).w;
+    out.depth = vec4<f32>(w_now, 0.0, 0.0, 0.0);
+    if cam.params2.z < 0.5 {
+        return out;
+    }
+    let prev_clip = cam.prev_view_proj * vec4<f32>(world, 1.0);
+    if prev_clip.w <= 0.0 {
+        return out;
+    }
+    let velocity = textureLoad(velocity_tex, coord, 0).xy;
+    var prev_uv = uv - velocity;
+    if velocity.x > 1000.0 {
+        let prev_ndc = prev_clip.xyz / prev_clip.w;
+        prev_uv = vec2<f32>(prev_ndc.x * 0.5 + 0.5, 0.5 - prev_ndc.y * 0.5);
+    }
+    if any(prev_uv < vec2<f32>(0.0)) || any(prev_uv > vec2<f32>(1.0)) {
+        return out;
+    }
+    let recorded = textureSampleLevel(history_depth_tex, history_samp, prev_uv, 0.0).r;
+    // The same surface last frame stood where the previous camera saw it at
+    // `prev_clip.w`; a history that recorded something else there is
+    // another surface's -- the one this pixel's surface was hidden behind.
+    if recorded <= 0.0 || abs(recorded - prev_clip.w) > 0.05 * prev_clip.w {
+        return out;
+    }
+    let history = textureSampleLevel(history_tex, history_samp, prev_uv, 0.0);
+    out.light = mix(history, current, cam.params2.y);
+    return out;
+}
+"#;
+
+/// Screen-space GI's spatial filter: each pixel the weighted mean of its
+/// 5 x 5 neighbourhood, weighted by distance and by how alike the
+/// neighbour's surface is -- its view depth within a few percent, its normal
+/// close -- so the light of one surface does not spill onto another across
+/// an edge, as Unity's and Unreal's SSGI denoisers do.
+const SSGI_SPATIAL_WGSL: &str = r#"
+struct SsgiCamera {
+    view: mat4x4<f32>,
+    proj: mat4x4<f32>,
+    inv_view_proj: mat4x4<f32>,
+    cam_pos: vec4<f32>,
+    params: vec4<f32>,
+    params2: vec4<f32>,
+    prev_view_proj: mat4x4<f32>,
+};
+@group(0) @binding(0) var light_tex: texture_2d<f32>;
+@group(0) @binding(1) var light_samp: sampler;
+@group(1) @binding(0) var depth_tex: texture_depth_2d;
+@group(2) @binding(0) var normal_tex: texture_2d<f32>;
+@group(2) @binding(1) var normal_samp: sampler;
+@group(3) @binding(0) var<uniform> cam: SsgiCamera;
+
+@vertex
+fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
+    var p = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -1.0),
+        vec2<f32>(3.0, -1.0),
+        vec2<f32>(-1.0, 3.0),
+    );
+    return vec4<f32>(p[vi], 0.0, 1.0);
+}
+
+fn view_depth(coord: vec2<i32>, dims: vec2<f32>) -> f32 {
+    let depth = textureLoad(depth_tex, coord, 0);
+    let uv = (vec2<f32>(coord) + vec2<f32>(0.5)) / dims;
+    let ndc = vec4<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth, 1.0);
+    let w = cam.inv_view_proj * ndc;
+    return (cam.proj * cam.view * vec4<f32>(w.xyz / w.w, 1.0)).w;
+}
+
+@fragment
+fn fs_spatial(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
+    let coord = vec2<i32>(frag.xy);
+    let size = vec2<i32>(textureDimensions(depth_tex, 0));
+    let dims = vec2<f32>(size);
+    if textureLoad(depth_tex, coord, 0) >= 1.0 {
+        return vec4<f32>(0.0);
+    }
+    let d0 = view_depth(coord, dims);
+    let n0 = textureLoad(normal_tex, coord, 0).xyz;
+    var sum = vec4<f32>(0.0);
+    var weight = 0.0;
+    for (var dy = -2; dy <= 2; dy++) {
+        for (var dx = -2; dx <= 2; dx++) {
+            let q = clamp(coord + vec2<i32>(dx, dy), vec2<i32>(0), size - vec2<i32>(1));
+            if textureLoad(depth_tex, q, 0) >= 1.0 {
+                continue;
+            }
+            let dq = view_depth(q, dims);
+            let nq = textureLoad(normal_tex, q, 0).xyz;
+            let spatial = exp(-f32(dx * dx + dy * dy) / 4.5);
+            let depth_w = exp(-abs(dq - d0) / (0.02 * d0));
+            let normal_w = pow(max(dot(n0, nq), 0.0), 16.0);
+            let w = spatial * depth_w * normal_w;
+            sum += textureLoad(light_tex, q, 0) * w;
+            weight += w;
+        }
+    }
+    return sum / max(weight, 1e-6);
+}
+"#;
+
 /// What screen-space GI's trace needs: the camera, unjittered, and the trace.
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Debug, PartialEq)]
@@ -1299,8 +1464,33 @@ pub struct SsgiCameraGpu {
     /// `x` rays, `y` steps, `z` stride in world units, `w` thickness in NDC
     /// depth.
     pub params: [f32; 4],
-    /// `x` intensity; zero is off.
+    /// `x` intensity; zero is off. `y` the share of each frame in the
+    /// history, `z` whether the history holds a previous frame (set by
+    /// [`PostProcessState::update_ssgi_camera`]).
     pub params2: [f32; 4],
+    /// Last frame's unjittered view-projection, for the temporal pass.
+    pub prev_view_proj: [[f32; 4]; 4],
+}
+
+/// The share of each frame in screen-space GI's history: an exponential
+/// mean over about the last ten frames, as Unity's and Unreal's temporal
+/// GI filters keep, which settles 4 rays a pixel into the noise of 40.
+pub const SSGI_HISTORY_BLEND: f32 = 0.1;
+
+/// Format of the history's view depth: a half float is within the 5% the
+/// rejection compares at, to well past any distance a screen trace sees.
+const SSGI_DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg16Float;
+
+/// One half of screen-space GI's history.
+struct SsgiHistory {
+    _light: crate::profiler::TrackedTexture,
+    light_view: wgpu::TextureView,
+    /// The light alone, as the spatial filter reads it.
+    light_bg: wgpu::BindGroup,
+    _depth: crate::profiler::TrackedTexture,
+    depth_view: wgpu::TextureView,
+    /// Light and depth together, as the temporal pass reads last frame's.
+    pair_bg: wgpu::BindGroup,
 }
 
 const SSAO_WGSL: &str = r#"
@@ -2615,6 +2805,9 @@ struct PostProcessTargets {
     ssgi_texture: crate::profiler::TrackedTexture,
     ssgi_view: wgpu::TextureView,
     ssgi_bg: wgpu::BindGroup,
+    /// The trace's history, two of it: the light and share, and each
+    /// pixel's view depth.
+    ssgi_history: [SsgiHistory; 2],
     /// Where the reflection pass writes, before it is composited into the
     /// scene. A pass may not sample the texture it renders to, which is the
     /// same reason the fog pass has a target of its own.
@@ -2718,8 +2911,17 @@ pub struct PostProcessState {
     ssgi_view: wgpu::TextureView,
     _ssgi_texture: crate::profiler::TrackedTexture,
     ssgi_bg: wgpu::BindGroup,
-    /// Screen-space GI's two passes, its camera and whether it runs.
+    /// The trace's history, two of it, written in turn: `ssgi_current` is
+    /// the one last written, and whether it holds a frame of the current
+    /// trace is `ssgi_history_valid`.
+    ssgi_history: [SsgiHistory; 2],
+    ssgi_current: usize,
+    ssgi_history_valid: bool,
+    ssgi_history_bgl: wgpu::BindGroupLayout,
+    /// Screen-space GI's passes, its camera and whether it runs.
     ssgi_pipeline: wgpu::RenderPipeline,
+    ssgi_temporal_pipeline: wgpu::RenderPipeline,
+    ssgi_spatial_pipeline: wgpu::RenderPipeline,
     ssgi_composite_pipeline: wgpu::RenderPipeline,
     ssgi_cam_buffer: wgpu::Buffer,
     ssgi_cam_bg: wgpu::BindGroup,
@@ -3681,6 +3883,48 @@ impl PostProcessState {
                 resource: ssgi_cam_buffer.as_entire_binding(),
             }],
         });
+        // The history's two textures and their sampler, in one group: the
+        // temporal pass also reads this frame's trace, the depth with the
+        // velocity, and the camera -- four groups, WebGPU's baseline.
+        let filterable = |binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        };
+        let ssgi_history_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("pp ssgi history bgl"),
+            entries: &[
+                filterable(0),
+                filterable(1),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let ssgi_temporal_pipeline = Self::make_targets_pipeline(
+            device,
+            "ssgi temporal",
+            SSGI_TEMPORAL_WGSL,
+            "fs_temporal",
+            &[&tex2d_bgl, &ssgi_history_bgl, &depth_bgl, &ssr_cam_bgl],
+            &[HDR_FORMAT, SSGI_DEPTH_FORMAT],
+        );
+        let ssgi_spatial_pipeline = Self::make_targets_pipeline(
+            device,
+            "ssgi spatial",
+            SSGI_SPATIAL_WGSL,
+            "fs_spatial",
+            &[&tex2d_bgl, &depth_bgl, &tex2d_bgl, &ssr_cam_bgl],
+            &[HDR_FORMAT],
+        );
         let ssgi_pipeline = Self::make_fullscreen_pipeline(
             device,
             "ssgi",
@@ -3743,6 +3987,7 @@ impl PostProcessState {
             &sampler,
             &tex2d_bgl,
             &depth_bgl,
+            &ssgi_history_bgl,
             surface_format,
         );
 
@@ -3791,7 +4036,13 @@ impl PostProcessState {
             ssgi_view: targets.ssgi_view,
             _ssgi_texture: targets.ssgi_texture,
             ssgi_bg: targets.ssgi_bg,
+            ssgi_history: targets.ssgi_history,
+            ssgi_current: 0,
+            ssgi_history_valid: false,
+            ssgi_history_bgl,
             ssgi_pipeline,
+            ssgi_temporal_pipeline,
+            ssgi_spatial_pipeline,
             ssgi_composite_pipeline,
             ssgi_cam_buffer,
             ssgi_cam_bg,
@@ -3865,6 +4116,7 @@ impl PostProcessState {
         sampler: &wgpu::Sampler,
         tex2d_bgl: &wgpu::BindGroupLayout,
         depth_bgl: &wgpu::BindGroupLayout,
+        ssgi_history_bgl: &wgpu::BindGroupLayout,
         surface_format: wgpu::TextureFormat,
     ) -> PostProcessTargets {
         let make_tex = |label: &str, fmt: wgpu::TextureFormat| {
@@ -4002,6 +4254,39 @@ impl PostProcessState {
         let ssgi_texture = make_tex("pp ssgi", HDR_FORMAT);
         let ssgi_view = ssgi_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let ssgi_bg = make_tex2d_bg("pp ssgi bg", &ssgi_view);
+        let ssgi_history = [0, 1].map(|i| {
+            let light = make_tex(&format!("pp ssgi history {i}"), HDR_FORMAT);
+            let light_view = light.create_view(&wgpu::TextureViewDescriptor::default());
+            let depth = make_tex(&format!("pp ssgi history depth {i}"), SSGI_DEPTH_FORMAT);
+            let depth_view = depth.create_view(&wgpu::TextureViewDescriptor::default());
+            let light_bg = make_tex2d_bg("pp ssgi history light bg", &light_view);
+            let pair_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("pp ssgi history bg"),
+                layout: ssgi_history_bgl,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&light_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&depth_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(sampler),
+                    },
+                ],
+            });
+            SsgiHistory {
+                _light: light,
+                light_view,
+                light_bg,
+                _depth: depth,
+                depth_view,
+                pair_bg,
+            }
+        });
         let gi_indirect_bg = make_tex2d_bg("pp gi indirect bg", &gi_indirect_view);
         let gi_albedo_bg = make_tex2d_bg("pp gi albedo bg", &gi_albedo_view);
         let ldr_bg = make_tex2d_bg("pp ldr bg", &ldr_view);
@@ -4056,6 +4341,7 @@ impl PostProcessState {
             ssgi_texture,
             ssgi_view,
             ssgi_bg,
+            ssgi_history,
             ssr_texture,
             ssr_view,
             ssr_bg,
@@ -4230,6 +4516,57 @@ impl PostProcessState {
     /// The reflection trace. Groups: scene colour, depth, normal+roughness,
     /// camera -- the normal buffer reuses `tex2d_bgl` because it is a plain
     /// sampled 2D texture like every other post-process input.
+    /// A full-screen pass, unblended, into `formats`: the SSGI denoiser's.
+    fn make_targets_pipeline(
+        device: &wgpu::Device,
+        label: &str,
+        source: &str,
+        entry_point: &str,
+        groups: &[&wgpu::BindGroupLayout],
+        formats: &[wgpu::TextureFormat],
+    ) -> wgpu::RenderPipeline {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(label),
+            source: wgpu::ShaderSource::Wgsl(source.into()),
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some(label),
+            bind_group_layouts: groups,
+            push_constant_ranges: &[],
+        });
+        let targets: Vec<Option<wgpu::ColorTargetState>> = formats
+            .iter()
+            .map(|&format| {
+                Some(wgpu::ColorTargetState {
+                    format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })
+            })
+            .collect();
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(label),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_fullscreen",
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point,
+                targets: &targets,
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        })
+    }
+
     /// A full-screen pass into one HDR target: screen-space GI's two.
     #[allow(clippy::too_many_arguments)] // one pass's whole description
     fn make_fullscreen_pipeline(
@@ -4690,6 +5027,7 @@ impl PostProcessState {
             &self.sampler,
             &self.tex2d_bgl,
             &self.depth_bgl,
+            &self.ssgi_history_bgl,
             self.surface_format,
         );
         self.hdr_view = t.hdr_view;
@@ -4717,6 +5055,9 @@ impl PostProcessState {
         self.ssgi_view = t.ssgi_view;
         self._ssgi_texture = t.ssgi_texture;
         self.ssgi_bg = t.ssgi_bg;
+        self.ssgi_history = t.ssgi_history;
+        // New textures hold nothing: the next frame starts the history over.
+        self.ssgi_history_valid = false;
         self.ssr_view = t.ssr_view;
         self._ssr_texture = t.ssr_texture;
         self.ssr_bg = t.ssr_bg;
@@ -5007,9 +5348,16 @@ impl PostProcessState {
 
     /// Uploads screen-space GI's camera and trace; an intensity of zero
     /// switches both its passes off.
-    pub fn update_ssgi_camera(&mut self, queue: &wgpu::Queue, cam: SsgiCameraGpu) {
-        queue.write_buffer(&self.ssgi_cam_buffer, 0, bytemuck::bytes_of(&cam));
+    pub fn update_ssgi_camera(&mut self, queue: &wgpu::Queue, mut cam: SsgiCameraGpu) {
         self.ssgi_enabled = cam.params2[0] > 0.0;
+        // A frame without the trace leaves the history behind: switched back
+        // on, it starts over rather than blending into a stale frame.
+        if !self.ssgi_enabled {
+            self.ssgi_history_valid = false;
+        }
+        cam.params2[1] = SSGI_HISTORY_BLEND;
+        cam.params2[2] = if self.ssgi_history_valid { 1.0 } else { 0.0 };
+        queue.write_buffer(&self.ssgi_cam_buffer, 0, bytemuck::bytes_of(&cam));
     }
 
     /// Uploads what the reflection pass needs. Intensity zero switches it off.
@@ -5130,6 +5478,68 @@ impl PostProcessState {
                 draw_calls += 1;
                 triangles += 1;
             }
+            // Into this frame's half of the history, from last frame's.
+            let (read, write) = (self.ssgi_current, 1 - self.ssgi_current);
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("ssgi temporal pass"),
+                    color_attachments: &[
+                        Some(wgpu::RenderPassColorAttachment {
+                            view: &self.ssgi_history[write].light_view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        }),
+                        Some(wgpu::RenderPassColorAttachment {
+                            view: &self.ssgi_history[write].depth_view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        }),
+                    ],
+                    depth_stencil_attachment: None,
+                    ..Default::default()
+                });
+                pass.set_pipeline(&self.ssgi_temporal_pipeline);
+                pass.set_bind_group(0, &self.ssgi_bg, &[]);
+                pass.set_bind_group(1, &self.ssgi_history[read].pair_bg, &[]);
+                pass.set_bind_group(2, &self.depth_bg, &[]);
+                pass.set_bind_group(3, &self.ssgi_cam_bg, &[]);
+                pass.draw(0..3, 0..1);
+                draw_calls += 1;
+                triangles += 1;
+            }
+            // Back into the trace's own target, which the temporal pass has
+            // finished reading: the composite reads it as before.
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("ssgi spatial pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &self.ssgi_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    ..Default::default()
+                });
+                pass.set_pipeline(&self.ssgi_spatial_pipeline);
+                pass.set_bind_group(0, &self.ssgi_history[write].light_bg, &[]);
+                pass.set_bind_group(1, &self.depth_bg, &[]);
+                pass.set_bind_group(2, &self.normal_bg, &[]);
+                pass.set_bind_group(3, &self.ssgi_cam_bg, &[]);
+                pass.draw(0..3, 0..1);
+                draw_calls += 1;
+                triangles += 1;
+            }
+            self.ssgi_current = write;
+            self.ssgi_history_valid = true;
             {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("ssgi composite pass"),

@@ -7900,6 +7900,7 @@ impl WgpuSurface {
                         0.0,
                         0.0,
                     ],
+                    prev_view_proj: self.prev_unjittered_view_proj.to_cols_array_2d(),
                 },
             );
             // Both matrices are the unjittered ones on purpose -- see

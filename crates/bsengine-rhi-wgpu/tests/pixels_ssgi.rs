@@ -123,31 +123,50 @@ fn floor_band(p: &Pixels, x0: u32, x1: u32) -> Vec3 {
     sum / n
 }
 
+/// One frame of a scene -- the first, on a surface of its own, so screen-space
+/// GI's history holds nothing of another scene and the frame is this trace
+/// alone (the temporal tests render sequences on purpose).
+fn first_frame(
+    ssgi: Option<ScreenSpaceGlobalIllumination>,
+    draws: impl FnOnce(&mut Harness) -> Vec<Draw>,
+) -> Pixels {
+    let mut h = Harness::new();
+    let d = draws(&mut h);
+    h.render(&scene(d, ssgi))
+}
+
+/// The floor, and the wall standing on it glowing `glow` (reflecting nothing).
+fn floor_and_wall(glow: Vec3) -> impl FnOnce(&mut Harness) -> Vec<Draw> {
+    move |h| {
+        let (f, w) = (floor(h), wall(h));
+        vec![
+            Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
+            Draw::new(w, Vec3::ZERO).colour(Vec3::ZERO).emissive(glow),
+        ]
+    }
+}
+
+fn floor_alone(h: &mut Harness) -> Vec<Draw> {
+    let f = floor(h);
+    vec![Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0)]
+}
+
+const RED: Vec3 = Vec3::new(3.0, 0.0, 0.0);
+
 /// The red wall's light lands on the floor beside it: the floor near the wall
 /// reddens -- red up, green and blue barely -- and more than the floor far
 /// from it does.
 #[test]
 fn a_red_wall_bleeds_onto_the_floor_beside_it() {
-    let mut h = Harness::new();
-    let (f, w) = (floor(&mut h), wall(&mut h));
-    let draws = || {
-        vec![
-            Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
-            Draw::new(w, Vec3::ZERO)
-                .colour(Vec3::ZERO)
-                .emissive(Vec3::new(3.0, 0.0, 0.0)),
-        ]
-    };
-    let off = h.render(&scene(draws(), None));
-    let lit = h.render(&scene(draws(), on()));
-    let (near, far) = (NEAR, FAR);
+    let off = first_frame(None, floor_and_wall(RED));
+    let lit = first_frame(on(), floor_and_wall(RED));
     let (near_off, near_on) = (
-        floor_band(&off, near.0, near.1),
-        floor_band(&lit, near.0, near.1),
+        floor_band(&off, NEAR.0, NEAR.1),
+        floor_band(&lit, NEAR.0, NEAR.1),
     );
     let (far_off, far_on) = (
-        floor_band(&off, far.0, far.1),
-        floor_band(&lit, far.0, far.1),
+        floor_band(&off, FAR.0, FAR.1),
+        floor_band(&lit, FAR.0, FAR.1),
     );
     let gain = near_on - near_off;
     assert!(
@@ -171,20 +190,15 @@ fn a_red_wall_bleeds_onto_the_floor_beside_it() {
 /// floor there darkens. A trace that only added could never do that.
 #[test]
 fn a_black_wall_darkens_the_floor_it_shades() {
-    let mut h = Harness::new();
-    let (f, w) = (floor(&mut h), wall(&mut h));
-    let draws = || {
-        vec![
-            Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
-            Draw::new(w, Vec3::ZERO).colour(Vec3::ZERO),
-        ]
-    };
-    let off = h.render(&scene(draws(), None));
-    let lit = h.render(&scene(draws(), on()));
-    let band = NEAR;
-    let (before, after) = (
-        floor_band(&off, band.0, band.1),
-        floor_band(&lit, band.0, band.1),
+    let before = floor_band(
+        &first_frame(None, floor_and_wall(Vec3::ZERO)),
+        NEAR.0,
+        NEAR.1,
+    );
+    let after = floor_band(
+        &first_frame(on(), floor_and_wall(Vec3::ZERO)),
+        NEAR.0,
+        NEAR.1,
     );
     assert!(
         after.y < before.y * 0.9,
@@ -207,25 +221,13 @@ fn a_black_wall_darkens_the_floor_it_shades() {
 /// and the share replaced to one another.
 #[test]
 fn a_wall_as_bright_as_the_ambient_changes_nothing() {
-    let mut h = Harness::new();
-    let (f, w) = (floor(&mut h), wall(&mut h));
-    let draws = |glow: Vec3| {
-        vec![
-            Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
-            Draw::new(w, Vec3::ZERO).colour(Vec3::ZERO).emissive(glow),
-        ]
-    };
-    let off = h.render(&scene(draws(AMBIENT), None));
-    let lit = h.render(&scene(draws(AMBIENT), on()));
-    let dark = h.render(&scene(draws(Vec3::ZERO), on()));
-    let dark_off = h.render(&scene(draws(Vec3::ZERO), None));
-    let (before, after) = (
-        floor_band(&off, NEAR.0, NEAR.1),
-        floor_band(&lit, NEAR.0, NEAR.1),
-    );
-    let darkened = floor_band(&dark_off, NEAR.0, NEAR.1) - floor_band(&dark, NEAR.0, NEAR.1);
+    let band = |p: &Pixels| floor_band(p, NEAR.0, NEAR.1);
+    let before = band(&first_frame(None, floor_and_wall(AMBIENT)));
+    let after = band(&first_frame(on(), floor_and_wall(AMBIENT)));
+    let dark_off = band(&first_frame(None, floor_and_wall(Vec3::ZERO)));
+    let darkened = dark_off - band(&first_frame(on(), floor_and_wall(Vec3::ZERO)));
     assert!(
-        darkened.min_element() > 0.0 && darkened.y > 0.1 * floor_band(&dark_off, NEAR.0, NEAR.1).y,
+        darkened.min_element() > 0.0 && darkened.y > 0.1 * dark_off.y,
         "premise: the floor's rays find the wall: {darkened}"
     );
     // Per channel, against what the same rays take away when the wall is
@@ -246,27 +248,14 @@ fn a_wall_as_bright_as_the_ambient_changes_nothing() {
 /// of what it takes at one.
 #[test]
 fn the_intensity_scales_what_is_replaced() {
-    let mut h = Harness::new();
-    let (f, w) = (floor(&mut h), wall(&mut h));
-    let draws = || {
-        vec![
-            Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
-            Draw::new(w, Vec3::ZERO).colour(Vec3::ZERO),
-        ]
-    };
-    let off = floor_band(&h.render(&scene(draws(), None)), NEAR.0, NEAR.1);
-    let full = floor_band(&h.render(&scene(draws(), on())), NEAR.0, NEAR.1);
-    let half = floor_band(
-        &h.render(&scene(
-            draws(),
-            on().map(|s| ScreenSpaceGlobalIllumination {
-                intensity: 0.5,
-                ..s
-            }),
-        )),
-        NEAR.0,
-        NEAR.1,
-    );
+    let band = |p: &Pixels| floor_band(p, NEAR.0, NEAR.1);
+    let off = band(&first_frame(None, floor_and_wall(Vec3::ZERO)));
+    let full = band(&first_frame(on(), floor_and_wall(Vec3::ZERO)));
+    let half_on = on().map(|s| ScreenSpaceGlobalIllumination {
+        intensity: 0.5,
+        ..s
+    });
+    let half = band(&first_frame(half_on, floor_and_wall(Vec3::ZERO)));
     let (d1, d2) = ((off - full).y, (off - half).y);
     assert!(d1 > 0.01, "premise: the wall darkens the floor: {d1}");
     assert!(
@@ -281,34 +270,29 @@ fn the_intensity_scales_what_is_replaced() {
 /// component, the whole frame identical.
 #[test]
 fn with_nothing_to_find_the_frame_is_unchanged() {
-    let mut h = Harness::new();
-    let f = floor(&mut h);
-    let draws = || vec![Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0)];
-    let off = h.render(&scene(draws(), None));
-    let lit = h.render(&scene(draws(), on()));
+    let off = first_frame(None, floor_alone);
+    let lit = first_frame(on(), floor_alone);
     // The floor's own interior, byte for byte. At its outer edge, where the
     // depth jumps to the background, a grazing ray can pass behind the edge
-    // within the thickness and count as a hit -- a handful of pixels (3 here),
-    // the depth buffer's own ambiguity rather than light from anything.
-    let mut interior = 0;
+    // within the thickness and count as a hit -- a handful of pixels, the
+    // depth buffer's own ambiguity rather than light from anything (the
+    // spatial filter spreads each a pixel or two).
     for y in HEIGHT / 4..HEIGHT * 3 / 4 {
         for x in WIDTH / 4..WIDTH * 3 / 4 {
             assert_eq!(lit.at(x, y), off.at(x, y), "({x}, {y})");
-            interior += 1;
         }
     }
-    assert!(interior > 0);
     assert!(
-        lit.differing_pixels(&off) <= 8,
+        lit.differing_pixels(&off) <= 40,
         "only the edge: {} pixels",
         lit.differing_pixels(&off)
     );
-    let disabled = h.render(&scene(
-        draws(),
+    let disabled = first_frame(
         Some(ScreenSpaceGlobalIllumination {
             enabled: false,
             ..Default::default()
         }),
-    ));
+        floor_alone,
+    );
     assert!(!disabled.differs_from(&off));
 }

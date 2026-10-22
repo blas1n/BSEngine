@@ -913,46 +913,75 @@ fn pole(h: &mut Harness, width: f32) -> u64 {
     )
 }
 
+/// A thing thinner than a trace pixel keeps the light it had: the pole in
+/// front of the red wall is a pixel or so wide, and where all four trace
+/// samples around one of its pixels went past it -- to the wall far behind
+/// -- none of them is its light, and that pixel is what it is with no
+/// screen-space GI at all. Borrowing the nearest of them instead painted
+/// the wall's light on it (39 levels).
 #[test]
-fn zz_explore_pole() {
-    let width: f32 = std::env::var("POLE").ok().and_then(|v| v.parse().ok()).unwrap_or(0.03);
-    let draws = move |h: &mut Harness| {
-        let (f, w, p) = (floor(h), wall(h), pole(h, width));
+fn a_surface_every_trace_sample_went_past_keeps_its_own_light() {
+    let draws = |h: &mut Harness| {
+        let (f, w, p) = (floor(h), wall(h), pole(h, 0.03));
         vec![
             Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
-            Draw::new(w, Vec3::ZERO).colour(Vec3::ZERO).emissive(Vec3::new(0.8, 0.0, 0.0)),
+            Draw::new(w, Vec3::ZERO)
+                .colour(Vec3::ZERO)
+                .emissive(Vec3::new(0.8, 0.0, 0.0)),
             Draw::new(p, Vec3::ZERO).colour(Vec3::ONE).roughness(1.0),
         ]
     };
     let half = settled(draws, on());
     let off = first_frame(None, draws);
-    let mask = first_frame(None, move |h: &mut Harness| {
-        let (f, w, p) = (floor(h), wall(h), pole(h, width));
+    // Premise: the trace is at work in this frame -- the floor beside the
+    // wall takes its red.
+    let (lit, unlit) = (
+        floor_band(&half, NEAR.0, NEAR.1),
+        floor_band(&off, NEAR.0, NEAR.1),
+    );
+    assert!(
+        lit.x > 1.5 * unlit.x,
+        "premise: the wall bleeds: {unlit} -> {lit}"
+    );
+    // The pole marked green.
+    let mask = first_frame(None, |h: &mut Harness| {
+        let (f, w, p) = (floor(h), wall(h), pole(h, 0.03));
         let glow = |c: Vec3| Draw::new(0, Vec3::ZERO).colour(Vec3::ZERO).emissive(c);
-        vec![Draw { mesh: f, ..glow(Vec3::Z) }, Draw { mesh: w, ..glow(Vec3::Z) }, Draw { mesh: p, ..glow(Vec3::Y) }]
+        vec![
+            Draw {
+                mesh: f,
+                ..glow(Vec3::Z)
+            },
+            Draw {
+                mesh: w,
+                ..glow(Vec3::Z)
+            },
+            Draw {
+                mesh: p,
+                ..glow(Vec3::Y)
+            },
+        ]
     });
-    let is_pole = |x: u32, y: u32| { let c = mask.at(x.min(WIDTH - 1), y.min(HEIGHT - 1)); c[1] > 200 };
-    let (mut alone, mut sampled) = (vec![], vec![]);
-    for y in 0..HEIGHT { for x in 0..WIDTH {
-        if !is_pole(x, y) { continue; }
-        let (bx, by) = (x / 2, y / 2);
-        let any = (0..2).any(|dy| (0..2).any(|dx| is_pole(2 * (bx + dx), 2 * (by + dy))));
-        let d = (0..3).map(|c| (i32::from(half.at(x, y)[c]) - i32::from(off.at(x, y)[c])).abs()).max().unwrap();
-        if any { sampled.push(d) } else { alone.push(d) }
-    }}
-    eprintln!("DBG width {width} alone n={} max={:?} sampled n={} max={:?} mean={}", alone.len(), alone.iter().max(), sampled.len(), sampled.iter().max(), sampled.iter().sum::<i32>() as f32 / sampled.len().max(1) as f32);
-}
-
-#[test]
-fn zz_explore_bilinear() {
-    let (half, full) = (settled(floor_and_wall(RED), on()), settled(floor_and_wall(RED), full_res(on())));
-    // per-pixel signed and abs differences over the floor band beside the wall
-    let (mut signed, mut abs, mut n) = (0.0f32, 0.0f32, 0.0f32);
-    for y in HEIGHT / 2..HEIGHT * 3 / 4 {
-        for x in NEAR.0..NEAR.1 {
-            let d = linear(half.at(x, y)[0]) - linear(full.at(x, y)[0]);
-            signed += d; abs += d.abs(); n += 1.0;
+    let is_pole = |x: u32, y: u32| mask.at(x.min(WIDTH - 1), y.min(HEIGHT - 1))[1] > 200;
+    let mut n = 0;
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            // The trace samples around (x, y): the first pixel of each of
+            // the four blocks the upsample reads.
+            let (bx, by) = (x / 2, y / 2);
+            let sampled = (0..2).any(|dy| (0..2).any(|dx| is_pole(2 * (bx + dx), 2 * (by + dy))));
+            if !is_pole(x, y) || sampled {
+                continue;
+            }
+            n += 1;
+            for c in 0..3 {
+                let d = (i32::from(half.at(x, y)[c]) - i32::from(off.at(x, y)[c])).abs();
+                assert!(d <= 2, "the pole at ({x}, {y}) keeps its light: off by {d}");
+            }
         }
     }
-    eprintln!("DBG bil signed {} abs {}", signed / n, abs / n);
+    assert!(
+        n >= 10,
+        "premise: pole pixels no trace sample landed on: {n}"
+    );
 }

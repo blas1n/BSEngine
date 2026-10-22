@@ -729,7 +729,8 @@ fn switched_back_on_it_starts_over() {
 /// pixels_ssgi -- --ignored --nocapture bench_ssgi` -- release, because a
 /// debug build's validation layers dominate any GPU timing (CLAUDE.md).
 /// Each frame is read back, which costs the same with and without; the
-/// difference is the trace, the two filters and the composite.
+/// difference is the trace, the two filters and the composite. On an RTX
+/// 3060: about 1.4-1.7 ms at half resolution, 4.9 at full.
 #[test]
 #[ignore]
 fn bench_ssgi() {
@@ -742,6 +743,11 @@ fn bench_ssgi() {
             "on, no spatial filter",
             Some(ScreenSpaceGlobalIllumination::default()),
             false,
+        ),
+        (
+            "on, full resolution",
+            full_res(Some(ScreenSpaceGlobalIllumination::default())),
+            true,
         ),
     ] {
         let mut h = Harness::new();
@@ -761,9 +767,10 @@ fn bench_ssgi() {
         times.push(ms);
     }
     eprintln!(
-        "ssgi costs {:.2} ms/frame at 1080p ({:.2} without the spatial filter)",
+        "ssgi costs {:.2} ms/frame at 1080p ({:.2} without the spatial filter, {:.2} at full resolution)",
         times[1] - times[0],
-        times[2] - times[0]
+        times[2] - times[0],
+        times[3] - times[0]
     );
 }
 

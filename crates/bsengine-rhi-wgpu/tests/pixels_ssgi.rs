@@ -361,7 +361,7 @@ fn an_uncovered_surface_starts_its_history_over() {
         Draw::new(f, Vec3::ZERO)
             .colour(FLOOR)
             .roughness(1.0)
-            .emissive(Vec3::splat(1.0))
+            .emissive(Vec3::splat(0.4))
     };
     for frame in 0..20 {
         let wall_draw = Draw::new(w, Vec3::ZERO).colour(Vec3::ONE);
@@ -373,18 +373,26 @@ fn an_uncovered_surface_starts_its_history_over() {
         vec![Draw::new(f, Vec3::ZERO)
             .colour(FLOOR)
             .roughness(1.0)
-            .emissive(Vec3::splat(1.0))]
+            .emissive(Vec3::splat(0.4))]
     });
     // Where the wall stood: the columns it covered, middle rows.
     let mut worst = 0i32;
+    let mut brightest = 0u8;
     for y in HEIGHT * 3 / 8..HEIGHT / 2 {
         for x in WIDTH * 14 / 24..WIDTH * 17 / 24 {
             for c in 0..3 {
                 worst = worst
                     .max((i32::from(uncovered.at(x, y)[c]) - i32::from(fresh.at(x, y)[c])).abs());
+                brightest = brightest.max(fresh.at(x, y)[c]);
             }
         }
     }
+    // Premise: the floor is not clipped there -- a glow of 1 was, and hid
+    // any blend into the wall's history under 255.
+    assert!(
+        brightest < 240,
+        "premise: the floor is not clipped: {brightest}"
+    );
     assert!(
         worst <= 3,
         "the uncovered floor is its own first frame: off by {worst}"
@@ -426,24 +434,27 @@ fn plate(h: &mut Harness) -> u64 {
     let n = [0.0, 1.0, 0.0];
     h.mesh(
         &[
-            vertex([-1.2, 0.6, -5.0], n),
-            vertex([0.6, 0.6, -5.0], n),
-            vertex([0.6, 0.6, -8.0], n),
-            vertex([-1.2, 0.6, -8.0], n),
+            vertex([-0.6, 0.6, -5.0], n),
+            vertex([0.4, 0.6, -5.0], n),
+            vertex([0.4, 0.6, -8.0], n),
+            vertex([-0.6, 0.6, -8.0], n),
         ],
         &[0, 1, 2, 0, 2, 3],
     )
 }
 
-/// A moving surface keeps its history: the plate slides along the wall a
-/// little every frame, and its own velocity finds where it was -- so its
-/// light settles over the frames as a still surface's does. Reprojected by
-/// the camera alone, every frame would look where the plate no longer is,
-/// find another depth, and start over, as noisy as the first.
+/// A moving surface keeps its history: the plate jumps between two places
+/// beside the wall every frame, and its own velocity finds where it was --
+/// so its light settles over the frames as a still surface's does. The two
+/// places do not overlap: reprojected by the camera alone, every frame would
+/// look where the plate no longer is, find the floor's depth there, and
+/// start over, as noisy as the first. (A plate sliding within its own plane
+/// would not show this: the same depth lies under every pixel either way.)
 #[test]
 fn a_moving_surface_keeps_its_history() {
-    let step = 0.03f32;
-    let at = |frame: u32| glam::Mat4::from_translation(Vec3::new(0.0, 0.0, -step * frame as f32));
+    let at = |frame: u32| {
+        glam::Mat4::from_translation(Vec3::new(if frame % 2 == 0 { 0.0 } else { -1.3 }, 0.0, 0.0))
+    };
     let mut h = Harness::new();
     let (f, w, pl) = (floor(&mut h), wall(&mut h), plate(&mut h));
     let frame_of = |frame: u32| {

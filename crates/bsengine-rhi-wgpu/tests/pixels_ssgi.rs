@@ -823,6 +823,7 @@ fn zz_explore_half() {
     };
     let one = |s| {
         let mut h = Harness::new();
+        h.set_ssgi_spatial(std::env::var("SPATIAL").is_ok());
         let d = plate_draws(&mut h);
         let sc = scene(d, s);
         for f in 0..8 {

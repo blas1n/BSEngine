@@ -1277,8 +1277,9 @@ fn fs_ssgi(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
 /// pixel's -- a joint bilateral upsample, as Unity HDRP's and Unreal's
 /// half-resolution screen traces are brought back -- so the light of a
 /// surface does not spread onto the one in front of or behind it. Where
-/// none of the four is near (a thin thing the trace sampled past), the
-/// nearest in depth stands in.
+/// none of the four is near -- a thing thinner than a trace pixel, which
+/// every trace sample went past -- nothing is replaced: it keeps the light
+/// it had, rather than the light of what stands behind it.
 const SSGI_COMPOSITE_WGSL: &str = r#"
 struct SsgiCamera {
     view: mat4x4<f32>,
@@ -1334,8 +1335,6 @@ fn traced_at(coord: vec2<i32>) -> vec4<f32> {
     let t = f - floor(f);
     var sum = vec4<f32>(0.0);
     var weight = 0.0;
-    var nearest = vec4<f32>(0.0);
-    var nearest_d = 1e30;
     for (var dy = 0; dy <= 1; dy++) {
         for (var dx = 0; dx <= 1; dx++) {
             let q = clamp(base + vec2<i32>(dx, dy), vec2<i32>(0), size - vec2<i32>(1));
@@ -1351,16 +1350,12 @@ fn traced_at(coord: vec2<i32>) -> vec4<f32> {
             let w = bx * by * exp(-diff / (0.02 * w0));
             sum += l * w;
             weight += w;
-            if diff < nearest_d {
-                nearest_d = diff;
-                nearest = l;
-            }
         }
     }
     if weight > 1e-4 {
         return sum / weight;
     }
-    return nearest;
+    return vec4<f32>(0.0);
 }
 
 @fragment

@@ -383,3 +383,82 @@ fn the_cameras_screen_space_gi_reaches_the_surface() {
     app.update();
     assert_eq!(surface_of(&app).ssgi(), None, "and goes with the component");
 }
+
+/// Screen-space GI reaches the renderer the way the Inspector's Add
+/// Component and MCP put it on a camera -- by type path, from its reflected
+/// `Default` -- and its fields as they edit them, through reflection: the
+/// default traces at half resolution, and `full_resolution` set on the
+/// reflected component traces every pixel.
+#[test]
+fn screen_space_gi_attached_and_edited_by_reflection_reaches_the_trace() {
+    use bevy_ecs::reflect::{AppTypeRegistry, ReflectComponent};
+    use bevy_reflect::std_traits::ReflectDefault;
+    use bevy_reflect::GetPath;
+    let mut app = new_app();
+    app.add_plugins(bsengine_asset::AssetPlugin);
+    app.add_plugins(WgpuRHIPlugin::windowed());
+    app.add_plugins(RenderPlugin);
+    let surface = bsengine_rhi_wgpu::surface::WgpuSurface::offscreen_for_testing(64, 64)
+        .expect("these tests need an adapter; a skip here would look like a pass");
+    app.insert_resource(GpuMeshRegistry::new(surface.device_arc()));
+    app.insert_resource(bsengine_rhi_wgpu::GpuTextureRegistry::new(
+        surface.device_arc(),
+        surface.queue_arc(),
+    ));
+    app.insert_resource(bsengine_rhi_wgpu::WgpuSurfaceResource(surface));
+    let camera = app
+        .world_mut()
+        .spawn((
+            Camera::default(),
+            Transform::from_position(Vec3::new(0.0, 3.0, 10.0)),
+        ))
+        .id();
+    app.update();
+
+    let registry = app.world().resource::<AppTypeRegistry>().clone();
+    {
+        let registry = registry.read();
+        let registration = registry
+            .get_with_type_path("bsengine_core::screen_space_gi::ScreenSpaceGlobalIllumination")
+            .expect("registered under its type path");
+        let component = registration
+            .data::<ReflectComponent>()
+            .expect("a component");
+        let default = registration
+            .data::<ReflectDefault>()
+            .expect("with a Default")
+            .default();
+        component.insert(
+            &mut app.world_mut().entity_mut(camera),
+            default.as_ref(),
+            &registry,
+        );
+    }
+    app.update();
+    assert_eq!(
+        surface_of(&app).ssgi(),
+        Some(bsengine_core::ScreenSpaceGlobalIllumination::default())
+    );
+    assert_eq!(
+        surface_of(&app).ssgi_trace_size(),
+        (32, 32),
+        "half, by default"
+    );
+
+    {
+        let registry = registry.read();
+        let component = registry
+            .get_with_type_path("bsengine_core::screen_space_gi::ScreenSpaceGlobalIllumination")
+            .and_then(|r| r.data::<ReflectComponent>())
+            .expect("a component");
+        let mut entity = app.world_mut().entity_mut(camera);
+        let mut reflected = component.reflect_mut(&mut entity).expect("on the camera");
+        *reflected
+            .reflect_path_mut("full_resolution")
+            .expect("a reflected field")
+            .downcast_mut::<bool>()
+            .expect("a bool") = true;
+    }
+    app.update();
+    assert_eq!(surface_of(&app).ssgi_trace_size(), (64, 64), "every pixel");
+}

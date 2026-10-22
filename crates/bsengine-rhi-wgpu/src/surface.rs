@@ -3376,6 +3376,9 @@ pub struct WgpuSurface {
     /// while set.
     baked_bricks: Option<std::sync::Arc<bsengine_bake::probe_bake::BakedProbes>>,
     uploaded_bricks: Option<std::sync::Arc<bsengine_bake::probe_bake::BakedProbes>>,
+    /// The camera's screen-space GI, or `None` for none
+    /// ([`Self::set_ssgi`]); kept until changed.
+    ssgi: Option<bsengine_core::ScreenSpaceGlobalIllumination>,
     /// How [`Self::probe_buffer`] is laid out: its capacity, which an adaptive
     /// layout grows ([`Self::grow_probe_buffer`]).
     probe_layout: ProbeGridLayout,
@@ -5744,6 +5747,7 @@ impl WgpuSurface {
             baked_probe_volume: None,
             baked_bricks: None,
             uploaded_bricks: None,
+            ssgi: None,
             probe_layout: ProbeGridLayout::DEFAULT,
             reflection_probe_buffer,
             rect_light_buffer,
@@ -6984,6 +6988,12 @@ impl WgpuSurface {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// The camera's screen-space GI (`ScreenSpaceGlobalIllumination`), or
+    /// `None` for none. Kept until changed, as the component is.
+    pub fn set_ssgi(&mut self, ssgi: Option<bsengine_core::ScreenSpaceGlobalIllumination>) {
+        self.ssgi = ssgi;
+    }
+
     /// An adaptive volume's baked probes (`bsengine-runtime --bake`), or
     /// `None`. Kept until changed: while set, and no realtime volume runs, the
     /// grid holds these and the raster bake does not run; cleared, the grid
@@ -7862,6 +7872,27 @@ impl WgpuSurface {
                         ssr_settings.stride,
                         ssr_settings.thickness,
                         ssr_intensity,
+                    ],
+                },
+            );
+            // Screen-space GI's trace, through the same unjittered matrices
+            // as the reflection's, for the same reason; turned every frame.
+            let ssgi = self.ssgi.map(|s| s.clamped());
+            self.post_process.update_ssgi_camera(
+                &self.queue,
+                crate::post_process::SsgiCameraGpu {
+                    view: (cam_proj.inverse() * unjittered_view_proj).to_cols_array_2d(),
+                    proj: cam_proj.to_cols_array_2d(),
+                    inv_view_proj: unjittered_view_proj.inverse().to_cols_array_2d(),
+                    cam_pos: [cam_pos.x, cam_pos.y, cam_pos.z, frame_index as f32],
+                    params: ssgi.map_or([0.0; 4], |s| {
+                        [s.rays as f32, s.steps as f32, s.stride, s.thickness]
+                    }),
+                    params2: [
+                        self.ssgi.map_or(0.0, |s| s.effective_intensity()),
+                        0.0,
+                        0.0,
+                        0.0,
                     ],
                 },
             );

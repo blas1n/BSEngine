@@ -1500,6 +1500,7 @@ impl Plugin for RenderPlugin {
         app.register_type::<bsengine_core::Decal>();
         app.register_type::<bsengine_core::Lightmap>();
         app.register_type::<bsengine_core::ScreenSpaceReflections>();
+        app.register_type::<bsengine_core::ScreenSpaceGlobalIllumination>();
         app.init_asset::<crate::shader_asset::ShaderSource>()
             .register_asset_loader(crate::shader_asset::ShaderSourceLoader)
             .init_resource::<UiState>()
@@ -1533,6 +1534,7 @@ impl Plugin for RenderPlugin {
                     sync_color_lut,
                     crate::realtime_gi::feed_realtime_gi,
                     crate::realtime_gi::feed_baked_probes,
+                    crate::realtime_gi::feed_ssgi,
                     render_frame,
                 )
                     .chain(),

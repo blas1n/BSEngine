@@ -27,6 +27,25 @@ fn realtime_volume(world: &mut World) -> Option<(LightProbeVolume, glam::Vec3)> 
     })
 }
 
+/// Hands the surface the camera's screen-space GI -- the first camera's, as
+/// `render_frame` takes it -- or `None`. A system of its own: the render
+/// system is at its parameter ceiling, and `render_frame`'s list with it.
+pub(crate) fn feed_ssgi(world: &mut World) {
+    if !world.contains_resource::<bsengine_rhi_wgpu::WgpuSurfaceResource>() {
+        return;
+    }
+    let mut q = world.query::<(
+        &bsengine_core::Camera,
+        &Transform,
+        Option<&bsengine_core::ScreenSpaceGlobalIllumination>,
+    )>();
+    let ssgi = q.iter(world).next().and_then(|(_, _, s)| s.copied());
+    world
+        .resource_mut::<bsengine_rhi_wgpu::WgpuSurfaceResource>()
+        .0
+        .set_ssgi(ssgi);
+}
+
 /// The baked probes last read: their path, and what it held (`None` for a
 /// file that could not be read, said once rather than every frame).
 #[derive(Default)]

@@ -479,7 +479,11 @@ fn plate(h: &mut Harness) -> u64 {
 #[test]
 fn a_moving_surface_keeps_its_history() {
     let at = |frame: u32| {
-        glam::Mat4::from_translation(Vec3::new(if frame % 2 == 0 { 0.0 } else { -1.3 }, 0.0, 0.0))
+        glam::Mat4::from_translation(Vec3::new(
+            if frame.is_multiple_of(2) { 0.0 } else { -1.3 },
+            0.0,
+            0.0,
+        ))
     };
     let mut h = Harness::new();
     let (f, w, pl) = (floor(&mut h), wall(&mut h), plate(&mut h));

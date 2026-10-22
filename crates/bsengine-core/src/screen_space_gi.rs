@@ -35,6 +35,13 @@ pub struct ScreenSpaceGlobalIllumination {
     /// How deep a surface is assumed to be, in NDC depth: the depth buffer
     /// says where surfaces start, never where they end.
     pub thickness: f32,
+    /// Trace every pixel rather than one in each 2 x 2 block. Off -- the
+    /// default, as in Unity HDRP (its "Full Resolution" unticked) and Godot
+    /// (SSIL's `half_size`) -- the trace and its filters run at half the
+    /// width and height, a quarter of the cost, each block's sample turning
+    /// through its four pixels frame by frame, and the light is brought back
+    /// up to every pixel by depth.
+    pub full_resolution: bool,
 }
 
 impl Default for ScreenSpaceGlobalIllumination {
@@ -46,6 +53,7 @@ impl Default for ScreenSpaceGlobalIllumination {
             steps: 24,
             stride: 0.2,
             thickness: 0.002,
+            full_resolution: false,
         }
     }
 }
@@ -62,6 +70,7 @@ impl ScreenSpaceGlobalIllumination {
             steps: self.steps.clamp(1, 128),
             stride: self.stride.max(1e-3),
             thickness: self.thickness.max(1e-5),
+            full_resolution: self.full_resolution,
         }
     }
 

@@ -722,3 +722,47 @@ fn switched_back_on_it_starts_over() {
     let back = worst(&after(1));
     assert!(back <= 3, "switched back on, it starts over: off by {back}");
 }
+
+/// What screen-space GI costs at 1920 x 1080, at its default settings: the
+/// floor-and-wall frame with and without it, a minute's worth of frames
+/// after a warm-up. `cargo test --release -p bsengine-rhi-wgpu --test
+/// pixels_ssgi -- --ignored --nocapture bench_ssgi` -- release, because a
+/// debug build's validation layers dominate any GPU timing (CLAUDE.md).
+/// Each frame is read back, which costs the same with and without; the
+/// difference is the trace, the two filters and the composite.
+#[test]
+#[ignore]
+fn bench_ssgi() {
+    let frames = 60u32;
+    let mut times = Vec::new();
+    for (label, ssgi, spatial) in [
+        ("off", None, true),
+        ("on", Some(ScreenSpaceGlobalIllumination::default()), true),
+        (
+            "on, no spatial filter",
+            Some(ScreenSpaceGlobalIllumination::default()),
+            false,
+        ),
+    ] {
+        let mut h = Harness::new();
+        h.resize(1920, 1080);
+        h.set_ssgi_spatial(spatial);
+        let d = floor_and_wall(RED)(&mut h);
+        let s = scene(d, ssgi);
+        for frame in 0..10 {
+            h.render_at_frame(&s, frame);
+        }
+        let t = std::time::Instant::now();
+        for frame in 10..10 + frames {
+            h.render_at_frame(&s, frame);
+        }
+        let ms = t.elapsed().as_secs_f64() * 1000.0 / f64::from(frames);
+        eprintln!("ssgi {label}: {ms:.2} ms/frame");
+        times.push(ms);
+    }
+    eprintln!(
+        "ssgi costs {:.2} ms/frame at 1080p ({:.2} without the spatial filter)",
+        times[1] - times[0],
+        times[2] - times[0]
+    );
+}

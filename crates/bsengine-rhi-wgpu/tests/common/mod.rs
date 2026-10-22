@@ -541,6 +541,13 @@ impl Harness {
         self.surface.resize(WIDTH, HEIGHT);
     }
 
+    /// Resizes the renderer, for a benchmark at a real screen's size; the
+    /// pixel tests' readers assume `WIDTH` x `HEIGHT`.
+    #[allow(dead_code)] // only the SSGI benchmark resizes
+    pub fn resize(&mut self, width: u32, height: u32) {
+        self.surface.resize(width, height);
+    }
+
     fn build(fast_render: bool) -> Self {
         let surface = pollster::block_on(WgpuSurface::new_offscreen(WIDTH, HEIGHT, fast_render))
             .unwrap_or_else(|e| {

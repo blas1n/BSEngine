@@ -296,3 +296,83 @@ fn with_nothing_to_find_the_frame_is_unchanged() {
     );
     assert!(!disabled.differs_from(&off));
 }
+
+/// Mean absolute difference between horizontally neighbouring pixels' red,
+/// in linear light, over the floor beside the wall: how noisy the floor is
+/// there (the light itself varies far more slowly than a pixel).
+fn noise(p: &Pixels) -> f32 {
+    let mut sum = 0.0f32;
+    let mut n = 0.0f32;
+    for y in HEIGHT / 2..HEIGHT * 3 / 4 {
+        for x in NEAR.0..NEAR.1 - 1 {
+            let (a, b) = (p.at(x, y), p.at(x + 1, y));
+            if a[0] > a[1] && b[0] > b[1] {
+                sum += (linear(a[0]) - linear(b[0])).abs();
+                n += 1.0;
+            }
+        }
+    }
+    sum / n.max(1.0)
+}
+
+fn few_rays() -> Option<ScreenSpaceGlobalIllumination> {
+    on().map(|s| ScreenSpaceGlobalIllumination { rays: 2, ..s })
+}
+
+/// Frames accumulate: with two rays a pixel the first frame is noisy, and
+/// after two dozen -- each turned differently -- the floor beside the red
+/// wall is smoother, and its light the same: the mean of many frames of two
+/// rays is the mean of one frame of sixteen, as an average of independent
+/// estimates of the same light should be.
+#[test]
+fn frames_accumulate_into_less_noise_and_the_same_light() {
+    let mut h = Harness::new();
+    let draws = floor_and_wall(RED)(&mut h);
+    let s = scene(draws, few_rays());
+    let first = noise(&h.render_at_frame(&s, 0));
+    for frame in 1..31 {
+        h.render_at_frame(&s, frame);
+    }
+    let last = h.render_at_frame(&s, 31);
+    assert!(
+        noise(&last) < 0.6 * first,
+        "the history settles the noise: {first} -> {}",
+        noise(&last)
+    );
+    let reference = floor_band(&first_frame(on(), floor_and_wall(RED)), NEAR.0, NEAR.1);
+    let settled = floor_band(&last, NEAR.0, NEAR.1);
+    assert!(
+        ((settled - reference) / reference).abs().max_element() < 0.05,
+        "the same light: {settled} vs {reference}"
+    );
+}
+
+/// A surface just uncovered has no history: where the wall stood, the floor
+/// now showing is the floor's first frame, not a blend into what the wall
+/// gathered. Its view depth is not what the history recorded there.
+#[test]
+fn an_uncovered_surface_starts_its_history_over() {
+    let mut h = Harness::new();
+    let (f, w) = (floor(&mut h), wall(&mut h));
+    let floor_draw = || Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0);
+    for frame in 0..20 {
+        let wall_draw = Draw::new(w, Vec3::ZERO).colour(Vec3::ZERO).emissive(RED);
+        h.render_at_frame(&scene(vec![floor_draw(), wall_draw], on()), frame);
+    }
+    let uncovered = h.render_at_frame(&scene(vec![floor_draw()], on()), 20);
+    let fresh = first_frame(on(), floor_alone);
+    // Where the wall stood: the columns it covered, middle rows.
+    let mut worst = 0i32;
+    for y in HEIGHT * 3 / 8..HEIGHT / 2 {
+        for x in WIDTH * 14 / 24..WIDTH * 17 / 24 {
+            for c in 0..3 {
+                worst = worst
+                    .max((i32::from(uncovered.at(x, y)[c]) - i32::from(fresh.at(x, y)[c])).abs());
+            }
+        }
+    }
+    assert!(
+        worst <= 3,
+        "the uncovered floor is its own first frame: off by {worst}"
+    );
+}

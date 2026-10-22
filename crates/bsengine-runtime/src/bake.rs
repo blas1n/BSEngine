@@ -55,6 +55,11 @@ pub struct BakeReport {
     pub layer_paths: Vec<String>,
     /// Each layer's directions (`lightmap_<n>_dir.png`), in layer order.
     pub direction_paths: Vec<String>,
+    /// The adaptive probe volume's baked probes (`probes.bin`), when the scene
+    /// has a volume `Adaptive` and baked `Once`.
+    pub probes_path: Option<String>,
+    /// How many probes it holds.
+    pub probes: usize,
 }
 
 /// The baker `--backend` names. `gpu` insists -- any adapter, a software one
@@ -168,6 +173,7 @@ pub fn run_bake(args: &BakeArgs) -> Result<BakeReport, String> {
         );
     }
 
+    let probes = bake_probe_volume(app.world_mut(), &gathered, &lights, &sky, &settings)?;
     write_output(
         args,
         baker.name(),
@@ -176,7 +182,97 @@ pub fn run_bake(args: &BakeArgs) -> Result<BakeReport, String> {
         &scene_text,
         &gathered.names,
         &output,
+        probes,
     )
+}
+
+/// Rays each baked probe traces: four times the realtime update's most, as a
+/// bake can afford what a frame cannot -- less noise in the SH and in the
+/// moments than the update reaches only by accumulating frames.
+const PROBE_RAYS: u32 = 1024;
+
+/// The scene's first light-probe volume, when it is `Adaptive` and baked
+/// `Once`: its bricks cut around the static set, as the realtime update cuts
+/// them, and every probe traced with the lightmap bake's lights, sky and
+/// bounces. `None` when the scene has no such volume. The same volume the
+/// renderer uses -- the first -- so the probes land where they are read.
+fn bake_probe_volume(
+    world: &mut World,
+    gathered: &Gathered,
+    lights: &[BakeLight],
+    sky: &Sky,
+    settings: &BakeSettings,
+) -> Result<Option<(String, bsengine_bake::probe_bake::BakedProbes)>, String> {
+    use bsengine_core::{
+        GlobalTransform, LightProbeVolume, ProbePlacement, ProbeUpdate, Transform,
+    };
+    let mut q = world.query::<(
+        &LightProbeVolume,
+        &Transform,
+        Option<&GlobalTransform>,
+        Option<&bsengine_scene::Name>,
+    )>();
+    let Some((volume, t, gt, name)) = q.iter(world).next() else {
+        return Ok(None);
+    };
+    if volume.placement != ProbePlacement::Adaptive || volume.update != ProbeUpdate::Once {
+        return Ok(None);
+    }
+    let name = name
+        .map(|n| n.0.clone())
+        .ok_or("the adaptive light-probe volume has no name to record its probes by")?;
+    let centre = gt
+        .map(|g| g.to_matrix().w_axis.truncate())
+        .unwrap_or(t.position.0);
+    let half = *volume.half_extents;
+    let layout = bsengine_bake::probe_bricks::BrickLayout::build(
+        &bsengine_bake::probe_bricks::BrickSettings {
+            origin: centre - half,
+            extent: half * 2.0,
+            min_spacing: volume.min_probe_spacing,
+            max_spacing: volume.max_probe_spacing,
+            max_probes: bsengine_core::MAX_PROBES,
+            max_bricks: bsengine_core::MAX_PROBE_BRICKS,
+        },
+        &gathered
+            .triangles
+            .iter()
+            .map(|t| t.positions)
+            .collect::<Vec<_>>(),
+    );
+    if layout.truncated || layout.coarsened {
+        tracing::warn!(
+            "probe bake: '{name}' needs more than {} probes at its spacings; it is coarser {}",
+            bsengine_core::MAX_PROBES,
+            if layout.coarsened {
+                "everywhere"
+            } else {
+                "near geometry"
+            }
+        );
+    }
+    let started = std::time::Instant::now();
+    let probes = bsengine_bake::probe_bake::bake_probes(
+        &BakeInput {
+            triangles: &gathered.triangles,
+            renderers: &gathered.renderers,
+            lights,
+            sky,
+        },
+        layout,
+        &bsengine_bake::probe_bake::ProbeBakeSettings {
+            rays: PROBE_RAYS,
+            bounces: settings.trace.bounces,
+            seed: settings.trace.seed,
+        },
+    );
+    tracing::info!(
+        "probe bake: '{name}', {} probes in {} bricks, {:.1}s",
+        probes.probes.len(),
+        probes.layout.bricks.len(),
+        started.elapsed().as_secs_f32()
+    );
+    Ok(Some((name, probes)))
 }
 
 /// Static entities with no CPU mesh yet, by name. (A skinned mesh counts as
@@ -307,6 +403,7 @@ fn scene_stem(relative_scene: &str) -> String {
         .unwrap_or_else(|| "scene".into())
 }
 
+#[allow(clippy::too_many_arguments)] // one bake's outputs, each written once
 fn write_output(
     args: &BakeArgs,
     backend: &str,
@@ -315,6 +412,7 @@ fn write_output(
     scene_text: &str,
     names: &[String],
     output: &bsengine_bake::BakeOutput,
+    probes: Option<(String, bsengine_bake::probe_bake::BakedProbes)>,
 ) -> Result<BakeReport, String> {
     let stem = scene_stem(relative_scene);
     let relative_dir = format!("assets/lightmaps/{stem}");
@@ -354,6 +452,25 @@ fn write_output(
         }
     }
 
+    // The probes beside the layers: binary, read whole by the renderer
+    // (`bsengine_bake::probe_bake::decode`). A previous bake's, when this one
+    // has no adaptive volume, would otherwise linger and ship.
+    let probe_file = dir.join("probes.bin");
+    let probe_count = probes.as_ref().map_or(0, |(_, p)| p.probes.len());
+    let probe_entry = match &probes {
+        Some((volume, baked)) => {
+            std::fs::write(&probe_file, bsengine_bake::probe_bake::encode(baked))
+                .map_err(|e| format!("cannot write {}: {e}", probe_file.display()))?;
+            Some(bsengine_scene::lightmaps::ProbeEntry {
+                volume: volume.clone(),
+                file: format!("{relative_dir}/probes.bin"),
+            })
+        }
+        None => {
+            let _ = std::fs::remove_file(&probe_file);
+            None
+        }
+    };
     let data = bsengine_scene::lightmaps::LightmapData {
         scene_fingerprint: bsengine_scene::lightmaps::fingerprint(scene_text),
         entries: names
@@ -366,6 +483,7 @@ fn write_output(
                 scale_offset: p.scale_offset(output.layer_size),
             })
             .collect(),
+        probes: probe_entry.clone(),
     };
     let data_path = bsengine_scene::lightmaps::data_path(scene_path);
     std::fs::write(
@@ -383,6 +501,8 @@ fn write_output(
         data_path,
         layer_paths,
         direction_paths,
+        probes_path: probe_entry.map(|e| e.file),
+        probes: probe_count,
     })
 }
 

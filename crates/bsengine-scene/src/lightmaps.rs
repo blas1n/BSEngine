@@ -28,6 +28,19 @@ pub struct LightmapData {
     pub scene_fingerprint: String,
     /// One per lightmapped entity.
     pub entries: Vec<LightmapEntry>,
+    /// An adaptive light-probe volume's baked probes, when the scene has one
+    /// baked `Once`; absent in a file baked before (or without) one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub probes: Option<ProbeEntry>,
+}
+
+/// Which volume the baked probes are for, and their file.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProbeEntry {
+    /// The volume entity's `Name`.
+    pub volume: String,
+    /// `assets/lightmaps/<scene>/probes.bin`, project-relative.
+    pub file: String,
 }
 
 /// One entity's lightmap.
@@ -98,6 +111,20 @@ pub fn apply(world: &mut bevy_ecs::world::World, scene_path: &str, scene_text: &
         }
     }
     let mut applied = 0;
+    if let Some(probes) = &data.probes {
+        match by_name.get(&probes.volume) {
+            Some(&e) => {
+                world.entity_mut(e).insert(bsengine_core::BakedLightProbes {
+                    path: probes.file.clone(),
+                });
+            }
+            None => tracing::warn!(
+                "lightmaps: {path} has probes for '{}', which {scene_path} no longer has; bake \
+                 again",
+                probes.volume
+            ),
+        }
+    }
     for entry in &data.entries {
         match by_name.get(&entry.entity) {
             Some(&e) => {
@@ -153,6 +180,10 @@ mod tests {
                 scale_offset: [0.5, 0.5, 0.25, 0.0],
                 direction: "assets/lightmaps/level/lightmap_0_dir.png".into(),
             }],
+            probes: Some(ProbeEntry {
+                volume: "Probes".into(),
+                file: "assets/lightmaps/level/probes.bin".into(),
+            }),
         };
         std::fs::write(
             data_path(&scene_path),
@@ -163,6 +194,7 @@ mod tests {
         let mut world = bevy_ecs::world::World::new();
         let floor = world.spawn(crate::Name("Floor".into())).id();
         let wall = world.spawn(crate::Name("Wall".into())).id();
+        let volume = world.spawn(crate::Name("Probes".into())).id();
         assert_eq!(apply(&mut world, &scene_path, scene_text), 1);
         let lm = world
             .get::<bsengine_core::Lightmap>(floor)
@@ -174,12 +206,23 @@ mod tests {
             "assets/lightmaps/level/lightmap_0_dir.png"
         );
         assert!(world.get::<bsengine_core::Lightmap>(wall).is_none());
+        assert_eq!(
+            world
+                .get::<bsengine_core::BakedLightProbes>(volume)
+                .map(|b| b.path.as_str()),
+            Some("assets/lightmaps/level/probes.bin"),
+            "the named volume gets its baked probes"
+        );
+        assert!(world
+            .get::<bsengine_core::BakedLightProbes>(floor)
+            .is_none());
 
         // A file baked before directional lightmaps names no direction, and
         // still loads: its entities shade non-directionally.
         let old = "(scene_fingerprint: \"x\", entries: [(entity: \"Floor\", texture: \"t.png\", scale_offset: (1.0, 1.0, 0.0, 0.0))])";
         let parsed: LightmapData = ron::from_str(old).expect("an old file still parses");
         assert!(parsed.entries[0].direction.is_empty());
+        assert!(parsed.probes.is_none(), "and has no probes");
 
         // A scene that was never baked: nothing, and no error.
         let mut other = bevy_ecs::world::World::new();

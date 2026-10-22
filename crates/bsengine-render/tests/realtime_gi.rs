@@ -240,3 +240,108 @@ fn every_moving_renderer_takes_part_unless_excluded_hidden_or_static() {
         "a renderer that moves is traced where it is, with nothing read back"
     );
 }
+
+/// An adaptive volume baked `Once` with baked probes (`BakedLightProbes`, from
+/// the scene's lightmap data) reaches the surface through
+/// `feed_baked_probes`: the file is read, the grid holds its bricks, and the
+/// raster bake does not run. Taken away, the grid is baked as before; a file
+/// that cannot be read is said once, and the grid is baked too.
+#[test]
+fn baked_probes_reach_the_surface_and_hand_back_to_the_grid() {
+    use bsengine_core::{BakedLightProbes, LightProbeVolume, ProbePlacement, ProbeUpdate};
+    let mut app = new_app();
+    app.add_plugins(bsengine_asset::AssetPlugin);
+    app.add_plugins(WgpuRHIPlugin::windowed());
+    app.add_plugins(RenderPlugin);
+    let surface = bsengine_rhi_wgpu::surface::WgpuSurface::offscreen_for_testing(64, 64)
+        .expect("these tests need an adapter; a skip here would look like a pass");
+    app.insert_resource(GpuMeshRegistry::new(surface.device_arc()));
+    app.insert_resource(bsengine_rhi_wgpu::GpuTextureRegistry::new(
+        surface.device_arc(),
+        surface.queue_arc(),
+    ));
+    app.insert_resource(bsengine_rhi_wgpu::WgpuSurfaceResource(surface));
+    app.update();
+    app.world_mut().spawn((
+        Camera::default(),
+        Transform::from_position(Vec3::new(0.0, 3.0, 10.0)),
+    ));
+
+    // A small baked volume: one brick, its probes all a uniform sky.
+    let layout = bsengine_bake::probe_bricks::BrickLayout::build(
+        &bsengine_bake::probe_bricks::BrickSettings {
+            origin: Vec3::splat(-1.0),
+            extent: Vec3::splat(2.0),
+            min_spacing: 0.5,
+            max_spacing: 0.7,
+            max_probes: 4096,
+            max_bricks: 512,
+        },
+        &[],
+    );
+    let baked = bsengine_bake::probe_bake::bake_probes(
+        &bsengine_bake::BakeInput {
+            triangles: &[],
+            renderers: &[],
+            lights: &[],
+            sky: &bsengine_bake::Sky::Uniform(Vec3::splat(0.5)),
+        },
+        layout,
+        &bsengine_bake::probe_bake::ProbeBakeSettings {
+            rays: 64,
+            bounces: 1,
+            seed: 0,
+        },
+    );
+    let file =
+        std::env::temp_dir().join(format!("bsengine_baked_probes_{}.bin", std::process::id()));
+    std::fs::write(&file, bsengine_bake::probe_bake::encode(&baked)).unwrap();
+    let path = file.to_string_lossy().replace('\\', "/");
+
+    let volume = app
+        .world_mut()
+        .spawn((
+            LightProbeVolume {
+                placement: ProbePlacement::Adaptive,
+                update: ProbeUpdate::Once,
+                half_extents: Vec3::splat(1.0).into(),
+                ..LightProbeVolume::default()
+            },
+            BakedLightProbes { path: path.clone() },
+            Transform::default(),
+        ))
+        .id();
+    app.update();
+    app.update();
+    assert!(
+        surface_of(&app).has_baked_probe_bricks(),
+        "the baked probes are what the grid holds"
+    );
+    assert!(
+        !surface_of(&app).has_baked_probe_volume(),
+        "and the raster bake did not run"
+    );
+
+    app.world_mut()
+        .entity_mut(volume)
+        .remove::<BakedLightProbes>();
+    app.update();
+    app.update();
+    assert!(!surface_of(&app).has_baked_probe_bricks());
+    assert!(
+        surface_of(&app).has_baked_probe_volume(),
+        "without them the volume bakes its grid"
+    );
+
+    app.world_mut().entity_mut(volume).insert(BakedLightProbes {
+        path: format!("{path}.missing"),
+    });
+    app.update();
+    app.update();
+    assert!(
+        !surface_of(&app).has_baked_probe_bricks(),
+        "an unreadable file is none"
+    );
+    assert!(surface_of(&app).has_baked_probe_volume());
+    let _ = std::fs::remove_file(&file);
+}

@@ -1861,6 +1861,58 @@ pub(crate) fn probe_cells(
         .collect()
 }
 
+/// Writes an adaptive volume's baked probes over the whole grid: zeroed, then
+/// the tables, every probe's SH and moments into the first half, and a header
+/// that shades from it with visibility -- what a realtime update leaves after
+/// it, without the update. No offsets: a baked probe stays on its lattice
+/// point.
+pub(crate) fn upload_baked(
+    queue: &wgpu::Queue,
+    buffer: &wgpu::Buffer,
+    baked: &bsengine_bake::probe_bake::BakedProbes,
+) {
+    use crate::surface::{PROBE_GRID_HEADER_SIZE, PROBE_GRID_SIZE, PROBE_MOMENTS_BASE};
+    queue.write_buffer(
+        buffer,
+        PROBE_GRID_HEADER_SIZE,
+        &vec![0u8; (PROBE_GRID_SIZE - PROBE_GRID_HEADER_SIZE) as usize],
+    );
+    upload_bricks(queue, buffer, &baked.layout);
+    let probes = &baked.probes[..baked.probes.len().min(bsengine_core::MAX_PROBES)];
+    let sh: Vec<[f32; 4]> = probes
+        .iter()
+        .flat_map(|p| p.sh.map(|c| c.extend(0.0).to_array()))
+        .collect();
+    if !sh.is_empty() {
+        queue.write_buffer(buffer, PROBE_GRID_HEADER_SIZE, bytemuck::cast_slice(&sh));
+    }
+    let moments: Vec<u32> = probes
+        .iter()
+        .flat_map(|p| {
+            let mut m = p.moments.clone();
+            m.resize(bsengine_bake::probe_bake::MOMENT_TEXELS, 0);
+            m
+        })
+        .collect();
+    if !moments.is_empty() {
+        queue.write_buffer(
+            buffer,
+            PROBE_GRID_HEADER_SIZE + PROBE_MOMENTS_BASE * 16,
+            bytemuck::cast_slice(&moments),
+        );
+    }
+    let header = crate::surface::ProbeGridHeader {
+        origin: baked.layout.origin.to_array(),
+        enabled: 1,
+        extent: baked.layout.extent.to_array(),
+        // Moments filled, and bricks.
+        flags: 1 | 2,
+        resolution: baked.layout.top,
+        coeff_offset: 0,
+    };
+    queue.write_buffer(buffer, 0, bytemuck::bytes_of(&header));
+}
+
 /// Writes an adaptive volume's tables into the probe buffer (the layout at
 /// `surface::PROBE_POSITIONS_BASE` on, which `probe_grid_wgsl` reads): per
 /// probe its position and spacing, the tree's nodes, and per brick its corner,

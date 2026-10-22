@@ -76,12 +76,25 @@ pub enum ProbePlacement {
     /// near the `LightmapStatic` geometry and
     /// [`LightProbeVolume::max_probe_spacing`] away from it, each level three
     /// times finer than the last (`bsengine_bake::probe_bricks`).
-    /// `resolution` is not used. Realtime volumes only for now
-    /// ([`ProbeUpdate::Realtime`]): a volume baked [`ProbeUpdate::Once`] is
-    /// captured by rasterising each probe, at most [`MAX_BAKED_PROBES`], and
-    /// bakes its grid instead, with a warning. The bricks are cut when the
-    /// static set or the volume changes, which starts its probes over.
+    /// `resolution` is not used. A [`ProbeUpdate::Realtime`] volume cuts its
+    /// bricks when the static set or the volume changes, which starts its
+    /// probes over; a [`ProbeUpdate::Once`] one is baked by
+    /// `bsengine-runtime --bake` with the lightmaps ([`BakedLightProbes`]),
+    /// and until it is, bakes its grid (the raster bake holds at most
+    /// [`MAX_BAKED_PROBES`]) with a warning.
     Adaptive,
+}
+
+/// Where an adaptive volume's baked probes are: `assets/lightmaps/<scene>/
+/// probes.bin`, written by `bsengine-runtime --bake` beside the lightmaps and
+/// given to the volume when its scene loads (`bsengine_scene::lightmaps`).
+/// With it, a [`ProbePlacement::Adaptive`] volume baked [`ProbeUpdate::Once`]
+/// shades from its bricks; without it, it bakes its grid.
+#[derive(Component, Debug, Clone, PartialEq, Default, Reflect)]
+#[reflect(Component, Default)]
+pub struct BakedLightProbes {
+    /// Project-relative, as scene files write paths.
+    pub path: String,
 }
 
 /// A box filled with light probes, giving position-varying indirect light

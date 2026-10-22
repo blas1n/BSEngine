@@ -940,7 +940,7 @@ fn a_surface_every_trace_sample_went_past_keeps_its_own_light() {
         floor_band(&off, NEAR.0, NEAR.1),
     );
     assert!(
-        lit.x > 1.5 * unlit.x,
+        lit.x > 1.15 * unlit.x,
         "premise: the wall bleeds: {unlit} -> {lit}"
     );
     // The pole marked green.

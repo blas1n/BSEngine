@@ -214,8 +214,8 @@ pub use inspector::{
 pub use lifetime::Lifetime;
 pub use light::{DirectionalLight, LightBakeMode, PointLight, RectLight, SpotLight};
 pub use light_probe::{
-    BakedLightProbes, LightProbeVolume, ProbePlacement, ProbeUpdate, MAX_BAKED_PROBES, MAX_PROBES,
-    MAX_PROBE_BRICKS,
+    BakedLightProbes, LightProbeVolume, ProbePlacement, ProbeUpdate, MAX_ADAPTIVE_PROBES,
+    MAX_BAKED_PROBES, MAX_PROBES, MAX_PROBE_BRICKS,
 };
 pub use lightmap::{Lightmap, LIGHTMAP_RGBM_RANGE};
 pub use lightmap_static::LightmapStatic;

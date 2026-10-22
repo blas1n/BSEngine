@@ -660,7 +660,26 @@ fn bench_realtime_gi() {
     };
     let mut input = s.input(volume, 0.97, 1 << 18);
     input.rays_per_probe = 64;
+    // `BENCH_ADAPTIVE=1`: the same box as adaptive bricks, fine (0.033)
+    // around the floor's panels and coarse (0.3) above -- what the brick walk
+    // costs shading and the bounce, at the same ray budget.
+    if std::env::var("BENCH_ADAPTIVE").is_ok() {
+        input = adaptive(input, 0.1 / 3.0, 0.3);
+    }
     s.run(&input, 3);
+    let probes = s
+        .scene
+        .surface
+        .realtime_gi_bricks_for_testing()
+        .map_or(16 * 16 * 16, |l| l.probes.len());
+    if let Some(l) = s.scene.surface.realtime_gi_bricks_for_testing() {
+        eprintln!(
+            "BENCH adaptive: {} probes in {} bricks (truncated {})",
+            l.probes.len(),
+            l.bricks.len(),
+            l.truncated
+        );
+    }
     let n = 30;
     let device = s.scene.surface.device_arc();
     let t = std::time::Instant::now();
@@ -669,7 +688,7 @@ fn bench_realtime_gi() {
         device.poll(wgpu::Maintain::Wait);
     }
     eprintln!(
-        "BENCH realtime gi: 4096 probes x 64 rays, {} triangles, {} instances: {:.2} ms per frame (update + frame)",
+        "BENCH realtime gi: {probes} probes x 64 rays, {} triangles, {} instances: {:.2} ms per frame (update + frame)",
         s.statics.len() * 2,
         s.dynamics.len(),
         t.elapsed().as_secs_f64() * 1000.0 / n as f64
@@ -1876,4 +1895,156 @@ fn baked_bricks_shade_as_the_realtime_bricks_do() {
     s.scene.render(None).expect("the frame renders");
     assert!(!s.scene.surface.has_baked_probe_bricks());
     assert_eq!(row(&s), none, "cleared, the grid is empty again");
+}
+
+/// A volume whose bricks need more probes than the buffer starts with grows
+/// it, rather than being cut coarser: the furnace's box, refined three
+/// levels deep along its walls, is well past 4096 probes, and the buffer
+/// grows to hold them all. Every table is then where the shader looks at the
+/// larger capacity -- its lookup agrees with the layout's, and every probe,
+/// the ones past the old limit included, reaches the furnace's light.
+#[test]
+fn an_adaptive_layout_past_the_buffer_grows_it() {
+    let (e, rho) = (0.4f32, 0.5f32);
+    let mut s = furnace_scene(e, rho);
+    assert_eq!(
+        s.scene.surface.probe_capacity(),
+        4096,
+        "premise: the default"
+    );
+    let volume = ProbeVolumeParams {
+        origin: Vec3::splat(0.05),
+        extent: Vec3::splat(0.9),
+        resolution: [2, 2, 2],
+    };
+    let input = adaptive(s.input(volume, 0.0, 1 << 24), 0.1 / 3.0, 0.3);
+    s.run(&input, 12);
+    let layout = s.scene.surface.realtime_gi_bricks_for_testing().unwrap();
+    assert!(!layout.truncated, "the finest level was cut");
+    assert!(
+        layout.probes.len() > 4096,
+        "premise: past the old limit: {}",
+        layout.probes.len()
+    );
+    let capacity = s.scene.surface.probe_capacity();
+    assert!(
+        capacity as usize >= layout.probes.len() && capacity.is_power_of_two(),
+        "the buffer grew to hold them: {capacity}"
+    );
+
+    let mut state = 5u32;
+    let mut next = || {
+        state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+        (state >> 8) as f32 / (1u32 << 24) as f32
+    };
+    let mut points = Vec::new();
+    let mut want = Vec::new();
+    while points.len() < 2000 {
+        let p = volume.origin + Vec3::new(next(), next(), next()) * volume.extent;
+        let (b, local) = layout.locate(p).unwrap();
+        if (local - local.round()).abs().min_element() < 1e-3 {
+            continue;
+        }
+        let brick = &layout.bricks[b as usize];
+        let i0 = local.floor().clamp(Vec3::ZERO, Vec3::splat(2.0));
+        let corners: [u32; 8] = std::array::from_fn(|c| {
+            let c = c as u32;
+            let ci = i0.as_uvec3() + glam::UVec3::new(c & 1, (c >> 1) & 1, c >> 2);
+            brick.probes[(ci.x + 4 * (ci.y + 4 * ci.z)) as usize]
+        });
+        points.push(p);
+        want.push(corners);
+    }
+    let got = s.scene.surface.probe_cells_for_testing(&points);
+    for ((p, w), (g, _)) in points.iter().zip(&want).zip(&got) {
+        assert_eq!(g, w, "{p}: the lookup at the grown capacity");
+    }
+
+    let target = e * (1.0 - rho.powi(12)) / (1.0 - rho);
+    let past = (4096..layout.probes.len()).step_by(97);
+    for probe in (0..4096).step_by(211).chain(past) {
+        let got = s.irradiance(probe, Vec3::Y).x;
+        assert!(
+            (got - target).abs() < target * 0.02,
+            "probe {probe}: {got} vs {target}"
+        );
+    }
+}
+
+/// Baked bricks past the buffer grow it too, on upload, and land whole:
+/// the probes past the old limit hold what the bake wrote for them.
+#[test]
+fn baked_bricks_past_the_buffer_grow_it() {
+    let mut s = furnace_room();
+    let tris = furnace_room_triangles();
+    let layout = bsengine_bake::probe_bricks::BrickLayout::build(
+        &bsengine_bake::probe_bricks::BrickSettings {
+            origin: Vec3::new(-3.1, -3.1, 0.4),
+            extent: Vec3::splat(6.2),
+            min_spacing: 0.2,
+            max_spacing: 1.8,
+            max_probes: bsengine_core::MAX_ADAPTIVE_PROBES,
+            max_bricks: bsengine_core::MAX_PROBE_BRICKS,
+        },
+        &tris.iter().map(|t| t.positions).collect::<Vec<_>>(),
+    );
+    assert!(
+        layout.probes.len() > 4096,
+        "premise: {}",
+        layout.probes.len()
+    );
+    let baked = bsengine_bake::probe_bake::bake_probes(
+        &bsengine_bake::BakeInput {
+            triangles: &tris,
+            renderers: &[bsengine_bake::RendererInfo {
+                resolution_scale: 1.0,
+            }],
+            lights: &[],
+            sky: &bsengine_bake::Sky::Uniform(Vec3::ZERO),
+        },
+        layout,
+        &bsengine_bake::probe_bake::ProbeBakeSettings {
+            rays: 64,
+            bounces: 2,
+            seed: 0,
+        },
+    );
+    let n = baked.probes.len();
+    let last = baked.probes[n - 1].sh;
+    let last_moments = baked.probes[n - 1].moments.clone();
+    let centre = |s: &GiScene| {
+        let pixels = s.scene.surface.read_pixels().expect("offscreen readback");
+        pixels[(32 * 64 + 32) * 4]
+    };
+    s.scene.render(None).expect("the frame renders");
+    let none = centre(&s);
+    s.scene
+        .surface
+        .set_baked_probe_bricks(Some(std::sync::Arc::new(baked)));
+    s.scene.render(None).expect("the frame renders");
+    assert!(s.scene.surface.has_baked_probe_bricks());
+    assert!(s.scene.surface.probe_capacity() as usize >= n);
+    // And shading reads the grown buffer, not the one it replaced (which
+    // holds nothing): the wall takes the probes' light.
+    let lit = centre(&s);
+    assert!(
+        lit as i32 > none as i32 + 20,
+        "the wall is lit through the grown buffer: {none} -> {lit}"
+    );
+    let grid = s.scene.surface.read_probe_grid_for_testing();
+    let got = grid.coeffs[n - 1];
+    for (c, want) in got.iter().zip(last) {
+        assert!(
+            (Vec3::new(c[0], c[1], c[2]) - want).length() < 1e-6,
+            "the last probe's SH: {c:?} vs {want}"
+        );
+    }
+    // And its moments, where the shader reads them at this capacity: written
+    // anywhere else, a probe reads another's -- distances much like its own,
+    // which no pixel here tells from the right ones.
+    assert_eq!(
+        grid.moments[n - 1],
+        last_moments,
+        "the last probe's moments"
+    );
 }

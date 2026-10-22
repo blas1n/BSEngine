@@ -1833,48 +1833,82 @@ const PROBE_CAPTURE_RANGE: f32 = 200.0;
 const PROBE_CAPTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 /// Bytes of [`ProbeGridHeader`]: the part of `ProbeGrid` in [`MESH_WGSL`]
 /// before its runtime-sized `coeffs` array.
-pub(crate) const PROBE_GRID_HEADER_SIZE: u64 = 48;
+pub(crate) const PROBE_GRID_HEADER_SIZE: u64 = 64;
 /// Bytes of one probe's coefficients: nine `vec4<f32>`.
 pub(crate) const PROBE_COEFFS_SIZE: u64 = (crate::sh::SH_COEFF_COUNT * 16) as u64;
-/// The probe buffer's whole size: the header, two halves of
-/// [`bsengine_core::MAX_PROBES`] probes' SH (a baked volume uses the first; a
-/// realtime one alternates, `crate::realtime_gi`) and two halves of every
-/// probe's distance moments, about 9.6 MiB. Allocated once, whatever the
-/// scene.
-pub(crate) const PROBE_GRID_SIZE: u64 = PROBE_GRID_HEADER_SIZE + PROBE_BRICKS_END * 16;
 /// Bytes of one probe's distance moments: 16 x 16 octahedral texels as two
 /// f16 each, four to a `vec4`, each `vec4` written by one thread.
 pub(crate) const PROBE_MOMENTS_SIZE: u64 = 64 * 16;
 /// Bytes of one probe's relocation entry: where it moved to (`OFFSETS_BASE`
 /// in `realtime_gi`'s shader).
 pub(crate) const PROBE_OFFSET_SIZE: u64 = 16;
-/// Where the moments and the offsets start in the shader's `coeffs`, in
-/// `vec4` entries. The WGSL writes these as literals (a `const` there cannot
-/// be computed from the Rust side); `probe_grid_layout_matches_the_shader`
-/// holds the two together.
-pub(crate) const PROBE_MOMENTS_BASE: u64 = 2 * 9 * bsengine_core::MAX_PROBES as u64;
-pub(crate) const PROBE_OFFSETS_BASE: u64 =
-    PROBE_MOMENTS_BASE + 2 * (PROBE_MOMENTS_SIZE / 16) * bsengine_core::MAX_PROBES as u64;
-/// An adaptive volume's tables (`bsengine_bake::probe_bricks`), after the
-/// offsets, written by the CPU when its layout changes and read by shading
-/// and the update alike -- one copy, not two halves: nothing on the GPU
-/// writes them. Per probe, two entries: its position, and its spacing.
-pub(crate) const PROBE_POSITIONS_BASE: u64 =
-    PROBE_OFFSETS_BASE + 2 * (PROBE_OFFSET_SIZE / 16) * bsengine_core::MAX_PROBES as u64;
-/// The brick tree's nodes, four `u32` to an entry: one per top-level brick,
-/// then every group's 27. A group replaces one leaf with 27, so the nodes are
-/// the bricks and the groups -- under twice the bricks.
-pub(crate) const PROBE_NODES_BASE: u64 =
-    PROBE_POSITIONS_BASE + 2 * bsengine_core::MAX_PROBES as u64;
-/// Most nodes the tree holds.
-pub(crate) const MAX_PROBE_NODES: u64 = 2 * bsengine_core::MAX_PROBE_BRICKS as u64;
-/// The bricks, [`PROBE_BRICK_ENTRIES`] entries each: the minimum corner, the
-/// size, and the 64 probe indices four to an entry.
-pub(crate) const PROBE_BRICKS_BASE: u64 = PROBE_NODES_BASE + MAX_PROBE_NODES / 4;
+/// A brick's entries: the minimum corner, the size, and the 64 probe indices
+/// four to an entry.
 pub(crate) const PROBE_BRICK_ENTRIES: u64 = 2 + 64 / 4;
-/// The end of the buffer, in entries.
-pub(crate) const PROBE_BRICKS_END: u64 =
-    PROBE_BRICKS_BASE + PROBE_BRICK_ENTRIES * bsengine_core::MAX_PROBE_BRICKS as u64;
+
+/// Where everything is in the probe buffer of `capacity` probes a half, in
+/// `vec4` entries after the header -- the CPU's copy of what
+/// `realtime_gi::probe_grid_wgsl` computes from the header's `capacity` (the
+/// two are held together by the GPU tests at more than one capacity).
+///
+/// Two halves of SH (a baked volume uses the first; a realtime one
+/// alternates, `crate::realtime_gi`), two halves of every probe's distance
+/// moments, two of its relocation offsets; then an adaptive volume's tables
+/// (`bsengine_bake::probe_bricks`), one copy written by the CPU when its
+/// layout changes -- per probe its position and spacing, the brick tree's
+/// nodes (a group replaces one leaf with 27, so under twice the bricks), and
+/// the bricks. A buffer holds `capacity / 8` bricks.
+///
+/// It starts at [`bsengine_core::MAX_PROBES`] (9.7 MiB, whatever the scene)
+/// and grows, doubling, when an adaptive layout needs more
+/// (`WgpuSurface::grow_probe_buffer`), up to
+/// [`bsengine_core::MAX_ADAPTIVE_PROBES`]; it never shrinks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ProbeGridLayout {
+    pub(crate) capacity: u64,
+}
+
+impl ProbeGridLayout {
+    pub(crate) const DEFAULT: Self = Self {
+        capacity: bsengine_core::MAX_PROBES as u64,
+    };
+
+    /// The smallest layout -- a power of two, at least the default -- that
+    /// holds `probes` probes, or the largest there is.
+    pub(crate) fn for_probes(probes: usize) -> Self {
+        let n = probes
+            .max(bsengine_core::MAX_PROBES)
+            .next_power_of_two()
+            .min(bsengine_core::MAX_ADAPTIVE_PROBES);
+        Self { capacity: n as u64 }
+    }
+
+    pub(crate) fn moments_base(self) -> u64 {
+        2 * 9 * self.capacity
+    }
+    pub(crate) fn offsets_base(self) -> u64 {
+        self.moments_base() + 2 * (PROBE_MOMENTS_SIZE / 16) * self.capacity
+    }
+    pub(crate) fn positions_base(self) -> u64 {
+        self.offsets_base() + 2 * (PROBE_OFFSET_SIZE / 16) * self.capacity
+    }
+    pub(crate) fn nodes_base(self) -> u64 {
+        self.positions_base() + 2 * self.capacity
+    }
+    pub(crate) fn max_bricks(self) -> u64 {
+        self.capacity / 8
+    }
+    pub(crate) fn max_nodes(self) -> u64 {
+        2 * self.max_bricks()
+    }
+    pub(crate) fn bricks_base(self) -> u64 {
+        self.nodes_base() + self.max_nodes() / 4
+    }
+    /// The whole buffer, header included, in bytes.
+    pub(crate) fn size(self) -> u64 {
+        PROBE_GRID_HEADER_SIZE + (self.bricks_base() + PROBE_BRICK_ENTRIES * self.max_bricks()) * 16
+    }
+}
 
 /// The header of `ProbeGrid` in [`MESH_WGSL`]; the coefficients follow it in
 /// the same buffer, written separately (see [`WgpuSurface::bake_probes`]) so
@@ -1893,13 +1927,18 @@ pub(crate) struct ProbeGridHeader {
     /// Bit 0: the distance moments are filled, so shading weighs probes by
     /// visibility (a realtime volume; a baked one has none). Bit 1: the
     /// probes are an adaptive volume's bricks, found through the tables at
-    /// [`PROBE_POSITIONS_BASE`] on.
+    /// [`ProbeGridLayout::positions_base`] on.
     pub(crate) flags: u32,
     /// Probes per axis, on the grid's lattice points; for an adaptive
     /// volume, its top-level bricks per axis.
     pub(crate) resolution: [u32; 3],
-    /// The half to shade with, as a probe index: 0 or `MAX_PROBES`.
+    /// The half to shade with, as a probe index: 0 or `capacity`.
     pub(crate) coeff_offset: u32,
+    /// Probes per half: [`ProbeGridLayout::capacity`] of the buffer this
+    /// header is in. Every header written says it, or the shader finds its
+    /// tables in the wrong place.
+    pub(crate) capacity: u32,
+    pub(crate) _pad: [u32; 3],
 }
 
 // The coefficients are written at this offset, and the shader reads them from
@@ -1922,6 +1961,9 @@ pub struct ProbeGridReadback {
     /// Per probe of the same half: `xyz` where relocation moved it from its
     /// lattice point (`w` unused). All zero for a baked volume.
     pub offsets: Vec<[f32; 4]>,
+    /// Per probe of the same half: its 256 moment texels, as packed
+    /// (`pack2x16float`, the mean in the low half).
+    pub moments: Vec<Vec<u32>>,
 }
 
 /// The world-space box and grid one probe bake was performed for.
@@ -3316,6 +3358,9 @@ pub struct WgpuSurface {
     /// while set.
     baked_bricks: Option<std::sync::Arc<bsengine_bake::probe_bake::BakedProbes>>,
     uploaded_bricks: Option<std::sync::Arc<bsengine_bake::probe_bake::BakedProbes>>,
+    /// How [`Self::probe_buffer`] is laid out: its capacity, which an adaptive
+    /// layout grows ([`Self::grow_probe_buffer`]).
+    probe_layout: ProbeGridLayout,
     /// The reflection probes' boxes, bound at group 2 binding 12.
     reflection_probe_buffer: wgpu::Buffer,
     /// The rect lights' uniform, written every frame from `LightData`.
@@ -4649,7 +4694,7 @@ impl WgpuSurface {
             usage: wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_DST
                 | wgpu::BufferUsages::COPY_SRC,
-            size: PROBE_GRID_SIZE,
+            size: ProbeGridLayout::DEFAULT.size(),
             mapped_at_creation: false,
         });
         // Explicitly zeroed rather than left to wgpu's lazy zero-init, for the
@@ -4657,7 +4702,11 @@ impl WgpuSurface {
         // every scene without a probe volume rendering as it did before probes
         // existed, and that should be a property of this code rather than of a
         // backend detail.
-        queue.write_buffer(&probe_buffer, 0, &vec![0u8; PROBE_GRID_SIZE as usize]);
+        queue.write_buffer(
+            &probe_buffer,
+            0,
+            &vec![0u8; ProbeGridLayout::DEFAULT.size() as usize],
+        );
 
         // Reflection probes: the uniform (zeroed to `count: 0`, for the same
         // reason `probe_buffer` is), the cube array every probe's prefiltered
@@ -5611,6 +5660,7 @@ impl WgpuSurface {
             baked_probe_volume: None,
             baked_bricks: None,
             uploaded_bricks: None,
+            probe_layout: ProbeGridLayout::DEFAULT,
             reflection_probe_buffer,
             rect_light_buffer,
             ltc,
@@ -6610,11 +6660,13 @@ impl WgpuSurface {
             header.enabled = 1;
             header.extent = params.extent.to_array();
             header.resolution = params.resolution;
+            header.capacity = self.probe_layout.capacity as u32;
         } else {
             // No volume: zero every coefficient as well as `enabled`, so the
             // buffer is exactly what a fresh surface starts with, and nothing
             // of the last bake survives to be read by a later bug.
             coeffs = vec![[0.0; 4]; bsengine_core::MAX_PROBES * crate::sh::SH_COEFF_COUNT];
+            header.capacity = self.probe_layout.capacity as u32;
         }
         // Written even in the `None` case: the binding exists in every frame,
         // so "no probes" has to be expressed as `enabled: 0` rather than as a
@@ -6859,6 +6911,47 @@ impl WgpuSurface {
         self.baked_bricks = bricks;
     }
 
+    /// Grows [`Self::probe_buffer`] to hold `probes` probes a half, when it
+    /// does not: a new buffer, zeroed, bound in place of the old (the scene
+    /// bind groups are rebuilt), and everything that was in the old one
+    /// forgotten -- the bake, the baked bricks and the realtime history start
+    /// again on the new one. Returns whether it grew.
+    fn grow_probe_buffer(&mut self, probes: usize) -> bool {
+        let want = ProbeGridLayout::for_probes(probes);
+        if want.capacity <= self.probe_layout.capacity {
+            return false;
+        }
+        tracing::info!(
+            "light probes: the probe buffer grows to {} probes ({:.1} MiB) for an adaptive volume",
+            want.capacity,
+            want.size() as f64 / (1024.0 * 1024.0)
+        );
+        self.probe_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("probe grid"),
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+            size: want.size(),
+            mapped_at_creation: false,
+        });
+        self.queue
+            .write_buffer(&self.probe_buffer, 0, &vec![0u8; want.size() as usize]);
+        self.probe_layout = want;
+        self.rebuild_light_bind_group();
+        self.baked_probe_volume = None;
+        self.uploaded_bricks = None;
+        if let Some(gi) = &mut self.realtime_gi {
+            gi.reset();
+        }
+        true
+    }
+
+    /// Probes a half the probe buffer holds now, for the tests of its growth.
+    #[doc(hidden)]
+    pub fn probe_capacity(&self) -> u64 {
+        self.probe_layout.capacity
+    }
+
     /// Whether the grid holds baked adaptive probes, for the tests of the
     /// hand-over.
     #[doc(hidden)]
@@ -6951,7 +7044,7 @@ impl WgpuSurface {
     /// what the shader is actually about to sample rather than on a CPU-side
     /// mirror of it. Blocks on a buffer map; not for use in a frame.
     fn read_probe_grid(&self) -> ProbeGridReadback {
-        let size = PROBE_GRID_SIZE;
+        let size = self.probe_layout.size();
         let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("probe grid readback"),
             size,
@@ -6978,22 +7071,31 @@ impl WgpuSurface {
         let bytes = slice.get_mapped_range();
         let header =
             *bytemuck::from_bytes::<ProbeGridHeader>(&bytes[..PROBE_GRID_HEADER_SIZE as usize]);
-        // The half the header names, `MAX_PROBES` probes of it.
+        // The half the header names, `capacity` probes of it.
+        let capacity = self.probe_layout.capacity as usize;
         let half = PROBE_GRID_HEADER_SIZE as usize
             + header.coeff_offset as usize * PROBE_COEFFS_SIZE as usize;
         let coeffs = bytemuck::cast_slice::<u8, [[f32; 4]; crate::sh::SH_COEFF_COUNT]>(
-            &bytes[half..half + PROBE_COEFFS_SIZE as usize * bsengine_core::MAX_PROBES],
+            &bytes[half..half + PROBE_COEFFS_SIZE as usize * capacity],
         )
         .to_vec();
         let offsets_at = PROBE_GRID_HEADER_SIZE as usize
-            + (PROBE_OFFSETS_BASE as usize + header.coeff_offset as usize) * 16;
-        let offsets = bytemuck::cast_slice::<u8, [f32; 4]>(
-            &bytes[offsets_at..offsets_at + 16 * bsengine_core::MAX_PROBES],
-        )
-        .to_vec();
+            + (self.probe_layout.offsets_base() as usize + header.coeff_offset as usize) * 16;
+        let offsets =
+            bytemuck::cast_slice::<u8, [f32; 4]>(&bytes[offsets_at..offsets_at + 16 * capacity])
+                .to_vec();
+        let per_probe = PROBE_MOMENTS_SIZE as usize;
+        let moments_at = PROBE_GRID_HEADER_SIZE as usize
+            + self.probe_layout.moments_base() as usize * 16
+            + header.coeff_offset as usize * per_probe;
+        let moments = bytes[moments_at..moments_at + per_probe * capacity]
+            .chunks_exact(per_probe)
+            .map(|p| bytemuck::cast_slice::<u8, u32>(p).to_vec())
+            .collect();
         drop(bytes);
         staging.unmap();
         ProbeGridReadback {
+            moments,
             enabled: header.enabled,
             origin: header.origin,
             extent: header.extent,
@@ -7447,7 +7549,30 @@ impl WgpuSurface {
             let gi = self
                 .realtime_gi
                 .get_or_insert_with(|| crate::realtime_gi::RealtimeGi::new(device));
-            gi.update(device, &self.queue, registry, &self.probe_buffer, &input);
+            let grid = self.probe_layout;
+            if let Err(needed) = gi.update(
+                device,
+                &self.queue,
+                registry,
+                &self.probe_buffer,
+                grid,
+                &input,
+            ) {
+                // An adaptive layout larger than the buffer: grown, and the
+                // update run again on it this frame.
+                if self.grow_probe_buffer(needed) {
+                    let grid = self.probe_layout;
+                    let gi = self.realtime_gi.as_mut().expect("made above");
+                    let _ = gi.update(
+                        &self.device,
+                        &self.queue,
+                        registry,
+                        &self.probe_buffer,
+                        grid,
+                        &input,
+                    );
+                }
+            }
             self.realtime_gi_active = true;
             // The update writes the whole grid: baked bricks it held are gone,
             // and are uploaded again when the update stops.
@@ -7473,8 +7598,15 @@ impl WgpuSurface {
         };
         match (&bricks, &self.uploaded_bricks) {
             (Some(b), uploaded) if !uploaded.as_ref().is_some_and(|u| Arc::ptr_eq(u, b)) => {
-                crate::realtime_gi::upload_baked(&self.queue, &self.probe_buffer, b);
-                self.uploaded_bricks = Some(Arc::clone(b));
+                let b = Arc::clone(b);
+                self.grow_probe_buffer(crate::realtime_gi::probes_needed(&b.layout));
+                crate::realtime_gi::upload_baked(
+                    &self.queue,
+                    &self.probe_buffer,
+                    self.probe_layout,
+                    &b,
+                );
+                self.uploaded_bricks = Some(b);
                 self.baked_probe_volume = None;
             }
             (None, Some(_)) if !self.realtime_gi_active => {
@@ -10760,27 +10892,35 @@ mod tests {
         }
     }
 
-    /// The shader's probe-index clamp is a hand-written literal, so nothing but
-    /// this ties it to `MAX_PROBES`: raising `MAX_PROBES` without it would
-    /// leave the upper probes reading the last one's coefficients, and
-    /// lowering it would let a grid read past the end of the buffer.
+    /// The shader's probe-index clamp follows the buffer's capacity: a fixed
+    /// one would leave the probes past it reading the last one's
+    /// coefficients, or let an index read past the end of the buffer.
     #[test]
-    fn the_scene_shader_probe_clamp_is_max_probes() {
+    fn the_scene_shader_probe_clamp_is_the_buffers_last_probe() {
         assert!(
             MESH_WGSL.contains("var<storage, read> probes: ProbeGrid;"),
             "the probe grid is a read-only storage buffer"
         );
         // Every clamp of a probe index -- the coefficients', the offsets', the
-        // moments', the brick table's positions -- is the same literal.
-        let right = format!("min(index, {}u)", bsengine_core::MAX_PROBES - 1);
+        // moments', the brick table's positions -- is the buffer's last probe,
+        // which grows with it: a literal would leave the probes past the
+        // default reading the last one's light once the buffer had grown.
+        let right = "min(index, last_probe())";
         assert!(
-            MESH_WGSL.contains(&right),
-            "the shader's probe-index clamp must be MAX_PROBES - 1"
+            MESH_WGSL.contains(right),
+            "the shader's probe-index clamp is the buffer's last probe"
+        );
+        assert!(
+            MESH_WGSL.contains(
+                "fn last_probe() -> u32 {
+    return probes.capacity - 1u;"
+            ),
+            "which is the header's capacity less one"
         );
         assert_eq!(
             MESH_WGSL.matches("min(index, ").count(),
-            MESH_WGSL.matches(right.as_str()).count(),
-            "every probe-index clamp is MAX_PROBES - 1"
+            MESH_WGSL.matches(right).count(),
+            "every probe-index clamp is that"
         );
     }
 
@@ -11276,6 +11416,8 @@ mod tests {
                 flags: 0,
                 resolution: volume.resolution,
                 coeff_offset: 0,
+                capacity: MAX_PROBES as u32,
+                _pad: [0; 3],
             };
             let mut coeffs = vec![[0.0f32; 4]; MAX_PROBES * crate::sh::SH_COEFF_COUNT];
             for probe in first_lit..MAX_PROBES {

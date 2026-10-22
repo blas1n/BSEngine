@@ -231,7 +231,7 @@ fn bake_probe_volume(
             extent: half * 2.0,
             min_spacing: volume.min_probe_spacing,
             max_spacing: volume.max_probe_spacing,
-            max_probes: bsengine_core::MAX_PROBES,
+            max_probes: bsengine_core::MAX_ADAPTIVE_PROBES,
             max_bricks: bsengine_core::MAX_PROBE_BRICKS,
         },
         &gathered
@@ -243,7 +243,7 @@ fn bake_probe_volume(
     if layout.truncated || layout.coarsened {
         tracing::warn!(
             "probe bake: '{name}' needs more than {} probes at its spacings; it is coarser {}",
-            bsengine_core::MAX_PROBES,
+            bsengine_core::MAX_ADAPTIVE_PROBES,
             if layout.coarsened {
                 "everywhere"
             } else {

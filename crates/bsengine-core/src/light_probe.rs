@@ -20,13 +20,22 @@ pub const MAX_BAKED_PROBES: usize = 32;
 /// grid filled by other means than the raster bake is not held to its limit.
 pub const MAX_PROBES: usize = 4096;
 
+/// Largest number of probes an adaptive volume ([`ProbePlacement::Adaptive`])
+/// holds -- its bricks are refined until they would pass this. The grid's
+/// buffer grows to hold them (`bsengine_rhi_wgpu`'s probe buffer starts at
+/// [`MAX_PROBES`], 9.7 MiB, and doubles as an adaptive layout needs, to about
+/// 78 MiB here), so a scene without one pays nothing for the headroom. Unity's
+/// Adaptive Probe Volumes have no fixed cap; this one is under WebGPU's
+/// default 128 MiB storage-binding limit.
+pub const MAX_ADAPTIVE_PROBES: usize = 32768;
+
 /// Largest number of bricks an adaptive volume ([`ProbePlacement::Adaptive`])
 /// holds -- the brick table's size in the same buffer. Even packed as
 /// densely as bricks go, sharing every face, each brick brings 27 probes of
 /// its own, so a layout within [`MAX_PROBES`] has about a 27th as many bricks;
 /// an eighth leaves room for the mixed levels between. The layout holds to
-/// both budgets.
-pub const MAX_PROBE_BRICKS: usize = MAX_PROBES / 8;
+/// both budgets; a buffer of `n` probes holds `n / 8` bricks.
+pub const MAX_PROBE_BRICKS: usize = MAX_ADAPTIVE_PROBES / 8;
 
 // Every baked volume has to fit the grid it is uploaded into.
 const _: () = assert!(MAX_BAKED_PROBES <= MAX_PROBES);

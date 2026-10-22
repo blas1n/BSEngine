@@ -712,6 +712,42 @@ mod tests {
         assert!(l.truncated && l.bricks.len() <= 20, "{}", l.bricks.len());
     }
 
+    /// Every layout has at least eight probes per brick -- each brick brings
+    /// its own interior and lower faces, which no other brick of any level
+    /// shares -- so a probe buffer sized for a layout's probes (`n / 8`
+    /// bricks to `n` probes) always has room for its bricks. Held over
+    /// layouts of every shape: open, a floor, scattered slivers.
+    #[test]
+    fn a_layout_has_at_least_eight_probes_per_brick() {
+        let mut state = 3u32;
+        let mut next = || {
+            state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+            (state >> 8) as f32 / (1u32 << 24) as f32
+        };
+        let extent = Vec3::new(12.0, 24.0, 12.0);
+        let mut cases: Vec<Vec<[Vec3; 3]>> = vec![Vec::new(), floor(extent, 6.0)];
+        for n in [1, 5, 40] {
+            let mut tris = Vec::new();
+            for _ in 0..n {
+                let p = Vec3::new(next(), next(), next()) * extent;
+                let d = Vec3::new(next(), next(), next()) * 0.3;
+                tris.push([p, p + d, p + Vec3::new(d.y, d.z, d.x)]);
+            }
+            cases.push(tris);
+        }
+        for (i, tris) in cases.iter().enumerate() {
+            for min in [0.4, 1.4] {
+                let l = BrickLayout::build(&settings(extent, min, 4.0, 1_000_000), tris);
+                assert!(
+                    l.probes.len() >= 8 * l.bricks.len(),
+                    "case {i}, min {min}: {} probes, {} bricks",
+                    l.probes.len(),
+                    l.bricks.len()
+                );
+            }
+        }
+    }
+
     /// `min_spacing` no finer than `max_spacing`'s level is one level; one
     /// finer than four levels is clamped to four.
     #[test]

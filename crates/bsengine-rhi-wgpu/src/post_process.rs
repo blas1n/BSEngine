@@ -1167,21 +1167,17 @@ fn project(p: vec3<f32>) -> vec3<f32> {
     return vec3<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5, ndc.z);
 }
 
-// The full-resolution pixel a trace pixel stands for this frame: itself at
-// full resolution; at half, one of its 2 x 2 block, turning through all four
-// frame by frame (the history gathers them), clamped to the screen.
+// The full-resolution pixel a trace pixel stands for: itself at full
+// resolution; at half, the first of its 2 x 2 block. The same one every
+// frame: a sample turning through the block would, on an edge, land on one
+// surface and then the other, and the history -- thrown away whenever the
+// depth it recorded is another surface's -- would start over every frame
+// there. The composite brings the light back up to the other three by depth.
 fn sample_coord(h: vec2<i32>, full: vec2<i32>) -> vec2<i32> {
     if cam.params2.w < 1.5 {
         return h;
     }
-    var offsets = array<vec2<i32>, 4>(
-        vec2<i32>(0, 0),
-        vec2<i32>(1, 1),
-        vec2<i32>(1, 0),
-        vec2<i32>(0, 1),
-    );
-    let o = offsets[u32(cam.cam_pos.w) % 4u];
-    return min(h * 2 + o, full - vec2<i32>(1));
+    return min(h * 2, full - vec2<i32>(1));
 }
 
 fn pcg(v: u32) -> u32 {
@@ -1330,8 +1326,10 @@ fn traced_at(coord: vec2<i32>) -> vec4<f32> {
     let dims = vec2<f32>(textureDimensions(depth_tex, 0));
     let w0 = view_depth(coord, depth, dims);
     let size = vec2<i32>(textureDimensions(ssgi_tex, 0));
-    // This pixel's centre among the trace pixels' centres.
-    let f = (vec2<f32>(coord) + vec2<f32>(0.5)) / cam.params2.w - vec2<f32>(0.5);
+    // This pixel among the trace pixels, which stand at the first pixel of
+    // each block: a traced pixel is its own trace exactly (t = 0), the
+    // others between the traces around them.
+    let f = vec2<f32>(coord) / cam.params2.w;
     let base = vec2<i32>(floor(f));
     let t = f - floor(f);
     var sum = vec4<f32>(0.0);
@@ -1411,21 +1409,17 @@ struct TemporalOut {
     @location(1) depth: vec4<f32>,
 };
 
-// The full-resolution pixel a trace pixel stands for this frame: itself at
-// full resolution; at half, one of its 2 x 2 block, turning through all four
-// frame by frame (the history gathers them), clamped to the screen.
+// The full-resolution pixel a trace pixel stands for: itself at full
+// resolution; at half, the first of its 2 x 2 block. The same one every
+// frame: a sample turning through the block would, on an edge, land on one
+// surface and then the other, and the history -- thrown away whenever the
+// depth it recorded is another surface's -- would start over every frame
+// there. The composite brings the light back up to the other three by depth.
 fn sample_coord(h: vec2<i32>, full: vec2<i32>) -> vec2<i32> {
     if cam.params2.w < 1.5 {
         return h;
     }
-    var offsets = array<vec2<i32>, 4>(
-        vec2<i32>(0, 0),
-        vec2<i32>(1, 1),
-        vec2<i32>(1, 0),
-        vec2<i32>(0, 1),
-    );
-    let o = offsets[u32(cam.cam_pos.w) % 4u];
-    return min(h * 2 + o, full - vec2<i32>(1));
+    return min(h * 2, full - vec2<i32>(1));
 }
 
 @vertex
@@ -1521,21 +1515,17 @@ fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32>
     return vec4<f32>(p[vi], 0.0, 1.0);
 }
 
-// The full-resolution pixel a trace pixel stands for this frame: itself at
-// full resolution; at half, one of its 2 x 2 block, turning through all four
-// frame by frame (the history gathers them), clamped to the screen.
+// The full-resolution pixel a trace pixel stands for: itself at full
+// resolution; at half, the first of its 2 x 2 block. The same one every
+// frame: a sample turning through the block would, on an edge, land on one
+// surface and then the other, and the history -- thrown away whenever the
+// depth it recorded is another surface's -- would start over every frame
+// there. The composite brings the light back up to the other three by depth.
 fn sample_coord(h: vec2<i32>, full: vec2<i32>) -> vec2<i32> {
     if cam.params2.w < 1.5 {
         return h;
     }
-    var offsets = array<vec2<i32>, 4>(
-        vec2<i32>(0, 0),
-        vec2<i32>(1, 1),
-        vec2<i32>(1, 0),
-        vec2<i32>(0, 1),
-    );
-    let o = offsets[u32(cam.cam_pos.w) % 4u];
-    return min(h * 2 + o, full - vec2<i32>(1));
+    return min(h * 2, full - vec2<i32>(1));
 }
 
 fn view_depth(coord: vec2<i32>, dims: vec2<f32>) -> f32 {

@@ -766,3 +766,112 @@ fn bench_ssgi() {
         times[2] - times[0]
     );
 }
+
+fn full_res(s: Option<ScreenSpaceGlobalIllumination>) -> Option<ScreenSpaceGlobalIllumination> {
+    s.map(|s| ScreenSpaceGlobalIllumination {
+        full_resolution: true,
+        ..s
+    })
+}
+
+#[test]
+fn zz_explore_half() {
+    // sizes
+    let mut h = Harness::new();
+    let d = floor_and_wall(RED)(&mut h);
+    h.render(&scene(d, on()));
+    eprintln!("DBG size half {:?}", h.ssgi_trace_size());
+    let d = floor_and_wall(RED)(&mut h);
+    h.render(&scene(d, full_res(on())));
+    eprintln!("DBG size full {:?}", h.ssgi_trace_size());
+    // light: settled half vs settled full, near band
+    let settle = |s: Option<ScreenSpaceGlobalIllumination>| {
+        let mut h = Harness::new();
+        let d = floor_and_wall(RED)(&mut h);
+        let sc = scene(d, s);
+        for f in 0..8 {
+            h.render_at_frame(&sc, f);
+        }
+        h.render_at_frame(&sc, 8)
+    };
+    let (half, full) = (settle(on()), settle(full_res(on())));
+    let off = first_frame(None, floor_and_wall(RED));
+    eprintln!(
+        "DBG near half {} full {} off {}",
+        floor_band(&half, NEAR.0, NEAR.1),
+        floor_band(&full, NEAR.0, NEAR.1),
+        floor_band(&off, NEAR.0, NEAR.1)
+    );
+    eprintln!(
+        "DBG far half {} full {}",
+        floor_band(&half, FAR.0, FAR.1),
+        floor_band(&full, FAR.0, FAR.1)
+    );
+    // rim of the glowing plate: half vs full
+    let plate_draws = |h: &mut Harness| {
+        let (f, w, pl) = (floor(h), wall(h), plate(h));
+        vec![
+            Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
+            Draw::new(w, Vec3::ZERO)
+                .colour(Vec3::ZERO)
+                .emissive(Vec3::new(0.8, 0.0, 0.0)),
+            Draw::new(pl, Vec3::ZERO)
+                .colour(Vec3::ONE)
+                .roughness(1.0)
+                .emissive(Vec3::new(0.0, 0.5, 0.0)),
+        ]
+    };
+    let one = |s| {
+        let mut h = Harness::new();
+        let d = plate_draws(&mut h);
+        let sc = scene(d, s);
+        for f in 0..8 {
+            h.render_at_frame(&sc, f);
+        }
+        h.render_at_frame(&sc, 8)
+    };
+    let (ph, pf) = (one(on()), one(full_res(on())));
+    let mask = first_frame(None, |h: &mut Harness| {
+        let (f, w, pl) = (floor(h), wall(h), plate(h));
+        let blue = Vec3::new(0.0, 0.0, 1.0);
+        vec![
+            Draw::new(f, Vec3::ZERO)
+                .colour(Vec3::ZERO)
+                .emissive(Vec3::new(1.0, 0.0, 0.0)),
+            Draw::new(w, Vec3::ZERO).colour(Vec3::ZERO).emissive(blue),
+            Draw::new(pl, Vec3::ZERO)
+                .colour(Vec3::ZERO)
+                .emissive(Vec3::new(0.0, 1.0, 0.0)),
+        ]
+    });
+    // floor pixels within 2 px of the plate; plate pixels within 2 of floor
+    let is = |x: i32, y: i32, c: usize| {
+        let (x, y) = (
+            x.clamp(0, WIDTH as i32 - 1) as u32,
+            y.clamp(0, HEIGHT as i32 - 1) as u32,
+        );
+        mask.at(x, y)[c] > 200
+    };
+    for (name, me, other) in [("floor", 0usize, 1usize), ("plate", 1, 0)] {
+        let mut sum = Vec3::ZERO;
+        let mut n = 0;
+        for y in 2..HEIGHT as i32 - 2 {
+            for x in 2..WIDTH as i32 - 2 {
+                if !is(x, y, me) {
+                    continue;
+                }
+                if !(-2..=2).any(|dy| (-2..=2).any(|dx| is(x + dx, y + dy, other))) {
+                    continue;
+                }
+                let (a, b) = (ph.at(x as u32, y as u32), pf.at(x as u32, y as u32));
+                sum += Vec3::new(
+                    linear(a[0]) - linear(b[0]),
+                    linear(a[1]) - linear(b[1]),
+                    linear(a[2]) - linear(b[2]),
+                );
+                n += 1;
+            }
+        }
+        eprintln!("DBG rim {name} n={n} half-full {}", sum / n.max(1) as f32);
+    }
+}

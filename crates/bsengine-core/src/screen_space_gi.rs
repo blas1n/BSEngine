@@ -38,8 +38,7 @@ pub struct ScreenSpaceGlobalIllumination {
     /// Trace every pixel rather than one in each 2 x 2 block. Off -- the
     /// default, as in Unity HDRP (its "Full Resolution" unticked) and Godot
     /// (SSIL's `half_size`) -- the trace and its filters run at half the
-    /// width and height, a quarter of the cost, each block's sample turning
-    /// through its four pixels frame by frame, and the light is brought back
+    /// width and height, a quarter of the cost, and the light is brought back
     /// up to every pixel by depth.
     pub full_resolution: bool,
 }

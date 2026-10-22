@@ -6994,6 +6994,12 @@ impl WgpuSurface {
         self.ssgi = ssgi;
     }
 
+    /// What [`Self::set_ssgi`] last set, for the plugin's tests.
+    #[doc(hidden)]
+    pub fn ssgi(&self) -> Option<bsengine_core::ScreenSpaceGlobalIllumination> {
+        self.ssgi
+    }
+
     /// An adaptive volume's baked probes (`bsengine-runtime --bake`), or
     /// `None`. Kept until changed: while set, and no realtime volume runs, the
     /// grid holds these and the raster bake does not run; cleared, the grid

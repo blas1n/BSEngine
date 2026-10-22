@@ -47,6 +47,13 @@ pub struct MsaaTargets {
     /// `SceneOut::velocity`).
     pub velocity_view: wgpu::TextureView,
     _velocity: crate::profiler::TrackedTexture,
+    /// The GI albedo and indirect light, resolved like the normal (see
+    /// `MESH_WGSL`'s `SceneOut`).
+    pub gi_albedo_view: wgpu::TextureView,
+    _gi_albedo: crate::profiler::TrackedTexture,
+    /// The indirect light; resolves into the post pass's GI indirect target.
+    pub gi_indirect_view: wgpu::TextureView,
+    _gi_indirect: crate::profiler::TrackedTexture,
     _depth: crate::profiler::TrackedTexture,
     /// The depth; resolved by [`DepthResolve`].
     pub depth_view: wgpu::TextureView,
@@ -93,6 +100,16 @@ impl MsaaTargets {
             crate::post_process::VELOCITY_FORMAT,
             wgpu::TextureUsages::empty(),
         );
+        let (gi_albedo, gi_albedo_view) = make(
+            "msaa gi albedo",
+            crate::post_process::GI_ALBEDO_FORMAT,
+            wgpu::TextureUsages::empty(),
+        );
+        let (gi_indirect, gi_indirect_view) = make(
+            "msaa gi indirect",
+            crate::post_process::GI_INDIRECT_FORMAT,
+            wgpu::TextureUsages::empty(),
+        );
         // Sampled as well as drawn into: the depth resolve reads it.
         let (depth, depth_view) = make(
             "msaa depth",
@@ -115,6 +132,10 @@ impl MsaaTargets {
             normal_view,
             _velocity: velocity,
             velocity_view,
+            _gi_albedo: gi_albedo,
+            gi_albedo_view,
+            _gi_indirect: gi_indirect,
+            gi_indirect_view,
             _depth: depth,
             depth_view,
             depth_resolve_bg,

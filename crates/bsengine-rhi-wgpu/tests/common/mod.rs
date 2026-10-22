@@ -860,6 +860,13 @@ struct VertOut {{
         self.surface.read_velocity()
     }
 
+    /// The last frame's GI albedo and indirect light, row by row from the
+    /// top; `WgpuSurface::read_gi`.
+    #[allow(dead_code)] // only the GI target tests read it
+    pub fn gi(&self) -> (Vec<[f32; 3]>, Vec<[f32; 3]>) {
+        self.surface.read_gi()
+    }
+
     /// One fresh frame with `camera.time` set to `seconds`.
     ///
     /// [`Self::render`] renders at time zero, which is what makes it

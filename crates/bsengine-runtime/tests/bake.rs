@@ -377,6 +377,81 @@ fn a_bake_writes_where_each_texels_light_came_from() {
     );
 }
 
+/// An adaptive volume baked `Once`, over the probe scene's floor and crate.
+const ADAPTIVE_VOLUME: &str = r#"EntityDescriptor(name: "Probes", transform: Some((position: (0.0, 2.0, 0.0))), components: [("bsengine_core::light_probe::LightProbeVolume", "(half_extents: (3.0, 3.0, 3.0), placement: Adaptive, update: Once, min_probe_spacing: 0.3, max_probe_spacing: 1.5)")]),"#;
+
+/// A scene with an adaptive volume baked `Once` gets its probes baked with
+/// its lightmaps: `probes.bin` beside the layers, named for the volume in the
+/// scene's data, reading back as a layout cut around the crate and floor. And
+/// they hold the scene's light: a probe at the volume's top, nothing above it
+/// but the overcast sky (0.5), receives that sky facing up -- within L2's
+/// ringing of the floor's step below.
+#[test]
+fn an_adaptive_volume_is_baked_with_the_lightmaps() {
+    let probe = Probe::create(ADAPTIVE_VOLUME);
+    let out = probe.bake();
+    assert!(
+        out.status.success(),
+        "bake failed: {}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let data = probe.data();
+    let entry = data.probes.expect("the data names the baked probes");
+    assert_eq!(entry.volume, "Probes");
+    assert_eq!(entry.file, "assets/lightmaps/main/probes.bin");
+    let bytes = std::fs::read(probe.0.join(&entry.file)).expect("the probes were written");
+    let baked = bsengine_bake::probe_bake::decode(&bytes).expect("and read back");
+    assert_eq!(baked.probes.len(), baked.layout.probes.len());
+    assert!(
+        baked.layout.bricks.iter().any(|b| b.level == 1),
+        "premise: the crate and floor refined the bricks near them"
+    );
+    assert!(
+        baked.layout.bricks.iter().any(|b| b.level == 0),
+        "and open air stays coarse"
+    );
+    let top = baked
+        .layout
+        .probes
+        .iter()
+        .position(|p| (p.position.y - 5.0).abs() < 1e-3 && p.position.x.abs() < 1e-3)
+        .expect("a probe at the volume's top, over the crate");
+    let sh = baked.probes[top].sh;
+    // E / PI facing up, the cosine lobe's band factors as shading has them.
+    use std::f32::consts::{FRAC_PI_4, PI};
+    let up = (sh[0] * (0.282_095 * PI)
+        + sh[1] * (0.488_603 * 2.0 * PI / 3.0)
+        + sh[6] * (0.315_392 * 2.0 * FRAC_PI_4))
+        / PI;
+    assert!((up.x - 0.5).abs() < 0.05, "the sky above the volume: {up}");
+
+    // Without the volume, a re-bake removes them: no stale probes to ship.
+    let scene = probe.0.join("assets/scenes/main.ron");
+    let text = std::fs::read_to_string(&scene).unwrap();
+    std::fs::write(&scene, text.replace(ADAPTIVE_VOLUME, "")).unwrap();
+    assert!(probe.bake().status.success());
+    assert!(probe.data().probes.is_none());
+    assert!(
+        !probe.0.join(&entry.file).exists(),
+        "the old probes are gone"
+    );
+}
+
+/// A grid volume, or a realtime one, bakes no probes: the raster bake and the
+/// update are theirs.
+#[test]
+fn only_an_adaptive_volume_baked_once_bakes_probes() {
+    for volume in [
+        ADAPTIVE_VOLUME.replace("placement: Adaptive, ", ""),
+        ADAPTIVE_VOLUME.replace("update: Once", "update: Realtime"),
+    ] {
+        let probe = Probe::create(&volume);
+        assert!(probe.bake().status.success());
+        assert!(probe.data().probes.is_none(), "{volume}");
+    }
+}
+
 /// A baked scene's lightmaps ship with it: a packaged build (both a loose
 /// copy and a single archive) carries the data file and every layer it
 /// names, each with the sidecar that says it is linear -- without which the

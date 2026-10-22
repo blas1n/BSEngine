@@ -125,6 +125,28 @@ impl World<'_> {
         self.incoming(origin, dir, 1, rng)
     }
 
+    /// [`Self::radiance`] and how far the ray went: what a baked probe
+    /// records, the radiance projected to SH and the distance into its
+    /// visibility moments. A miss is the sky at infinity; a back face is
+    /// nothing, at its true distance -- the realtime update's rules, so a
+    /// probe inside geometry records walls all round it and drops out of
+    /// every lookup beyond them.
+    pub fn probe_ray(&self, origin: Vec3, dir: Vec3, rng: &mut Rng) -> (Vec3, f32) {
+        let Some(hit) = self.bvh.closest(origin, dir, f32::INFINITY) else {
+            return (self.sky.radiance(dir), f32::INFINITY);
+        };
+        let tri = &self.triangles[hit.triangle as usize];
+        let [a, b, c] = tri.positions;
+        let mut ng = (b - a).cross(c - a).normalize_or_zero();
+        if ng.dot(tri.normals[0] + tri.normals[1] + tri.normals[2]) < 0.0 {
+            ng = -ng;
+        }
+        if ng.dot(dir) >= 0.0 {
+            return (Vec3::ZERO, hit.t);
+        }
+        (self.incoming(origin, dir, 1, rng), hit.t)
+    }
+
     /// Radiance arriving at `origin` from `dir`.
     fn incoming(&self, origin: Vec3, dir: Vec3, depth: u32, rng: &mut Rng) -> Vec3 {
         let Some(hit) = self.bvh.closest(origin, dir, f32::INFINITY) else {

@@ -3310,6 +3310,12 @@ pub struct WgpuSurface {
     /// bake-once policy: a bake happens when a volume appears or its own
     /// parameters change, and never otherwise.
     baked_probe_volume: Option<ProbeVolumeParams>,
+    /// An adaptive volume's baked probes for the next frames
+    /// ([`Self::set_baked_probe_bricks`]), and the ones the buffer holds:
+    /// uploaded when the two differ, by `Arc`, and in place of the raster bake
+    /// while set.
+    baked_bricks: Option<std::sync::Arc<bsengine_bake::probe_bake::BakedProbes>>,
+    uploaded_bricks: Option<std::sync::Arc<bsengine_bake::probe_bake::BakedProbes>>,
     /// The reflection probes' boxes, bound at group 2 binding 12.
     reflection_probe_buffer: wgpu::Buffer,
     /// The rect lights' uniform, written every frame from `LightData`.
@@ -5603,6 +5609,8 @@ impl WgpuSurface {
             realtime_gi_active: false,
             // Nothing baked yet, and `probe_buffer` was just zeroed to match.
             baked_probe_volume: None,
+            baked_bricks: None,
+            uploaded_bricks: None,
             reflection_probe_buffer,
             rect_light_buffer,
             ltc,
@@ -6840,6 +6848,24 @@ impl WgpuSurface {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// An adaptive volume's baked probes (`bsengine-runtime --bake`), or
+    /// `None`. Kept until changed: while set, and no realtime volume runs, the
+    /// grid holds these and the raster bake does not run; cleared, the grid
+    /// is emptied and the baked path takes over again.
+    pub fn set_baked_probe_bricks(
+        &mut self,
+        bricks: Option<std::sync::Arc<bsengine_bake::probe_bake::BakedProbes>>,
+    ) {
+        self.baked_bricks = bricks;
+    }
+
+    /// Whether the grid holds baked adaptive probes, for the tests of the
+    /// hand-over.
+    #[doc(hidden)]
+    pub fn has_baked_probe_bricks(&self) -> bool {
+        self.uploaded_bricks.is_some()
+    }
+
     /// The realtime probe volume for the next frame, or `None` for none. Set
     /// every frame a realtime volume should update: `render_frame` takes it,
     /// and a frame without one hands the grid back to the baked path.
@@ -7423,6 +7449,9 @@ impl WgpuSurface {
                 .get_or_insert_with(|| crate::realtime_gi::RealtimeGi::new(device));
             gi.update(device, &self.queue, registry, &self.probe_buffer, &input);
             self.realtime_gi_active = true;
+            // The update writes the whole grid: baked bricks it held are gone,
+            // and are uploaded again when the update stops.
+            self.uploaded_bricks = None;
         } else if self.realtime_gi_active {
             self.realtime_gi_active = false;
             if let Some(gi) = &mut self.realtime_gi {
@@ -7432,11 +7461,36 @@ impl WgpuSurface {
             self.baked_probe_volume = None;
         }
 
-        let volume_to_bake = if self.fast_render || self.realtime_gi_active {
+        // --- baked adaptive probes ---
+        // An adaptive volume's bricks, baked offline: uploaded once, when they
+        // appear or change, and standing in for the raster bake (which could
+        // not hold them) until they go -- then the grid is emptied and the
+        // bake below runs as it would have.
+        let bricks = if self.fast_render || self.realtime_gi_active {
             None
         } else {
-            light_probes
+            self.baked_bricks.clone()
         };
+        match (&bricks, &self.uploaded_bricks) {
+            (Some(b), uploaded) if !uploaded.as_ref().is_some_and(|u| Arc::ptr_eq(u, b)) => {
+                crate::realtime_gi::upload_baked(&self.queue, &self.probe_buffer, b);
+                self.uploaded_bricks = Some(Arc::clone(b));
+                self.baked_probe_volume = None;
+            }
+            (None, Some(_)) if !self.realtime_gi_active => {
+                self.uploaded_bricks = None;
+                self.bake_probes(cascades, draw_calls, registry, tex_registry, None);
+                self.baked_probe_volume = None;
+            }
+            _ => {}
+        }
+
+        let volume_to_bake =
+            if self.fast_render || self.realtime_gi_active || self.uploaded_bricks.is_some() {
+                None
+            } else {
+                light_probes
+            };
         // A bake happens only when the volume appears or its own parameters
         // change. Note this tracks the *volume*, not the scene inside it:
         // moving a wall after load does not re-bake, and the floor keeps the

@@ -15,6 +15,7 @@ pub mod bvh;
 pub mod gpu;
 pub mod gpu_scene;
 pub mod pack;
+pub mod probe_bake;
 pub mod probe_bricks;
 pub mod sample;
 pub mod scene;

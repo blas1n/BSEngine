@@ -27,6 +27,72 @@ fn realtime_volume(world: &mut World) -> Option<(LightProbeVolume, glam::Vec3)> 
     })
 }
 
+/// The baked probes last read: their path, and what it held (`None` for a
+/// file that could not be read, said once rather than every frame).
+#[derive(Default)]
+pub(crate) struct BakedProbeCache {
+    loaded: Option<(String, Option<Arc<bsengine_bake::probe_bake::BakedProbes>>)>,
+    warned_unbaked: bool,
+}
+
+/// Hands the surface the baked probes of the scene's volume -- the first, as
+/// `render_frame` takes it -- when it is `Adaptive`, baked `Once` and has been
+/// baked (`BakedLightProbes`, from the scene's lightmap data); `None`
+/// otherwise. The file is read once per path, not per frame.
+pub(crate) fn feed_baked_probes(world: &mut World, mut cache: Local<BakedProbeCache>) {
+    use bsengine_core::{BakedLightProbes, ProbePlacement};
+    if !world.contains_resource::<bsengine_rhi_wgpu::WgpuSurfaceResource>() {
+        return;
+    }
+    let mut q = world.query::<(&LightProbeVolume, Option<&BakedLightProbes>)>();
+    let first = q
+        .iter(world)
+        .next()
+        .map(|(v, b)| (*v, b.map(|b| b.path.clone())));
+    let path = match first {
+        Some((v, path))
+            if v.placement == ProbePlacement::Adaptive && v.update == ProbeUpdate::Once =>
+        {
+            if path.is_none() && !cache.warned_unbaked {
+                cache.warned_unbaked = true;
+                tracing::warn!(
+                    "a light-probe volume is Adaptive and baked Once but has no baked probes; it \
+                     is baked as its {:?} grid until `bsengine-runtime --bake` bakes its bricks",
+                    v.clamped_resolution()
+                );
+            }
+            path
+        }
+        _ => None,
+    };
+    let bricks = path.and_then(|path| {
+        if cache.loaded.as_ref().map(|(p, _)| p) != Some(&path) {
+            let full = bsengine_core::resolve_project_path(
+                world.get_resource::<bsengine_core::ProjectDir>(),
+                &path,
+            );
+            let read = bsengine_asset::pak_source::read_bytes(&full)
+                .map_err(|e| e.to_string())
+                .and_then(|bytes| bsengine_bake::probe_bake::decode(&bytes));
+            let value = match read {
+                Ok(p) => Some(Arc::new(p)),
+                Err(e) => {
+                    tracing::warn!(
+                        "baked probes: cannot read {full}: {e}; the volume bakes its grid"
+                    );
+                    None
+                }
+            };
+            cache.loaded = Some((path, value));
+        }
+        cache.loaded.as_ref().and_then(|(_, v)| v.clone())
+    });
+    world
+        .resource_mut::<bsengine_rhi_wgpu::WgpuSurfaceResource>()
+        .0
+        .set_baked_probe_bricks(bricks);
+}
+
 /// Hands the surface this frame's realtime volume, or `None` when the scene
 /// has none -- which gives the probe grid back to the baked path.
 pub(crate) fn feed_realtime_gi(world: &mut World, mut sky_cache: Local<SkyCache>) {

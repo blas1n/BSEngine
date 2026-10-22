@@ -1744,3 +1744,136 @@ fn an_adaptive_volume_is_cut_again_when_the_static_set_changes() {
         "premise: the new set was read back"
     );
 }
+
+/// The furnace room's static quads as the bake reads them: each of
+/// `furnace_room`'s six walls, two triangles facing in.
+fn furnace_room_triangles() -> Vec<bsengine_bake::BakeTriangle> {
+    let (e, rho) = (0.15f32, 0.5f32);
+    let (lo, hi) = (Vec3::new(-3.0, -3.0, 0.5), Vec3::new(3.0, 3.0, 6.5));
+    let size = hi - lo;
+    let mut out = Vec::new();
+    for (min, u, v) in [
+        (lo, Vec3::X * size.x, Vec3::Y * size.y),
+        (
+            Vec3::new(hi.x, lo.y, hi.z),
+            Vec3::NEG_X * size.x,
+            Vec3::Y * size.y,
+        ),
+        (lo, Vec3::Y * size.y, Vec3::Z * size.z),
+        (
+            Vec3::new(hi.x, lo.y, hi.z),
+            Vec3::Y * size.y,
+            Vec3::NEG_Z * size.z,
+        ),
+        (
+            Vec3::new(lo.x, lo.y, hi.z),
+            Vec3::X * size.x,
+            Vec3::NEG_Z * size.z,
+        ),
+        (
+            Vec3::new(lo.x, hi.y, lo.z),
+            Vec3::X * size.x,
+            Vec3::Z * size.z,
+        ),
+    ] {
+        let p = quad_corners(min, u, v);
+        let n = u.cross(v).normalize();
+        for [a, b, c] in [[0, 1, 2], [0, 2, 3]] {
+            out.push(bsengine_bake::BakeTriangle {
+                positions: [p[a], p[b], p[c]],
+                normals: [n; 3],
+                uv2: [glam::Vec2::ZERO; 3],
+                albedo: Vec3::splat(rho),
+                emissive: Vec3::splat(e),
+                renderer: 0,
+            });
+        }
+    }
+    out
+}
+
+/// Baked bricks shade as realtime ones do: the furnace room's back wall,
+/// lit through an adaptive volume whose probes were traced once on the CPU
+/// (`bsengine_bake::probe_bake`, enough bounces to reach the furnace's fixed
+/// point) and uploaded, against the same wall lit by the realtime update's
+/// bricks after it has settled -- the row matches. The premise: with no
+/// volume at all the wall is far darker (its own glow only). Cleared, the
+/// grid is handed back: the wall is that dark again.
+#[test]
+fn baked_bricks_shade_as_the_realtime_bricks_do() {
+    let row = |s: &GiScene| {
+        let pixels = s.scene.surface.read_pixels().expect("offscreen readback");
+        (1..63)
+            .map(|x| pixels[(32 * 64 + x) * 4])
+            .collect::<Vec<u8>>()
+    };
+    let volume = ProbeVolumeParams {
+        origin: Vec3::new(-3.1, -3.1, 0.4),
+        extent: Vec3::splat(6.2),
+        resolution: [2, 2, 2],
+    };
+    let mut s = furnace_room();
+    s.scene.render(None).expect("the frame renders");
+    let none = row(&s);
+
+    let input = adaptive(s.input(volume, 0.5, 1 << 20), 1.0, 1.5);
+    s.run(&input, 40);
+    let realtime = row(&s);
+    let layout = s.scene.surface.realtime_gi_bricks_for_testing().unwrap();
+
+    let mut s = furnace_room();
+    let tris = furnace_room_triangles();
+    let baked = bsengine_bake::probe_bake::bake_probes(
+        &bsengine_bake::BakeInput {
+            triangles: &tris,
+            renderers: &[bsengine_bake::RendererInfo {
+                resolution_scale: 1.0,
+            }],
+            lights: &[],
+            sky: &bsengine_bake::Sky::Uniform(Vec3::ZERO),
+        },
+        layout,
+        &bsengine_bake::probe_bake::ProbeBakeSettings {
+            rays: 256,
+            bounces: 30,
+            seed: 0,
+        },
+    );
+    s.scene
+        .surface
+        .set_baked_probe_bricks(Some(std::sync::Arc::new(baked)));
+    s.scene.render(None).expect("the frame renders");
+    assert!(s.scene.surface.has_baked_probe_bricks());
+    let from_bake = row(&s);
+
+    let mid = none.len() / 2;
+    assert!(
+        realtime[mid] as i32 > none[mid] as i32 + 20,
+        "premise: the probes light the wall: {none:?} -> {realtime:?}"
+    );
+    assert!(
+        from_bake
+            .iter()
+            .zip(&realtime)
+            .all(|(a, b)| (*a as i32 - *b as i32).abs() <= 4),
+        "baked bricks shade the wall as realtime ones: {from_bake:?} against {realtime:?}"
+    );
+
+    // A realtime volume takes the grid over while it runs; when it stops,
+    // the baked bricks are uploaded again rather than left behind the grid
+    // the realtime update emptied.
+    let input = adaptive(s.input(volume, 0.0, 1 << 20), 1.0, 1.5);
+    s.run(&input, 1);
+    assert!(
+        !s.scene.surface.has_baked_probe_bricks(),
+        "the update owns the grid"
+    );
+    s.scene.render(None).expect("the frame renders");
+    assert!(s.scene.surface.has_baked_probe_bricks());
+    assert_eq!(row(&s), from_bake, "the bake is back once the update stops");
+
+    s.scene.surface.set_baked_probe_bricks(None);
+    s.scene.render(None).expect("the frame renders");
+    assert!(!s.scene.surface.has_baked_probe_bricks());
+    assert_eq!(row(&s), none, "cleared, the grid is empty again");
+}

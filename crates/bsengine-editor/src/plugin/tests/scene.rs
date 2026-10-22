@@ -830,6 +830,7 @@ fn load_scene_applies_the_scenes_baked_lightmaps() {
             scale_offset: [0.5, 0.25, 0.125, 0.0],
             direction: String::new(),
         }],
+        probes: None,
     };
     std::fs::write(
         bsengine_scene::lightmaps::data_path(&scene_path),

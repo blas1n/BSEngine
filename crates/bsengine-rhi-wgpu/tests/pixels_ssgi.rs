@@ -543,3 +543,127 @@ fn a_moving_surface_keeps_its_history() {
         plate_noise(&settled)
     );
 }
+
+/// How far the spatial filter moves the pixels of one surface that lie
+/// within its 5 x 5 reach of another: the mean, per channel, of filtered
+/// minus unfiltered light over them -- signed, so the rays' noise, which the
+/// filter takes out, averages away and what is left is light carried over
+/// from the other side. `draws` builds the scene, `marked` the same scene
+/// with the surface measured glowing green and every other surface blue.
+fn spill(
+    draws: impl Fn(&mut Harness) -> Vec<Draw>,
+    marked: impl Fn(&mut Harness) -> Vec<Draw>,
+) -> (Vec3, u32) {
+    let one = |spatial: bool| {
+        let mut h = Harness::new();
+        h.set_ssgi_spatial(spatial);
+        let d = draws(&mut h);
+        h.render(&scene(d, on()))
+    };
+    let (raw, filtered) = (one(false), one(true));
+    let mask = first_frame(None, &marked);
+    let green = |x: u32, y: u32| {
+        let c = mask.at(x, y);
+        c[1] > 200 && c[2] < 50
+    };
+    let blue = |x: i32, y: i32| {
+        let (x, y) = (
+            x.clamp(0, WIDTH as i32 - 1) as u32,
+            y.clamp(0, HEIGHT as i32 - 1) as u32,
+        );
+        let c = mask.at(x, y);
+        c[2] > 200 && c[1] < 50
+    };
+    let mut sum = Vec3::ZERO;
+    let mut n = 0;
+    for y in 2..HEIGHT - 2 {
+        for x in 2..WIDTH - 2 {
+            if !green(x, y) {
+                continue;
+            }
+            let near = (-2..=2).any(|dy| (-2..=2).any(|dx| blue(x as i32 + dx, y as i32 + dy)));
+            if !near {
+                continue;
+            }
+            let (a, b) = (filtered.at(x, y), raw.at(x, y));
+            sum += Vec3::new(
+                linear(a[0]) - linear(b[0]),
+                linear(a[1]) - linear(b[1]),
+                linear(a[2]) - linear(b[2]),
+            );
+            n += 1;
+        }
+    }
+    (sum / n.max(1) as f32, n)
+}
+
+/// The spatial filter keeps to one surface across a crease: the floor
+/// beside the red wall meets it at the same depth, so only the normals tell
+/// them apart. The wall's rays find the floor's light -- green in it, which
+/// the floor's own rays, finding the wall, do not -- and the floor within the
+/// filter's reach of the wall keeps its own: filtered, it moves by under a
+/// sixth of what it does with the normal weight left out (-0.006 red here,
+/// against -0.039).
+#[test]
+fn the_spatial_filter_keeps_to_one_surface_across_a_crease() {
+    let (moved, n) = spill(
+        |h: &mut Harness| floor_and_wall(Vec3::new(0.8, 0.0, 0.0))(h),
+        |h| {
+            let (f, w) = (floor(h), wall(h));
+            vec![
+                Draw::new(f, Vec3::ZERO)
+                    .colour(Vec3::ZERO)
+                    .emissive(Vec3::new(0.0, 1.0, 0.0)),
+                Draw::new(w, Vec3::ZERO)
+                    .colour(Vec3::ZERO)
+                    .emissive(Vec3::new(0.0, 0.0, 1.0)),
+            ]
+        },
+    );
+    assert!(n > 100, "premise: the floor along the wall is in view: {n}");
+    assert!(
+        moved.abs().max_element() < 0.015,
+        "the floor keeps its own light: {moved}"
+    );
+}
+
+/// The spatial filter keeps to one surface across a step: the plate glows
+/// green over the floor, facing up as the floor does, so only the depth
+/// tells them apart. The floor's rays find the plate's green and the plate's
+/// own rays (up, at the wall and the sky) do not, and the plate within the
+/// filter's reach of the floor keeps its own: filtered, its green moves by
+/// almost nothing (-0.0002 here; +0.05 with the depth weight left out).
+#[test]
+fn the_spatial_filter_keeps_to_one_surface_across_a_step() {
+    let (moved, n) = spill(
+        |h: &mut Harness| {
+            let (f, w, pl) = (floor(h), wall(h), plate(h));
+            vec![
+                Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
+                Draw::new(w, Vec3::ZERO)
+                    .colour(Vec3::ZERO)
+                    .emissive(Vec3::new(0.8, 0.0, 0.0)),
+                Draw::new(pl, Vec3::ZERO)
+                    .colour(Vec3::ONE)
+                    .roughness(1.0)
+                    .emissive(Vec3::new(0.0, 0.5, 0.0)),
+            ]
+        },
+        |h| {
+            let (f, w, pl) = (floor(h), wall(h), plate(h));
+            let blue = Vec3::new(0.0, 0.0, 1.0);
+            vec![
+                Draw::new(f, Vec3::ZERO).colour(Vec3::ZERO).emissive(blue),
+                Draw::new(w, Vec3::ZERO).colour(Vec3::ZERO).emissive(blue),
+                Draw::new(pl, Vec3::ZERO)
+                    .colour(Vec3::ZERO)
+                    .emissive(Vec3::new(0.0, 1.0, 0.0)),
+            ]
+        },
+    );
+    assert!(n > 50, "premise: the plate's rim is in view: {n}");
+    assert!(
+        moved.abs().max_element() < 0.015,
+        "the plate keeps its own light: {moved}"
+    );
+}

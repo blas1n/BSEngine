@@ -1221,8 +1221,23 @@ fn fs_ssgi(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
             if px.x == coord.x && px.y == coord.y {
                 continue;
             }
-            let behind = s.z - textureLoad(depth_tex, px, 0);
+            let scene_depth = textureLoad(depth_tex, px, 0);
+            let behind = s.z - scene_depth;
             if behind > 0.0 && behind < thickness {
+                // ⚠️ Not the surface the ray left. Near its start, a grazing
+                // ray is a fraction of a pixel above that surface, and the
+                // depth it is compared with is the pixel centre's -- on a
+                // surface seen at a slant, nearer than the ray by more than
+                // its height -- so it reads as behind its own surface, and
+                // a flat floor lit itself with its own colour. A surface
+                // in the plane the ray left cannot be what it meets: it
+                // leaves that plane at once (cosine-weighted, into the
+                // hemisphere above it). So a "hit" within half a step of
+                // that plane is no hit, and the ray marches on.
+                let hit = world_at((vec2<f32>(px) + vec2<f32>(0.5)) / dims, scene_depth);
+                if dot(hit - world, n) < 0.5 * stride {
+                    continue;
+                }
                 light += textureSampleLevel(scene_tex, scene_samp, s.xy, 0.0).rgb;
                 hits += 1.0;
                 break;

@@ -16,6 +16,9 @@ use common::{Draw, Harness, Light, Pixels, Scene, HEIGHT, WIDTH};
 use glam::Vec3;
 
 const AMBIENT: Vec3 = Vec3::splat(0.3);
+/// The floor's albedo: coloured, so a reflectance applied wrongly per channel
+/// shows.
+const FLOOR: Vec3 = Vec3::new(0.8, 0.5, 0.3);
 
 /// Columns of floor beside the wall's foot (the wall stands at about 13/24
 /// to 19/24 of the frame, from this camera), and of floor far from it.
@@ -33,15 +36,16 @@ fn vertex(p: [f32; 3], n: [f32; 3]) -> bsengine_rhi_wgpu::Vertex {
     }
 }
 
-/// The floor, y = 0 from x = -3 to 1 and z = -2 to -16, facing up.
+/// The floor, y = 0 from x = -8 to 1 and z = -2 to -16, facing up: wide
+/// enough to fill the frame's left, where the floor far from the wall is.
 fn floor(h: &mut Harness) -> u64 {
     let n = [0.0, 1.0, 0.0];
     h.mesh(
         &[
-            vertex([-3.0, 0.0, -2.0], n),
+            vertex([-8.0, 0.0, -2.0], n),
             vertex([1.0, 0.0, -2.0], n),
             vertex([1.0, 0.0, -16.0], n),
-            vertex([-3.0, 0.0, -16.0], n),
+            vertex([-8.0, 0.0, -16.0], n),
         ],
         &[0, 1, 2, 0, 2, 3],
     )
@@ -108,8 +112,8 @@ fn floor_band(p: &Pixels, x0: u32, x1: u32) -> Vec3 {
     for y in HEIGHT / 2..HEIGHT * 3 / 4 {
         for x in x0..x1 {
             let [r, g, b, _] = p.at(x, y);
-            // The floor is grey-ish: its blue is near its green.
-            if (i32::from(g) - i32::from(b)).abs() < 12 && g > 20 {
+            // The floor's colour: red over green over blue, as its albedo.
+            if r > g && g > b && b > 10 {
                 sum += Vec3::new(linear(r), linear(g), linear(b));
                 n += 1.0;
             }
@@ -128,7 +132,7 @@ fn a_red_wall_bleeds_onto_the_floor_beside_it() {
     let (f, w) = (floor(&mut h), wall(&mut h));
     let draws = || {
         vec![
-            Draw::new(f, Vec3::ZERO).colour(Vec3::ONE).roughness(1.0),
+            Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
             Draw::new(w, Vec3::ZERO)
                 .colour(Vec3::ZERO)
                 .emissive(Vec3::new(3.0, 0.0, 0.0)),
@@ -171,7 +175,7 @@ fn a_black_wall_darkens_the_floor_it_shades() {
     let (f, w) = (floor(&mut h), wall(&mut h));
     let draws = || {
         vec![
-            Draw::new(f, Vec3::ZERO).colour(Vec3::ONE).roughness(1.0),
+            Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
             Draw::new(w, Vec3::ZERO).colour(Vec3::ZERO),
         ]
     };
@@ -186,6 +190,47 @@ fn a_black_wall_darkens_the_floor_it_shades() {
         after.y < before.y * 0.9,
         "the black wall takes its share of the sky: {before} -> {after}"
     );
+    // But only its share: beside its foot the wall fills at most half of the
+    // floor's hemisphere, so the floor keeps at least about half its light.
+    // A ray counted as hitting more than once would take more than all of it.
+    assert!(
+        after.y > before.y * 0.4,
+        "no more than the wall's share: {before} -> {after}"
+    );
+}
+
+/// The trace's light stands in for the surface's own exactly: a wall as
+/// bright as the ambient it hides -- glowing 0.3, reflecting nothing --
+/// changes nothing on the floor beside it, though the floor's rays find it
+/// (the premise: the same wall black darkens the floor). Holds the units
+/// (the shading keeps irradiance as `E / PI`), the reflectance per channel
+/// and the share replaced to one another.
+#[test]
+fn a_wall_as_bright_as_the_ambient_changes_nothing() {
+    let mut h = Harness::new();
+    let (f, w) = (floor(&mut h), wall(&mut h));
+    let draws = |glow: Vec3| {
+        vec![
+            Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
+            Draw::new(w, Vec3::ZERO).colour(Vec3::ZERO).emissive(glow),
+        ]
+    };
+    let off = h.render(&scene(draws(AMBIENT), None));
+    let lit = h.render(&scene(draws(AMBIENT), on()));
+    let dark = h.render(&scene(draws(Vec3::ZERO), on()));
+    let dark_off = h.render(&scene(draws(Vec3::ZERO), None));
+    let (before, after) = (
+        floor_band(&off, NEAR.0, NEAR.1),
+        floor_band(&lit, NEAR.0, NEAR.1),
+    );
+    assert!(
+        floor_band(&dark, NEAR.0, NEAR.1).y < floor_band(&dark_off, NEAR.0, NEAR.1).y * 0.9,
+        "premise: the floor's rays find the wall"
+    );
+    assert!(
+        (after - before).abs().max_element() < 0.01,
+        "a wall as bright as the ambient: {before} -> {after}"
+    );
 }
 
 /// Where no ray can find anything -- a floor with nothing above it -- the
@@ -196,7 +241,7 @@ fn a_black_wall_darkens_the_floor_it_shades() {
 fn with_nothing_to_find_the_frame_is_unchanged() {
     let mut h = Harness::new();
     let f = floor(&mut h);
-    let draws = || vec![Draw::new(f, Vec3::ZERO).colour(Vec3::ONE).roughness(1.0)];
+    let draws = || vec![Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0)];
     let off = h.render(&scene(draws(), None));
     let lit = h.render(&scene(draws(), on()));
     // The floor's own interior, byte for byte. At its outer edge, where the

@@ -349,18 +349,32 @@ fn frames_accumulate_into_less_noise_and_the_same_light() {
 
 /// A surface just uncovered has no history: where the wall stood, the floor
 /// now showing is the floor's first frame, not a blend into what the wall
-/// gathered. Its view depth is not what the history recorded there.
+/// gathered. Its view depth is not what the history recorded there. The
+/// floor glows while the wall stands, so what the wall gathered -- the
+/// floor's light -- is far from anything the bare floor's own trace finds
+/// (nothing), and a blend into it would show.
 #[test]
 fn an_uncovered_surface_starts_its_history_over() {
     let mut h = Harness::new();
     let (f, w) = (floor(&mut h), wall(&mut h));
-    let floor_draw = || Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0);
+    let glowing = || {
+        Draw::new(f, Vec3::ZERO)
+            .colour(FLOOR)
+            .roughness(1.0)
+            .emissive(Vec3::splat(1.0))
+    };
     for frame in 0..20 {
-        let wall_draw = Draw::new(w, Vec3::ZERO).colour(Vec3::ZERO).emissive(RED);
-        h.render_at_frame(&scene(vec![floor_draw(), wall_draw], on()), frame);
+        let wall_draw = Draw::new(w, Vec3::ZERO).colour(Vec3::ONE);
+        h.render_at_frame(&scene(vec![glowing(), wall_draw], on()), frame);
     }
-    let uncovered = h.render_at_frame(&scene(vec![floor_draw()], on()), 20);
-    let fresh = first_frame(on(), floor_alone);
+    let uncovered = h.render_at_frame(&scene(vec![glowing()], on()), 20);
+    let fresh = first_frame(on(), move |h| {
+        let f = floor(h);
+        vec![Draw::new(f, Vec3::ZERO)
+            .colour(FLOOR)
+            .roughness(1.0)
+            .emissive(Vec3::splat(1.0))]
+    });
     // Where the wall stood: the columns it covered, middle rows.
     let mut worst = 0i32;
     for y in HEIGHT * 3 / 8..HEIGHT / 2 {
@@ -374,5 +388,121 @@ fn an_uncovered_surface_starts_its_history_over() {
     assert!(
         worst <= 3,
         "the uncovered floor is its own first frame: off by {worst}"
+    );
+}
+
+/// The spatial filter takes noise out of a single frame: with two rays a
+/// pixel, the first frame's floor beside the red wall is far less noisy
+/// filtered than not, and lit the same.
+#[test]
+fn the_spatial_filter_smooths_a_frame() {
+    let one = |spatial: bool| {
+        let mut h = Harness::new();
+        h.set_ssgi_spatial(spatial);
+        // Dimmer than `RED`: a noisy pixel over 1 clips in the 8-bit frame,
+        // which would bias the unfiltered mean low.
+        let d = floor_and_wall(Vec3::new(0.8, 0.0, 0.0))(&mut h);
+        h.render(&scene(d, few_rays()))
+    };
+    let (raw, filtered) = (one(false), one(true));
+    assert!(
+        noise(&filtered) < 0.6 * noise(&raw),
+        "filtered {} against raw {}",
+        noise(&filtered),
+        noise(&raw)
+    );
+    let (a, b) = (
+        floor_band(&raw, NEAR.0, NEAR.1),
+        floor_band(&filtered, NEAR.0, NEAR.1),
+    );
+    assert!(
+        ((a - b) / a).abs().max_element() < 0.05,
+        "the same light: {a} vs {b}"
+    );
+}
+
+/// A white plate floating over the floor beside the red wall, facing up.
+fn plate(h: &mut Harness) -> u64 {
+    let n = [0.0, 1.0, 0.0];
+    h.mesh(
+        &[
+            vertex([-1.2, 0.6, -5.0], n),
+            vertex([0.6, 0.6, -5.0], n),
+            vertex([0.6, 0.6, -8.0], n),
+            vertex([-1.2, 0.6, -8.0], n),
+        ],
+        &[0, 1, 2, 0, 2, 3],
+    )
+}
+
+/// A moving surface keeps its history: the plate slides along the wall a
+/// little every frame, and its own velocity finds where it was -- so its
+/// light settles over the frames as a still surface's does. Reprojected by
+/// the camera alone, every frame would look where the plate no longer is,
+/// find another depth, and start over, as noisy as the first.
+#[test]
+fn a_moving_surface_keeps_its_history() {
+    let step = 0.03f32;
+    let at = |frame: u32| glam::Mat4::from_translation(Vec3::new(0.0, 0.0, -step * frame as f32));
+    let mut h = Harness::new();
+    let (f, w, pl) = (floor(&mut h), wall(&mut h), plate(&mut h));
+    let frame_of = |frame: u32| {
+        let mut moving = Draw::new(pl, Vec3::ZERO).colour(Vec3::ONE).roughness(1.0);
+        moving.transform = at(frame);
+        let mut d = vec![
+            Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
+            Draw::new(w, Vec3::ZERO)
+                .colour(Vec3::ZERO)
+                .emissive(Vec3::new(0.8, 0.0, 0.0)),
+        ];
+        d.push(if frame == 0 {
+            moving
+        } else {
+            moving.moved_from(at(frame - 1))
+        });
+        d
+    };
+    let last = 24u32;
+    // The plate's pixels in the last frame, marked by drawing it magenta there.
+    let mask = {
+        let mut m = Harness::new();
+        let pl = plate(&mut m);
+        let mut marker = Draw::new(pl, Vec3::ZERO)
+            .colour(Vec3::ZERO)
+            .emissive(Vec3::new(1.0, 0.0, 1.0));
+        marker.transform = at(last);
+        m.render(&scene(vec![marker], None))
+    };
+    let plate_noise = |p: &Pixels| {
+        let mut sum = 0.0f32;
+        let mut n = 0.0f32;
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH - 1 {
+                let (a, b) = (mask.at(x, y), mask.at(x + 1, y));
+                if a[0] > 200 && a[2] > 200 && b[0] > 200 && b[2] > 200 {
+                    sum += (linear(p.at(x, y)[0]) - linear(p.at(x + 1, y)[0])).abs();
+                    n += 1.0;
+                }
+            }
+        }
+        assert!(n > 50.0, "premise: the plate is in view: {n}");
+        sum / n
+    };
+    let first = {
+        let mut f0 = Harness::new();
+        let (_, _, pl0) = (floor(&mut f0), wall(&mut f0), plate(&mut f0));
+        assert_eq!(pl0, pl, "premise: the same mesh ids");
+        // The last frame's scene, as a first frame: its noise unaccumulated.
+        f0.render_at_frame(&scene(frame_of(last), few_rays()), last)
+    };
+    for frame in 0..last {
+        h.render_at_frame(&scene(frame_of(frame), few_rays()), frame);
+    }
+    let settled = h.render_at_frame(&scene(frame_of(last), few_rays()), last);
+    assert!(
+        plate_noise(&settled) < 0.6 * plate_noise(&first),
+        "the moving plate settles: {} -> {}",
+        plate_noise(&first),
+        plate_noise(&settled)
     );
 }

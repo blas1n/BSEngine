@@ -6994,6 +6994,13 @@ impl WgpuSurface {
         self.ssgi = ssgi;
     }
 
+    /// Switches screen-space GI's spatial filter, for the test that
+    /// measures it.
+    #[doc(hidden)]
+    pub fn set_ssgi_spatial_for_testing(&mut self, on: bool) {
+        self.post_process.set_ssgi_spatial_for_testing(on);
+    }
+
     /// What [`Self::set_ssgi`] last set, for the plugin's tests.
     #[doc(hidden)]
     pub fn ssgi(&self) -> Option<bsengine_core::ScreenSpaceGlobalIllumination> {

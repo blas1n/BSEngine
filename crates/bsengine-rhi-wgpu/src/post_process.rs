@@ -2917,6 +2917,9 @@ pub struct PostProcessState {
     ssgi_history: [SsgiHistory; 2],
     ssgi_current: usize,
     ssgi_history_valid: bool,
+    /// Whether the spatial filter runs: always, but for the test that
+    /// measures what it takes away.
+    ssgi_spatial: bool,
     ssgi_history_bgl: wgpu::BindGroupLayout,
     /// Screen-space GI's passes, its camera and whether it runs.
     ssgi_pipeline: wgpu::RenderPipeline,
@@ -4039,6 +4042,7 @@ impl PostProcessState {
             ssgi_history: targets.ssgi_history,
             ssgi_current: 0,
             ssgi_history_valid: false,
+            ssgi_spatial: true,
             ssgi_history_bgl,
             ssgi_pipeline,
             ssgi_temporal_pipeline,
@@ -5346,6 +5350,14 @@ impl PostProcessState {
         Ok(())
     }
 
+    /// Switches screen-space GI's spatial filter, which always runs, for the
+    /// test that measures it. Off, the composite reads this frame's trace
+    /// unfiltered (the history still accumulates it).
+    #[doc(hidden)]
+    pub fn set_ssgi_spatial_for_testing(&mut self, on: bool) {
+        self.ssgi_spatial = on;
+    }
+
     /// Uploads screen-space GI's camera and trace; an intensity of zero
     /// switches both its passes off.
     pub fn update_ssgi_camera(&mut self, queue: &wgpu::Queue, mut cam: SsgiCameraGpu) {
@@ -5515,7 +5527,7 @@ impl PostProcessState {
             }
             // Back into the trace's own target, which the temporal pass has
             // finished reading: the composite reads it as before.
-            {
+            if self.ssgi_spatial {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("ssgi spatial pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -5555,7 +5567,14 @@ impl PostProcessState {
                     ..Default::default()
                 });
                 pass.set_pipeline(&self.ssgi_composite_pipeline);
-                pass.set_bind_group(0, &self.ssgi_bg, &[]);
+                // The filtered light, or -- with the filter off -- the
+                // temporal pass's own, in this frame's half of the history.
+                let light = if self.ssgi_spatial {
+                    &self.ssgi_bg
+                } else {
+                    &self.ssgi_history[self.ssgi_current].light_bg
+                };
+                pass.set_bind_group(0, light, &[]);
                 pass.set_bind_group(1, &self.gi_indirect_bg, &[]);
                 pass.set_bind_group(2, &self.gi_albedo_bg, &[]);
                 pass.draw(0..3, 0..1);

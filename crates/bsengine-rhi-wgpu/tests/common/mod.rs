@@ -865,6 +865,11 @@ struct VertOut {{
 
     /// The last frame's GI albedo and indirect light, row by row from the
     /// top; `WgpuSurface::read_gi`.
+    #[allow(dead_code)] // only the SSGI tests switch it
+    pub fn set_ssgi_spatial(&mut self, on: bool) {
+        self.surface.set_ssgi_spatial_for_testing(on);
+    }
+
     #[allow(dead_code)] // only the GI target tests read it
     pub fn gi(&self) -> (Vec<[f32; 3]>, Vec<[f32; 3]>) {
         self.surface.read_gi()

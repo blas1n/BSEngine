@@ -1039,6 +1039,20 @@ fn render_frame(
             .map(|g| g.to_matrix().w_axis.truncate())
             .unwrap_or(t.position.0);
         let half = *volume.half_extents;
+        // Adaptive bricks are traced (`feed_realtime_gi`); the raster bake
+        // captures at most 32 probes, which no brick layout fits. Said once,
+        // not every frame -- the grid it falls back to is what it bakes.
+        static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if volume.placement == bsengine_core::ProbePlacement::Adaptive
+            && volume.update == bsengine_core::ProbeUpdate::Once
+            && !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            tracing::warn!(
+                "a light-probe volume is Adaptive but baked Once: adaptive bricks are realtime \
+                 only for now (update: Realtime); it is baked as its {:?} grid",
+                volume.clamped_resolution()
+            );
+        }
         bsengine_rhi_wgpu::ProbeVolumeParams {
             origin: centre - half,
             extent: half * 2.0,

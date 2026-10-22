@@ -114,6 +114,109 @@ fn probe_offset(probe: u32, offset: u32) -> vec4<f32> {
     return probes.coeffs[OFFSETS_BASE + offset + probe];
 }
 
+// An adaptive volume (header flag bit 1, `bsengine_bake::probe_bricks`):
+// bricks of 4 x 4 x 4 probes, each level three times finer, found through a
+// tree. After the offsets, one copy written by the CPU: per probe its
+// position and its spacing; the tree's nodes, four to an entry -- one per
+// top-level brick (`resolution` of them, x fastest), each either a brick
+// (`-(index + 1)`) or the first of a group's 27 children (its index); and per
+// brick its minimum corner, its size and its 64 probe indices, x fastest.
+//
+// The indices are stored as the floats they are -- 928 as 928.0, exact below
+// 2^24 -- not as u32 bits read back with bitcast: the bits of a small integer
+// are a denormal float, and D3D12 flushes those to zero on the load, so every
+// index read 0 there (and only there: Vulkan keeps them).
+const POSITIONS_BASE: u32 = 606208u;
+const NODES_BASE: u32 = 614400u;
+const BRICKS_BASE: u32 = 614656u;
+const BRICK_ENTRIES: u32 = 18u;
+const MAX_BRICK: u32 = 511u;
+const MAX_BRICK_LEVELS: u32 = 4u;
+// No brick: a grid's cell.
+const NO_BRICK: u32 = 4294967295u;
+
+fn probes_adaptive() -> bool {
+    return (probes.flags & 2u) != 0u;
+}
+fn brick_node(i: u32) -> f32 {
+    // The tree holds under 2 * (MAX_BRICK + 1) nodes; a stray index stays
+    // inside the table rather than reading the bricks as nodes.
+    let j = min(i, 2u * MAX_BRICK + 1u);
+    return probes.coeffs[NODES_BASE + j / 4u][j % 4u];
+}
+
+// The eight probes around a point: the cell's lower corner, how far into it
+// the point is, the corners' spacing, and the brick it is in (NO_BRICK for a
+// grid). A grid's corner is clamped to its last probe on each axis; a
+// brick's never needs it (its local cell is 0..2, its probes 0..3).
+struct ProbeCell {
+    brick: u32,
+    i0: vec3<u32>,
+    last: vec3<u32>,
+    frac: vec3<f32>,
+    spacing: vec3<f32>,
+};
+fn probe_cell(world_pos: vec3<f32>) -> ProbeCell {
+    if probes_adaptive() {
+        // The walk `BrickLayout::locate` does: down from the top-level
+        // brick, a third of the way at a time, to the brick that holds it.
+        let top = vec3<f32>(probes.resolution);
+        let t = clamp((world_pos - probes.origin) / max(probes.extent, vec3<f32>(1e-6)),
+            vec3<f32>(0.0), vec3<f32>(1.0)) * top;
+        let cell = clamp(floor(t), vec3<f32>(0.0), top - vec3<f32>(1.0));
+        var f = t - cell;
+        let c = vec3<u32>(cell);
+        var node = brick_node((c.z * probes.resolution.y + c.y) * probes.resolution.x + c.x);
+        for (var level = 0u; level < MAX_BRICK_LEVELS; level++) {
+            if node < 0.0 {
+                break;
+            }
+            let g = clamp(floor(f * 3.0), vec3<f32>(0.0), vec3<f32>(2.0));
+            f = f * 3.0 - g;
+            node = brick_node(u32(node) + u32(g.x) + 3u * (u32(g.y) + 3u * u32(g.z)));
+        }
+        let brick = min(u32(max(-node, 1.0)) - 1u, MAX_BRICK);
+        let local = f * 3.0;
+        let i0 = clamp(floor(local), vec3<f32>(0.0), vec3<f32>(2.0));
+        let size = probes.coeffs[BRICKS_BASE + brick * BRICK_ENTRIES + 1u].xyz;
+        return ProbeCell(
+            brick,
+            vec3<u32>(i0),
+            vec3<u32>(3u),
+            clamp(local - i0, vec3<f32>(0.0), vec3<f32>(1.0)),
+            size / 3.0,
+        );
+    }
+    let g = probe_grid_coord(world_pos);
+    let cells = max(vec3<f32>(probes.resolution) - vec3<f32>(1.0), vec3<f32>(1.0));
+    let last = vec3<i32>(probes.resolution) - vec3<i32>(1, 1, 1);
+    return ProbeCell(
+        NO_BRICK,
+        vec3<u32>(clamp(vec3<i32>(floor(g)), vec3<i32>(0, 0, 0), last)),
+        vec3<u32>(last),
+        clamp(g - floor(g), vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0)),
+        probes.extent / cells,
+    );
+}
+// Corner `ci` of a cell (each axis i0 or i0 + 1, clamped) as a probe index:
+// a grid's x fastest, then y, then z -- the same order the CPU walks the
+// lattice in when it uploads them -- or the brick's own table.
+fn probe_cell_index(cell: ProbeCell, ci: vec3<u32>) -> u32 {
+    if cell.brick == NO_BRICK {
+        return (ci.z * probes.resolution.y + ci.y) * probes.resolution.x + ci.x;
+    }
+    let k = ci.x + 4u * (ci.y + 4u * ci.z);
+    let e = probes.coeffs[BRICKS_BASE + cell.brick * BRICK_ENTRIES + 2u + k / 4u];
+    return u32(e[k % 4u]);
+}
+// An adaptive volume's probe `index`: where it is, and its spacing.
+fn brick_probe_position(index: u32) -> vec3<f32> {
+    return probes.coeffs[POSITIONS_BASE + 2u * min(index, 4095u)].xyz;
+}
+fn brick_probe_spacing(index: u32) -> vec3<f32> {
+    return probes.coeffs[POSITIONS_BASE + 2u * min(index, 4095u) + 1u].xyz;
+}
+
 // The octahedral map (Cigolle et al.): a direction to [-1, 1]^2 and back.
 fn oct_encode(d: vec3<f32>) -> vec2<f32> {
     let p = d.xy / (abs(d.x) + abs(d.y) + abs(d.z));
@@ -173,15 +276,6 @@ fn probe_grid_coord(world_pos: vec3<f32>) -> vec3<f32> {
     let t = (world_pos - probes.origin) / extent;
     return clamp(t, vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0)) * cells;
 }
-// Index of probe (ix, iy, iz)'s first coefficient in the half starting at
-// probe `offset`. x fastest, then y, then z -- the same order the CPU walks
-// the lattice in when it uploads them.
-fn probe_coeff_base(ix: u32, iy: u32, iz: u32, offset: u32) -> u32 {
-    let idx = (iz * probes.resolution.y + iy) * probes.resolution.x + ix;
-    // MAX_PROBES - 1: a half always holds that many. A resolution the CPU
-    // side never produces would otherwise read past the end of it.
-    return (offset + min(idx, 4095u)) * 9u;
-}
 // The probe grid's irradiance at `world_pos` for a surface facing `n`, in the
 // same units the irradiance cube stores: E / PI, with the Lambert BRDF's 1/PI
 // folded in, so callers write `* albedo` with no stray constant exactly as the
@@ -202,9 +296,11 @@ fn probe_coeff_base(ix: u32, iy: u32, iz: u32, offset: u32) -> u32 {
 // renormalised, so what is left is an interpolation between the probes that
 // can see the point.
 fn eval_probe_sh_at(world_pos: vec3<f32>, n: vec3<f32>, offset: u32, visibility: bool) -> vec3<f32> {
-    let g = probe_grid_coord(world_pos);
-    let cells = max(vec3<f32>(probes.resolution) - vec3<f32>(1.0), vec3<f32>(1.0));
-    let spacing = probes.extent / cells;
+    // The cell around the point: a grid's, or the brick's it is in -- whose
+    // spacing is its level's, so the bias and the weights below are the
+    // same rule at every level.
+    let cell = probe_cell(world_pos);
+    let spacing = cell.spacing;
     // Off the surface, so the surface itself is not what a probe saw first:
     // 0.3 of the probe spacing along the normal. Measured in the gi-demo room
     // (games/gi-demo): at 0.1, and at DDGI's view-weighted bias
@@ -218,10 +314,9 @@ fn eval_probe_sh_at(world_pos: vec3<f32>, n: vec3<f32>, offset: u32, visibility:
     // judged from its far side.
     let biased = world_pos + n * (0.3 * min(min(spacing.x, spacing.y), spacing.z));
     var weight_sum = 0.0;
-    let last = vec3<i32>(probes.resolution) - vec3<i32>(1, 1, 1);
-    let i0 = clamp(vec3<i32>(floor(g)), vec3<i32>(0, 0, 0), last);
-    let i1 = min(i0 + vec3<i32>(1, 1, 1), last);
-    let frac = clamp(g - floor(g), vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0));
+    let i0 = cell.i0;
+    let i1 = min(i0 + vec3<u32>(1u, 1u, 1u), cell.last);
+    let frac = cell.frac;
 
     var blended: array<vec4<f32>, 9>;
     for (var c: u32 = 0u; c < 9u; c++) {
@@ -237,17 +332,21 @@ fn eval_probe_sh_at(world_pos: vec3<f32>, n: vec3<f32>, offset: u32, visibility:
             * select(1.0 - frac.y, frac.y, hi_y)
             * select(1.0 - frac.z, frac.z, hi_z);
         let ci = vec3<u32>(
-            u32(select(i0.x, i1.x, hi_x)),
-            u32(select(i0.y, i1.y, hi_y)),
-            u32(select(i0.z, i1.z, hi_z)),
+            select(i0.x, i1.x, hi_x),
+            select(i0.y, i1.y, hi_y),
+            select(i0.z, i1.z, hi_z),
         );
+        let index = probe_cell_index(cell, ci);
         if visibility {
-            let index = (ci.z * probes.resolution.y + ci.y) * probes.resolution.x + ci.x;
             // Where the probe actually is: its lattice point, moved out of
             // whatever geometry it landed in. The trilinear weight above stays
             // the lattice's -- only what the probe can see moved.
             let moved = probe_offset(min(index, 4095u), offset);
-            let probe_pos = probes.origin + spacing * vec3<f32>(ci) + moved.xyz;
+            var lattice = probes.origin + spacing * vec3<f32>(ci);
+            if cell.brick != NO_BRICK {
+                lattice = brick_probe_position(index);
+            }
+            let probe_pos = lattice + moved.xyz;
             let to_probe = normalize(probe_pos - world_pos);
             let wrap = (dot(to_probe, n) + 1.0) * 0.5;
             w *= wrap * wrap + 0.2;
@@ -267,7 +366,9 @@ fn eval_probe_sh_at(world_pos: vec3<f32>, n: vec3<f32>, offset: u32, visibility:
             }
         }
         weight_sum += w;
-        let base = probe_coeff_base(ci.x, ci.y, ci.z, offset);
+        // MAX_PROBES - 1: a half always holds that many. An index the CPU
+        // side never produces would otherwise read past the end of it.
+        let base = (offset + min(index, 4095u)) * 9u;
         for (var c: u32 = 0u; c < 9u; c++) {
             blended[c] = blended[c] + probes.coeffs[base + c] * w;
         }
@@ -411,8 +512,11 @@ const RELOCATE_MISS: f32 = 1.0e30;
 // More than a quarter of them on back faces: the probe is inside something.
 const INSIDE_BACKFACES: u32 = 8u;
 
-// Probe `index`'s lattice point.
+// Probe `index`'s lattice point: a grid's, or the brick table's.
 fn probe_lattice_position(index: u32) -> vec3<f32> {
+    if probes_adaptive() {
+        return brick_probe_position(index);
+    }
     let r = probes.resolution;
     let ix = index % r.x;
     let iy = (index / r.x) % r.y;
@@ -571,7 +675,11 @@ fn cs_update(
     let old_offset = probe_offset(probe, gi.read_offset);
     let p = probe_lattice_position(probe) + old_offset.xyz;
     let cells = max(vec3<f32>(probes.resolution) - vec3<f32>(1.0), vec3<f32>(1.0));
-    let spacing = probes.extent / cells;
+    // A brick's probe moves within, and traces as far as, its own spacing.
+    var spacing = probes.extent / cells;
+    if probes_adaptive() {
+        spacing = brick_probe_spacing(probe);
+    }
     let max_dist = 1.5 * length(spacing);
     var acc: array<vec3<f32>, 9>;
     for (var c = 0u; c < 9u; c++) {
@@ -702,11 +810,25 @@ pub struct GiDynamic {
 /// past this the nearest to the volume are kept, and a warning says so.
 pub const MAX_GI_INSTANCES: usize = 256;
 
+/// An adaptive volume's spacings (`LightProbeVolume::min_probe_spacing` and
+/// `max_probe_spacing`): its probes are `bsengine_bake::probe_bricks`' bricks
+/// around the static set, not the grid's.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AdaptiveSpacing {
+    /// Near geometry.
+    pub min: f32,
+    /// In open space.
+    pub max: f32,
+}
+
 /// What a frame asks of the realtime volume (`WgpuSurface::set_realtime_gi`).
 #[derive(Clone)]
 pub struct RealtimeGiInput {
     /// The volume's box and grid, through `LightProbeVolume::clamped_resolution`.
+    /// An adaptive volume uses the box only.
     pub volume: ProbeVolumeParams,
+    /// `Some` for an adaptive volume (`ProbePlacement::Adaptive`).
+    pub adaptive: Option<AdaptiveSpacing>,
     /// Through `LightProbeVolume::clamped_rays_per_probe`.
     pub rays_per_probe: u32,
     /// Through `LightProbeVolume::clamped_hysteresis`.
@@ -916,6 +1038,9 @@ struct Geometry {
     node_count: u32,
     /// Each moving mesh's tree in `nodes` and `tris`.
     trees: std::collections::HashMap<u64, MeshTree>,
+    /// The static set's triangles, world space: what an adaptive volume's
+    /// bricks are refined around, kept so a changed volume needs no readback.
+    static_triangles: Vec<[Vec3; 3]>,
 }
 
 /// The update's two pipelines.
@@ -986,8 +1111,14 @@ pub(crate) struct RealtimeGi {
     sky: Option<(Arc<Sky>, wgpu::Texture)>,
     geometry: Option<Geometry>,
     readback: Option<Readback>,
-    /// The volume the history belongs to: a different one starts over.
-    volume: Option<ProbeVolumeParams>,
+    /// The volume the history belongs to: a different one starts over. For
+    /// an adaptive volume, also its spacings and the static set its bricks
+    /// were cut around.
+    volume: Option<(ProbeVolumeParams, Option<(AdaptiveSpacing, u64)>)>,
+    /// An adaptive volume's layout, uploaded with it.
+    pub(crate) bricks: Option<bsengine_bake::probe_bricks::BrickLayout>,
+    /// Whether a layout cut short by the budget has been warned about.
+    warned_layout: bool,
     /// Updates run so far, the seed of each one's rotation and rays.
     frame: u32,
     /// Where the next update's slice starts.
@@ -1104,6 +1235,8 @@ impl RealtimeGi {
             geometry: None,
             readback: None,
             volume: None,
+            bricks: None,
+            warned_layout: false,
             frame: 0,
             cursor: 0,
             current: 0,
@@ -1338,6 +1471,7 @@ impl RealtimeGi {
             tris: init("realtime gi triangles", bytemuck::cast_slice(&tris)),
             node_count: geometry.node_count,
             trees,
+            static_triangles: triangles.iter().map(|t| t.positions).collect(),
         });
     }
 
@@ -1400,13 +1534,13 @@ impl RealtimeGi {
         }
 
         let volume = input.volume;
-        let [rx, ry, rz] = volume.resolution;
-        let total = (rx * ry * rz).min(bsengine_core::MAX_PROBES as u32).max(1);
-        if self.volume != Some(volume) {
+        let signature = self.geometry.as_ref().expect("checked above").signature;
+        let key = (volume, input.adaptive.map(|a| (a, signature)));
+        if self.volume != Some(key) {
             // A new volume, or a changed one: its probes owe nothing to the
             // old ones. Both halves zeroed, so every history flag is clear.
             self.reset();
-            self.volume = Some(volume);
+            self.volume = Some(key);
             queue.write_buffer(
                 probe_buffer,
                 crate::surface::PROBE_GRID_HEADER_SIZE,
@@ -1416,7 +1550,55 @@ impl RealtimeGi {
                         as usize
                 ],
             );
+            // An adaptive volume's bricks, cut around the static set as it
+            // is now, written after the zeroing (the queue keeps the order).
+            self.bricks = input.adaptive.map(|a| {
+                let layout = bsengine_bake::probe_bricks::BrickLayout::build(
+                    &bsengine_bake::probe_bricks::BrickSettings {
+                        origin: volume.origin,
+                        extent: volume.extent,
+                        min_spacing: a.min,
+                        max_spacing: a.max,
+                        max_probes: bsengine_core::MAX_PROBES,
+                        max_bricks: bsengine_core::MAX_PROBE_BRICKS,
+                    },
+                    &self
+                        .geometry
+                        .as_ref()
+                        .expect("checked above")
+                        .static_triangles,
+                );
+                upload_bricks(queue, probe_buffer, &layout);
+                layout
+            });
+            if let Some(l) = &self.bricks {
+                if (l.truncated || l.coarsened) && !self.warned_layout {
+                    self.warned_layout = true;
+                    tracing::warn!(
+                        "realtime GI: the adaptive volume needs more than {} probes or {} bricks \
+                         at its spacings; it is {} (fewer levels near geometry, or a coarser \
+                         top level) -- raise min_probe_spacing or max_probe_spacing, or shrink \
+                         the box",
+                        bsengine_core::MAX_PROBES,
+                        bsengine_core::MAX_PROBE_BRICKS,
+                        if l.coarsened {
+                            "coarser everywhere"
+                        } else {
+                            "coarser near geometry"
+                        }
+                    );
+                }
+            }
         }
+        let total = match &self.bricks {
+            Some(l) => l.probes.len() as u32,
+            None => {
+                let [rx, ry, rz] = volume.resolution;
+                rx * ry * rz
+            }
+        }
+        .min(bsengine_core::MAX_PROBES as u32)
+        .max(1);
 
         let (scene, _) = scene_uniform(node_count, &input.lights, &input.sky);
         queue.write_buffer(&self.scene, 0, bytemuck::bytes_of(&scene));
@@ -1474,8 +1656,9 @@ impl RealtimeGi {
             origin: volume.origin.to_array(),
             enabled: 1,
             extent: volume.extent.to_array(),
-            flags: u32::from(self.visibility),
-            resolution: volume.resolution,
+            flags: u32::from(self.visibility) | (u32::from(self.bricks.is_some()) << 1),
+            // An adaptive volume's top level, which its tree starts from.
+            resolution: self.bricks.as_ref().map_or(volume.resolution, |l| l.top),
             coeff_offset: write * bsengine_core::MAX_PROBES as u32,
         };
         queue.write_buffer(probe_buffer, 0, bytemuck::bytes_of(&header));
@@ -1545,6 +1728,204 @@ impl RealtimeGi {
     }
 }
 
+/// The lookup test's shader: `probe_grid_wgsl` and an entry point that runs
+/// its `probe_cell` and `probe_cell_index` at each point.
+const CELLS_WGSL: &str = r#"
+@group(0) @binding(0) var<storage, read> probes: ProbeGrid;
+@group(0) @binding(1) var<storage, read> points: array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read_write> cells: array<vec4<u32>>;
+@compute @workgroup_size(64, 1, 1)
+fn cs_cells(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let i = gid.x;
+    if i >= arrayLength(&points) {
+        return;
+    }
+    let cell = probe_cell(points[i].xyz);
+    let i1 = min(cell.i0 + vec3<u32>(1u), cell.last);
+    var lo = vec4<u32>(0u);
+    var hi = vec4<u32>(0u);
+    for (var corner = 0u; corner < 8u; corner++) {
+        let ci = vec3<u32>(
+            select(cell.i0.x, i1.x, (corner & 1u) != 0u),
+            select(cell.i0.y, i1.y, (corner & 2u) != 0u),
+            select(cell.i0.z, i1.z, (corner & 4u) != 0u),
+        );
+        let index = probe_cell_index(cell, ci);
+        if corner < 4u {
+            lo[corner] = index;
+        } else {
+            hi[corner - 4u] = index;
+        }
+    }
+    cells[3u * i] = lo;
+    cells[3u * i + 1u] = hi;
+    cells[3u * i + 2u] = vec4<u32>(bitcast<vec3<u32>>(cell.frac), cell.brick);
+}
+"#;
+
+/// Runs [`CELLS_WGSL`] over `points` against `probe_buffer`; for
+/// `WgpuSurface::probe_cells_for_testing`. Blocks.
+pub(crate) fn probe_cells(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    probe_buffer: &wgpu::Buffer,
+    points: &[Vec3],
+) -> Vec<([u32; 8], Vec3)> {
+    let source = format!(
+        "const PI: f32 = 3.14159265;\n{}{}",
+        probe_grid_wgsl!(),
+        CELLS_WGSL
+    );
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("probe cells"),
+        source: wgpu::ShaderSource::Wgsl(source.into()),
+    });
+    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some("probe cells"),
+        layout: None,
+        module: &module,
+        entry_point: "cs_cells",
+        compilation_options: Default::default(),
+        cache: None,
+    });
+    let input: Vec<[f32; 4]> = points.iter().map(|p| p.extend(0.0).to_array()).collect();
+    let input = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("probe cells points"),
+        contents: bytemuck::cast_slice(&input),
+        usage: wgpu::BufferUsages::STORAGE,
+    });
+    let size = (points.len() * 48).max(48) as u64;
+    let output = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("probe cells out"),
+        size,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false,
+    });
+    let staging = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("probe cells readback"),
+        size,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("probe cells"),
+        layout: &pipeline.get_bind_group_layout(0),
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: probe_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: input.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: output.as_entire_binding(),
+            },
+        ],
+    });
+    let mut encoder = device.create_command_encoder(&Default::default());
+    {
+        let mut pass = encoder.begin_compute_pass(&Default::default());
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, &bind, &[]);
+        pass.dispatch_workgroups((points.len() as u32).div_ceil(64), 1, 1);
+    }
+    encoder.copy_buffer_to_buffer(&output, 0, &staging, 0, size);
+    queue.submit(Some(encoder.finish()));
+    let (tx, rx) = std::sync::mpsc::channel();
+    staging.slice(..).map_async(wgpu::MapMode::Read, move |r| {
+        let _ = tx.send(r);
+    });
+    crate::surface::wait_for_gpu(device, queue);
+    rx.recv()
+        .expect("map_async reported")
+        .expect("mapping the probe cells failed");
+    let words: Vec<u32> = bytemuck::cast_slice(&staging.slice(..).get_mapped_range()).to_vec();
+    staging.unmap();
+    (0..points.len())
+        .map(|i| {
+            let w = &words[i * 12..i * 12 + 12];
+            let mut corners = [0u32; 8];
+            corners.copy_from_slice(&w[..8]);
+            (
+                corners,
+                Vec3::new(
+                    f32::from_bits(w[8]),
+                    f32::from_bits(w[9]),
+                    f32::from_bits(w[10]),
+                ),
+            )
+        })
+        .collect()
+}
+
+/// Writes an adaptive volume's tables into the probe buffer (the layout at
+/// `surface::PROBE_POSITIONS_BASE` on, which `probe_grid_wgsl` reads): per
+/// probe its position and spacing, the tree's nodes, and per brick its corner,
+/// size and probe indices.
+fn upload_bricks(
+    queue: &wgpu::Queue,
+    buffer: &wgpu::Buffer,
+    layout: &bsengine_bake::probe_bricks::BrickLayout,
+) {
+    use crate::surface::{
+        MAX_PROBE_NODES, PROBE_BRICKS_BASE, PROBE_GRID_HEADER_SIZE, PROBE_NODES_BASE,
+        PROBE_POSITIONS_BASE,
+    };
+    let at = |entry: u64| PROBE_GRID_HEADER_SIZE + entry * 16;
+    // The layout was cut to these budgets; past them is a bug, and writing
+    // on would overrun into the next table.
+    let probes = &layout.probes[..layout.probes.len().min(bsengine_core::MAX_PROBES)];
+    let bricks = &layout.bricks[..layout.bricks.len().min(bsengine_core::MAX_PROBE_BRICKS)];
+    let nodes = &layout.nodes[..layout.nodes.len().min(MAX_PROBE_NODES as usize)];
+    debug_assert_eq!(probes.len(), layout.probes.len());
+    debug_assert_eq!(bricks.len(), layout.bricks.len());
+    debug_assert_eq!(nodes.len(), layout.nodes.len());
+    let positions: Vec<[f32; 4]> = probes
+        .iter()
+        .flat_map(|p| {
+            [
+                p.position.extend(0.0).to_array(),
+                p.spacing.extend(0.0).to_array(),
+            ]
+        })
+        .collect();
+    if !positions.is_empty() {
+        queue.write_buffer(
+            buffer,
+            at(PROBE_POSITIONS_BASE),
+            bytemuck::cast_slice(&positions),
+        );
+    }
+    // As floats, not bits (see `probe_grid_wgsl`): a brick `-(index + 1)`,
+    // a group its first child's index.
+    let mut packed: Vec<f32> = nodes
+        .iter()
+        .map(|&n| {
+            if n & bsengine_bake::probe_bricks::LEAF != 0 {
+                -(((n & !bsengine_bake::probe_bricks::LEAF) + 1) as f32)
+            } else {
+                n as f32
+            }
+        })
+        .collect();
+    packed.resize(nodes.len().div_ceil(4) * 4, 0.0);
+    if !packed.is_empty() {
+        queue.write_buffer(buffer, at(PROBE_NODES_BASE), bytemuck::cast_slice(&packed));
+    }
+    let mut table: Vec<f32> = Vec::with_capacity(bricks.len() * 72);
+    for b in bricks {
+        table.extend(b.lo.extend(0.0).to_array());
+        table.extend(b.size.extend(0.0).to_array());
+        table.extend(b.probes.map(|p| p as f32));
+    }
+    if !table.is_empty() {
+        queue.write_buffer(buffer, at(PROBE_BRICKS_BASE), bytemuck::cast_slice(&table));
+    }
+}
+
 /// A rotation drawn from `frame` alone: the same on every machine, and a new
 /// one every frame so the ray set covers the sphere over time.
 fn random_rotation(frame: u32) -> Mat3 {
@@ -1598,6 +1979,15 @@ mod tests {
         for (name, value) in [
             ("MOMENTS_BASE", crate::surface::PROBE_MOMENTS_BASE),
             ("OFFSETS_BASE", crate::surface::PROBE_OFFSETS_BASE),
+            ("POSITIONS_BASE", crate::surface::PROBE_POSITIONS_BASE),
+            ("NODES_BASE", crate::surface::PROBE_NODES_BASE),
+            ("BRICKS_BASE", crate::surface::PROBE_BRICKS_BASE),
+            ("BRICK_ENTRIES", crate::surface::PROBE_BRICK_ENTRIES),
+            ("MAX_BRICK", bsengine_core::MAX_PROBE_BRICKS as u64 - 1),
+            (
+                "MAX_BRICK_LEVELS",
+                u64::from(bsengine_bake::probe_bricks::MAX_LEVELS),
+            ),
         ] {
             let line = format!("const {name}: u32 = {value}u;");
             assert!(wgsl.contains(&line), "the shader should declare `{line}`");

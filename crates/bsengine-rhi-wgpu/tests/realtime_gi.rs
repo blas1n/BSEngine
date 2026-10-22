@@ -278,6 +278,7 @@ impl GiScene {
     ) -> bsengine_rhi_wgpu::realtime_gi::RealtimeGiInput {
         bsengine_rhi_wgpu::realtime_gi::RealtimeGiInput {
             volume,
+            adaptive: None,
             rays_per_probe: 256,
             hysteresis,
             rays_per_frame,
@@ -1491,5 +1492,255 @@ fn a_surface_is_lit_by_the_probes_moved_out_from_behind_it() {
     assert!(
         hi - lo <= 6 && (lo as f32 - wall).abs() <= 10.0,
         "the cube's face should be flat and as bright as the walls ({wall:.0}): {lo}..{hi}"
+    );
+}
+
+// ---- adaptive bricks -------------------------------------------------------
+
+/// `input` made adaptive, with these spacings.
+fn adaptive(
+    mut input: bsengine_rhi_wgpu::realtime_gi::RealtimeGiInput,
+    min: f32,
+    max: f32,
+) -> bsengine_rhi_wgpu::realtime_gi::RealtimeGiInput {
+    input.adaptive = Some(bsengine_rhi_wgpu::realtime_gi::AdaptiveSpacing { min, max });
+    input
+}
+
+/// The shader finds a point's eight probes where the layout says they are:
+/// for points all through a three-level layout, the GPU's walk down the
+/// brick tree (`probe_cell`, `probe_cell_index`) gives the corners
+/// `BrickLayout::locate` and the brick's own table give, and the same place
+/// in the cell. A point on a cell's face could go either way by a rounding,
+/// on either side; those are left out.
+#[test]
+fn the_shader_finds_an_adaptive_volumes_probes_as_the_layout_does() {
+    let mut s = GiScene::new(Vec3::ZERO);
+    // A patch of floor inside one of the 1.5 m bricks (and clear of its
+    // neighbours' reach): cut to the finest level there, 27 bricks of 0.5,
+    // and within the budget -- a floor across the whole box would need some
+    // 7800 probes at that level, and the level would not be cut at all.
+    s.add(
+        quad_corners(Vec3::new(0.3, 2.3, 1.1), Vec3::X * 0.8, Vec3::NEG_Z * 0.8),
+        Vec3::splat(0.5),
+        Vec3::ZERO,
+    );
+    let volume = ProbeVolumeParams {
+        origin: Vec3::ZERO,
+        extent: Vec3::new(4.5, 9.0, 4.5),
+        resolution: [2, 2, 2],
+    };
+    let input = adaptive(s.input(volume, 0.0, 1 << 20), 1.5 / 9.0, 1.5);
+    s.run(&input, 1);
+    let layout = s
+        .scene
+        .surface
+        .realtime_gi_bricks_for_testing()
+        .expect("the volume is adaptive");
+    let deepest = layout.bricks.iter().map(|b| b.level).max().unwrap();
+    assert_eq!(deepest, 2, "premise: three levels in use");
+    assert!(
+        layout.bricks.iter().any(|b| b.level == 0),
+        "premise: and a coarse brick away from the floor"
+    );
+
+    let mut state = 11u32;
+    let mut next = || {
+        state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+        (state >> 8) as f32 / (1u32 << 24) as f32
+    };
+    let mut points = Vec::new();
+    let mut want = Vec::new();
+    while points.len() < 4000 {
+        let p = Vec3::new(next(), next(), next()) * volume.extent;
+        let (b, local) = layout.locate(p).unwrap();
+        if (local - local.round()).abs().min_element() < 1e-3 {
+            continue;
+        }
+        let brick = &layout.bricks[b as usize];
+        let i0 = local.floor().clamp(Vec3::ZERO, Vec3::splat(2.0));
+        let corners: [u32; 8] = std::array::from_fn(|c| {
+            let c = c as u32;
+            let ci = i0.as_uvec3() + glam::UVec3::new(c & 1, (c >> 1) & 1, c >> 2);
+            brick.probes[(ci.x + 4 * (ci.y + 4 * ci.z)) as usize]
+        });
+        points.push(p);
+        want.push((corners, local - i0, brick.level));
+    }
+    let got = s.scene.surface.probe_cells_for_testing(&points);
+    let mut levels = [0u32; 3];
+    for ((p, (corners, frac, level)), (g_corners, g_frac)) in points.iter().zip(&want).zip(&got) {
+        assert_eq!(g_corners, corners, "{p}: corners");
+        assert!(
+            (*g_frac - *frac).abs().max_element() < 1e-3,
+            "{p}: {g_frac} vs {frac}"
+        );
+        levels[*level as usize] += 1;
+    }
+    assert!(
+        levels.iter().all(|&n| n > 0),
+        "every level was looked up: {levels:?}"
+    );
+}
+
+/// The furnace again, through bricks: a volume filling the closed box, cut
+/// finer next to its walls, every probe at `e / (1 - rho)` after a dozen
+/// updates -- each traced from where the brick table puts it. A probe traced
+/// from anywhere else (its index read as a grid's, say) sits on a wall or
+/// outside the box, and sees the sky of 100.
+#[test]
+fn adaptive_probes_in_a_furnace_follow_the_geometric_series() {
+    let (e, rho) = (0.4f32, 0.5f32);
+    let mut s = furnace_scene(e, rho);
+    let volume = ProbeVolumeParams {
+        origin: Vec3::splat(0.05),
+        extent: Vec3::splat(0.9),
+        resolution: [2, 2, 2],
+    };
+    let input = adaptive(s.input(volume, 0.0, 1 << 20), 0.1, 0.3);
+    s.run(&input, 12);
+    let layout = s.scene.surface.realtime_gi_bricks_for_testing().unwrap();
+    assert!(
+        layout.bricks.iter().all(|b| b.level == 1) && layout.probes.len() == 1000,
+        "premise: the walls cut the one top brick into 27 ({} probes)",
+        layout.probes.len()
+    );
+    let want = e * (1.0 - rho.powi(12)) / (1.0 - rho);
+    for probe in 0..layout.probes.len() {
+        let got = s.irradiance(probe, Vec3::Y).x;
+        assert!(
+            (got - want).abs() < want * 0.02,
+            "probe {probe} at {}: {got} vs {want}",
+            layout.probes[probe].position
+        );
+    }
+}
+
+/// What the bricks are for: a small lamp just above a floor throws a pool of
+/// light a coarse grid cannot hold. The floor around the lamp, seen from
+/// above, through three volumes over the same box: a grid at the top level's
+/// spacing (0.75), a dense grid at the finest (0.25), and an adaptive volume
+/// between the two, fine around the floor and coarse above it. Where the
+/// bricks are fine, their probes are the dense grid's lattice points -- and
+/// with no analytic light the update is deterministic, so they hold the same
+/// light -- so the adaptive volume shades the floor as the dense grid does,
+/// with far fewer probes; the coarse grid does not (the premise: the pool is
+/// finer than it).
+#[test]
+fn adaptive_bricks_shade_the_floor_as_a_dense_grid_does() {
+    let shade = |volume: ProbeVolumeParams, spacing: Option<(f32, f32)>| {
+        let mut s = GiScene::new(Vec3::ZERO);
+        let floor = quad_corners(Vec3::new(-4.0, 0.0, 4.0), Vec3::X * 8.0, Vec3::NEG_Z * 8.0);
+        s.add(floor, Vec3::splat(0.8), Vec3::ZERO);
+        let i = s.scene.draw_calls.len() - 1;
+        s.scene.draw_calls[i].3.base_color = Vec3::ONE;
+        // The lamp: 0.3 square, 0.15 over the floor, facing down.
+        s.add(
+            quad_corners(Vec3::new(-0.15, 0.15, -0.15), Vec3::X * 0.3, Vec3::Z * 0.3),
+            Vec3::ZERO,
+            Vec3::splat(1.5),
+        );
+        s.scene.sun = Some((Vec3::ZERO, Vec3::ZERO));
+        let eye = Vec3::new(0.55, 1.4, 0.0);
+        s.scene.camera = (
+            Mat4::perspective_rh(0.9, 1.0, 0.05, 50.0)
+                * Mat4::look_at_rh(eye, Vec3::new(0.55, 0.0, 0.0), Vec3::NEG_Z),
+            eye,
+        );
+        let mut input = s.input(volume, 0.0, 1 << 20);
+        if let Some((min, max)) = spacing {
+            input = adaptive(input, min, max);
+        }
+        s.run(&input, 8);
+        let probes = s
+            .scene
+            .surface
+            .realtime_gi_bricks_for_testing()
+            .map(|l| l.probes.len());
+        let pixels = s.scene.surface.read_pixels().expect("offscreen readback");
+        let row: Vec<f32> = (4..60).map(|x| linear(pixels[(32 * 64 + x) * 4])).collect();
+        (row, probes)
+    };
+    let box_at = |resolution: [u32; 3]| ProbeVolumeParams {
+        origin: Vec3::new(-1.125, -0.375, -1.125),
+        extent: Vec3::new(2.25, 4.5, 2.25),
+        resolution,
+    };
+    let (coarse, _) = shade(box_at([4, 7, 4]), None);
+    let (dense, _) = shade(box_at([10, 19, 10]), None);
+    let (bricks, probes) = shade(box_at([2, 2, 2]), Some((0.25, 0.75)));
+    let probes = probes.expect("adaptive");
+    let worst = |a: &[f32], b: &[f32]| {
+        a.iter()
+            .zip(b)
+            .map(|(x, y)| (x - y).abs() / y.max(1e-3))
+            .fold(0.0f32, f32::max)
+    };
+    assert!(
+        dense.iter().cloned().fold(0.0, f32::max) > 0.05,
+        "premise: the lamp lights the floor: {dense:.3?}"
+    );
+    assert!(
+        worst(&coarse, &dense) > 0.25,
+        "premise: the coarse grid misses the pool: {coarse:.3?} against {dense:.3?}"
+    );
+    assert!(
+        worst(&bricks, &dense) < 0.03,
+        "the bricks shade the floor as the dense grid: {bricks:.3?} against {dense:.3?}"
+    );
+    assert!(
+        probes < 10 * 19 * 10 * 6 / 10,
+        "with well under the dense grid's probes: {probes}"
+    );
+}
+
+/// The bricks follow the static set: cut around it as it is, and cut again
+/// when it changes. A volume with nothing static inside is all top-level
+/// bricks; a floor added through it refines the bricks it passes through,
+/// with no change to the volume itself.
+#[test]
+fn an_adaptive_volume_is_cut_again_when_the_static_set_changes() {
+    let mut s = GiScene::new(Vec3::ZERO);
+    // Something static, far outside the volume, so the set is not empty.
+    s.add(
+        quad_corners(Vec3::new(50.0, 0.0, 0.0), Vec3::X, Vec3::Y),
+        Vec3::splat(0.5),
+        Vec3::ZERO,
+    );
+    let volume = ProbeVolumeParams {
+        origin: Vec3::ZERO,
+        extent: Vec3::splat(2.25),
+        resolution: [2, 2, 2],
+    };
+    let input = adaptive(s.input(volume, 0.0, 1 << 20), 0.25, 0.75);
+    s.run(&input, 1);
+    let before = s.scene.surface.realtime_gi_bricks_for_testing().unwrap();
+    assert_eq!(before.bricks.len(), 1, "nothing to refine around");
+    s.add(
+        quad_corners(Vec3::new(-1.0, 1.0, 3.0), Vec3::X * 4.0, Vec3::NEG_Z * 4.0),
+        Vec3::splat(0.5),
+        Vec3::ZERO,
+    );
+    let input = adaptive(s.input(volume, 0.0, 1 << 20), 0.25, 0.75);
+    let readbacks = s.scene.surface.realtime_gi_readbacks();
+    // Until the new set is read back, the old one is traced: run until it
+    // has been, then once more.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(600);
+    loop {
+        s.run(&input, 1);
+        let cut = s.scene.surface.realtime_gi_bricks_for_testing().unwrap();
+        if cut.bricks.len() > 1 {
+            assert_eq!(cut.bricks.len(), 27, "the floor cuts the one brick into 27");
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the bricks were never cut around the new floor"
+        );
+    }
+    assert_eq!(
+        s.scene.surface.realtime_gi_readbacks(),
+        readbacks + 1,
+        "premise: the new set was read back"
     );
 }

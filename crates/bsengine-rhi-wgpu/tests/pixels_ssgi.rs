@@ -223,13 +223,55 @@ fn a_wall_as_bright_as_the_ambient_changes_nothing() {
         floor_band(&off, NEAR.0, NEAR.1),
         floor_band(&lit, NEAR.0, NEAR.1),
     );
+    let darkened = floor_band(&dark_off, NEAR.0, NEAR.1) - floor_band(&dark, NEAR.0, NEAR.1);
     assert!(
-        floor_band(&dark, NEAR.0, NEAR.1).y < floor_band(&dark_off, NEAR.0, NEAR.1).y * 0.9,
-        "premise: the floor's rays find the wall"
+        darkened.min_element() > 0.0 && darkened.y > 0.1 * floor_band(&dark_off, NEAR.0, NEAR.1).y,
+        "premise: the floor's rays find the wall: {darkened}"
     );
+    // Per channel, against what the same rays take away when the wall is
+    // black -- the share of the light they replace there -- so a reflectance
+    // wrong in one channel shows even where few rays hit.
+    let changed = (after - before).abs();
+    for c in 0..3 {
+        assert!(
+            changed[c] < 0.1 * darkened[c],
+            "channel {c}: a wall as bright as the ambient moves it {} of the {} a black one takes ({before} -> {after})",
+            changed[c],
+            darkened[c]
+        );
+    }
+}
+
+/// The intensity scales the replacement: at a half, the black wall takes half
+/// of what it takes at one.
+#[test]
+fn the_intensity_scales_what_is_replaced() {
+    let mut h = Harness::new();
+    let (f, w) = (floor(&mut h), wall(&mut h));
+    let draws = || {
+        vec![
+            Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
+            Draw::new(w, Vec3::ZERO).colour(Vec3::ZERO),
+        ]
+    };
+    let off = floor_band(&h.render(&scene(draws(), None)), NEAR.0, NEAR.1);
+    let full = floor_band(&h.render(&scene(draws(), on())), NEAR.0, NEAR.1);
+    let half = floor_band(
+        &h.render(&scene(
+            draws(),
+            on().map(|s| ScreenSpaceGlobalIllumination {
+                intensity: 0.5,
+                ..s
+            }),
+        )),
+        NEAR.0,
+        NEAR.1,
+    );
+    let (d1, d2) = ((off - full).y, (off - half).y);
+    assert!(d1 > 0.01, "premise: the wall darkens the floor: {d1}");
     assert!(
-        (after - before).abs().max_element() < 0.01,
-        "a wall as bright as the ambient: {before} -> {after}"
+        (d2 / d1 - 0.5).abs() < 0.1,
+        "half the intensity, half the change: {d2} of {d1}"
     );
 }
 

@@ -472,6 +472,14 @@ struct SceneOut {
     // so TAA and motion blur find a moving object where it was rather than
     // where the camera alone would put it. See `VELOCITY_FORMAT`.
     @location(2) velocity: vec2<f32>,
+    // The indirect diffuse light this surface was given -- the sky's, the
+    // light probes' or the lightmap's -- and the reflectance it was
+    // multiplied by: what screen-space GI replaces where it can see better.
+    // Six numbers across two targets to stay within WebGPU's 32 bytes a
+    // sample (`post_process::GI_INDIRECT_FORMAT`): the light in rgb and the
+    // reflectance's red in alpha, then its green and blue.
+    @location(3) gi_indirect: vec4<f32>,
+    @location(4) gi_albedo: vec2<f32>,
 };
 
 @fragment
@@ -607,10 +615,15 @@ fn fs_main(in: VertOut) -> SceneOut {
     // frame with neither kind of probe is bit-for-bit what it was.
     var specular_ibl = vec3<f32>(0.0, 0.0, 0.0);
     var diffuse_term = light.ambient * albedo;
+    // What the irradiance in `diffuse_term` is multiplied by: the albedo for
+    // the flat ambient, and its diffuse share as well for the sky, the probes
+    // and the lightmap -- kept beside it for screen-space GI (`gi_albedo`).
+    var diffuse_factor = albedo;
     let r = reflect(-v, n);
     if (light.ibl_enabled != 0u) {
         let irradiance = textureSample(irradiance_cube, ibl_sampler, n).rgb;
         diffuse_term = irradiance * albedo * kd_ibl;
+        diffuse_factor = albedo * kd_ibl;
 
         let prefiltered = textureSampleLevel(
             prefilter_cube, ibl_sampler, r, roughness * light.ibl_max_mip
@@ -649,6 +662,7 @@ fn fs_main(in: VertOut) -> SceneOut {
         // light probes are a diffuse-only, L2 representation.
         let probe_irradiance = eval_probe_sh(in.world_pos, n);
         diffuse_term = probe_irradiance * albedo * kd_ibl;
+        diffuse_factor = albedo * kd_ibl;
     }
     if (model_data.lightmap_layer >= 0.0) {
         // A baked lightmap REPLACES the diffuse ambient/IBL/probe term, the
@@ -670,6 +684,7 @@ fn fs_main(in: VertOut) -> SceneOut {
             );
         }
         diffuse_term = baked * albedo * kd_ibl;
+        diffuse_factor = albedo * kd_ibl;
     }
     // Occlusion darkens the light that arrives from everywhere -- ambient,
     // IBL, probes, the lightmap, the reflections -- and not a light's direct
@@ -682,6 +697,9 @@ fn fs_main(in: VertOut) -> SceneOut {
     var out: SceneOut;
     out.colour = vec4<f32>(color, model_data.opacity);
     out.normal_roughness = vec4<f32>(n, roughness);
+    let gi_reflectance = diffuse_factor * occlusion;
+    out.gi_indirect = vec4<f32>(diffuse_term * occlusion, gi_reflectance.r);
+    out.gi_albedo = gi_reflectance.gb;
     // Behind last frame's camera there is no previous screen position: the
     // "no velocity" value hands the pixel back to camera reprojection,
     // which gives up on it the same way.
@@ -3800,6 +3818,34 @@ impl WgpuSurface {
             .collect()
     }
 
+    /// The last frame's GI reflectance and indirect light
+    /// (`post_process::GI_*`), row by row from the top: per pixel the
+    /// reflectance its indirect diffuse light was multiplied by, and that
+    /// light, each as rgb -- unpacked from the two targets they share. Zero
+    /// where no opaque mesh drew. For tests: screen-space GI is their only
+    /// reader.
+    pub fn read_gi(&self) -> (Vec<[f32; 3]>, Vec<[f32; 3]>) {
+        let (gb, indirect) = self.post_process.gi_textures();
+        let (w, h) = (gb.width(), gb.height());
+        let half = |t: &[u8], i: usize| f16_to_f32(u16::from_le_bytes([t[2 * i], t[2 * i + 1]]));
+        let gb: Vec<[f32; 2]> = crate::output::read_texels(&self.device, &self.queue, gb, w, h, 4)
+            .chunks_exact(4)
+            .map(|t| [half(t, 0), half(t, 1)])
+            .collect();
+        let rgba: Vec<[f32; 4]> =
+            crate::output::read_texels(&self.device, &self.queue, indirect, w, h, 8)
+                .chunks_exact(8)
+                .map(|t| [half(t, 0), half(t, 1), half(t, 2), half(t, 3)])
+                .collect();
+        let reflectance = rgba
+            .iter()
+            .zip(&gb)
+            .map(|(a, b)| [a[3], b[0], b[1]])
+            .collect();
+        let light = rgba.iter().map(|a| [a[0], a[1], a[2]]).collect();
+        (reflectance, light)
+    }
+
     /// The width of the render target, in pixels.
     pub fn width(&self) -> u32 {
         self.output.width()
@@ -4073,6 +4119,8 @@ impl WgpuSurface {
             crate::post_process::HDR_FORMAT,
             crate::post_process::NORMAL_FORMAT,
             crate::post_process::VELOCITY_FORMAT,
+            crate::post_process::GI_INDIRECT_FORMAT,
+            crate::post_process::GI_ALBEDO_FORMAT,
             DEPTH_FORMAT,
         ]
         .iter()
@@ -5406,6 +5454,18 @@ impl WgpuSurface {
                         blend: None,
                         write_mask: wgpu::ColorWrites::ALL,
                     }),
+                    // The GI albedo and the indirect light this pass applied,
+                    // for screen-space GI to replace (`post_process::GI_*`).
+                    Some(wgpu::ColorTargetState {
+                        format: crate::post_process::GI_INDIRECT_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                    Some(wgpu::ColorTargetState {
+                        format: crate::post_process::GI_ALBEDO_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
                 ],
                 compilation_options: Default::default(),
             }),
@@ -5471,6 +5531,18 @@ impl WgpuSurface {
                     // opaque surface behind the glass, which is what TAA sees there.
                     Some(wgpu::ColorTargetState {
                         format: crate::post_process::VELOCITY_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::empty(),
+                    }),
+                    // The GI albedo and indirect light: masked off, as the
+                    // velocity is -- the opaque mesh pass's are what stand.
+                    Some(wgpu::ColorTargetState {
+                        format: crate::post_process::GI_INDIRECT_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::empty(),
+                    }),
+                    Some(wgpu::ColorTargetState {
+                        format: crate::post_process::GI_ALBEDO_FORMAT,
                         blend: None,
                         write_mask: wgpu::ColorWrites::empty(),
                     }),
@@ -5541,6 +5613,18 @@ impl WgpuSurface {
                     // written is reprojected by the camera, which is exact for it.
                     Some(wgpu::ColorTargetState {
                         format: crate::post_process::VELOCITY_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::empty(),
+                    }),
+                    // The GI albedo and indirect light: masked off, as the
+                    // velocity is -- the opaque mesh pass's are what stand.
+                    Some(wgpu::ColorTargetState {
+                        format: crate::post_process::GI_INDIRECT_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::empty(),
+                    }),
+                    Some(wgpu::ColorTargetState {
+                        format: crate::post_process::GI_ALBEDO_FORMAT,
                         blend: None,
                         write_mask: wgpu::ColorWrites::empty(),
                     }),
@@ -8503,6 +8587,17 @@ impl WgpuSurface {
             Some(t) => (&t.velocity_view, Some(&self.post_process.velocity_view)),
             None => (&self.post_process.velocity_view, None),
         };
+        let (scene_gi_indirect, gi_indirect_resolve) = match msaa_targets {
+            Some(t) => (
+                &t.gi_indirect_view,
+                Some(&self.post_process.gi_indirect_view),
+            ),
+            None => (&self.post_process.gi_indirect_view, None),
+        };
+        let (scene_gi_albedo, gi_albedo_resolve) = match msaa_targets {
+            Some(t) => (&t.gi_albedo_view, Some(&self.post_process.gi_albedo_view)),
+            None => (&self.post_process.gi_albedo_view, None),
+        };
         let scene_depth = msaa_targets.map_or(&self.depth_view, |t| &t.depth_view);
         let mesh_pipeline = self
             .pipeline_msaa
@@ -8564,6 +8659,25 @@ impl WgpuSurface {
                         resolve_target: velocity_resolve,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(crate::post_process::VELOCITY_NONE),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                    // Cleared to zero: no albedo and no indirect light, so a
+                    // pixel no opaque mesh covered -- the sky, terrain, custom
+                    // shaders -- is one screen-space GI leaves as it is.
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: scene_gi_indirect,
+                        resolve_target: gi_indirect_resolve,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: scene_gi_albedo,
+                        resolve_target: gi_albedo_resolve,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                             store: wgpu::StoreOp::Store,
                         },
                     }),
@@ -8783,6 +8897,23 @@ impl WgpuSurface {
                     // shared `fs_main` writes it.
                     Some(wgpu::RenderPassColorAttachment {
                         view: scene_velocity,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                    // And the GI albedo and indirect light, for the same reason.
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: scene_gi_indirect,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: scene_gi_albedo,
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Load,
@@ -9899,6 +10030,18 @@ impl WgpuSurface {
                     // custom-shaded object that moves smears as it did before.
                     Some(wgpu::ColorTargetState {
                         format: crate::post_process::VELOCITY_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::empty(),
+                    }),
+                    // The GI albedo and indirect light: masked off, as the
+                    // velocity is -- the opaque mesh pass's are what stand.
+                    Some(wgpu::ColorTargetState {
+                        format: crate::post_process::GI_INDIRECT_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::empty(),
+                    }),
+                    Some(wgpu::ColorTargetState {
+                        format: crate::post_process::GI_ALBEDO_FORMAT,
                         blend: None,
                         write_mask: wgpu::ColorWrites::empty(),
                     }),

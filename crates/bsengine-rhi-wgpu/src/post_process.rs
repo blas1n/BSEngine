@@ -19,6 +19,25 @@ pub const NORMAL_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 /// numbers.
 pub const VELOCITY_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg16Float;
 
+/// Format of the GI indirect buffer: in rgb the indirect diffuse light the
+/// opaque pass applied -- from the sky, the light probes or the lightmap --
+/// so screen-space GI can take it back out where it has better; in alpha the
+/// red of the reflectance it was multiplied by (the albedo, times the
+/// diffuse share `kd` and the occlusion). HDR light, so half floats.
+///
+/// ⚠️ Six numbers in two targets, 8 and 4 bytes: the opaque pass then writes
+/// 32 bytes a sample -- the HDR colour (8), the normal (8), the velocity (4)
+/// and these -- exactly WebGPU's default `maxColorAttachmentBytesPerSample`.
+/// A separate 8-bit albedo does not fit: WebGPU counts `rgba8unorm` as 8
+/// bytes a sample, not 4 (its blending cost), which made 36 and failed every
+/// pipeline. Another target does not fit either; pack first.
+pub const GI_INDIRECT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+
+/// Format of the GI albedo buffer: the green and blue of the reflectance
+/// (its red rides in [`GI_INDIRECT_FORMAT`]'s alpha). Half floats, which
+/// resolve under MSAA as the others do.
+pub const GI_ALBEDO_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg16Float;
+
 /// The velocity buffer's clear value: "nothing here wrote a velocity" --
 /// the sky, terrain, custom shaders, the far side of a translucent pane.
 /// The post passes reproject such a pixel by depth and the camera, as they
@@ -2386,6 +2405,12 @@ struct PostProcessTargets {
     /// written by the opaque pass, read through `depth_bg`.
     velocity_texture: crate::profiler::TrackedTexture,
     velocity_view: wgpu::TextureView,
+    /// The opaque pass's GI albedo and indirect light (see
+    /// [`GI_ALBEDO_FORMAT`], [`GI_INDIRECT_FORMAT`]).
+    gi_albedo_texture: crate::profiler::TrackedTexture,
+    gi_albedo_view: wgpu::TextureView,
+    gi_indirect_texture: crate::profiler::TrackedTexture,
+    gi_indirect_view: wgpu::TextureView,
     /// Where the reflection pass writes, before it is composited into the
     /// scene. A pass may not sample the texture it renders to, which is the
     /// same reason the fog pass has a target of its own.
@@ -2475,6 +2500,14 @@ pub struct PostProcessState {
     /// Public for the same reason as `normal_view`: the main pass fills it.
     pub velocity_view: wgpu::TextureView,
     _velocity_texture: crate::profiler::TrackedTexture,
+    /// The green and blue of the reflectance each pixel's indirect diffuse
+    /// was multiplied by ([`GI_ALBEDO_FORMAT`]); the main pass fills it.
+    pub gi_albedo_view: wgpu::TextureView,
+    _gi_albedo_texture: crate::profiler::TrackedTexture,
+    /// The indirect diffuse light each pixel was given, and its reflectance's
+    /// red ([`GI_INDIRECT_FORMAT`]); the main pass fills it.
+    pub gi_indirect_view: wgpu::TextureView,
+    _gi_indirect_texture: crate::profiler::TrackedTexture,
     /// Where the reflection pass writes before it is composited in. A pass may
     /// not sample the texture it renders to, which is the same reason the fog
     /// pass has a target of its own.
@@ -3492,6 +3525,10 @@ impl PostProcessState {
             normal_bg: targets.normal_bg,
             velocity_view: targets.velocity_view,
             _velocity_texture: targets.velocity_texture,
+            gi_albedo_view: targets.gi_albedo_view,
+            _gi_albedo_texture: targets.gi_albedo_texture,
+            gi_indirect_view: targets.gi_indirect_view,
+            _gi_indirect_texture: targets.gi_indirect_texture,
             ssr_view: targets.ssr_view,
             _ssr_texture: targets.ssr_texture,
             ssr_bg: targets.ssr_bg,
@@ -3620,6 +3657,34 @@ impl PostProcessState {
             },
         );
         let velocity_view = velocity_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        // Copyable for the same reason as the velocity: the tests' only view
+        // of them until screen-space GI reads them.
+        let gi_target = |label: &str, format: wgpu::TextureFormat| {
+            crate::profiler::create_tracked_texture(
+                device,
+                &wgpu::TextureDescriptor {
+                    label: Some(label),
+                    size: wgpu::Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::COPY_SRC,
+                    view_formats: &[],
+                },
+            )
+        };
+        let gi_albedo_texture = gi_target("pp gi albedo", GI_ALBEDO_FORMAT);
+        let gi_albedo_view = gi_albedo_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let gi_indirect_texture = gi_target("pp gi indirect", GI_INDIRECT_FORMAT);
+        let gi_indirect_view =
+            gi_indirect_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let ssr_texture = make_tex("pp ssr", HDR_FORMAT);
         let ssr_view = ssr_texture.create_view(&wgpu::TextureViewDescriptor::default());
         // `surface_format`, not HDR_FORMAT: this holds the already-tonemapped
@@ -3710,6 +3775,10 @@ impl PostProcessState {
             normal_bg,
             velocity_texture,
             velocity_view,
+            gi_albedo_texture,
+            gi_albedo_view,
+            gi_indirect_texture,
+            gi_indirect_view,
             ssr_texture,
             ssr_view,
             ssr_bg,
@@ -4315,6 +4384,10 @@ impl PostProcessState {
         self.normal_bg = t.normal_bg;
         self.velocity_view = t.velocity_view;
         self._velocity_texture = t.velocity_texture;
+        self.gi_albedo_view = t.gi_albedo_view;
+        self._gi_albedo_texture = t.gi_albedo_texture;
+        self.gi_indirect_view = t.gi_indirect_view;
+        self._gi_indirect_texture = t.gi_indirect_texture;
         self.ssr_view = t.ssr_view;
         self._ssr_texture = t.ssr_texture;
         self.ssr_bg = t.ssr_bg;
@@ -4485,6 +4558,11 @@ impl PostProcessState {
     /// The velocity buffer's texture, for `WgpuSurface::read_velocity`.
     pub(crate) fn velocity_texture(&self) -> &wgpu::Texture {
         &self._velocity_texture
+    }
+
+    /// The GI albedo and indirect textures, for `WgpuSurface::read_gi`.
+    pub(crate) fn gi_textures(&self) -> (&wgpu::Texture, &wgpu::Texture) {
+        (&self._gi_albedo_texture, &self._gi_indirect_texture)
     }
 
     /// Whether this frame's SMAA passes will run (before `fast_render`, which

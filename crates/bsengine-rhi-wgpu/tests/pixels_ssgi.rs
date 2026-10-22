@@ -667,3 +667,54 @@ fn the_spatial_filter_keeps_to_one_surface_across_a_step() {
         "the plate keeps its own light: {moved}"
     );
 }
+
+/// Switched off and back on, the trace starts over: the history it left
+/// when switched off is of a scene that may have changed since -- here the
+/// wall stops glowing red while the trace is off -- and the depth check
+/// cannot tell, because nothing moved. The first frame back is the black
+/// wall's own first frame, not a blend into the red one's history.
+#[test]
+fn switched_back_on_it_starts_over() {
+    let draws = |f: u64, w: u64, glow: Vec3| {
+        vec![
+            Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
+            Draw::new(w, Vec3::ZERO).colour(Vec3::ZERO).emissive(glow),
+        ]
+    };
+    // Twenty frames of the red wall, then the black one at frame 21 --
+    // `off` frames with the trace switched off in between.
+    let after = |off: u32| {
+        let mut h = Harness::new();
+        let (f, w) = (floor(&mut h), wall(&mut h));
+        for frame in 0..20 {
+            h.render_at_frame(&scene(draws(f, w, RED), on()), frame);
+        }
+        for frame in 20..20 + off {
+            h.render_at_frame(&scene(draws(f, w, Vec3::ZERO), None), frame);
+        }
+        h.render_at_frame(&scene(draws(f, w, Vec3::ZERO), on()), 21)
+    };
+    let fresh = {
+        let mut h = Harness::new();
+        let (f, w) = (floor(&mut h), wall(&mut h));
+        h.render_at_frame(&scene(draws(f, w, Vec3::ZERO), on()), 21)
+    };
+    let worst = |p: &Pixels| {
+        let mut worst = 0i32;
+        for y in HEIGHT / 2..HEIGHT * 3 / 4 {
+            for x in NEAR.0..NEAR.1 {
+                for c in 0..3 {
+                    worst =
+                        worst.max((i32::from(p.at(x, y)[c]) - i32::from(fresh.at(x, y)[c])).abs());
+                }
+            }
+        }
+        worst
+    };
+    // Premise: kept on, the history does carry the red over -- it is what
+    // switching off has to throw away.
+    let kept = worst(&after(0));
+    assert!(kept > 10, "premise: kept on, the red history shows: {kept}");
+    let back = worst(&after(1));
+    assert!(back <= 3, "switched back on, it starts over: off by {back}");
+}

@@ -774,41 +774,64 @@ fn full_res(s: Option<ScreenSpaceGlobalIllumination>) -> Option<ScreenSpaceGloba
     })
 }
 
+/// Eight frames of the scene `draws` builds, sixteen rays a pixel: the
+/// light settled, its noise mostly gone, so what is left of a difference
+/// between two ways of tracing it is the tracing's.
+fn settled(
+    draws: impl FnOnce(&mut Harness) -> Vec<Draw>,
+    ssgi: Option<ScreenSpaceGlobalIllumination>,
+) -> Pixels {
+    let mut h = Harness::new();
+    let d = draws(&mut h);
+    let s = scene(d, ssgi);
+    for frame in 0..8 {
+        h.render_at_frame(&s, frame);
+    }
+    h.render_at_frame(&s, 8)
+}
+
+/// The trace runs at half the width and height unless asked for full, and
+/// finds the same light: the red the wall bleeds onto the floor beside it,
+/// settled, within 1.5% of what tracing every pixel finds (0.5% here; with
+/// the history read a quarter of a pixel off its samples, 3%).
 #[test]
-fn zz_explore_half() {
-    // sizes
+fn traces_at_half_resolution_and_finds_the_same_light() {
     let mut h = Harness::new();
     let d = floor_and_wall(RED)(&mut h);
     h.render(&scene(d, on()));
-    eprintln!("DBG size half {:?}", h.ssgi_trace_size());
+    assert_eq!(h.ssgi_trace_size(), (WIDTH / 2, HEIGHT / 2));
     let d = floor_and_wall(RED)(&mut h);
     h.render(&scene(d, full_res(on())));
-    eprintln!("DBG size full {:?}", h.ssgi_trace_size());
-    // light: settled half vs settled full, near band
-    let settle = |s: Option<ScreenSpaceGlobalIllumination>| {
-        let mut h = Harness::new();
-        let d = floor_and_wall(RED)(&mut h);
-        let sc = scene(d, s);
-        for f in 0..8 {
-            h.render_at_frame(&sc, f);
-        }
-        h.render_at_frame(&sc, 8)
-    };
-    let (half, full) = (settle(on()), settle(full_res(on())));
-    let off = first_frame(None, floor_and_wall(RED));
-    eprintln!(
-        "DBG near half {} full {} off {}",
-        floor_band(&half, NEAR.0, NEAR.1),
-        floor_band(&full, NEAR.0, NEAR.1),
-        floor_band(&off, NEAR.0, NEAR.1)
+    assert_eq!(h.ssgi_trace_size(), (WIDTH, HEIGHT));
+
+    let half = floor_band(&settled(floor_and_wall(RED), on()), NEAR.0, NEAR.1);
+    let full = floor_band(
+        &settled(floor_and_wall(RED), full_res(on())),
+        NEAR.0,
+        NEAR.1,
     );
-    eprintln!(
-        "DBG far half {} full {}",
-        floor_band(&half, FAR.0, FAR.1),
-        floor_band(&full, FAR.0, FAR.1)
+    let off = floor_band(&first_frame(None, floor_and_wall(RED)), NEAR.0, NEAR.1);
+    assert!(
+        full.x > 2.0 * off.x,
+        "premise: the wall bleeds red: {off} -> {full}"
     );
-    // rim of the glowing plate: half vs full
-    let plate_draws = |h: &mut Harness| {
+    assert!(
+        ((half - full) / full).abs().max_element() < 0.015,
+        "half resolution, the same light: {half} against {full}"
+    );
+}
+
+/// At half resolution the light keeps to its own surface where one stands
+/// in front of another: the glowing plate over the floor (same normal,
+/// another depth), and along its rim -- the plate's pixels within two of the
+/// floor's, the floor's within two of the plate's -- the light is what
+/// tracing every pixel gives, to 0.015 in each channel's mean (0.007 here).
+/// Brought up without the depth weight, the floor's light spreads onto the
+/// plate's rim (+0.037 green); read from the history a quarter of a pixel
+/// off, the plate's into the floor's history (-0.047).
+#[test]
+fn half_resolution_light_keeps_to_its_surface_at_the_rim() {
+    let draws = |h: &mut Harness| {
         let (f, w, pl) = (floor(h), wall(h), plate(h));
         vec![
             Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
@@ -821,31 +844,26 @@ fn zz_explore_half() {
                 .emissive(Vec3::new(0.0, 0.5, 0.0)),
         ]
     };
-    let one = |s| {
-        let mut h = Harness::new();
-        h.set_ssgi_spatial(std::env::var("SPATIAL").is_ok());
-        let d = plate_draws(&mut h);
-        let sc = scene(d, s);
-        for f in 0..8 {
-            h.render_at_frame(&sc, f);
-        }
-        h.render_at_frame(&sc, 8)
-    };
-    let (ph, pf) = (one(on()), one(full_res(on())));
+    let (half, full) = (settled(draws, on()), settled(draws, full_res(on())));
+    // The floor marked red, the plate green, the wall blue.
     let mask = first_frame(None, |h: &mut Harness| {
         let (f, w, pl) = (floor(h), wall(h), plate(h));
-        let blue = Vec3::new(0.0, 0.0, 1.0);
+        let glow = |c: Vec3| Draw::new(0, Vec3::ZERO).colour(Vec3::ZERO).emissive(c);
         vec![
-            Draw::new(f, Vec3::ZERO)
-                .colour(Vec3::ZERO)
-                .emissive(Vec3::new(1.0, 0.0, 0.0)),
-            Draw::new(w, Vec3::ZERO).colour(Vec3::ZERO).emissive(blue),
-            Draw::new(pl, Vec3::ZERO)
-                .colour(Vec3::ZERO)
-                .emissive(Vec3::new(0.0, 1.0, 0.0)),
+            Draw {
+                mesh: f,
+                ..glow(Vec3::X)
+            },
+            Draw {
+                mesh: w,
+                ..glow(Vec3::Z)
+            },
+            Draw {
+                mesh: pl,
+                ..glow(Vec3::Y)
+            },
         ]
     });
-    // floor pixels within 2 px of the plate; plate pixels within 2 of floor
     let is = |x: i32, y: i32, c: usize| {
         let (x, y) = (
             x.clamp(0, WIDTH as i32 - 1) as u32,
@@ -858,13 +876,11 @@ fn zz_explore_half() {
         let mut n = 0;
         for y in 2..HEIGHT as i32 - 2 {
             for x in 2..WIDTH as i32 - 2 {
-                if !is(x, y, me) {
+                let rim = (-2..=2).any(|dy| (-2..=2).any(|dx| is(x + dx, y + dy, other)));
+                if !is(x, y, me) || !rim {
                     continue;
                 }
-                if !(-2..=2).any(|dy| (-2..=2).any(|dx| is(x + dx, y + dy, other))) {
-                    continue;
-                }
-                let (a, b) = (ph.at(x as u32, y as u32), pf.at(x as u32, y as u32));
+                let (a, b) = (half.at(x as u32, y as u32), full.at(x as u32, y as u32));
                 sum += Vec3::new(
                     linear(a[0]) - linear(b[0]),
                     linear(a[1]) - linear(b[1]),
@@ -873,6 +889,11 @@ fn zz_explore_half() {
                 n += 1;
             }
         }
-        eprintln!("DBG rim {name} n={n} half-full {}", sum / n.max(1) as f32);
+        assert!(n > 50, "premise: the {name}'s rim is in view: {n}");
+        let moved = sum / n as f32;
+        assert!(
+            moved.abs().max_element() < 0.015,
+            "the {name}'s rim keeps its own light at half resolution: {moved}"
+        );
     }
 }

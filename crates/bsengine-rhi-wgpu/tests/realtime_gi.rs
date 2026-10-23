@@ -700,6 +700,36 @@ fn bench_realtime_gi() {
                 .push(bsengine_rhi_wgpu::realtime_gi::GiDynamic { model, ..first });
         }
     }
+    // `BENCH_SKINNED=n`: as many skinned meshes, each its own -- a 32 x 32
+    // grid, 2048 triangles, a character's worth -- small in the room and
+    // posed anew before every update: what refitting their trees costs.
+    let skinned: usize = std::env::var("BENCH_SKINNED")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    let mut characters = Vec::new();
+    for i in 0..skinned {
+        const N: u32 = 32;
+        let at = Vec3::new(0.2 + 0.6 * i as f32 / skinned.max(1) as f32, 0.3, 0.5);
+        let mut vertices = Vec::new();
+        for row in 0..=N {
+            for col in 0..=N {
+                let p = Vec3::new(col as f32 / N as f32, row as f32 / N as f32, 0.0) * 0.1;
+                vertices.push(vertex_at(at + p, Vec3::Z));
+            }
+        }
+        let mut indices = Vec::new();
+        for row in 0..N {
+            for col in 0..N {
+                let a = row * (N + 1) + col;
+                indices.extend([a, a + 1, a + N + 2, a, a + N + 2, a + N + 1]);
+            }
+        }
+        let skin = vec![bound_to(0); vertices.len()];
+        let mesh = s.add_skinned(&vertices, &skin, &indices, 1, Vec3::splat(0.6), Vec3::ZERO);
+        s.pose(mesh, &[Mat4::IDENTITY]);
+        characters.push(mesh);
+    }
     s.lights = vec![bsengine_bake::BakeLight::Point {
         position: Vec3::splat(0.5),
         color: Vec3::ONE,
@@ -737,7 +767,11 @@ fn bench_realtime_gi() {
     let n = 30;
     let device = s.scene.surface.device_arc();
     let t = std::time::Instant::now();
-    for _ in 0..n {
+    for k in 0..n {
+        for &mesh in &characters {
+            let sway = Mat4::from_translation(Vec3::new(0.0, 0.01 * (k as f32).sin(), 0.0));
+            s.pose(mesh, &[sway]);
+        }
         s.run(&input, 1);
         device.poll(wgpu::Maintain::Wait);
     }

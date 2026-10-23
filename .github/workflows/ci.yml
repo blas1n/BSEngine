@@ -124,12 +124,22 @@ jobs:
       # sources file/format doesn't exist (e.g. a future non-noble image).
       # `timeout-minutes` stays as a backstop in case of a *different* future
       # mirror problem.
+      #
+      # ⚠️ The image later moved the mirror out of the sources files: they now
+      # say `mirror+file:/etc/apt/apt-mirrors.txt`, and the azure host is named
+      # in that list. The two seds above it then match nothing, apt went back
+      # to azure, and on 2026-10-22/23 every Ubuntu run timed out mid-download
+      # at 10 minutes (the log's first fetch is `file:/etc/apt/apt-mirrors.txt
+      # Mirrorlist`, then azure). So the list is rewritten too, and what apt
+      # will use is printed, so the next move of it shows in the log.
       - name: Install system dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
         timeout-minutes: 10
         run: |
           sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/g' /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || true
           sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/g' /etc/apt/sources.list 2>/dev/null || true
+          sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/g' /etc/apt/apt-mirrors.txt 2>/dev/null || true
+          grep -rh "archive\|mirror" /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/ 2>/dev/null | sort -u || true
           sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10 update
           # libxkbcommon-x11-0: winit's X11 backend dlopens it when it builds the
           # event loop and panics if it is missing. Not installed by default on

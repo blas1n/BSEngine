@@ -35,6 +35,60 @@ use crate::test_query::{eval_op, eval_path, run_query};
 /// whatever the project's entry scene currently is (which changes as a
 /// multi-level game's "real" entry point evolves during development).
 pub fn build_test_app(project_dir: &str, scene_override: Option<&str>, fast_render: bool) -> App {
+    build_test_app_sized(project_dir, scene_override, fast_render, None)
+}
+
+/// The frame a simulation-only test renders: 1280x720 (every game's manifest
+/// window) divided by 8, so the camera's aspect -- and with it the frustum --
+/// is the one the game has. See [`build_test_app_sized`] for what a smaller
+/// frame does and does not change.
+#[cfg(test)]
+pub(crate) const SIMULATION_FRAME: (u32, u32) = (160, 90);
+
+/// [`build_test_app`] for a test that asserts on the simulation and never on a
+/// frame. Not for anything reading pixels, draw counts, occlusion culling or
+/// texture residency.
+#[cfg(test)]
+pub(crate) fn build_simulation_app(
+    project_dir: &str,
+    scene_override: Option<&str>,
+    fast_render: bool,
+) -> App {
+    build_test_app_sized(
+        project_dir,
+        scene_override,
+        fast_render,
+        Some(SIMULATION_FRAME),
+    )
+}
+
+/// [`build_test_app`], rendering at `frame_size` instead of the manifest's
+/// window size when one is given.
+///
+/// For tests whose assertions are about the simulation -- where a body came to
+/// rest, where a bone ended up -- and not about a frame. Their cost on Windows
+/// CI is nearly all rendering: CI has no GPU, so every frame goes through
+/// WARP, D3D12's software rasteriser, at a cost that scales with the pixel
+/// count. Measured on WARP, `a_spherical_joint_chain_swings_without_coming_
+/// apart` took 429 s at the manifest's 1280x720 and 14 s at 64x64, and that
+/// one test was 19 minutes of a 2-hour CI step. `fast_render` alone does not
+/// get there -- it skips shadows, bloom and SSAO, but the scene and the
+/// post-process chain still shade every pixel.
+///
+/// A smaller frame is not a different frame for anything those tests read: a
+/// size that keeps the manifest's aspect ratio keeps the camera's projection,
+/// so frustum culling and scene streaming see the same frustum, and mesh LOD
+/// is chosen by distance. What it does change is every pixel, every
+/// screen-space position, occlusion culling (its Hi-Z pyramid is built from
+/// the depth buffer) and texture streaming (a texture's wanted mip comes from
+/// its projected size in pixels) -- which is why this is opt-in per test
+/// rather than a new default.
+pub fn build_test_app_sized(
+    project_dir: &str,
+    scene_override: Option<&str>,
+    fast_render: bool,
+    frame_size: Option<(u32, u32)>,
+) -> App {
     // The archive before the manifest, as in `build_windowed_app`: a
     // single-file build keeps its manifest inside the archive.
     let pak = crate::open_pak(project_dir);
@@ -156,11 +210,11 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>, fast_rend
         // `main.rs`'s windowed chain -- a headless GPU stack built in a
         // different order than the real runtime is a regression that would
         // pass every test here while behaving differently windowed.
-        .add_plugins(WgpuRHIPlugin::offscreen(
-            manifest.window.width,
-            manifest.window.height,
-            fast_render,
-        ))
+        .add_plugins({
+            let (width, height) =
+                frame_size.unwrap_or((manifest.window.width, manifest.window.height));
+            WgpuRHIPlugin::offscreen(width, height, fast_render)
+        })
         .add_plugins(InputPlugin)
         .add_plugins(AudioPlugin)
         .add_plugins(bsengine_video::VideoPlugin)
@@ -828,7 +882,7 @@ mod tests {
         // The whole difference from `loadScene`, which despawns every named
         // entity before it spawns anything.
         let dir = write_two_scene_project();
-        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
+        let mut app = build_simulation_app(dir.path().to_str().unwrap(), None, false);
         app.update();
         assert_eq!(names(&mut app), vec!["SceneA".to_string()]);
 
@@ -843,7 +897,7 @@ mod tests {
     #[test]
     fn unloading_takes_back_exactly_what_that_scene_brought_in() {
         let dir = write_two_scene_project();
-        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
+        let mut app = build_simulation_app(dir.path().to_str().unwrap(), None, false);
         app.update();
         stream_in(&mut app, &dir, "b.ron");
         // ⚠️ The fixture only means anything if the streamed scene actually
@@ -866,7 +920,7 @@ mod tests {
         // load that refused a path it had seen before, would fail here and
         // nowhere else.
         let dir = write_two_scene_project();
-        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
+        let mut app = build_simulation_app(dir.path().to_str().unwrap(), None, false);
         app.update();
         for _ in 0..3 {
             stream_in(&mut app, &dir, "b.ron");
@@ -910,7 +964,7 @@ mod tests {
         load_distance: f32,
         band: f32,
     ) -> (App, bevy_ecs::entity::Entity) {
-        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
+        let mut app = build_simulation_app(dir.path().to_str().unwrap(), None, false);
         let camera = app
             .world_mut()
             .spawn((
@@ -1063,7 +1117,7 @@ mod tests {
         // changes its mind. Both have to mean what they say.
         let dir = write_two_scene_project();
 
-        let mut reload = build_test_app(dir.path().to_str().unwrap(), None, false);
+        let mut reload = build_simulation_app(dir.path().to_str().unwrap(), None, false);
         reload.update();
         stream_ops(&mut reload, &dir, &[("b.ron", true)]);
         stream_ops(&mut reload, &dir, &[("b.ron", false), ("b.ron", true)]);
@@ -1072,7 +1126,7 @@ mod tests {
             "unload then load is a reload, and has to leave the scene present"
         );
 
-        let mut cancel = build_test_app(dir.path().to_str().unwrap(), None, false);
+        let mut cancel = build_simulation_app(dir.path().to_str().unwrap(), None, false);
         cancel.update();
         stream_ops(&mut cancel, &dir, &[("b.ron", true), ("b.ron", false)]);
         assert!(
@@ -1087,7 +1141,7 @@ mod tests {
         // is already in. Leaving a path in it after the entities are gone makes
         // the next "is this loaded?" answer yes about nothing.
         let dir = write_two_scene_project();
-        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
+        let mut app = build_simulation_app(dir.path().to_str().unwrap(), None, false);
         app.update();
         let path = format!("{}/assets/scenes/b.ron", dir.path().to_str().unwrap());
 
@@ -1111,7 +1165,7 @@ mod tests {
     #[test]
     fn unloading_a_scene_that_is_not_loaded_is_a_warning_and_nothing_else() {
         let dir = write_two_scene_project();
-        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
+        let mut app = build_simulation_app(dir.path().to_str().unwrap(), None, false);
         app.update();
         stream_out(&mut app, &dir, "b.ron");
         assert_eq!(
@@ -1141,7 +1195,7 @@ mod tests {
         // that -- there was no list entry to check. Asserting the behaviour
         // would have.
         let dir = write_two_scene_project();
-        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
+        let mut app = build_simulation_app(dir.path().to_str().unwrap(), None, false);
         let doomed = app
             .world_mut()
             .spawn(bsengine_core::Lifetime::from_seconds(0.05))
@@ -1164,7 +1218,7 @@ mod tests {
         // absent in the other is a feature that works when you look at it and
         // not when you test it.
         let dir = write_two_scene_project();
-        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
+        let mut app = build_simulation_app(dir.path().to_str().unwrap(), None, false);
         let e = app
             .world_mut()
             .spawn((
@@ -1205,7 +1259,7 @@ mod tests {
         // where the simulation state is reachable; what only this host can say
         // is whether any of it is switched on here at all.
         let dir = write_two_scene_project();
-        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
+        let mut app = build_simulation_app(dir.path().to_str().unwrap(), None, false);
         let cloth = app
             .world_mut()
             .spawn((
@@ -1271,6 +1325,42 @@ mod tests {
             "build_test_app(.., fast_render: true) must produce a WgpuSurface with \
              is_fast_render() true -- this is what run_replay_mode relies on for CI E2E \
              replay speed"
+        );
+    }
+
+    /// Both sides: the override is what renders, and without one the frame is
+    /// still the manifest's. The second half is the one a careless change
+    /// would break -- defaulting every test app to the small frame would
+    /// silently move every pixel and occlusion test onto a frame they were
+    /// not written for.
+    #[test]
+    fn a_simulation_app_renders_its_small_frame_and_a_test_app_the_manifests() {
+        let dir = write_two_scene_project();
+        let project_dir = dir.path().to_str().unwrap();
+        let manifest: ProjectManifest = crate::read_manifest(project_dir, None);
+        // The premise: the two sizes differ, or the comparison shows nothing.
+        assert_ne!(
+            (manifest.window.width, manifest.window.height),
+            SIMULATION_FRAME
+        );
+
+        let mut small = build_simulation_app(project_dir, None, true);
+        small.update();
+        let surface = &small
+            .world()
+            .resource::<bsengine_rhi_wgpu::surface::WgpuSurfaceResource>()
+            .0;
+        assert_eq!((surface.width(), surface.height()), SIMULATION_FRAME);
+
+        let mut full = build_test_app(project_dir, None, true);
+        full.update();
+        let surface = &full
+            .world()
+            .resource::<bsengine_rhi_wgpu::surface::WgpuSurfaceResource>()
+            .0;
+        assert_eq!(
+            (surface.width(), surface.height()),
+            (manifest.window.width, manifest.window.height)
         );
     }
 
@@ -1343,7 +1433,7 @@ mod tests {
     #[test]
     fn editor_plugin_reload_scene_does_not_corrupt_scripting() {
         let project_dir = format!("{}/../../games/cube-evader", env!("CARGO_MANIFEST_DIR"));
-        let mut app = build_test_app(&project_dir, None, false);
+        let mut app = build_simulation_app(&project_dir, None, false);
         let scene_path = app
             .world()
             .resource::<InspectorState>()
@@ -1390,7 +1480,7 @@ mod tests {
     #[test]
     fn wait_until_returns_immediately_when_already_satisfied() {
         let project_dir = format!("{}/../../games/cube-evader", env!("CARGO_MANIFEST_DIR"));
-        let mut app = build_test_app(&project_dir, None, false);
+        let mut app = build_simulation_app(&project_dir, None, false);
         let mut frame: u64 = 0;
         app.update();
         frame += 1;
@@ -1428,7 +1518,7 @@ mod tests {
     #[test]
     fn wait_until_times_out_with_last_actual_value() {
         let project_dir = format!("{}/../../games/cube-evader", env!("CARGO_MANIFEST_DIR"));
-        let mut app = build_test_app(&project_dir, None, false);
+        let mut app = build_simulation_app(&project_dir, None, false);
         let mut frame: u64 = 0;
 
         let (response, _) = execute_command(
@@ -1469,7 +1559,7 @@ mod tests {
     #[test]
     fn wait_until_waits_through_a_not_yet_evaluable_predicate() {
         let project_dir = format!("{}/../../games/cube-evader", env!("CARGO_MANIFEST_DIR"));
-        let mut app = build_test_app(&project_dir, None, false);
+        let mut app = build_simulation_app(&project_dir, None, false);
         let mut frame: u64 = 0;
 
         let (response, _) = execute_command(
@@ -1512,7 +1602,7 @@ mod tests {
     #[test]
     fn wait_until_errors_when_predicate_is_still_not_evaluable_at_timeout() {
         let project_dir = format!("{}/../../games/cube-evader", env!("CARGO_MANIFEST_DIR"));
-        let mut app = build_test_app(&project_dir, None, false);
+        let mut app = build_simulation_app(&project_dir, None, false);
         let mut frame: u64 = 0;
 
         let (response, _) = execute_command(
@@ -1831,7 +1921,7 @@ mod tests {
     #[test]
     fn press_key_is_observable_as_pressed_and_just_pressed_after_one_step() {
         let dir = write_two_scene_project();
-        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
+        let mut app = build_simulation_app(dir.path().to_str().unwrap(), None, false);
         let mut frame: u64 = 0;
 
         let (resp, _) = execute_command(
@@ -1935,7 +2025,7 @@ mod tests {
         let dir = write_action_project(
             "jump = [\"Space\", \"Gamepad:South\"]\nleft = [\"A\"]\nright = [\"D\", \"E\"]",
         );
-        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
+        let mut app = build_simulation_app(dir.path().to_str().unwrap(), None, false);
         let mut frame: u64 = 0;
         let mut send = |app: &mut App, command: Command| {
             let (resp, _) = execute_command(app, &mut frame, command);
@@ -2044,7 +2134,7 @@ mod tests {
         // rendered frame. Measured 11.1 min on Windows CI as the single
         // slowest test in the workspace; the shadow, SSAO and bloom passes it
         // was paying for every frame decided nothing here.
-        let mut app = build_test_app(&project_dir, None, true);
+        let mut app = build_simulation_app(&project_dir, None, true);
 
         // Step until the scene's own "Ground" entity (the authored `Terrain`)
         // has finished generating its chunks -- the heightmap loads
@@ -2350,7 +2440,7 @@ mod tests {
         // --- Phase 1: edit, through the real app stack ---
         // `fast_render: true`: this asserts terrain data across a reload,
         // with no assertion on a rendered frame. 8.0 min on Windows CI.
-        let mut app = build_test_app(&project_dir, None, true);
+        let mut app = build_simulation_app(&project_dir, None, true);
 
         let mut terrain_ready = false;
         for _ in 0..200 {
@@ -2446,7 +2536,7 @@ mod tests {
 
         // --- Phase 2: reload, through a brand-new app pointed at the same
         // project directory ---
-        let mut app = build_test_app(&project_dir, None, false);
+        let mut app = build_simulation_app(&project_dir, None, false);
 
         let mut terrain_ready = false;
         for _ in 0..200 {
@@ -2916,7 +3006,7 @@ mod tests {
     fn a_wall_between_the_ears_and_a_source_occludes_it() {
         let dir = tempfile::tempdir().unwrap();
         write_audio_occlusion_project(dir.path(), true);
-        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
+        let mut app = build_simulation_app(dir.path().to_str().unwrap(), None, false);
         for _ in 0..8 {
             app.update();
         }
@@ -2931,7 +3021,7 @@ mod tests {
     fn a_source_with_nothing_in_the_way_is_not_occluded() {
         let dir = tempfile::tempdir().unwrap();
         write_audio_occlusion_project(dir.path(), false);
-        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
+        let mut app = build_simulation_app(dir.path().to_str().unwrap(), None, false);
         for _ in 0..8 {
             app.update();
         }
@@ -2983,7 +3073,7 @@ mod tests {
 "#,
         )
         .unwrap();
-        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
+        let mut app = build_simulation_app(dir.path().to_str().unwrap(), None, false);
         for _ in 0..8 {
             app.update();
         }
@@ -3898,7 +3988,8 @@ mod tests {
         const FRAMES: usize = 400; // ~6.7s at the fixed 1/60 physics step
 
         let project_dir = format!("{}/../../games/mini-arena", env!("CARGO_MANIFEST_DIR"));
-        let mut app = build_test_app(&project_dir, Some("assets/scenes/joint-chain.ron"), false);
+        let mut app =
+            build_simulation_app(&project_dir, Some("assets/scenes/joint-chain.ron"), false);
 
         // Spawns the scene's entities. The joints do not exist yet after this
         // one frame -- `sync_joints` can only create a joint once
@@ -4045,7 +4136,7 @@ mod tests {
     #[test]
     fn a_character_collapses_when_its_death_trigger_fires() {
         let project_dir = format!("{}/../../games/mini-arena", env!("CARGO_MANIFEST_DIR"));
-        let mut app = build_test_app(&project_dir, None, false);
+        let mut app = build_simulation_app(&project_dir, None, false);
 
         // The ASM system queries (AnimationStateMachine, AnimationPlayer) —
         // AnimationPlayer is spawned by GltfPlugin once fox.glb finishes
@@ -4236,7 +4327,7 @@ mod tests {
             let project_dir = format!("{}/../../games/vehicle-demo", env!("CARGO_MANIFEST_DIR"));
             // `fast_render: true`: this asserts the vehicle moved, not how
             // it looked. 6.6 min on Windows CI.
-            let mut app = build_test_app(&project_dir, None, true);
+            let mut app = build_simulation_app(&project_dir, None, true);
             let mut frame: u64 = 0;
 
             let car = |app: &mut App| {
@@ -4340,7 +4431,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut app = build_test_app(root.to_str().unwrap(), None, false);
+        let mut app = build_simulation_app(root.to_str().unwrap(), None, false);
         app.update();
 
         let wheel = {
@@ -4379,7 +4470,7 @@ mod tests {
         // a Rapier heightfield rather than a box, and `sync_wheel_transforms`
         // poses the children.
         let project_dir = format!("{}/../../games/vehicle-demo", env!("CARGO_MANIFEST_DIR"));
-        let mut app = build_test_app(&project_dir, None, false);
+        let mut app = build_simulation_app(&project_dir, None, false);
         let mut frame: u64 = 0;
 
         // Drop onto the terrain and drive a little, so the car is somewhere
@@ -4464,7 +4555,7 @@ mod tests {
         let project_dir = format!("{}/../../games/ik-demo", env!("CARGO_MANIFEST_DIR"));
         // `fast_render: true`: this asserts foot bone positions against the
         // surface, not pixels. 3.9 min on Windows CI.
-        let mut app = build_test_app(&project_dir, None, true);
+        let mut app = build_simulation_app(&project_dir, None, true);
         let mut frame: u64 = 0;
 
         // Let the glTF load and the probe run for a few frames. The probe reads
@@ -4549,7 +4640,7 @@ mod tests {
         // lags or averages still lands somewhere plausible on a continuous
         // surface.
         let project_dir = format!("{}/../../games/ik-demo", env!("CARGO_MANIFEST_DIR"));
-        let mut app = build_test_app(&project_dir, None, false);
+        let mut app = build_simulation_app(&project_dir, None, false);
         let mut frame: u64 = 0;
         for _ in 0..90 {
             execute_command(&mut app, &mut frame, Command::Step { frames: 1 });
@@ -4614,7 +4705,7 @@ mod tests {
         // Both halves are asserted. "The target moved" alone is satisfied by a
         // character simply playing its own clip, which this one also is.
         let project_dir = format!("{}/../../games/ik-demo", env!("CARGO_MANIFEST_DIR"));
-        let mut app = build_test_app(&project_dir, None, false);
+        let mut app = build_simulation_app(&project_dir, None, false);
         let mut frame: u64 = 0;
         for _ in 0..90 {
             execute_command(&mut app, &mut frame, Command::Step { frames: 1 });

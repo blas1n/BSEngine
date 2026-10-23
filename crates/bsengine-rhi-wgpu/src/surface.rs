@@ -11132,13 +11132,15 @@ mod tests {
     /// **replaces** the sky's specular. The capture already saw the sky
     /// wherever the sky was visible, so adding would reflect it twice -- and,
     /// as with the light probes above, the result is merely brighter, which
-    /// no pixel test flags on its own.
+    /// no pixel test flags on its own. With blending the sky keeps only what
+    /// the probes leave (`left`, 0 deep inside a box), never all of itself on
+    /// top of them.
     #[test]
     fn the_scene_shader_replaces_the_sky_specular_inside_a_reflection_probe() {
         assert!(
-            MESH_WGSL
-                .contains("specular_ibl = captured * (f_ibl * brdf.x + brdf.y) * e.intensity;"),
-            "the reflection branch must assign `specular_ibl`"
+            MESH_WGSL.contains("specular_ibl = reflected + specular_ibl * left;"),
+            "the reflection branch must assign `specular_ibl`: the probes' share, \
+             and the sky's only for what they leave"
         );
         for adding in ["specular_ibl +=", "specular_ibl = specular_ibl +"] {
             assert!(

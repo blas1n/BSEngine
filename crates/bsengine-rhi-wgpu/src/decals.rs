@@ -232,12 +232,21 @@ const CUBE_INDICES: [u32; 36] = [
 
 /// Everything the decal pass owns.
 pub struct DecalResources {
-    /// Screen-sized colour buffer the opaque pass reads.
+    /// The screen-sized colour buffer, as the decal pass renders it: layer 0
+    /// of [`Self::array_view`] through an sRGB view.
     pub view: wgpu::TextureView,
-    /// Screen-sized normal buffer, read alongside it.
+    /// The screen-sized normal buffer, as the decal pass renders it: layer 1.
     pub normal_view: wgpu::TextureView,
-    _buffer: TrackedTexture,
-    _normal_buffer: TrackedTexture,
+    /// Both, as the opaque passes read them: one binding, not two.
+    ///
+    /// One texture of two layers rather than two textures, for the sampled
+    /// texture it saves: the mesh shader binds the 16 WebGPU allows a stage,
+    /// and screen-space reflections read in it need one. Layer 0 reads back
+    /// sRGB-encoded through this view (it is the texture's linear format),
+    /// which the shader decodes -- what the sRGB format's own view would have
+    /// done on the read.
+    pub array_view: wgpu::TextureView,
+    _buffers: TrackedTexture,
     pipeline: wgpu::RenderPipeline,
     uniform: wgpu::Buffer,
     uniform_bind_group: wgpu::BindGroup,
@@ -290,8 +299,7 @@ impl DecalResources {
         camera_bgl: &wgpu::BindGroupLayout,
         max_decals: usize,
     ) -> Self {
-        let (buffer, view) = Self::create_buffer(device, width, height);
-        let (normal_buffer, normal_view) = Self::create_normal_buffer(device, width, height);
+        let (buffers, view, normal_view, array_view) = Self::create_buffers(device, width, height);
 
         let uniform_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("decal uniform bgl"),
@@ -565,8 +573,8 @@ impl DecalResources {
         Self {
             view,
             normal_view,
-            _buffer: buffer,
-            _normal_buffer: normal_buffer,
+            array_view,
+            _buffers: buffers,
             texture_bgl: decal_texture_bgl,
             flat_normal,
             _flat_normal_texture: flat_normal_texture,
@@ -584,47 +592,33 @@ impl DecalResources {
         }
     }
 
-    fn create_buffer(
+    /// The colour and normal buffers, as one texture of two layers: the
+    /// colour layer's view for the decal pass to render into (sRGB, for the
+    /// reason [`DBUFFER_FORMAT`] gives), the normal layer's, and the array
+    /// the opaque passes read both through.
+    ///
+    /// The texture is [`DBUFFER_NORMAL_FORMAT`] -- linear, the normal's --
+    /// with [`DBUFFER_FORMAT`] among its view formats: the two are the same
+    /// bytes, encoded or not, so the colour layer holds exactly what an sRGB
+    /// texture of its own would.
+    fn create_buffers(
         device: &wgpu::Device,
         width: u32,
         height: u32,
-    ) -> (TrackedTexture, wgpu::TextureView) {
+    ) -> (
+        TrackedTexture,
+        wgpu::TextureView,
+        wgpu::TextureView,
+        wgpu::TextureView,
+    ) {
         let texture = crate::profiler::create_tracked_texture(
             device,
             &wgpu::TextureDescriptor {
-                label: Some("decal buffer"),
+                label: Some("decal buffers"),
                 size: wgpu::Extent3d {
                     width: width.max(1),
                     height: height.max(1),
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: DBUFFER_FORMAT,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            },
-        );
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        (texture, view)
-    }
-
-    /// The normal buffer, in the linear format a direction needs.
-    fn create_normal_buffer(
-        device: &wgpu::Device,
-        width: u32,
-        height: u32,
-    ) -> (TrackedTexture, wgpu::TextureView) {
-        let texture = crate::profiler::create_tracked_texture(
-            device,
-            &wgpu::TextureDescriptor {
-                label: Some("decal normal buffer"),
-                size: wgpu::Extent3d {
-                    width: width.max(1),
-                    height: height.max(1),
-                    depth_or_array_layers: 1,
+                    depth_or_array_layers: 2,
                 },
                 mip_level_count: 1,
                 sample_count: 1,
@@ -632,11 +626,28 @@ impl DecalResources {
                 format: DBUFFER_NORMAL_FORMAT,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                     | wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
+                view_formats: &[DBUFFER_FORMAT],
             },
         );
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        (texture, view)
+        let layer = |label, layer, format| {
+            texture.create_view(&wgpu::TextureViewDescriptor {
+                label: Some(label),
+                format: Some(format),
+                dimension: Some(wgpu::TextureViewDimension::D2),
+                base_array_layer: layer,
+                array_layer_count: Some(1),
+                ..Default::default()
+            })
+        };
+        let view = layer("decal buffer", 0, DBUFFER_FORMAT);
+        let normal_view = layer("decal normal buffer", 1, DBUFFER_NORMAL_FORMAT);
+        let array_view = texture.create_view(&wgpu::TextureViewDescriptor {
+            label: Some("decal buffers"),
+            format: Some(DBUFFER_NORMAL_FORMAT),
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
+        (texture, view, normal_view, array_view)
     }
 
     fn create_depth_bind_group(
@@ -662,12 +673,11 @@ impl DecalResources {
         height: u32,
         depth_view: &wgpu::TextureView,
     ) {
-        let (buffer, view) = Self::create_buffer(device, width, height);
-        self._buffer = buffer;
+        let (buffers, view, normal_view, array_view) = Self::create_buffers(device, width, height);
+        self._buffers = buffers;
         self.view = view;
-        let (normal_buffer, normal_view) = Self::create_normal_buffer(device, width, height);
-        self._normal_buffer = normal_buffer;
         self.normal_view = normal_view;
+        self.array_view = array_view;
         self.depth_bind_group = Self::create_depth_bind_group(device, &self.depth_bgl, depth_view);
     }
 

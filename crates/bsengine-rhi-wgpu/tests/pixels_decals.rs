@@ -289,6 +289,44 @@ fn a_decal_in_shadow_is_dimmed_by_the_shadow() {
     );
 }
 
+/// An opaque decal gives the floor its texture's colour exactly: a grey decal
+/// over a white floor reads as the same floor textured with that grey. Grey,
+/// not red: the decal colour is kept sRGB-encoded and decoded where it is
+/// read, and a channel at 0 or 255 decodes to itself -- red would pass with
+/// the decode left out, this grey reads half again as bright.
+#[test]
+fn an_opaque_decal_is_its_texture_s_colour() {
+    let mut h = Harness::new();
+    let plane = h.plane();
+    let grey = h.two_colour_texture([128, 128, 128, 255], [128, 128, 128, 255]);
+    let white_floor = || {
+        Draw::new(plane, Vec3::ZERO)
+            .scaled(Vec3::new(20.0, 1.0, 20.0), Vec3::new(0.0, 0.5, 0.0))
+            .colour(Vec3::ONE)
+    };
+    let decalled = h.render(&Scene {
+        draws: vec![white_floor()],
+        decals: vec![decal(Vec3::new(8.0, 2.0, 8.0), grey)],
+        camera_pos: CAMERA,
+        look_at: Vec3::ZERO,
+        ..Default::default()
+    });
+    let textured = h.render(&Scene {
+        draws: vec![white_floor().textured(grey)],
+        camera_pos: CAMERA,
+        look_at: Vec3::ZERO,
+        ..Default::default()
+    });
+    let (a, b) = (decalled.centre(), textured.centre());
+    assert!(b[0] > 30 && b[0] < 220, "premise: a mid grey: {b:?}");
+    for c in 0..3 {
+        assert!(
+            (a[c] as i32 - b[c] as i32).abs() <= 2,
+            "the decal's grey is the texture's: {a:?} against {b:?}"
+        );
+    }
+}
+
 /// An sRGB-encoded channel as linear light, 0..1.
 fn linear(c: u8) -> f32 {
     let c = c as f32 / 255.0;

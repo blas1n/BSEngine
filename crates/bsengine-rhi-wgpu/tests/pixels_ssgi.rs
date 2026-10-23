@@ -992,3 +992,36 @@ fn a_surface_every_trace_sample_went_past_keeps_its_own_light() {
         "premise: pole pixels no trace sample landed on: {n}"
     );
 }
+
+/// Under MSAA the trace reads the resolved normals: the opaque pass writes
+/// them into a multisampled target first, and screen-space GI traces from
+/// the single-sample one the resolve fills. The red wall bleeds onto the
+/// floor beside it under 4x MSAA as it does without, each on a renderer of
+/// its own (so the single-sample normals hold the clear until a resolve
+/// fills them): a resolve gone missing would leave the trace no surface to
+/// light, and the bleed gone.
+#[test]
+fn under_msaa_the_trace_reads_the_resolved_normals() {
+    let one = |msaa: u32| {
+        let mut h = Harness::new();
+        let d = floor_and_wall(RED)(&mut h);
+        let p = h.render(&Scene {
+            msaa,
+            ..scene(d, on())
+        });
+        if msaa > 1 {
+            assert_eq!(h.msaa_samples(), msaa, "premise: drawn multisampled");
+        }
+        floor_band(&p, NEAR.0, NEAR.1)
+    };
+    let (single, multi) = (one(1), one(4));
+    let off = floor_band(&first_frame(None, floor_and_wall(RED)), NEAR.0, NEAR.1);
+    assert!(
+        single.x > 1.5 * off.x,
+        "premise: the wall bleeds red: {off} -> {single}"
+    );
+    assert!(
+        ((multi - single) / single).abs().max_element() < 0.05,
+        "under MSAA the same bleed: {single} against {multi}"
+    );
+}

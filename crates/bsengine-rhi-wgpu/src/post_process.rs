@@ -929,8 +929,15 @@ struct SsrCamera {
     cam_pos: vec4<f32>,
     // x steps, y stride in view-space units, z thickness, w intensity.
     params: vec4<f32>,
+    // Last frame's unjittered view-projection: where a hit was then.
+    prev_view_proj: mat4x4<f32>,
+    // x 1 when `scene_tex` holds last frame's lit scene, 0 before there is one.
+    misc: vec4<f32>,
 };
 
+// Last frame's lit scene (`ssr_history`): what a hit found this frame looked
+// like then. The trace runs before this frame's opaque pass -- which reads
+// its result -- so this frame's scene does not exist yet.
 @group(0) @binding(0) var scene_tex: texture_2d<f32>;
 @group(0) @binding(1) var scene_samp: sampler;
 @group(1) @binding(0) var depth_tex: texture_depth_2d;
@@ -1047,41 +1054,37 @@ fn fs_ssr(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     );
     let edge_fade = clamp(edge / 0.1, 0.0, 1.0);
 
+    // Where the hit was last frame, through last frame's camera, and its
+    // light then -- HDRP's construction: the trace is this frame's, the
+    // colour the previous frame's. A hit last frame's camera could not see
+    // has no answer, and fades like one that left the screen.
+    let hit_depth = textureLoad(depth_tex, vec2<i32>(hit_uv * dims), 0);
+    let hit_world = world_at(hit_uv, hit_depth);
+    let prev_clip = cam.prev_view_proj * vec4<f32>(hit_world, 1.0);
+    var prev_uv = vec2<f32>(-1.0);
+    if (prev_clip.w > 0.0) {
+        let p = prev_clip.xy / prev_clip.w;
+        prev_uv = vec2<f32>(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5);
+    }
+    let seen_last_frame = f32(
+        all(prev_uv >= vec2<f32>(0.0)) && all(prev_uv <= vec2<f32>(1.0))
+    );
+
     let weight = found
         * f32(has_surface)
         * rough_fade
         * facing
         * edge_fade
+        * seen_last_frame
+        * cam.misc.x
         * cam.params.w;
-    let reflected = textureSampleLevel(scene_tex, scene_samp, hit_uv, 0.0).rgb;
-    // Premultiplied: the composite pass adds this on top of the scene, so a
-    // pixel with no hit contributes exactly nothing.
+    let reflected = textureSampleLevel(
+        scene_tex, scene_samp, clamp(prev_uv, vec2<f32>(0.0), vec2<f32>(1.0)), 0.0
+    ).rgb;
+    // Premultiplied, with the weight beside it: the opaque pass takes `w` of
+    // its specular environment from here and keeps `1 - w` of its own, so a
+    // pixel with no hit changes nothing.
     return vec4<f32>(reflected * weight, weight);
-}
-"#;
-
-/// Adds the reflection buffer onto the scene.
-///
-/// A pass of its own because the reflection pass samples the scene it is being
-/// added to, and a pass may not sample the texture it renders to.
-const SSR_COMPOSITE_WGSL: &str = r#"
-@group(0) @binding(0) var ssr_tex: texture_2d<f32>;
-@group(0) @binding(1) var ssr_samp: sampler;
-
-@vertex
-fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
-    var p = array<vec2<f32>, 3>(
-        vec2<f32>(-1.0, -1.0),
-        vec2<f32>(3.0, -1.0),
-        vec2<f32>(-1.0, 3.0),
-    );
-    return vec4<f32>(p[vi], 0.0, 1.0);
-}
-
-@fragment
-fn fs_composite(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
-    let dims = vec2<f32>(textureDimensions(ssr_tex, 0));
-    return textureSampleLevel(ssr_tex, ssr_samp, frag.xy / dims, 0.0);
 }
 "#;
 
@@ -1103,6 +1106,11 @@ pub struct SsrCameraGpu {
     /// thickness in NDC depth, `w` overall intensity. Zero intensity is how
     /// the feature is switched off.
     pub params: [f32; 4],
+    /// Last frame's unjittered view-projection, which a hit is found in last
+    /// frame's lit scene through.
+    pub prev_view_proj: [[f32; 4]; 4],
+    /// `x` whether that scene exists: set by the post pass, not the caller.
+    pub misc: [f32; 4],
 }
 
 /// Screen-space GI's trace: per pixel, rays in a cosine-weighted hemisphere
@@ -2953,12 +2961,17 @@ struct PostProcessTargets {
     /// The trace's history, two of it: the light and share, and each
     /// pixel's view depth.
     ssgi_history: [SsgiHistory; 2],
-    /// Where the reflection pass writes, before it is composited into the
-    /// scene. A pass may not sample the texture it renders to, which is the
-    /// same reason the fog pass has a target of its own.
+    /// Where the reflection pass writes, for the opaque pass to read.
     ssr_texture: crate::profiler::TrackedTexture,
     ssr_view: wgpu::TextureView,
-    ssr_bg: wgpu::BindGroup,
+    /// The prepass's normals and roughness, which the reflection pass traces
+    /// from.
+    ssr_normal_texture: crate::profiler::TrackedTexture,
+    ssr_normal_view: wgpu::TextureView,
+    ssr_normal_bg: wgpu::BindGroup,
+    /// Last frame's lit scene, which a hit's light is read from.
+    ssr_history_texture: crate::profiler::TrackedTexture,
+    ssr_history_bg: wgpu::BindGroup,
     ldr_texture: crate::profiler::TrackedTexture,
     ldr_view: wgpu::TextureView,
     ldr_bg: wgpu::BindGroup,
@@ -3081,12 +3094,26 @@ pub struct PostProcessState {
     ssgi_cam_buffer: wgpu::Buffer,
     ssgi_cam_bg: wgpu::BindGroup,
     ssgi_enabled: bool,
-    /// Where the reflection pass writes before it is composited in. A pass may
-    /// not sample the texture it renders to, which is the same reason the fog
-    /// pass has a target of its own.
-    ssr_view: wgpu::TextureView,
+    /// Screen-space reflections, traced before the opaque pass: premultiplied
+    /// light in rgb, the share of the specular environment it replaces in
+    /// alpha. Bound in the lighting group, which is how the mesh shader reads
+    /// it; cleared to nothing when the camera has none.
+    pub ssr_view: wgpu::TextureView,
     _ssr_texture: crate::profiler::TrackedTexture,
-    ssr_bg: wgpu::BindGroup,
+    /// The prepass's normals and roughness, as the opaque pass would write
+    /// them but for the decals -- what the reflections are traced from,
+    /// before the opaque pass has written its own.
+    pub ssr_normal_view: wgpu::TextureView,
+    _ssr_normal_texture: crate::profiler::TrackedTexture,
+    ssr_normal_bg: wgpu::BindGroup,
+    /// The lit scene of the last frame that traced reflections, copied out
+    /// after screen-space GI: what a hit's light is read from.
+    ssr_history_texture: crate::profiler::TrackedTexture,
+    ssr_history_bg: wgpu::BindGroup,
+    /// Whether [`Self::ssr_history_texture`] holds the frame before this one:
+    /// not on the first frame, after a resize, or after a frame without
+    /// reflections.
+    ssr_history_valid: bool,
     ldr_bg: wgpu::BindGroup,
     depth_bg: wgpu::BindGroup,
     sampler: wgpu::Sampler,
@@ -3215,8 +3242,6 @@ pub struct PostProcessState {
     ssao_blur_pipeline: wgpu::RenderPipeline,
     /// Traces the reflections into [`Self::ssr_view`].
     ssr_pipeline: wgpu::RenderPipeline,
-    /// Adds that buffer onto the scene.
-    ssr_composite_pipeline: wgpu::RenderPipeline,
     ssr_cam_buffer: wgpu::Buffer,
     ssr_cam_bg: wgpu::BindGroup,
     /// Whether the reflection passes run this frame.
@@ -4023,7 +4048,6 @@ impl PostProcessState {
             }],
         });
         let ssr_pipeline = Self::make_ssr_pipeline(device, &tex2d_bgl, &depth_bgl, &ssr_cam_bgl);
-        let ssr_composite_pipeline = Self::make_ssr_composite_pipeline(device, &tex2d_bgl);
         let ssgi_cam_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("pp ssgi cam buffer"),
             size: std::mem::size_of::<SsgiCameraGpu>() as u64,
@@ -4228,7 +4252,12 @@ impl PostProcessState {
             ssgi_enabled: false,
             ssr_view: targets.ssr_view,
             _ssr_texture: targets.ssr_texture,
-            ssr_bg: targets.ssr_bg,
+            ssr_normal_view: targets.ssr_normal_view,
+            _ssr_normal_texture: targets.ssr_normal_texture,
+            ssr_normal_bg: targets.ssr_normal_bg,
+            ssr_history_texture: targets.ssr_history_texture,
+            ssr_history_bg: targets.ssr_history_bg,
+            ssr_history_valid: false,
             ldr_bg: targets.ldr_bg,
             depth_bg: targets.depth_bg,
             sampler,
@@ -4274,7 +4303,6 @@ impl PostProcessState {
             ssao_pipeline,
             ssao_blur_pipeline,
             ssr_pipeline,
-            ssr_composite_pipeline,
             ssr_cam_buffer,
             ssr_cam_bg,
             ssr_enabled: false,
@@ -4439,7 +4467,27 @@ impl PostProcessState {
             )
         };
 
-        let hdr_texture = make_tex("pp hdr", HDR_FORMAT);
+        // Copyable: the reflections read last frame's lit scene from a copy
+        // of it (`ssr_history`).
+        let hdr_texture = crate::profiler::create_tracked_texture(
+            device,
+            &wgpu::TextureDescriptor {
+                label: Some("pp hdr"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: HDR_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            },
+        );
         let hdr_view = hdr_texture.create_view(&wgpu::TextureViewDescriptor::default());
         // Same format and size as `hdr_texture`: the fog pass copies the scene
         // image through it, so anything narrower would requantize the frame.
@@ -4505,6 +4553,28 @@ impl PostProcessState {
             gi_indirect_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let ssr_texture = make_tex("pp ssr", HDR_FORMAT);
         let ssr_view = ssr_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let ssr_normal_texture = make_tex("pp ssr normal", NORMAL_FORMAT);
+        let ssr_normal_view =
+            ssr_normal_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let ssr_history_texture = crate::profiler::create_tracked_texture(
+            device,
+            &wgpu::TextureDescriptor {
+                label: Some("pp ssr history"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: HDR_FORMAT,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+        );
+        let ssr_history_view =
+            ssr_history_texture.create_view(&wgpu::TextureViewDescriptor::default());
         // `surface_format`, not HDR_FORMAT: this holds the already-tonemapped
         // LDR image on its way to the swapchain, so matching the swapchain's
         // format keeps the round trip through it exact.
@@ -4549,7 +4619,8 @@ impl PostProcessState {
         let ao_bg = make_tex2d_bg("pp ao bg", &ao_view);
         let ao_raw_bg = make_tex2d_bg("pp ao raw bg", &ao_raw_view);
         let normal_bg = make_tex2d_bg("pp normal bg", &normal_view);
-        let ssr_bg = make_tex2d_bg("pp ssr bg", &ssr_view);
+        let ssr_normal_bg = make_tex2d_bg("pp ssr normal bg", &ssr_normal_view);
+        let ssr_history_bg = make_tex2d_bg("pp ssr history bg", &ssr_history_view);
         let ssgi = Self::create_ssgi_targets(
             device,
             (width, height),
@@ -4617,7 +4688,11 @@ impl PostProcessState {
             ssgi_history: ssgi.history,
             ssr_texture,
             ssr_view,
-            ssr_bg,
+            ssr_normal_texture,
+            ssr_normal_view,
+            ssr_normal_bg,
+            ssr_history_texture,
+            ssr_history_bg,
             ldr_texture,
             ldr_view,
             ldr_bg,
@@ -4918,57 +4993,6 @@ impl PostProcessState {
                     format: HDR_FORMAT,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        })
-    }
-
-    /// Adds the reflection buffer onto the scene, premultiplied.
-    fn make_ssr_composite_pipeline(
-        device: &wgpu::Device,
-        tex2d_bgl: &wgpu::BindGroupLayout,
-    ) -> wgpu::RenderPipeline {
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("ssr composite shader"),
-            source: wgpu::ShaderSource::Wgsl(SSR_COMPOSITE_WGSL.into()),
-        });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("ssr composite pll"),
-            bind_group_layouts: &[tex2d_bgl],
-            push_constant_ranges: &[],
-        });
-        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("ssr composite pipeline"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: "vs_fullscreen",
-                buffers: &[],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: "fs_composite",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: HDR_FORMAT,
-                    // The reflection arrives premultiplied, so this is a plain
-                    // add: a pixel with no hit carries zero and contributes
-                    // nothing.
-                    blend: Some(wgpu::BlendState {
-                        color: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::One,
-                            dst_factor: wgpu::BlendFactor::One,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                        alpha: wgpu::BlendComponent::REPLACE,
-                    }),
-                    write_mask: wgpu::ColorWrites::COLOR,
                 })],
                 compilation_options: Default::default(),
             }),
@@ -5336,7 +5360,13 @@ impl PostProcessState {
         self.ssgi_history_valid = false;
         self.ssr_view = t.ssr_view;
         self._ssr_texture = t.ssr_texture;
-        self.ssr_bg = t.ssr_bg;
+        self.ssr_normal_view = t.ssr_normal_view;
+        self._ssr_normal_texture = t.ssr_normal_texture;
+        self.ssr_normal_bg = t.ssr_normal_bg;
+        self.ssr_history_texture = t.ssr_history_texture;
+        self.ssr_history_bg = t.ssr_history_bg;
+        // A new texture holds no frame: no reflection until one is copied.
+        self.ssr_history_valid = false;
         self.ldr_view = t.ldr_view;
         self._ldr_texture = t.ldr_texture;
         self.fxaa_view = t.fxaa_view;
@@ -5682,12 +5712,57 @@ impl PostProcessState {
     }
 
     /// Uploads what the reflection pass needs. Intensity zero switches it off.
-    pub fn update_ssr_camera(&mut self, queue: &wgpu::Queue, cam: SsrCameraGpu) {
-        queue.write_buffer(&self.ssr_cam_buffer, 0, bytemuck::bytes_of(&cam));
-        // Kept beside the buffer rather than read back from it: `apply` has to
-        // decide whether to run two passes at all, and a zero-intensity trace
-        // that still marches every pixel is the cost without the effect.
+    pub fn update_ssr_camera(&mut self, queue: &wgpu::Queue, mut cam: SsrCameraGpu) {
+        // Kept beside the buffer rather than read back from it: the surface
+        // has to decide whether to run the prepass and the trace at all, and
+        // a zero-intensity trace that still marches every pixel is the cost
+        // without the effect.
         self.ssr_enabled = cam.params[3] > 0.0;
+        if !self.ssr_enabled {
+            // Its history is of a frame that may be long gone by the time
+            // reflections come back on.
+            self.ssr_history_valid = false;
+        }
+        cam.misc[0] = if self.ssr_history_valid { 1.0 } else { 0.0 };
+        queue.write_buffer(&self.ssr_cam_buffer, 0, bytemuck::bytes_of(&cam));
+    }
+
+    /// Whether this frame traces reflections: the surface runs the prepass
+    /// they trace from only then.
+    pub fn ssr_enabled(&self) -> bool {
+        self.ssr_enabled
+    }
+
+    /// Traces this frame's reflections into [`Self::ssr_view`], before the
+    /// opaque pass reads them -- from the prepass's depth and normals
+    /// ([`Self::ssr_normal_view`]) and last frame's lit scene -- or clears it
+    /// to "nothing reflected" when the camera has none: the mesh shader reads
+    /// it every frame, and a stale trace would stay on screen.
+    pub fn trace_ssr(&mut self, encoder: &mut wgpu::CommandEncoder, fast_render: bool) -> u32 {
+        let trace = self.ssr_enabled && !fast_render;
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some(if trace { "ssr pass" } else { "ssr clear" }),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &self.ssr_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            ..Default::default()
+        });
+        if !trace {
+            return 0;
+        }
+        pass.set_pipeline(&self.ssr_pipeline);
+        pass.set_bind_group(0, &self.ssr_history_bg, &[]);
+        pass.set_bind_group(1, &self.depth_bg, &[]);
+        pass.set_bind_group(2, &self.ssr_normal_bg, &[]);
+        pass.set_bind_group(3, &self.ssr_cam_bg, &[]);
+        pass.draw(0..3, 0..1);
+        1
     }
 
     /// Uploads the current frame's camera projection matrices for SSAO depth reconstruction.
@@ -5893,52 +5968,17 @@ impl PostProcessState {
             }
         }
 
+        // Last frame's lit scene, for next frame's reflections: copied here,
+        // after screen-space GI has replaced what it replaces and before fog
+        // and the rest are laid over it -- the scene as surfaces see it, as
+        // HDRP's colour pyramid is.
         if self.ssr_enabled && !fast_render {
-            {
-                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("ssr pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &self.ssr_view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    ..Default::default()
-                });
-                pass.set_pipeline(&self.ssr_pipeline);
-                pass.set_bind_group(0, &self.hdr_bg, &[]);
-                pass.set_bind_group(1, &self.depth_bg, &[]);
-                pass.set_bind_group(2, &self.normal_bg, &[]);
-                pass.set_bind_group(3, &self.ssr_cam_bg, &[]);
-                pass.draw(0..3, 0..1);
-                draw_calls += 1;
-                triangles += 1;
-            }
-            {
-                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("ssr composite pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &self.hdr_view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            // Load: this adds to the scene rather than
-                            // replacing it.
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    ..Default::default()
-                });
-                pass.set_pipeline(&self.ssr_composite_pipeline);
-                pass.set_bind_group(0, &self.ssr_bg, &[]);
-                pass.draw(0..3, 0..1);
-                draw_calls += 1;
-                triangles += 1;
-            }
+            encoder.copy_texture_to_texture(
+                self._hdr_texture.as_image_copy(),
+                self.ssr_history_texture.as_image_copy(),
+                self._hdr_texture.size(),
+            );
+            self.ssr_history_valid = true;
         }
 
         if self.fog_enabled {

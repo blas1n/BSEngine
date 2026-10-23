@@ -10,6 +10,15 @@ use bevy_reflect::Reflect;
 /// setting rather than a material one, and for the same reason: what it costs
 /// and what it can reach are properties of the *view*, not of any one surface.
 ///
+/// Where the screen finds what a surface reflects, that is its reflection, in
+/// place of the reflection probes' and the sky's -- never on top of them --
+/// through the surface's own Fresnel and BRDF, as HDRP composes it: SSR, then
+/// the probes for what it did not find, then the sky. Traced before the
+/// opaque pass from a prepass of this frame's depth and normals, with the
+/// light of each hit read from the previous frame's lit scene, so a
+/// reflection is a frame behind what it shows, and a camera with this pays
+/// for that prepass.
+///
 /// Absent means no reflections, which is what every scene authored before this
 /// existed says. It is off rather than on by default because switching it on
 /// changes the shading of every reflective surface in a scene — that is a
@@ -19,7 +28,8 @@ use bevy_reflect::Reflect;
 pub struct ScreenSpaceReflections {
     /// Whether the effect is applied at all.
     pub enabled: bool,
-    /// How strongly the reflection is added, `0.0..=1.0`.
+    /// How much of a surface's specular environment the screen's reflection
+    /// replaces where it found something, `0.0..=1.0`.
     pub intensity: f32,
     /// Roughness at which reflections have faded out entirely.
     ///

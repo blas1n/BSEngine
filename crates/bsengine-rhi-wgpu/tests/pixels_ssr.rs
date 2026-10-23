@@ -610,3 +610,44 @@ fn a_hit_is_traced_against_this_frames_geometry() {
         "the frame it moves, no reflection where it was: {there} -> {gone}"
     );
 }
+
+/// What screen-space reflections cost at 1920 x 1080, at their default
+/// settings, now that they trace before the opaque pass: the prepass of the
+/// opaque meshes' depth and normals, the trace, the copy of the lit scene
+/// for the next frame. The mirror floor and pillar with and without them, a
+/// minute's worth of frames after a warm-up. `cargo test --release -p
+/// bsengine-rhi-wgpu --test pixels_ssr -- --ignored --nocapture bench_ssr`
+/// -- release, because a debug build's validation layers dominate any GPU
+/// timing (CLAUDE.md).
+#[test]
+#[ignore]
+fn bench_ssr() {
+    let frames = 60u32;
+    let mut times = Vec::new();
+    for (label, ssr) in [
+        ("off", None),
+        ("on", Some(ScreenSpaceReflections::default())),
+    ] {
+        let mut h = Harness::new();
+        h.resize(1920, 1080);
+        let (cube, plane) = (h.cube(), h.plane());
+        let s = plain(Scene {
+            draws: vec![
+                metal_floor(plane, Vec3::ONE),
+                pillar_at(cube, 0.0, Vec3::new(0.8, 0.0, 0.0)),
+            ],
+            ..scene(cube, ssr)
+        });
+        for _ in 0..10 {
+            h.render(&s);
+        }
+        let t = std::time::Instant::now();
+        for _ in 0..frames {
+            h.render(&s);
+        }
+        let ms = t.elapsed().as_secs_f64() * 1000.0 / f64::from(frames);
+        eprintln!("ssr {label}: {ms:.2} ms/frame");
+        times.push(ms);
+    }
+    eprintln!("ssr costs {:.2} ms/frame at 1080p", times[1] - times[0]);
+}

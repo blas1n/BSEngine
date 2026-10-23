@@ -1030,3 +1030,72 @@ fn under_msaa_the_trace_reads_the_resolved_normals() {
         "under MSAA the same bleed: {single} against {multi}"
     );
 }
+
+/// A white wall at x = `x`, from y = 0 to 3 along the floor, facing +x: across
+/// the floor from the red one.
+fn left_wall(h: &mut Harness, x: f32) -> u64 {
+    let n = [1.0, 0.0, 0.0];
+    h.mesh(
+        &[
+            vertex([x, 0.0, -2.0], n),
+            vertex([x, 0.0, -16.0], n),
+            vertex([x, 3.0, -16.0], n),
+            vertex([x, 3.0, -2.0], n),
+        ],
+        &[0, 1, 2, 0, 2, 3],
+    )
+}
+
+/// Every frame a bounce more: a hit's light is last frame's, after its own
+/// GI. The white wall across the floor from the red one takes red from it,
+/// and the floor beside the white wall then takes that red from the wall --
+/// a second bounce, which the first frame (no last frame to read) does not
+/// have. Over a dozen frames the far floor's red rises by more than a tenth
+/// (0.234 to 0.288 here), where with one bounce a frame it stays (to 2%) --
+/// and the rise slows, as bounces through surfaces that keep only their
+/// albedo's share of the light do: it converges, it does not run away.
+#[test]
+fn every_frame_the_light_bounces_once_more() {
+    let run = |bounces: bool| {
+        let mut h = Harness::new();
+        h.set_ssgi_multibounce(bounces);
+        let (f, w, l) = (floor(&mut h), wall(&mut h), left_wall(&mut h, -3.0));
+        let d = || {
+            vec![
+                Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
+                Draw::new(w, Vec3::ZERO).colour(Vec3::ZERO).emissive(RED),
+                Draw::new(l, Vec3::ZERO)
+                    .colour(Vec3::splat(0.8))
+                    .roughness(1.0),
+            ]
+        };
+        let mut far = Vec::new();
+        for frame in 0..=24u32 {
+            let p = h.render_at_frame(&scene(d(), on()), frame);
+            if frame % 12 == 0 {
+                far.push(floor_band(&p, FAR.0, FAR.1).x);
+            }
+        }
+        far
+    };
+    let one = run(false);
+    assert!(
+        (one[1] / one[0] - 1.0).abs() < 0.02,
+        "premise: with one bounce a frame, frames add no light: {one:?}"
+    );
+    let many = run(true);
+    assert!(
+        (many[0] - one[0]).abs() < 0.005,
+        "the first frame is one bounce either way: {} against {}",
+        many[0],
+        one[0]
+    );
+    assert!(
+        many[1] > 1.1 * many[0],
+        "a dozen frames on, the second bounce has come: {many:?}"
+    );
+    assert!(
+        many[2] - many[1] < many[1] - many[0],
+        "and it converges: {many:?}"
+    );
+}

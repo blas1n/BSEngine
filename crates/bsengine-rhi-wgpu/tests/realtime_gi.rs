@@ -2125,36 +2125,61 @@ fn bound_to(j: u32) -> bsengine_rhi_wgpu::skinning::GpuVertexSkin {
     }
 }
 
+/// The 100 x 100 floor at y = 0 cut into 16 x 16 squares, 512 triangles
+/// wound to face up: enough that its tree has interior nodes several deep,
+/// which a refit has to reach -- two triangles would be one leaf, and a
+/// refit of leaves alone would pass for a whole one.
+fn floor_grid() -> (Vec<Vec3>, Vec<u32>) {
+    const N: u32 = 16;
+    let mut points = Vec::new();
+    for row in 0..=N {
+        for col in 0..=N {
+            points.push(Vec3::new(
+                -50.0 + 100.0 * col as f32 / N as f32,
+                0.0,
+                50.0 - 100.0 * row as f32 / N as f32,
+            ));
+        }
+    }
+    let mut indices = Vec::new();
+    for row in 0..N {
+        for col in 0..N {
+            let a = row * (N + 1) + col;
+            let (b, c, d) = (a + 1, a + N + 2, a + N + 1);
+            indices.extend([a, b, c, a, c, d]);
+        }
+    }
+    (points, indices)
+}
+
 /// A skinned renderer is traced as it is posed, with nothing rebuilt: the
-/// floor quad glowing, its rest pose ten thousand below the probes -- where
+/// floor grid glowing, its rest pose ten thousand below the probes -- where
 /// its tree is built, read back as it first stands -- is posed up under
-/// them, and they see it glow; posed back, the sky. The tree's shape is the
-/// rest pose's; its triangles, its boxes and its instance's box in the world
-/// follow the pose. Leave out any of the three and the posed floor is
-/// missed: the triangles still far below, or a box that does not reach up
-/// to them, or the instance's box where the floor was read back. Its
-/// triangles are wound against its normals, so a refitted face left
-/// unturned is a back face, black.
+/// them, and the first update after sees it glow; posed back, the sky. The
+/// tree's shape is the rest pose's; its triangles, its boxes and its
+/// instance's box in the world follow the pose. Leave out any of the three
+/// and the posed floor is missed: the triangles still far below, or a box
+/// that does not reach up to them, or the instance's box where the floor
+/// was read back. Its triangles are wound against its normals, so a
+/// refitted face left unturned is a back face, black.
 #[test]
 fn a_skinned_renderer_is_traced_as_it_is_posed() {
     let sky = 0.2f32;
     let mut s = GiScene::new(Vec3::splat(sky));
     let below = Vec3::new(0.0, -1.0e4, 0.0);
-    let vertices: Vec<Vertex> = floor_quad()
+    let (points, mut indices) = floor_grid();
+    // Wound clockwise from above, against its normals: the refit's shading
+    // normal has to be turned to them, as the tree built on the CPU turns
+    // it, or the probes would meet the floor's back.
+    for t in indices.chunks_exact_mut(3) {
+        t.swap(1, 2);
+    }
+    let vertices: Vec<Vertex> = points
         .iter()
         .map(|&p| vertex_at(p + below, Vec3::Y))
         .collect();
-    let mesh = s.add_skinned(
-        &vertices,
-        &[bound_to(0); 4],
-        // Wound clockwise from above, against its normals: the refit's
-        // shading normal has to be turned to them, as the tree built on the
-        // CPU turns it, or the probes would meet the floor's back.
-        &[0, 2, 1, 0, 3, 2],
-        1,
-        Vec3::ZERO,
-        Vec3::splat(2.0),
-    );
+    let skin = vec![bound_to(0); vertices.len()];
+    let mesh = s.add_skinned(&vertices, &skin, &indices, 1, Vec3::ZERO, Vec3::splat(2.0));
     s.pose(mesh, &[Mat4::IDENTITY]);
     let input = s.input(floor_volume(), 0.0, 1 << 20);
     s.run(&input, 3);
@@ -2162,6 +2187,11 @@ fn a_skinned_renderer_is_traced_as_it_is_posed() {
         s.scene.surface.realtime_gi_instances(),
         1,
         "premise: traced"
+    );
+    assert!(
+        s.scene.surface.realtime_gi_refit_depths() >= 4,
+        "premise: the refit reaches up through interior nodes: {} depths",
+        s.scene.surface.realtime_gi_refit_depths()
     );
     let at_rest = s.irradiance(0, Vec3::NEG_Y).x;
     assert!(
@@ -2192,47 +2222,49 @@ fn a_skinned_renderer_is_traced_as_it_is_posed() {
     );
 }
 
-/// The strip of two quads under the probes, folded at z = 0: the far half
-/// turned up by 60 degrees about the hinge. Its vertices at rest, the
-/// joint each is bound to (the far edge to 1, the rest to 0), and the two
-/// joints' matrices for the fold.
-fn folded_strip() -> (Vec<Vertex>, Vec<u32>, [Mat4; 2]) {
-    let mut vertices = Vec::new();
-    let mut joint = Vec::new();
-    for (z, j) in [(50.0f32, 0u32), (0.0, 0), (-50.0, 1)] {
-        for x in [-50.0f32, 50.0] {
-            vertices.push(vertex_at(Vec3::new(x, 0.0, z), Vec3::Y));
-            joint.push(j);
-        }
-    }
+/// The floor grid under the probes, folded at z = 0: the far half (z < 0,
+/// bound to joint 1) turned up by 60 degrees about the hinge, the rest bound
+/// to joint 0. Its vertices at rest, each one's joint, and the two joints'
+/// matrices for the fold.
+fn folded_grid() -> (Vec<Vertex>, Vec<u32>, Vec<u32>, [Mat4; 2]) {
+    let (points, indices) = floor_grid();
+    let vertices = points.iter().map(|&p| vertex_at(p, Vec3::Y)).collect();
+    let joint = points.iter().map(|p| u32::from(p.z < 0.0)).collect();
     let fold = Mat4::from_rotation_x(60f32.to_radians());
-    (vertices, joint, [Mat4::IDENTITY, fold])
+    (vertices, joint, indices, [Mat4::IDENTITY, fold])
 }
 
-/// Both quads of [`folded_strip`], facing up.
-const STRIP_INDICES: [u32; 12] = [0, 1, 3, 0, 3, 2, 2, 3, 5, 2, 5, 4];
-
 /// A skinned renderer is traced where the skinning pass put each vertex:
-/// the strip folded by its second joint gives the probes what a rigid mesh
+/// the grid folded by its second joint gives the probes what a rigid mesh
 /// with the folded vertices -- each placed and turned by its own joint on
-/// the CPU -- gives them, in every direction of all eight probes. The
-/// premise: folded, the probes see something other than the flat strip.
+/// the CPU -- gives them, in every direction of all eight probes, its tree
+/// built flat. The premise: folded, the probes see something other than the
+/// flat grid.
+///
+/// Relocation is switched off before the fold, in both: a probe traces from
+/// where the update before moved it, so a skinned probe moved for the flat
+/// grid and a rigid one moved for the folded grid from the start would look
+/// from different places -- the two under the fold differed by 1.8 for that
+/// alone, while the other six matched to the bit. Two updates without it,
+/// and both trace from the lattice.
 #[test]
 fn a_skinned_renderer_is_traced_as_its_folded_vertices_are() {
-    let (rest, joint, joints) = folded_strip();
+    let (rest, joint, indices, joints) = folded_grid();
     let run = |skinned: bool, pose: [Mat4; 2]| {
         let mut s = GiScene::new(Vec3::splat(0.2));
+        let input;
         if skinned {
             let skin: Vec<_> = joint.iter().map(|&j| bound_to(j)).collect();
-            let mesh = s.add_skinned(
-                &rest,
-                &skin,
-                &STRIP_INDICES,
-                2,
-                Vec3::ZERO,
-                Vec3::splat(2.0),
-            );
+            let mesh = s.add_skinned(&rest, &skin, &indices, 2, Vec3::ZERO, Vec3::splat(2.0));
+            // Read back flat, its tree built flat; then folded.
+            s.pose(mesh, &[Mat4::IDENTITY; 2]);
+            input = s.input(floor_volume(), 0.0, 1 << 20);
+            s.run(&input, 2);
+            s.scene
+                .surface
+                .set_realtime_gi_relocation_for_testing(false);
             s.pose(mesh, &pose);
+            s.run(&input, 2);
         } else {
             let posed: Vec<Vertex> = rest
                 .iter()
@@ -2245,10 +2277,14 @@ fn a_skinned_renderer_is_traced_as_its_folded_vertices_are() {
                     )
                 })
                 .collect();
-            s.add_dynamic_mesh(&posed, &STRIP_INDICES, Vec3::ZERO, Vec3::splat(2.0));
+            s.add_dynamic_mesh(&posed, &indices, Vec3::ZERO, Vec3::splat(2.0));
+            input = s.input(floor_volume(), 0.0, 1 << 20);
+            s.run(&input, 2);
+            s.scene
+                .surface
+                .set_realtime_gi_relocation_for_testing(false);
+            s.run(&input, 2);
         }
-        let input = s.input(floor_volume(), 0.0, 1 << 20);
-        s.run(&input, 3);
         let dirs = [
             Vec3::X,
             Vec3::NEG_X,
@@ -2277,7 +2313,7 @@ fn a_skinned_renderer_is_traced_as_its_folded_vertices_are() {
     );
     assert!(
         most(&skinned, &rigid) < 0.01,
-        "the skinned strip is traced as its folded vertices: off by {}",
+        "the skinned grid is traced as its folded vertices: off by {}",
         most(&skinned, &rigid)
     );
 }

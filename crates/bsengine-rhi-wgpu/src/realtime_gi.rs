@@ -1613,6 +1613,14 @@ impl RealtimeGi {
         }
     }
 
+    /// How many depths the skinned trees' refit dispatches.
+    pub(crate) fn refit_depths(&self) -> usize {
+        self.geometry
+            .as_ref()
+            .and_then(|g| g.skinned.as_ref())
+            .map_or(0, |r| r.levels.len())
+    }
+
     /// Forgets the history (the next update of every probe starts fresh) and
     /// where the round robin was. The geometry is kept.
     pub(crate) fn reset(&mut self) {

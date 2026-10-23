@@ -548,7 +548,9 @@ fn a_hit_the_last_frame_did_not_see_brings_back_nothing() {
     h.set_test_skybox([0, 0, 160, 255]);
     let wall = || {
         Draw::new(cube, Vec3::new(-40.0, 1.0, 0.0))
-            .scaled(Vec3::new(1.0, 30.0, 30.0), Vec3::new(-40.0, 1.0, 0.0))
+            // Big enough to fill last frame's view to its corners: what an
+            // unseen hit would be read at.
+            .scaled(Vec3::new(1.0, 300.0, 300.0), Vec3::new(-40.0, 1.0, 0.0))
             .colour(Vec3::ZERO)
             .emissive(Vec3::new(0.0, 0.8, 0.0))
     };
@@ -569,7 +571,12 @@ fn a_hit_the_last_frame_did_not_see_brings_back_nothing() {
     let on = Some(ScreenSpaceReflections::default());
     // Last frame at the wall, reflections on (so it is the history); this
     // frame ahead.
-    h.render(&room(Vec3::new(-40.0, 1.0, 6.0), on));
+    let away = h.render(&room(Vec3::new(-40.0, 1.0, 6.0), on));
+    let corner = away.at(0, 0);
+    assert!(
+        linear(corner[1]) > 0.3 && linear(corner[2]) < 0.05,
+        "premise: last frame saw the green wall to its corners: {corner:?}"
+    );
     let back = reflection_at(&h.render(&room(ahead, on)));
     assert!(
         (back - without).abs().max_element() < 0.02,

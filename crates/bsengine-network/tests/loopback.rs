@@ -858,7 +858,20 @@ fn a_client_cannot_send_a_multicast() {
 /// Replication keeps working while calls are in flight.
 ///
 /// The reliable channel shares a socket with the snapshot stream, and a resend
-/// loop that starved it would be a regression no RPC test would notice.
+/// loop that starved it would be a regression no RPC test would notice. So
+/// every one of the ten moves made while calls are queued has to reach the
+/// client -- each waited for, against the clock, before the next is made.
+///
+/// ⚠️ Waited for, not counted in frames. An earlier version gave the client
+/// one frame of slack after all ten ("it holds at least the ninth snapshot"),
+/// on the transport's promise of order, not of delivery within a frame: a
+/// frame's `server.update()` sends and the same frame's `client.update()`
+/// reads, if the OS has delivered the loopback datagram by then. On macOS CI
+/// it twice had not -- one datagram in flight on 2026-09-23 (run 35820145362),
+/// two on 2026-10-23 (#2000) -- and the client sat a move or two behind with
+/// nothing wrong. A starved stream never arrives however long it is given,
+/// which [`pump`]'s deadline catches; a slow one arrives, which is all that
+/// may be asked of it.
 #[test]
 fn transform_replication_still_works_alongside_calls() {
     let mut pair = Pair::connect(NetworkConfig::default());
@@ -878,31 +891,16 @@ fn transform_replication_still_works_alongside_calls() {
         );
         pair.move_server_entity(on_server, Vec3::new(i as f32, 0.0, 0.0));
         pair.step();
+        // This move's snapshot, while the calls are still being sent: the
+        // client alone runs on until it holds it. With
+        // `interpolation_delay_ticks: 0` the client renders the newest
+        // snapshot it holds, so "holds this move" reads as "is at x = i".
+        let want = i as f32;
+        pump(|| {
+            pair.client.update();
+            (pair.client_position(on_client).x - want).abs() < 1e-3
+        });
     }
-
-    // Replication must have kept up *during* the calls: after ten frames of
-    // moves the client holds at least the ninth snapshot. Exactly one frame
-    // of slack, and only because the transport promises delivery order, not
-    // delivery within the frame. The tenth snapshot leaves in this frame's
-    // `server.update()` and is read by the same frame's `client.update()` --
-    // if the OS has delivered the loopback datagram by then. Usually it has;
-    // on macOS CI (run 35820145362, 2026-09-23) it once had not, and the
-    // client sat on tick 9's snapshot at x = 8.0 with nothing wrong. With
-    // `interpolation_delay_ticks: 0` the client renders the newest snapshot
-    // it *holds*, so "one datagram in flight" reads as "one frame behind".
-    let after_calls = pair.client_position(on_client).x;
-    assert!(
-        after_calls >= 8.0 - 1e-3,
-        "replication fell behind the calls: the client is at x = {after_calls} after ten moves"
-    );
-
-    // A few more frames for that last datagram to land. A starved snapshot
-    // stream -- the regression this test exists for -- never gets here
-    // however many frames it is given.
-    pump(|| {
-        pair.step();
-        (pair.client_position(on_client).x - 9.0).abs() < 1e-3
-    });
     assert!(
         (pair.client_position(on_client).x - 9.0).abs() < 1e-3,
         "the client should still be tracking the server's transform, got {:?}",

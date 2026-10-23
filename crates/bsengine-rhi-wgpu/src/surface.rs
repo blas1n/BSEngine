@@ -439,40 +439,9 @@ fn reflection_probe_weight(e: ReflectionProbeEntry, world_pos: vec3<f32>) -> f32
     return clamp(min(inside.x, min(inside.y, inside.z)) / e.blend.x, 0.0, 1.0);
 }
 
-// The probes whose boxes hold `world_pos`, smallest box first: the order they
-// are blended in, each over the ones behind it -- so a probe placed inside a
-// room covered by a larger hall probe wins inside the room, whatever their
-// order in the list (Unreal sorts its captures by size the same way; Unity's
-// and Godot's importance/priority defaults amount to it for nested boxes).
-struct ProbeOrder {
-    count: u32,
-    index: array<u32, 4>,
-};
-fn reflection_probes_at(world_pos: vec3<f32>) -> ProbeOrder {
-    var order: ProbeOrder;
-    order.count = 0u;
-    for (var i = 0u; i < min(reflection_probes.count, 4u); i = i + 1u) {
-        let e = reflection_probes.entries[i];
-        if (reflection_probe_weight(e, world_pos) <= 0.0) {
-            continue;
-        }
-        let volume = e.half_extents.x * e.half_extents.y * e.half_extents.z;
-        // Insertion: past every smaller box already placed.
-        var at = order.count;
-        for (var k = 0u; k < order.count; k = k + 1u) {
-            let o = reflection_probes.entries[order.index[k]];
-            if (volume < o.half_extents.x * o.half_extents.y * o.half_extents.z) {
-                at = k;
-                break;
-            }
-        }
-        for (var k = order.count; k > at; k = k - 1u) {
-            order.index[k] = order.index[k - 1u];
-        }
-        order.index[at] = i;
-        order.count = order.count + 1u;
-    }
-    return order;
+// Probe `e`'s box's volume: what the blend orders probes by.
+fn reflection_probe_volume(e: ReflectionProbeEntry) -> f32 {
+    return e.half_extents.x * e.half_extents.y * e.half_extents.z;
 }
 
 // The direction to look up in probe `e`'s cube for reflection ray `r` leaving
@@ -664,15 +633,24 @@ fn fs_main(in: VertOut) -> SceneOut {
         let brdf = textureSample(brdf_lut, ibl_sampler, vec2<f32>(n_dot_v, roughness)).rg;
         specular_ibl = prefiltered * (f_ibl * brdf.x + brdf.y);
     }
-    let reflection_probes_here = reflection_probes_at(in.world_pos);
-    if (reflection_probes_here.count > 0u) {
+    if (reflection_probes.count > 0u) {
         // REPLACES the sky's specular, never adds to it: a probe captured the
         // sky too, wherever it could see it, so adding would reflect the sky
-        // twice. Each probe, smallest box first, takes its share of what the
-        // ones before it left; the sky's specular has the rest -- all of it
-        // only outside every box. Works without a skybox as well -- the BRDF
-        // LUT is built at startup and always bound, and a probe in a sky-less
-        // scene is exactly where the room's own reflection matters most.
+        // twice. The probes whose boxes hold the surface blend smallest box
+        // first -- so a probe placed inside a room covered by a larger hall
+        // probe wins inside the room, whatever their order in the list
+        // (Unreal sorts its captures by size the same way; Unity's and
+        // Godot's importance/priority defaults amount to it for nested
+        // boxes) -- each taking its share of what the ones before it left;
+        // the sky's specular has the rest, all of it only outside every box.
+        // Works without a skybox as well -- the BRDF LUT is built at startup
+        // and always bound, and a probe in a sky-less scene is exactly where
+        // the room's own reflection matters most.
+        //
+        // Each turn picks the next box up by volume (ties by slot) rather
+        // than sorting into a local array: FXC cannot unroll a loop that
+        // writes a function-local array at a computed index (X3511), and
+        // D3D12 is what Windows players run.
         //
         // `textureSampleLevel`, not `textureSample`: this branch depends on
         // the fragment's position, and implicit-derivative sampling is only
@@ -683,17 +661,38 @@ fn fs_main(in: VertOut) -> SceneOut {
         ).rg;
         var left = 1.0;
         var reflected = vec3<f32>(0.0);
-        for (var k = 0u; k < reflection_probes_here.count; k = k + 1u) {
-            let i = reflection_probes_here.index[k];
-            let e = reflection_probes.entries[i];
+        var last_volume = -1.0;
+        var last = -1;
+        for (var k = 0u; k < 4u; k = k + 1u) {
+            var next = -1;
+            var next_volume = 3.4e38;
+            for (var i = 0u; i < min(reflection_probes.count, 4u); i = i + 1u) {
+                let e = reflection_probes.entries[i];
+                if (reflection_probe_weight(e, in.world_pos) <= 0.0) {
+                    continue;
+                }
+                let v = reflection_probe_volume(e);
+                let after_last = v > last_volume || (v == last_volume && i32(i) > last);
+                let before_next = v < next_volume || (v == next_volume && i32(i) < next);
+                if (after_last && before_next) {
+                    next = i32(i);
+                    next_volume = v;
+                }
+            }
+            if (next < 0) {
+                break;
+            }
+            let e = reflection_probes.entries[next];
             let share = reflection_probe_weight(e, in.world_pos) * left;
             let dir = reflection_probe_dir(e, in.world_pos, r);
             let captured = textureSampleLevel(
-                reflection_cubes, ibl_sampler, dir, i32(i),
+                reflection_cubes, ibl_sampler, dir, next,
                 roughness * reflection_probes.max_mip
             ).rgb;
             reflected = reflected + captured * (f_ibl * brdf.x + brdf.y) * e.intensity * share;
             left = left - share;
+            last_volume = next_volume;
+            last = next;
         }
         specular_ibl = reflected + specular_ibl * left;
     }

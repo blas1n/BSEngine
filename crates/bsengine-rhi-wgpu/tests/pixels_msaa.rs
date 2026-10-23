@@ -276,16 +276,19 @@ fn every_geometry_pass_draws_under_msaa() {
     }
 }
 
-/// The normals resolve too: SSR reads them, and under MSAA the geometry
-/// passes write them into a multisampled target first. The fixture is
-/// `pixels_ssr.rs`'s mirror floor in front of a red pillar.
+/// SSR under MSAA is the reflection without it: the trace runs before the
+/// opaque pass, on the single-sample prepass's depth and normals, and every
+/// sample of the multisampled opaque pass reads it at its own pixel. The
+/// fixture is `pixels_ssr.rs`'s mirror floor in front of a red pillar.
 ///
-/// An empty frame is drawn just before the multisampled one, so the
-/// single-sample normal target holds the clear value rather than the floor's
-/// normals from the reference frame: a resolve that went missing leaves SSR
-/// with no surface to reflect off, and the reflection disappears.
+/// Each measured frame is the second of its kind: the first with
+/// reflections on has no last frame to read hits from (`pixels_ssr.rs`'s
+/// `settled`). (This test once covered the normals' resolve, which the
+/// reflections read when they ran after the opaque pass; they no longer do,
+/// and screen-space GI, which still does, holds that resolve:
+/// `pixels_ssgi.rs`'s `under_msaa_the_trace_reads_the_resolved_normals`.)
 #[test]
-fn ssr_reads_the_resolved_normals() {
+fn ssr_is_the_same_reflection_under_msaa() {
     let mut h = Harness::new();
     let cube = h.cube();
     let scene = |ssr, msaa| Scene {
@@ -312,11 +315,9 @@ fn ssr_reads_the_resolved_normals() {
     let (x, y) = (WIDTH / 2, (HEIGHT as f32 * 0.72) as u32);
 
     let plain = h.render(&scene(None, 4)).at(x, y);
+    h.render(&scene(ssr, 1));
     let reference = h.render(&scene(ssr, 1)).at(x, y);
-    h.render(&Scene {
-        msaa: 1,
-        ..Scene::default()
-    });
+    h.render(&scene(ssr, 4));
     let on = h.render(&scene(ssr, 4)).at(x, y);
     assert_eq!(h.msaa_samples(), 4, "premise: drawn multisampled");
     assert!(

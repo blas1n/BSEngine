@@ -435,3 +435,85 @@ fn a_hit_is_found_where_the_last_frame_saw_it() {
          still puts it: column {moved} against {stood}"
     );
 }
+
+/// The first frame with reflections has no last frame to find its hits in,
+/// and keeps the environment's reflection whole: the mirror under the blue
+/// sky in front of the pillar is what it is with reflections off. Taken from
+/// an empty history, the hit would be black -- and replace the sky's blue
+/// with nothing for a frame.
+#[test]
+fn the_first_frame_keeps_the_environment() {
+    let mut h = Harness::new();
+    let (cube, plane) = (h.cube(), h.plane());
+    h.set_test_skybox([0, 0, 160, 255]);
+    let room = |ssr| {
+        plain(Scene {
+            draws: vec![
+                metal_floor(plane, Vec3::ONE),
+                pillar_at(cube, 0.0, Vec3::new(0.8, 0.0, 0.0)),
+            ],
+            with_skybox: true,
+            ..scene(cube, ssr)
+        })
+    };
+    let without = reflection_at(&h.render(&room(None)));
+    let first = reflection_at(&h.render(&room(Some(ScreenSpaceReflections::default()))));
+    let second = reflection_at(&h.render(&room(Some(ScreenSpaceReflections::default()))));
+    assert!(
+        second.z < 0.6 * without.z,
+        "premise: from the second frame the pillar replaces the sky there: {without} -> {second}"
+    );
+    assert!(
+        (first - without).abs().max_element() < 0.01,
+        "the first frame, the sky's reflection as it was: {without} -> {first}"
+    );
+}
+
+/// A transparent surface takes no reflections from the screen: the trace is
+/// of the opaque surface behind it, at its pixel, and is not what the pane
+/// in front reflects. A half-transparent metal pane between the camera and
+/// the red pillar's reflection in the floor shows the floor through it at
+/// half -- half its red -- and a pane taking the floor's reflection for its
+/// own would add the red again on top.
+#[test]
+fn a_transparent_surface_takes_no_reflection_from_the_screen() {
+    let mut h = Harness::new();
+    let (cube, plane) = (h.cube(), h.plane());
+    let pane = || {
+        let mut d = Draw::new(plane, Vec3::ZERO)
+            .colour(Vec3::ONE)
+            .metallic(1.0)
+            .roughness(0.02)
+            .opacity(0.5);
+        // Upright, facing the camera, low in front of it: over the floor
+        // where the pillar is reflected.
+        d.transform = glam::Mat4::from_translation(Vec3::new(0.0, 0.8, 4.0))
+            * glam::Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2)
+            * glam::Mat4::from_scale(Vec3::new(4.0, 1.0, 2.0));
+        d
+    };
+    let room = |with_pane: bool| {
+        let mut draws = vec![
+            metal_floor(plane, Vec3::ONE),
+            pillar_at(cube, 0.0, Vec3::new(0.8, 0.0, 0.0)),
+        ];
+        if with_pane {
+            draws.push(pane());
+        }
+        plain(Scene {
+            draws,
+            ..scene(cube, Some(ScreenSpaceReflections::default()))
+        })
+    };
+    let bare = reflection_at(&settled(&mut h, &room(false)));
+    let behind = reflection_at(&settled(&mut h, &room(true)));
+    assert!(
+        bare.x > 0.1,
+        "premise: the floor reflects the pillar there: {bare}"
+    );
+    assert!(
+        behind.x < 0.75 * bare.x,
+        "through the half-transparent pane, about half of it -- not the pane \
+         reflecting it again: {bare} -> {behind}"
+    );
+}

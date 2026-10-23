@@ -4061,14 +4061,21 @@ impl WgpuSurface {
         ),
         String,
     > {
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::None,
-                compatible_surface,
-                force_fallback_adapter: false,
-            })
-            .await
-            .ok_or("No adapter found")?;
+        // `WGPU_ADAPTER_NAME` picks an adapter by (part of) its name, as
+        // wgpu's own examples read it -- "Microsoft Basic Render Driver" is
+        // D3D12's WARP, the software adapter Windows CI has and nothing else:
+        // what its timings and its failures can only be reproduced on.
+        let adapter = match wgpu::util::initialize_adapter_from_env(instance, compatible_surface) {
+            Some(adapter) => adapter,
+            None => instance
+                .request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::None,
+                    compatible_surface,
+                    force_fallback_adapter: false,
+                })
+                .await
+                .ok_or("No adapter found")?,
+        };
 
         let timestamp_supported = adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY);
         // Storage buffers in the vertex stage are an adapter capability,

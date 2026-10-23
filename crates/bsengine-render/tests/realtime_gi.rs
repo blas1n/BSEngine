@@ -141,10 +141,11 @@ fn a_realtime_volume_is_traced_not_baked_and_a_once_volume_baked() {
 }
 
 /// Which renderers the realtime volume traces as moving instances: every
-/// one by default, but not a `LightmapStatic` one (that is the static tree),
-/// not a hidden one, and not one marked `ExcludeFromGi`. Five renderers, one
-/// of each and two plain, trace as two instances -- and moving one of them
-/// reads nothing back: the readback count stays at the first.
+/// one by default -- a skinned one too, its tree refitted to its pose -- but
+/// not a `LightmapStatic` one (that is the static tree), not a hidden one,
+/// and not one marked `ExcludeFromGi`. Six renderers, one of each, two
+/// plain and one skinned, trace as three instances -- and moving one of
+/// them reads nothing back: the readback count stays at the first.
 #[test]
 fn every_moving_renderer_takes_part_unless_excluded_hidden_or_static() {
     use bsengine_core::{ExcludeFromGi, LightProbeVolume, LightmapStatic, ProbeUpdate, Visible};
@@ -173,6 +174,24 @@ fn every_moving_renderer_takes_part_unless_excluded_hidden_or_static() {
         &[v(-1.0, 1.0), v(1.0, 1.0), v(1.0, -1.0), v(-1.0, -1.0)],
         &[0, 1, 2, 0, 2, 3],
     );
+    let skinned_id = app
+        .world_mut()
+        .resource_mut::<GpuMeshRegistry>()
+        .register_skinned(
+            &[v(-1.0, 1.0), v(1.0, 1.0), v(1.0, -1.0), v(-1.0, -1.0)],
+            &[bsengine_rhi_wgpu::GpuVertexSkin {
+                joints: [0; 4],
+                weights: [1.0, 0.0, 0.0, 0.0],
+            }; 4],
+            &[0, 1, 2, 0, 2, 3],
+            1,
+        );
+    app.world_mut().spawn((
+        MeshRenderer {
+            mesh_id: skinned_id,
+        },
+        Transform::from_position(Vec3::new(-2.0, 0.0, 0.0)),
+    ));
     app.world_mut().spawn((
         Camera::default(),
         Transform::from_position(Vec3::new(0.0, 3.0, 10.0)),
@@ -225,8 +244,9 @@ fn every_moving_renderer_takes_part_unless_excluded_hidden_or_static() {
     run(&mut app, 2);
     assert_eq!(
         surface_of(&app).realtime_gi_instances(),
-        2,
-        "the two plain renderers, and none of the excluded, hidden or static ones"
+        3,
+        "the two plain renderers and the skinned one, and none of the excluded, hidden or \
+         static ones"
     );
     let readbacks = surface_of(&app).realtime_gi_readbacks();
     app.world_mut()

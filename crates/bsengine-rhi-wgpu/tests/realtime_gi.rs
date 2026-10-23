@@ -270,6 +270,60 @@ impl GiScene {
         self.dynamics.len() - 1
     }
 
+    /// A moving entity drawing `vertices` -- its own mesh, any shape -- placed
+    /// at the origin. Returns its mesh's id.
+    fn add_dynamic_mesh(
+        &mut self,
+        vertices: &[Vertex],
+        indices: &[u32],
+        albedo: Vec3,
+        emissive: Vec3,
+    ) -> u64 {
+        let mesh_id = self.scene.registry.register(vertices, indices);
+        self.dynamics
+            .push(bsengine_rhi_wgpu::realtime_gi::GiDynamic {
+                mesh_id,
+                model: Mat4::IDENTITY,
+                albedo,
+                emissive,
+            });
+        mesh_id
+    }
+
+    /// A moving entity drawing a skinned mesh: `vertices` at rest, each
+    /// bound by `skin` to the joints of a palette of `joints`. Posed by
+    /// [`Self::pose`]; returns its mesh's id.
+    fn add_skinned(
+        &mut self,
+        vertices: &[Vertex],
+        skin: &[bsengine_rhi_wgpu::skinning::GpuVertexSkin],
+        indices: &[u32],
+        joints: u32,
+        albedo: Vec3,
+        emissive: Vec3,
+    ) -> u64 {
+        let mesh_id = self
+            .scene
+            .registry
+            .register_skinned(vertices, skin, indices, joints);
+        self.dynamics
+            .push(bsengine_rhi_wgpu::realtime_gi::GiDynamic {
+                mesh_id,
+                model: Mat4::IDENTITY,
+                albedo,
+                emissive,
+            });
+        mesh_id
+    }
+
+    /// Poses skinned mesh `mesh` with `joints` and runs the skinning pass,
+    /// as the skinning system does ahead of the frame.
+    fn pose(&mut self, mesh: u64, joints: &[Mat4]) {
+        let queue = self.scene.surface.queue_arc();
+        assert!(self.scene.registry.skin(&queue, mesh, joints), "posed");
+        self.scene.registry.flush_skinning(&queue);
+    }
+
     fn input(
         &self,
         volume: ProbeVolumeParams,
@@ -646,6 +700,36 @@ fn bench_realtime_gi() {
                 .push(bsengine_rhi_wgpu::realtime_gi::GiDynamic { model, ..first });
         }
     }
+    // `BENCH_SKINNED=n`: as many skinned meshes, each its own -- a 32 x 32
+    // grid, 2048 triangles, a character's worth -- small in the room and
+    // posed anew before every update: what refitting their trees costs.
+    let skinned: usize = std::env::var("BENCH_SKINNED")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    let mut characters = Vec::new();
+    for i in 0..skinned {
+        const N: u32 = 32;
+        let at = Vec3::new(0.2 + 0.6 * i as f32 / skinned.max(1) as f32, 0.3, 0.5);
+        let mut vertices = Vec::new();
+        for row in 0..=N {
+            for col in 0..=N {
+                let p = Vec3::new(col as f32 / N as f32, row as f32 / N as f32, 0.0) * 0.1;
+                vertices.push(vertex_at(at + p, Vec3::Z));
+            }
+        }
+        let mut indices = Vec::new();
+        for row in 0..N {
+            for col in 0..N {
+                let a = row * (N + 1) + col;
+                indices.extend([a, a + 1, a + N + 2, a, a + N + 2, a + N + 1]);
+            }
+        }
+        let skin = vec![bound_to(0); vertices.len()];
+        let mesh = s.add_skinned(&vertices, &skin, &indices, 1, Vec3::splat(0.6), Vec3::ZERO);
+        s.pose(mesh, &[Mat4::IDENTITY]);
+        characters.push(mesh);
+    }
     s.lights = vec![bsengine_bake::BakeLight::Point {
         position: Vec3::splat(0.5),
         color: Vec3::ONE,
@@ -683,7 +767,11 @@ fn bench_realtime_gi() {
     let n = 30;
     let device = s.scene.surface.device_arc();
     let t = std::time::Instant::now();
-    for _ in 0..n {
+    for k in 0..n {
+        for &mesh in &characters {
+            let sway = Mat4::from_translation(Vec3::new(0.0, 0.01 * (k as f32).sin(), 0.0));
+            s.pose(mesh, &[sway]);
+        }
         s.run(&input, 1);
         device.poll(wgpu::Maintain::Wait);
     }
@@ -2046,5 +2134,220 @@ fn baked_bricks_past_the_buffer_grow_it() {
         grid.moments[n - 1],
         last_moments,
         "the last probe's moments"
+    );
+}
+
+// ---- skinned renderers -----------------------------------------------------
+
+/// A vertex at `p` facing `n`.
+fn vertex_at(p: Vec3, n: Vec3) -> Vertex {
+    Vertex {
+        position: p.to_array(),
+        color: [1.0, 1.0, 1.0],
+        normal: n.to_array(),
+        uv: [0.0, 0.0],
+        uv2: [0.0, 0.0],
+        tangent: [0.0; 4],
+    }
+}
+
+/// Bound to joint `j` alone.
+fn bound_to(j: u32) -> bsengine_rhi_wgpu::skinning::GpuVertexSkin {
+    bsengine_rhi_wgpu::skinning::GpuVertexSkin {
+        joints: [j, 0, 0, 0],
+        weights: [1.0, 0.0, 0.0, 0.0],
+    }
+}
+
+/// The 100 x 100 floor at y = 0 cut into 16 x 16 squares, 512 triangles
+/// wound to face up: enough that its tree has interior nodes several deep,
+/// which a refit has to reach -- two triangles would be one leaf, and a
+/// refit of leaves alone would pass for a whole one.
+fn floor_grid() -> (Vec<Vec3>, Vec<u32>) {
+    const N: u32 = 16;
+    let mut points = Vec::new();
+    for row in 0..=N {
+        for col in 0..=N {
+            points.push(Vec3::new(
+                -50.0 + 100.0 * col as f32 / N as f32,
+                0.0,
+                50.0 - 100.0 * row as f32 / N as f32,
+            ));
+        }
+    }
+    let mut indices = Vec::new();
+    for row in 0..N {
+        for col in 0..N {
+            let a = row * (N + 1) + col;
+            let (b, c, d) = (a + 1, a + N + 2, a + N + 1);
+            indices.extend([a, b, c, a, c, d]);
+        }
+    }
+    (points, indices)
+}
+
+/// A skinned renderer is traced as it is posed, with nothing rebuilt: the
+/// floor grid glowing, its rest pose ten thousand below the probes -- where
+/// its tree is built, read back as it first stands -- is posed up under
+/// them, and the first update after sees it glow; posed back, the sky. The
+/// tree's shape is the rest pose's; its triangles, its boxes and its
+/// instance's box in the world follow the pose. Leave out any of the three
+/// and the posed floor is missed: the triangles still far below, or a box
+/// that does not reach up to them, or the instance's box where the floor
+/// was read back. Its triangles are wound against its normals, so a
+/// refitted face left unturned is a back face, black.
+#[test]
+fn a_skinned_renderer_is_traced_as_it_is_posed() {
+    let sky = 0.2f32;
+    let mut s = GiScene::new(Vec3::splat(sky));
+    let below = Vec3::new(0.0, -1.0e4, 0.0);
+    let (points, mut indices) = floor_grid();
+    // Wound clockwise from above, against its normals: the refit's shading
+    // normal has to be turned to them, as the tree built on the CPU turns
+    // it, or the probes would meet the floor's back.
+    for t in indices.chunks_exact_mut(3) {
+        t.swap(1, 2);
+    }
+    let vertices: Vec<Vertex> = points
+        .iter()
+        .map(|&p| vertex_at(p + below, Vec3::Y))
+        .collect();
+    let skin = vec![bound_to(0); vertices.len()];
+    let mesh = s.add_skinned(&vertices, &skin, &indices, 1, Vec3::ZERO, Vec3::splat(2.0));
+    s.pose(mesh, &[Mat4::IDENTITY]);
+    let input = s.input(floor_volume(), 0.0, 1 << 20);
+    s.run(&input, 3);
+    assert_eq!(
+        s.scene.surface.realtime_gi_instances(),
+        1,
+        "premise: traced"
+    );
+    assert!(
+        s.scene.surface.realtime_gi_refit_depths() >= 4,
+        "premise: the refit reaches up through interior nodes: {} depths",
+        s.scene.surface.realtime_gi_refit_depths()
+    );
+    let at_rest = s.irradiance(0, Vec3::NEG_Y).x;
+    assert!(
+        (at_rest - sky).abs() < 0.01,
+        "premise: at rest it is far below, and the sky shows: {at_rest}"
+    );
+    // One update: the first after the pose already traces it. (A refit
+    // that made a node's box before its children's would lag a depth an
+    // update, and only catch up over several.)
+    s.pose(mesh, &[Mat4::from_translation(-below)]);
+    s.run(&input, 1);
+    let posed = s.irradiance(0, Vec3::NEG_Y).x;
+    assert!(
+        (posed - 2.0).abs() < 0.05,
+        "posed under the probes, it glows below them: {posed}"
+    );
+    s.pose(mesh, &[Mat4::IDENTITY]);
+    s.run(&input, 1);
+    let back = s.irradiance(0, Vec3::NEG_Y).x;
+    assert!(
+        (back - sky).abs() < 0.01,
+        "posed back, the sky again: {back}"
+    );
+    assert_eq!(
+        s.scene.surface.realtime_gi_readbacks(),
+        1,
+        "posing reads nothing back and rebuilds no tree"
+    );
+}
+
+/// The floor grid under the probes, folded at z = 0: the far half (z < 0,
+/// bound to joint 1) turned up by 60 degrees about the hinge, the rest bound
+/// to joint 0. Its vertices at rest, each one's joint, and the two joints'
+/// matrices for the fold.
+fn folded_grid() -> (Vec<Vertex>, Vec<u32>, Vec<u32>, [Mat4; 2]) {
+    let (points, indices) = floor_grid();
+    let vertices = points.iter().map(|&p| vertex_at(p, Vec3::Y)).collect();
+    let joint = points.iter().map(|p| u32::from(p.z < 0.0)).collect();
+    let fold = Mat4::from_rotation_x(60f32.to_radians());
+    (vertices, joint, indices, [Mat4::IDENTITY, fold])
+}
+
+/// A skinned renderer is traced where the skinning pass put each vertex:
+/// the grid folded by its second joint gives the probes what a rigid mesh
+/// with the folded vertices -- each placed and turned by its own joint on
+/// the CPU -- gives them, in every direction of all eight probes, its tree
+/// built flat. The premise: folded, the probes see something other than the
+/// flat grid.
+///
+/// Relocation is switched off before the fold, in both: a probe traces from
+/// where the update before moved it, so a skinned probe moved for the flat
+/// grid and a rigid one moved for the folded grid from the start would look
+/// from different places -- the two under the fold differed by 1.8 for that
+/// alone, while the other six matched to the bit. Two updates without it,
+/// and both trace from the lattice.
+#[test]
+fn a_skinned_renderer_is_traced_as_its_folded_vertices_are() {
+    let (rest, joint, indices, joints) = folded_grid();
+    let run = |skinned: bool, pose: [Mat4; 2]| {
+        let mut s = GiScene::new(Vec3::splat(0.2));
+        let input;
+        if skinned {
+            let skin: Vec<_> = joint.iter().map(|&j| bound_to(j)).collect();
+            let mesh = s.add_skinned(&rest, &skin, &indices, 2, Vec3::ZERO, Vec3::splat(2.0));
+            // Read back flat, its tree built flat; then folded.
+            s.pose(mesh, &[Mat4::IDENTITY; 2]);
+            input = s.input(floor_volume(), 0.0, 1 << 20);
+            s.run(&input, 2);
+            s.scene
+                .surface
+                .set_realtime_gi_relocation_for_testing(false);
+            s.pose(mesh, &pose);
+            s.run(&input, 2);
+        } else {
+            let posed: Vec<Vertex> = rest
+                .iter()
+                .zip(&joint)
+                .map(|(v, &j)| {
+                    let m = pose[j as usize];
+                    vertex_at(
+                        m.transform_point3(Vec3::from(v.position)),
+                        m.transform_vector3(Vec3::from(v.normal)),
+                    )
+                })
+                .collect();
+            s.add_dynamic_mesh(&posed, &indices, Vec3::ZERO, Vec3::splat(2.0));
+            input = s.input(floor_volume(), 0.0, 1 << 20);
+            s.run(&input, 2);
+            s.scene
+                .surface
+                .set_realtime_gi_relocation_for_testing(false);
+            s.run(&input, 2);
+        }
+        let dirs = [
+            Vec3::X,
+            Vec3::NEG_X,
+            Vec3::Y,
+            Vec3::NEG_Y,
+            Vec3::Z,
+            Vec3::NEG_Z,
+        ];
+        (0..8)
+            .flat_map(|p| dirs.map(|d| s.irradiance(p, d).x))
+            .collect::<Vec<f32>>()
+    };
+    let skinned = run(true, joints);
+    let rigid = run(false, joints);
+    let flat = run(false, [Mat4::IDENTITY; 2]);
+    let most = |a: &[f32], b: &[f32]| {
+        a.iter()
+            .zip(b)
+            .map(|(x, y)| (x - y).abs())
+            .fold(0.0f32, f32::max)
+    };
+    assert!(
+        most(&rigid, &flat) > 0.2,
+        "premise: folded, the probes see another shape: {}",
+        most(&rigid, &flat)
+    );
+    assert!(
+        most(&skinned, &rigid) < 0.01,
+        "the skinned grid is traced as its folded vertices: off by {}",
+        most(&skinned, &rigid)
     );
 }

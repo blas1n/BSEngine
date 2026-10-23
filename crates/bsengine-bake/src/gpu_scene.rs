@@ -112,8 +112,37 @@ pub struct GpuGeometry {
 impl GpuGeometry {
     /// Builds the tree over `triangles` and lays both out for the GPU.
     pub fn build(triangles: &[BakeTriangle]) -> Self {
+        Self::build_with_order(triangles).0
+    }
+
+    /// [`Self::build`], and which of `triangles` each of the laid-out
+    /// triangles is: `tris[k]` is `triangles[order[k]]`. For a tree whose
+    /// triangles are rewritten in place later -- a skinned mesh's, refitted
+    /// every frame from its vertices -- which has to know where each went.
+    pub fn build_with_order(triangles: &[BakeTriangle]) -> (Self, Vec<u32>) {
         let bvh = Bvh::build(&triangles.iter().map(|t| t.positions).collect::<Vec<_>>());
-        Self::from_bvh(&bvh, triangles)
+        let order = bvh.flat().1.to_vec();
+        (Self::from_bvh(&bvh, triangles), order)
+    }
+
+    /// The depth of each of [`Self::nodes`] in the tree, the root at 0, as
+    /// `trace.wgsl` walks it: an interior node's first child is the next
+    /// node, its second at `start`. What a refit orders its work by -- a
+    /// node's box is made from its children's.
+    pub fn node_depths(&self) -> Vec<u32> {
+        let mut depth = vec![0u32; self.nodes.len()];
+        let mut stack = vec![(0usize, 0u32)];
+        while let Some((i, d)) = stack.pop() {
+            if i >= self.nodes.len() {
+                continue;
+            }
+            depth[i] = d;
+            if self.nodes[i].count == 0 {
+                stack.push((i + 1, d + 1));
+                stack.push((self.nodes[i].start as usize, d + 1));
+            }
+        }
+        depth
     }
 
     /// [`Self::build`] over a tree already built for `triangles` (the bake

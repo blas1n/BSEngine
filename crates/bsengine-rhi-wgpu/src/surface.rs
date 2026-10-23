@@ -7128,6 +7128,14 @@ impl WgpuSurface {
         self.realtime_gi.as_ref().map_or(0, |g| g.instances_traced)
     }
 
+    /// How many depths of skinned trees the realtime update refits, deepest
+    /// to root: the premise of the tests that a refit reaches past a tree's
+    /// leaves.
+    #[doc(hidden)]
+    pub fn realtime_gi_refit_depths(&self) -> usize {
+        self.realtime_gi.as_ref().map_or(0, |g| g.refit_depths())
+    }
+
     /// The realtime volume's brick layout, when it is adaptive, for the tests
     /// that hold the shader's lookup and the update to it.
     #[doc(hidden)]

@@ -467,11 +467,15 @@ fn linear(c: u8) -> f32 {
 
 /// The floor's centre pixel, in linear light, of `scene` rendered without
 /// tone mapping -- so a probe's share of the reflection is that share of the
-/// light, not of a curve.
+/// light, not of a curve -- and without bloom, whose glow from the bright
+/// floor around a pixel falls away as the floor beside it darkens: through a
+/// blend it took a tenth off the probe's share at the pixel.
 fn floor_light(h: &mut Harness, mut scene: Scene) -> Vec3 {
     scene.tone_map = Some(bsengine_core::ToneMap::new(
         bsengine_core::ToneMappingMode::None,
     ));
+    scene.bloom = Some(bsengine_core::Bloom::default().disabled());
+    scene.ssao = Some(bsengine_core::AmbientOcclusion::default().disabled());
     let p = floor(&h.render(&scene));
     Vec3::new(linear(p[0]), linear(p[1]), linear(p[2]))
 }

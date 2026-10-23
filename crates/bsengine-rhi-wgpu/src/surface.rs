@@ -150,16 +150,36 @@ struct LightUniform {
 // creation, so a scene with no volume uploads `enabled: 0` rather than
 // skipping the binding.
 @group(2) @binding(9) var<storage, read> probes: ProbeGrid;
-// The decal normal buffer. Its rgb holds `sum(encoded * a)` and its alpha
-// `product(1 - a)`, so the decals' contribution decodes as
-// `2 * rgb - (1 - a)`, which is `a * n` -- making the blend below a plain
+// The decal buffers, one texture of two layers (one binding of the 16 a stage
+// may sample): 0 is the colour -- premultiplied colour in rgb and "how much
+// of the base albedo survives" in alpha -- and 1 the normal, whose rgb holds
+// `sum(encoded * a)` and alpha `product(1 - a)`, so the decals' contribution
+// decodes as `2 * rgb - (1 - a)`, which is `a * n` -- making the blend a plain
 // weighted sum of "what the surface had" and "what the decals put there".
-@group(2) @binding(11) var decal_normal_buffer: texture_2d<f32>;
-// What the decal pass accumulated for this frame: premultiplied colour in rgb
-// and "how much of the base albedo survives" in alpha. Read with textureLoad
-// at the fragment's own pixel -- it is a screen-space buffer, so there is no
-// uv to sample and no filtering to want.
-@group(2) @binding(10) var decal_buffer: texture_2d<f32>;
+// Read with textureLoad at the fragment's own pixel -- screen-space buffers,
+// no uv to sample and no filtering to want. The colour layer was written
+// through an sRGB view and reads back encoded here (the array is the linear
+// format the normal needs), so `decal_colour` decodes it, as the sRGB view's
+// own read would have.
+@group(2) @binding(10) var decal_buffers: texture_2d_array<f32>;
+fn decal_srgb_to_linear(c: f32) -> f32 {
+    if (c <= 0.04045) {
+        return c / 12.92;
+    }
+    return pow((c + 0.055) / 1.055, 2.4);
+}
+fn decal_colour(p: vec2<i32>) -> vec4<f32> {
+    let e = textureLoad(decal_buffers, p, 0, 0);
+    return vec4<f32>(
+        decal_srgb_to_linear(e.r),
+        decal_srgb_to_linear(e.g),
+        decal_srgb_to_linear(e.b),
+        e.a
+    );
+}
+fn decal_normal(p: vec2<i32>) -> vec4<f32> {
+    return textureLoad(decal_buffers, p, 1, 0);
+}
 // Reflection probes: each a captured, prefiltered cubemap (six layers of
 // `reflection_cubes` per probe, mips by roughness exactly like
 // `prefilter_cube`) and the box it governs. Bound every frame; `count` 0
@@ -495,7 +515,7 @@ fn fs_main(in: VertOut) -> SceneOut {
     }
     // A surface with no decal reads (0, 0, 0, 1) here and keeps its own normal
     // exactly.
-    let dnorm = textureLoad(decal_normal_buffer, vec2<i32>(in.clip_pos.xy), 0);
+    let dnorm = decal_normal(vec2<i32>(in.clip_pos.xy));
     let n = normalize(
         geom_n * dnorm.a + (2.0 * dnorm.rgb - vec3<f32>(1.0 - dnorm.a))
     );
@@ -504,7 +524,7 @@ fn fs_main(in: VertOut) -> SceneOut {
     // Decals, before a single light has touched it. This is the whole reason
     // the buffer exists: a decal blended after lighting would stay bright in a
     // shadow, because nothing about the surface would have changed.
-    let dbuf = textureLoad(decal_buffer, vec2<i32>(in.clip_pos.xy), 0);
+    let dbuf = decal_colour(vec2<i32>(in.clip_pos.xy));
     albedo = albedo * dbuf.a + dbuf.rgb;
     // The ORM map scales the factors, as glTF defines it: roughness by G,
     // metallic by B. Sampled whatever the material names -- the default is
@@ -838,14 +858,38 @@ struct LightUniform {
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
 @group(1) @binding(0) var<uniform> model_data: ModelUniform;
 @group(2) @binding(0) var<uniform> light: LightUniform;
-// The decal buffer, read exactly as the mesh shader reads it. Terrain is the
-// ground of most levels, so it is where tyre marks and scorch marks land.
-@group(2) @binding(10) var decal_buffer: texture_2d<f32>;
-// The decal normal buffer. Its rgb holds `sum(encoded * a)` and its alpha
-// `product(1 - a)`, so the decals' contribution decodes as
-// `2 * rgb - (1 - a)`, which is `a * n` -- making the blend below a plain
+// The decal buffers, read exactly as the mesh shader reads them. Terrain is
+// the ground of most levels, so it is where tyre marks and scorch marks land.
+// The decal buffers, one texture of two layers (one binding of the 16 a stage
+// may sample): 0 is the colour -- premultiplied colour in rgb and "how much
+// of the base albedo survives" in alpha -- and 1 the normal, whose rgb holds
+// `sum(encoded * a)` and alpha `product(1 - a)`, so the decals' contribution
+// decodes as `2 * rgb - (1 - a)`, which is `a * n` -- making the blend a plain
 // weighted sum of "what the surface had" and "what the decals put there".
-@group(2) @binding(11) var decal_normal_buffer: texture_2d<f32>;
+// Read with textureLoad at the fragment's own pixel -- screen-space buffers,
+// no uv to sample and no filtering to want. The colour layer was written
+// through an sRGB view and reads back encoded here (the array is the linear
+// format the normal needs), so `decal_colour` decodes it, as the sRGB view's
+// own read would have.
+@group(2) @binding(10) var decal_buffers: texture_2d_array<f32>;
+fn decal_srgb_to_linear(c: f32) -> f32 {
+    if (c <= 0.04045) {
+        return c / 12.92;
+    }
+    return pow((c + 0.055) / 1.055, 2.4);
+}
+fn decal_colour(p: vec2<i32>) -> vec4<f32> {
+    let e = textureLoad(decal_buffers, p, 0, 0);
+    return vec4<f32>(
+        decal_srgb_to_linear(e.r),
+        decal_srgb_to_linear(e.g),
+        decal_srgb_to_linear(e.b),
+        e.a
+    );
+}
+fn decal_normal(p: vec2<i32>) -> vec4<f32> {
+    return textureLoad(decal_buffers, p, 1, 0);
+}
 @group(3) @binding(0) var t_layer0: texture_2d<f32>;
 @group(3) @binding(1) var t_layer1: texture_2d<f32>;
 @group(3) @binding(2) var t_layer2: texture_2d<f32>;
@@ -1045,7 +1089,7 @@ fn fs_main(in: VertOut) -> SceneOut {
     let geom_n = normalize(in.world_normal);
     // A surface with no decal reads (0, 0, 0, 1) here and keeps its own normal
     // exactly.
-    let dnorm = textureLoad(decal_normal_buffer, vec2<i32>(in.clip_pos.xy), 0);
+    let dnorm = decal_normal(vec2<i32>(in.clip_pos.xy));
     let n = normalize(
         geom_n * dnorm.a + (2.0 * dnorm.rgb - vec3<f32>(1.0 - dnorm.a))
     );
@@ -1063,7 +1107,7 @@ fn fs_main(in: VertOut) -> SceneOut {
     var albedo = (c0 * w.r + c1 * w.g + c2 * w.b + c3 * w.a) * in.col * model_data.base_color;
     // Before lighting, for the same reason the mesh shader folds it there: a
     // decal in albedo darkens in shadow because the surface itself changed.
-    let dbuf = textureLoad(decal_buffer, vec2<i32>(in.clip_pos.xy), 0);
+    let dbuf = decal_colour(vec2<i32>(in.clip_pos.xy));
     albedo = albedo * dbuf.a + dbuf.rgb;
 
     let metallic = model_data.metallic;
@@ -2816,11 +2860,9 @@ struct LightBindings<'a> {
     /// The baked probe grid. Always present; `enabled` is 0 when no volume
     /// has been baked.
     probe_buffer: &'a wgpu::Buffer,
-    /// This frame's decal buffer. Always present; cleared to "no decals" when
-    /// the scene has none.
+    /// This frame's decal buffers, colour and normal as one array. Always
+    /// present; cleared to "no decals" when the scene has none.
     decal_view: &'a wgpu::TextureView,
-    /// This frame's decal normal buffer, cleared the same way.
-    decal_normal_view: &'a wgpu::TextureView,
     /// The reflection probes' boxes. Always present; `count` is 0 when none
     /// has been captured.
     reflection_probe_buffer: &'a wgpu::Buffer,
@@ -2893,10 +2935,6 @@ fn create_light_bind_group(
         wgpu::BindGroupEntry {
             binding: 10,
             resource: wgpu::BindingResource::TextureView(bindings.decal_view),
-        },
-        wgpu::BindGroupEntry {
-            binding: 11,
-            resource: wgpu::BindingResource::TextureView(bindings.decal_normal_view),
         },
         wgpu::BindGroupEntry {
             binding: 12,
@@ -3058,29 +3096,21 @@ fn light_bgl_entries() -> Vec<wgpu::BindGroupLayoutEntry> {
             },
             count: None,
         },
-        // 10 is the decal buffer, which the mesh shader folds into its
-        // albedo before lighting. It rides in this group rather than
-        // its own because the group is already per-pass state, and
-        // because the probe-capture pipeline shares this layout while
-        // its shader never declares this binding -- which is exactly
-        // what keeps decals out of baked probes.
+        // 10 is the decal buffers -- colour and normal, one texture of two
+        // layers -- which the mesh shader folds into its albedo and normal
+        // before lighting. It rides in this group rather than its own
+        // because the group is already per-pass state, and because the
+        // probe-capture pipeline shares this layout while its shader never
+        // declares this binding -- which is exactly what keeps decals out of
+        // baked probes. (11 was the normal buffer, a texture of its own
+        // until the two became one array: the sampled texture it freed is
+        // the one screen-space reflections are read through.)
         wgpu::BindGroupLayoutEntry {
             binding: 10,
             visibility: wgpu::ShaderStages::FRAGMENT,
             ty: wgpu::BindingType::Texture {
                 sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                view_dimension: wgpu::TextureViewDimension::D2,
-                multisampled: false,
-            },
-            count: None,
-        },
-        // 11 is the decal *normal* buffer, beside the colour one.
-        wgpu::BindGroupLayoutEntry {
-            binding: 11,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                view_dimension: wgpu::TextureViewDimension::D2,
+                view_dimension: wgpu::TextureViewDimension::D2Array,
                 multisampled: false,
             },
             count: None,
@@ -5012,8 +5042,7 @@ impl WgpuSurface {
             prefilter_view: &dummy_ibl_cube_view,
             brdf_lut_view: &brdf_lut_view,
             probe_buffer: &probe_buffer,
-            decal_view: &decals.view,
-            decal_normal_view: &decals.normal_view,
+            decal_view: &decals.array_view,
             reflection_probe_buffer: &reflection_probe_buffer,
             reflection_cubes_view: &reflection_cubes_view,
             rect_light_buffer: &rect_light_buffer,
@@ -6285,8 +6314,7 @@ impl WgpuSurface {
             prefilter_view,
             brdf_lut_view: &self.brdf_lut_view,
             probe_buffer: &self.probe_buffer,
-            decal_view: &self.decals.view,
-            decal_normal_view: &self.decals.normal_view,
+            decal_view: &self.decals.array_view,
             reflection_probe_buffer: &self.reflection_probe_buffer,
             reflection_cubes_view: &self.reflection_cubes_view,
             rect_light_buffer: &self.rect_light_buffer,

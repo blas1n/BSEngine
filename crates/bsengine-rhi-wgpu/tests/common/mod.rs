@@ -542,7 +542,7 @@ impl Harness {
     }
 
     fn build(fast_render: bool) -> Self {
-        let surface = pollster::block_on(WgpuSurface::new_offscreen(WIDTH, HEIGHT, fast_render))
+        let surface = WgpuSurface::offscreen_for_testing_with(WIDTH, HEIGHT, fast_render)
             .unwrap_or_else(|e| {
                 panic!(
                     "could not create an offscreen renderer: {e}\n\

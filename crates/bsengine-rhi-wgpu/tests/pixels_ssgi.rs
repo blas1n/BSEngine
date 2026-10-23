@@ -1103,8 +1103,9 @@ fn every_frame_the_light_bounces_once_more() {
 /// A hit last frame's camera did not see is read from this frame, as on a
 /// first frame: one bounce, not none, and not whatever lay at the edge of
 /// last frame's view. The camera looked at a green wall filling its view
-/// last frame; this frame, every hit on the floor and the red wall is one
-/// that frame did not see, and the floor beside the red wall is what one
+/// last frame, turned to the side; this frame, every hit on the floor and the
+/// red wall is in front of that camera but outside its view, and the floor
+/// beside the red wall is what one
 /// bounce a frame makes it. Read at the nearest edge of last frame's view,
 /// the wall's green would come in.
 #[test]
@@ -1117,15 +1118,18 @@ fn a_hit_the_last_frame_did_not_see_is_read_from_this_one() {
             vec![
                 Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
                 Draw::new(w, Vec3::ZERO).colour(Vec3::ZERO).emissive(RED),
-                // Far behind the camera, big enough to fill a view of it.
-                Draw::new(c, Vec3::new(0.0, 1.0, 60.0))
-                    .scaled(Vec3::new(400.0, 400.0, 1.0), Vec3::new(0.0, 1.0, 60.0))
+                // Far off to the side, big enough to fill a view of it.
+                Draw::new(c, Vec3::new(60.0, 1.0, 0.0))
+                    .scaled(Vec3::new(1.0, 400.0, 400.0), Vec3::new(60.0, 1.0, 0.0))
                     .colour(Vec3::ZERO)
                     .emissive(Vec3::new(0.0, 0.8, 0.0)),
             ]
         };
         let away = Scene {
-            look_at: Vec3::new(-1.5, 3.0, 60.0),
+            // Turned to the side, not around: this frame's hits are in
+            // front of last frame's camera, just out of its view -- the
+            // case the view's edges decide (behind it, its depth does).
+            look_at: Vec3::new(60.0, 2.0, 2.0),
             ..scene(d(), on())
         };
         let seen = h.render_at_frame(&away, 0);

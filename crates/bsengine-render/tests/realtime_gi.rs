@@ -345,3 +345,41 @@ fn baked_probes_reach_the_surface_and_hand_back_to_the_grid() {
     assert!(surface_of(&app).has_baked_probe_volume());
     let _ = std::fs::remove_file(&file);
 }
+
+/// A camera's screen-space GI reaches the surface through `feed_ssgi`, as its
+/// settings are, and goes when the component does.
+#[test]
+fn the_cameras_screen_space_gi_reaches_the_surface() {
+    use bsengine_core::ScreenSpaceGlobalIllumination;
+    let mut app = new_app();
+    app.add_plugins(bsengine_asset::AssetPlugin);
+    app.add_plugins(WgpuRHIPlugin::windowed());
+    app.add_plugins(RenderPlugin);
+    let surface = bsengine_rhi_wgpu::surface::WgpuSurface::offscreen_for_testing(64, 64)
+        .expect("these tests need an adapter; a skip here would look like a pass");
+    app.insert_resource(GpuMeshRegistry::new(surface.device_arc()));
+    app.insert_resource(bsengine_rhi_wgpu::GpuTextureRegistry::new(
+        surface.device_arc(),
+        surface.queue_arc(),
+    ));
+    app.insert_resource(bsengine_rhi_wgpu::WgpuSurfaceResource(surface));
+    let settings = ScreenSpaceGlobalIllumination {
+        rays: 7,
+        ..Default::default()
+    };
+    let camera = app
+        .world_mut()
+        .spawn((
+            Camera::default(),
+            Transform::from_position(Vec3::new(0.0, 3.0, 10.0)),
+            settings,
+        ))
+        .id();
+    app.update();
+    assert_eq!(surface_of(&app).ssgi(), Some(settings));
+    app.world_mut()
+        .entity_mut(camera)
+        .remove::<ScreenSpaceGlobalIllumination>();
+    app.update();
+    assert_eq!(surface_of(&app).ssgi(), None, "and goes with the component");
+}

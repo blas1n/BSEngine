@@ -138,6 +138,7 @@ pub mod save_data;
 /// Current window/render-target size resource.
 pub mod screen_size;
 /// Screen-space reflections applied by a camera.
+pub mod screen_space_gi;
 pub mod screen_space_reflections;
 pub mod shadow_config;
 /// Depletable shield/absorb-damage component.
@@ -250,6 +251,7 @@ pub use root_motion::RootMotion;
 pub use rpc_state::{OutgoingRpc, RpcCall, RpcQueues, RpcTarget};
 pub use save_data::SaveData;
 pub use screen_size::ScreenSize;
+pub use screen_space_gi::ScreenSpaceGlobalIllumination;
 pub use screen_space_reflections::ScreenSpaceReflections;
 pub use shadow_config::ShadowSettings;
 pub use shield::Shield;

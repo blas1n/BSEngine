@@ -322,6 +322,8 @@ pub struct Scene {
     pub ssao: Option<bsengine_core::AmbientOcclusion>,
     /// Screen-space reflections. Absent means off, exactly as on a real camera.
     pub ssr: Option<bsengine_core::ScreenSpaceReflections>,
+    /// Screen-space GI on the camera, or `None`.
+    pub ssgi: Option<bsengine_core::ScreenSpaceGlobalIllumination>,
     /// Absent means off, exactly as it does on a real camera. Note that
     /// `render` shows almost nothing of TAA even when this is set -- it
     /// accumulates over frames, so use [`Harness::render_converged`].
@@ -381,6 +383,7 @@ impl Default for Scene {
             tone_map: None,
             ssao: None,
             ssr: None,
+            ssgi: None,
             taa: None,
             light_probes: None,
             reflection_probes: Vec::new(),
@@ -989,6 +992,7 @@ struct VertOut {{
         // Every frame: a surface is shared across a harness's renders, and a
         // scene that does not ask for MSAA must not inherit the last one's.
         self.surface.set_msaa(scene.msaa);
+        self.surface.set_ssgi(scene.ssgi);
         self.surface.step_gpu_particles(&scene.gpu_particles);
         self.surface
             .render_frame(

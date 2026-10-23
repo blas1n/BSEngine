@@ -1105,6 +1105,204 @@ pub struct SsrCameraGpu {
     pub params: [f32; 4],
 }
 
+/// Screen-space GI's trace: per pixel, rays in a cosine-weighted hemisphere
+/// about its normal, marched through the depth buffer as the reflection's ray
+/// is; a ray that goes behind what is drawn there, within the thickness, has
+/// hit it, and brings back the light that surface sends towards the camera
+/// in this frame's lit HDR scene (Lambertian surfaces send it every way
+/// alike). Writes the light of the rays that hit, `sum(L) / N`, and the share
+/// that hit, both times the intensity: the composite replaces that share of
+/// the surface's indirect light with this.
+///
+/// `sum(L) / N`, not `PI * sum(L) / N`: the cosine-weighted estimate of the
+/// irradiance is the latter, but the shading here keeps irradiance as
+/// `E / PI` -- the flat ambient lights a surface `ambient * albedo`, the sky
+/// and the probes store `E / PI` -- so the reflectance multiplies the mean
+/// radiance as it is. With the PI, a floor whose rays met only floor under a
+/// uniform ambient brightened by PI where it should not have changed at all.
+const SSGI_WGSL: &str = r#"
+struct SsgiCamera {
+    view: mat4x4<f32>,
+    proj: mat4x4<f32>,
+    inv_view_proj: mat4x4<f32>,
+    // xyz camera position, w the frame index (the rays' rotation).
+    cam_pos: vec4<f32>,
+    // x rays, y steps, z stride in world units, w thickness in NDC depth.
+    params: vec4<f32>,
+    // x intensity.
+    params2: vec4<f32>,
+};
+
+@group(0) @binding(0) var scene_tex: texture_2d<f32>;
+@group(0) @binding(1) var scene_samp: sampler;
+@group(1) @binding(0) var depth_tex: texture_depth_2d;
+@group(2) @binding(0) var normal_tex: texture_2d<f32>;
+@group(2) @binding(1) var normal_samp: sampler;
+@group(3) @binding(0) var<uniform> cam: SsgiCamera;
+
+const PI: f32 = 3.14159265;
+
+@vertex
+fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
+    var p = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -1.0),
+        vec2<f32>(3.0, -1.0),
+        vec2<f32>(-1.0, 3.0),
+    );
+    return vec4<f32>(p[vi], 0.0, 1.0);
+}
+
+fn world_at(uv: vec2<f32>, depth: f32) -> vec3<f32> {
+    let ndc = vec3<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth);
+    let p = cam.inv_view_proj * vec4<f32>(ndc, 1.0);
+    return p.xyz / p.w;
+}
+
+fn project(p: vec3<f32>) -> vec3<f32> {
+    let clip = cam.proj * cam.view * vec4<f32>(p, 1.0);
+    let ndc = clip.xyz / clip.w;
+    return vec3<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5, ndc.z);
+}
+
+fn pcg(v: u32) -> u32 {
+    let state = v * 747796405u + 2891336453u;
+    let word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+fn unit(h: u32) -> f32 {
+    return f32(h >> 8u) / 16777216.0;
+}
+
+// A direction in the cosine-weighted hemisphere about `n`.
+fn cosine_direction(n: vec3<f32>, u1: f32, u2: f32) -> vec3<f32> {
+    let r = sqrt(u1);
+    let phi = 2.0 * PI * u2;
+    let up = select(vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(1.0, 0.0, 0.0), abs(n.z) > 0.9);
+    let t = normalize(cross(up, n));
+    let b = cross(n, t);
+    return normalize(t * (r * cos(phi)) + b * (r * sin(phi)) + n * sqrt(max(1.0 - u1, 0.0)));
+}
+
+@fragment
+fn fs_ssgi(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
+    let dims = vec2<f32>(textureDimensions(depth_tex, 0));
+    let uv = frag.xy / dims;
+    let coord = vec2<i32>(frag.xy);
+    let depth = textureLoad(depth_tex, coord, 0);
+    let nr = textureSampleLevel(normal_tex, normal_samp, uv, 0.0);
+    // Nothing opaque here (the normal buffer clears to zero): no surface to
+    // light, and nothing replaced.
+    if dot(nr.xyz, nr.xyz) < 0.25 || depth >= 1.0 {
+        return vec4<f32>(0.0);
+    }
+    let n = normalize(nr.xyz);
+    let world = world_at(uv, depth);
+    let rays = u32(cam.params.x);
+    let steps = i32(cam.params.y);
+    let stride = cam.params.z;
+    let thickness = cam.params.w;
+    let seed = pcg(u32(coord.x) ^ pcg(u32(coord.y) ^ pcg(u32(cam.cam_pos.w))));
+
+    var light = vec3<f32>(0.0);
+    var hits = 0.0;
+    for (var r = 0u; r < rays; r++) {
+        let h = pcg(seed ^ pcg(r));
+        let d = cosine_direction(n, unit(h), unit(pcg(h)));
+        // Off the surface by half a step, as the reflection's ray starts, so
+        // it does not find the surface it leaves.
+        var p = world + n * (stride * 0.5);
+        for (var i = 0; i < steps; i++) {
+            p = p + d * stride;
+            let s = project(p);
+            if s.x < 0.0 || s.x > 1.0 || s.y < 0.0 || s.y > 1.0 || s.z > 1.0 {
+                break;
+            }
+            let px = vec2<i32>(s.xy * dims);
+            if px.x == coord.x && px.y == coord.y {
+                continue;
+            }
+            let scene_depth = textureLoad(depth_tex, px, 0);
+            let behind = s.z - scene_depth;
+            if behind > 0.0 && behind < thickness {
+                // ⚠️ Not the surface the ray left. Near its start, a grazing
+                // ray is a fraction of a pixel above that surface, and the
+                // depth it is compared with is the pixel centre's -- on a
+                // surface seen at a slant, nearer than the ray by more than
+                // its height -- so it reads as behind its own surface, and
+                // a flat floor lit itself with its own colour. A surface
+                // in the plane the ray left cannot be what it meets: it
+                // leaves that plane at once (cosine-weighted, into the
+                // hemisphere above it). So a "hit" within half a step of
+                // that plane is no hit, and the ray marches on.
+                let hit = world_at((vec2<f32>(px) + vec2<f32>(0.5)) / dims, scene_depth);
+                if dot(hit - world, n) < 0.5 * stride {
+                    continue;
+                }
+                light += textureSampleLevel(scene_tex, scene_samp, s.xy, 0.0).rgb;
+                hits += 1.0;
+                break;
+            }
+        }
+    }
+    let k = cam.params2.x / f32(max(rays, 1u));
+    return vec4<f32>(light * k, hits * k);
+}
+"#;
+
+/// Replaces the share of each pixel's indirect diffuse light that the trace
+/// found something for: `reflectance * E_traced - share * indirect`, added
+/// to the scene. Signed, which the HDR target holds: where the trace saw a
+/// darker world than the probes did, the surface darkens.
+const SSGI_COMPOSITE_WGSL: &str = r#"
+@group(0) @binding(0) var ssgi_tex: texture_2d<f32>;
+@group(0) @binding(1) var ssgi_samp: sampler;
+@group(1) @binding(0) var indirect_tex: texture_2d<f32>;
+@group(1) @binding(1) var indirect_samp: sampler;
+@group(2) @binding(0) var albedo_tex: texture_2d<f32>;
+@group(2) @binding(1) var albedo_samp: sampler;
+
+@vertex
+fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
+    var p = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -1.0),
+        vec2<f32>(3.0, -1.0),
+        vec2<f32>(-1.0, 3.0),
+    );
+    return vec4<f32>(p[vi], 0.0, 1.0);
+}
+
+@fragment
+fn fs_composite(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
+    let coord = vec2<i32>(frag.xy);
+    let traced = textureLoad(ssgi_tex, coord, 0);
+    let indirect = textureLoad(indirect_tex, coord, 0);
+    let gb = textureLoad(albedo_tex, coord, 0).xy;
+    // The reflectance's red rides in the indirect target's alpha
+    // (`GI_INDIRECT_FORMAT`).
+    let reflectance = vec3<f32>(indirect.a, gb);
+    return vec4<f32>(reflectance * traced.rgb - traced.a * indirect.rgb, 0.0);
+}
+"#;
+
+/// What screen-space GI's trace needs: the camera, unjittered, and the trace.
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Debug, PartialEq)]
+pub struct SsgiCameraGpu {
+    /// View matrix.
+    pub view: [[f32; 4]; 4],
+    /// Projection matrix.
+    pub proj: [[f32; 4]; 4],
+    /// Inverse of `proj * view`.
+    pub inv_view_proj: [[f32; 4]; 4],
+    /// `xyz` camera position; `w` the frame index, which turns the rays.
+    pub cam_pos: [f32; 4],
+    /// `x` rays, `y` steps, `z` stride in world units, `w` thickness in NDC
+    /// depth.
+    pub params: [f32; 4],
+    /// `x` intensity; zero is off.
+    pub params2: [f32; 4],
+}
+
 const SSAO_WGSL: &str = r#"
 struct FullscreenOut {
     @builtin(position) pos: vec4<f32>,
@@ -2411,6 +2609,12 @@ struct PostProcessTargets {
     gi_albedo_view: wgpu::TextureView,
     gi_indirect_texture: crate::profiler::TrackedTexture,
     gi_indirect_view: wgpu::TextureView,
+    gi_indirect_bg: wgpu::BindGroup,
+    gi_albedo_bg: wgpu::BindGroup,
+    /// Where screen-space GI's trace writes, before the composite.
+    ssgi_texture: crate::profiler::TrackedTexture,
+    ssgi_view: wgpu::TextureView,
+    ssgi_bg: wgpu::BindGroup,
     /// Where the reflection pass writes, before it is composited into the
     /// scene. A pass may not sample the texture it renders to, which is the
     /// same reason the fog pass has a target of its own.
@@ -2508,6 +2712,18 @@ pub struct PostProcessState {
     /// red ([`GI_INDIRECT_FORMAT`]); the main pass fills it.
     pub gi_indirect_view: wgpu::TextureView,
     _gi_indirect_texture: crate::profiler::TrackedTexture,
+    gi_indirect_bg: wgpu::BindGroup,
+    gi_albedo_bg: wgpu::BindGroup,
+    /// Screen-space GI's traced light and share, before the composite.
+    ssgi_view: wgpu::TextureView,
+    _ssgi_texture: crate::profiler::TrackedTexture,
+    ssgi_bg: wgpu::BindGroup,
+    /// Screen-space GI's two passes, its camera and whether it runs.
+    ssgi_pipeline: wgpu::RenderPipeline,
+    ssgi_composite_pipeline: wgpu::RenderPipeline,
+    ssgi_cam_buffer: wgpu::Buffer,
+    ssgi_cam_bg: wgpu::BindGroup,
+    ssgi_enabled: bool,
     /// Where the reflection pass writes before it is composited in. A pass may
     /// not sample the texture it renders to, which is the same reason the fog
     /// pass has a target of its own.
@@ -3451,6 +3667,47 @@ impl PostProcessState {
         });
         let ssr_pipeline = Self::make_ssr_pipeline(device, &tex2d_bgl, &depth_bgl, &ssr_cam_bgl);
         let ssr_composite_pipeline = Self::make_ssr_composite_pipeline(device, &tex2d_bgl);
+        let ssgi_cam_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("pp ssgi cam buffer"),
+            size: std::mem::size_of::<SsgiCameraGpu>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let ssgi_cam_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("pp ssgi cam bg"),
+            layout: &ssr_cam_bgl,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: ssgi_cam_buffer.as_entire_binding(),
+            }],
+        });
+        let ssgi_pipeline = Self::make_fullscreen_pipeline(
+            device,
+            "ssgi",
+            SSGI_WGSL,
+            "fs_ssgi",
+            &[&tex2d_bgl, &depth_bgl, &tex2d_bgl, &ssr_cam_bgl],
+            Some(wgpu::BlendState::REPLACE),
+            wgpu::ColorWrites::ALL,
+        );
+        // A plain add of a signed value: the composite's output is the
+        // change to the scene, the light it replaces taken out.
+        let ssgi_composite_pipeline = Self::make_fullscreen_pipeline(
+            device,
+            "ssgi composite",
+            SSGI_COMPOSITE_WGSL,
+            "fs_composite",
+            &[&tex2d_bgl, &tex2d_bgl, &tex2d_bgl],
+            Some(wgpu::BlendState {
+                color: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::One,
+                    dst_factor: wgpu::BlendFactor::One,
+                    operation: wgpu::BlendOperation::Add,
+                },
+                alpha: wgpu::BlendComponent::REPLACE,
+            }),
+            wgpu::ColorWrites::COLOR,
+        );
         let dof_pipeline =
             Self::make_dof_pipeline(device, &tex2d_bgl, &depth_bgl, &ssao_cam_bgl, &dof_bgl);
         // The TAA resolve's uniform group for the camera pair: four groups is
@@ -3529,6 +3786,16 @@ impl PostProcessState {
             _gi_albedo_texture: targets.gi_albedo_texture,
             gi_indirect_view: targets.gi_indirect_view,
             _gi_indirect_texture: targets.gi_indirect_texture,
+            gi_indirect_bg: targets.gi_indirect_bg,
+            gi_albedo_bg: targets.gi_albedo_bg,
+            ssgi_view: targets.ssgi_view,
+            _ssgi_texture: targets.ssgi_texture,
+            ssgi_bg: targets.ssgi_bg,
+            ssgi_pipeline,
+            ssgi_composite_pipeline,
+            ssgi_cam_buffer,
+            ssgi_cam_bg,
+            ssgi_enabled: false,
             ssr_view: targets.ssr_view,
             _ssr_texture: targets.ssr_texture,
             ssr_bg: targets.ssr_bg,
@@ -3732,6 +3999,11 @@ impl PostProcessState {
         let ao_raw_bg = make_tex2d_bg("pp ao raw bg", &ao_raw_view);
         let normal_bg = make_tex2d_bg("pp normal bg", &normal_view);
         let ssr_bg = make_tex2d_bg("pp ssr bg", &ssr_view);
+        let ssgi_texture = make_tex("pp ssgi", HDR_FORMAT);
+        let ssgi_view = ssgi_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let ssgi_bg = make_tex2d_bg("pp ssgi bg", &ssgi_view);
+        let gi_indirect_bg = make_tex2d_bg("pp gi indirect bg", &gi_indirect_view);
+        let gi_albedo_bg = make_tex2d_bg("pp gi albedo bg", &gi_albedo_view);
         let ldr_bg = make_tex2d_bg("pp ldr bg", &ldr_view);
         let fxaa_bg = make_tex2d_bg("pp fxaa bg", &fxaa_view);
         let history_bgs = [
@@ -3779,6 +4051,11 @@ impl PostProcessState {
             gi_albedo_view,
             gi_indirect_texture,
             gi_indirect_view,
+            gi_indirect_bg,
+            gi_albedo_bg,
+            ssgi_texture,
+            ssgi_view,
+            ssgi_bg,
             ssr_texture,
             ssr_view,
             ssr_bg,
@@ -3953,6 +4230,53 @@ impl PostProcessState {
     /// The reflection trace. Groups: scene colour, depth, normal+roughness,
     /// camera -- the normal buffer reuses `tex2d_bgl` because it is a plain
     /// sampled 2D texture like every other post-process input.
+    /// A full-screen pass into one HDR target: screen-space GI's two.
+    #[allow(clippy::too_many_arguments)] // one pass's whole description
+    fn make_fullscreen_pipeline(
+        device: &wgpu::Device,
+        label: &str,
+        source: &str,
+        entry_point: &str,
+        groups: &[&wgpu::BindGroupLayout],
+        blend: Option<wgpu::BlendState>,
+        write_mask: wgpu::ColorWrites,
+    ) -> wgpu::RenderPipeline {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(label),
+            source: wgpu::ShaderSource::Wgsl(source.into()),
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some(label),
+            bind_group_layouts: groups,
+            push_constant_ranges: &[],
+        });
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(label),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_fullscreen",
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point,
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: HDR_FORMAT,
+                    blend,
+                    write_mask,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        })
+    }
+
     fn make_ssr_pipeline(
         device: &wgpu::Device,
         tex2d_bgl: &wgpu::BindGroupLayout,
@@ -4388,6 +4712,11 @@ impl PostProcessState {
         self._gi_albedo_texture = t.gi_albedo_texture;
         self.gi_indirect_view = t.gi_indirect_view;
         self._gi_indirect_texture = t.gi_indirect_texture;
+        self.gi_indirect_bg = t.gi_indirect_bg;
+        self.gi_albedo_bg = t.gi_albedo_bg;
+        self.ssgi_view = t.ssgi_view;
+        self._ssgi_texture = t.ssgi_texture;
+        self.ssgi_bg = t.ssgi_bg;
         self.ssr_view = t.ssr_view;
         self._ssr_texture = t.ssr_texture;
         self.ssr_bg = t.ssr_bg;
@@ -4676,6 +5005,13 @@ impl PostProcessState {
         Ok(())
     }
 
+    /// Uploads screen-space GI's camera and trace; an intensity of zero
+    /// switches both its passes off.
+    pub fn update_ssgi_camera(&mut self, queue: &wgpu::Queue, cam: SsgiCameraGpu) {
+        queue.write_buffer(&self.ssgi_cam_buffer, 0, bytemuck::bytes_of(&cam));
+        self.ssgi_enabled = cam.params2[0] > 0.0;
+    }
+
     /// Uploads what the reflection pass needs. Intensity zero switches it off.
     pub fn update_ssr_camera(&mut self, queue: &wgpu::Queue, cam: SsrCameraGpu) {
         queue.write_buffer(&self.ssr_cam_buffer, 0, bytemuck::bytes_of(&cam));
@@ -4767,6 +5103,57 @@ impl PostProcessState {
         // Two passes because the trace samples the scene it is then added to,
         // and a pass may not sample the texture it renders to -- the same
         // reason the fog pass has a target of its own.
+        // Screen-space GI first: the diffuse light it changes is part of the
+        // surface the reflections then show. Trace, then composite -- the
+        // trace samples the scene the composite writes to.
+        if self.ssgi_enabled && !fast_render {
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("ssgi pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &self.ssgi_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    ..Default::default()
+                });
+                pass.set_pipeline(&self.ssgi_pipeline);
+                pass.set_bind_group(0, &self.hdr_bg, &[]);
+                pass.set_bind_group(1, &self.depth_bg, &[]);
+                pass.set_bind_group(2, &self.normal_bg, &[]);
+                pass.set_bind_group(3, &self.ssgi_cam_bg, &[]);
+                pass.draw(0..3, 0..1);
+                draw_calls += 1;
+                triangles += 1;
+            }
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("ssgi composite pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &self.hdr_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    ..Default::default()
+                });
+                pass.set_pipeline(&self.ssgi_composite_pipeline);
+                pass.set_bind_group(0, &self.ssgi_bg, &[]);
+                pass.set_bind_group(1, &self.gi_indirect_bg, &[]);
+                pass.set_bind_group(2, &self.gi_albedo_bg, &[]);
+                pass.draw(0..3, 0..1);
+                draw_calls += 1;
+                triangles += 1;
+            }
+        }
+
         if self.ssr_enabled && !fast_render {
             {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

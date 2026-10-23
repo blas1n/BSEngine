@@ -361,7 +361,11 @@ fn frames_accumulate_into_less_noise_and_the_same_light() {
 /// rejection deleted.
 #[test]
 fn an_uncovered_surface_starts_its_history_over() {
+    // One bounce, in both renderers: the fresh one below has no last frame
+    // to read further bounces from, and this test is about the history of
+    // the trace, not of the scene.
     let mut h = Harness::new();
+    h.set_ssgi_multibounce(false);
     let (f, w) = (floor(&mut h), wall(&mut h));
     let draws = move |near: bool| {
         let mut far = Draw::new(w, Vec3::ZERO).colour(FLOOR).roughness(1.0);
@@ -391,6 +395,7 @@ fn an_uncovered_surface_starts_its_history_over() {
     // The same frame's rays, on a renderer with no history at all.
     let fresh = {
         let mut h = Harness::new();
+        h.set_ssgi_multibounce(false);
         let (f2, w2) = (floor(&mut h), wall(&mut h));
         assert_eq!((f2, w2), (f, w), "premise: the same mesh ids");
         h.render_at_frame(&scene(draws(false), on()), 20)
@@ -1023,5 +1028,121 @@ fn under_msaa_the_trace_reads_the_resolved_normals() {
     assert!(
         ((multi - single) / single).abs().max_element() < 0.05,
         "under MSAA the same bleed: {single} against {multi}"
+    );
+}
+
+/// A white wall at x = `x`, from y = 0 to 3 along the floor, facing +x: across
+/// the floor from the red one.
+fn left_wall(h: &mut Harness, x: f32) -> u64 {
+    let n = [1.0, 0.0, 0.0];
+    h.mesh(
+        &[
+            vertex([x, 0.0, -2.0], n),
+            vertex([x, 0.0, -16.0], n),
+            vertex([x, 3.0, -16.0], n),
+            vertex([x, 3.0, -2.0], n),
+        ],
+        &[0, 1, 2, 0, 2, 3],
+    )
+}
+
+/// Every frame a bounce more: a hit's light is last frame's, after its own
+/// GI. The white wall across the floor from the red one takes red from it,
+/// and the floor beside the white wall then takes that red from the wall --
+/// a second bounce, which the first frame (no last frame to read) does not
+/// have. Over a dozen frames the far floor's red rises by more than a tenth
+/// (0.234 to 0.288 here), where with one bounce a frame it stays (to 2%) --
+/// and the rise slows, as bounces through surfaces that keep only their
+/// albedo's share of the light do: it converges, it does not run away.
+#[test]
+fn every_frame_the_light_bounces_once_more() {
+    let run = |bounces: bool| {
+        let mut h = Harness::new();
+        h.set_ssgi_multibounce(bounces);
+        let (f, w, l) = (floor(&mut h), wall(&mut h), left_wall(&mut h, -3.0));
+        let d = || {
+            vec![
+                Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
+                Draw::new(w, Vec3::ZERO).colour(Vec3::ZERO).emissive(RED),
+                Draw::new(l, Vec3::ZERO)
+                    .colour(Vec3::splat(0.8))
+                    .roughness(1.0),
+            ]
+        };
+        let mut far = Vec::new();
+        for frame in 0..=24u32 {
+            let p = h.render_at_frame(&scene(d(), on()), frame);
+            if frame % 12 == 0 {
+                far.push(floor_band(&p, FAR.0, FAR.1).x);
+            }
+        }
+        far
+    };
+    let one = run(false);
+    assert!(
+        (one[1] / one[0] - 1.0).abs() < 0.02,
+        "premise: with one bounce a frame, frames add no light: {one:?}"
+    );
+    let many = run(true);
+    assert!(
+        (many[0] - one[0]).abs() < 0.005,
+        "the first frame is one bounce either way: {} against {}",
+        many[0],
+        one[0]
+    );
+    assert!(
+        many[1] > 1.1 * many[0],
+        "a dozen frames on, the second bounce has come: {many:?}"
+    );
+    assert!(
+        many[2] - many[1] < many[1] - many[0],
+        "and it converges: {many:?}"
+    );
+}
+
+/// A hit last frame's camera did not see is read from this frame, as on a
+/// first frame: one bounce, not none, and not whatever lay at the edge of
+/// last frame's view. The camera looked at a green wall filling its view
+/// last frame, turned to the side; this frame, every hit on the floor and the
+/// red wall is in front of that camera but outside its view, and the floor
+/// beside the red wall is what one
+/// bounce a frame makes it. Read at the nearest edge of last frame's view,
+/// the wall's green would come in.
+#[test]
+fn a_hit_the_last_frame_did_not_see_is_read_from_this_one() {
+    let run = |bounces: bool| {
+        let mut h = Harness::new();
+        h.set_ssgi_multibounce(bounces);
+        let (f, w, c) = (floor(&mut h), wall(&mut h), h.cube());
+        let d = || {
+            vec![
+                Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
+                Draw::new(w, Vec3::ZERO).colour(Vec3::ZERO).emissive(RED),
+                // Far off to the side, big enough to fill a view of it.
+                Draw::new(c, Vec3::new(60.0, 1.0, 0.0))
+                    .scaled(Vec3::new(1.0, 400.0, 400.0), Vec3::new(60.0, 1.0, 0.0))
+                    .colour(Vec3::ZERO)
+                    .emissive(Vec3::new(0.0, 0.8, 0.0)),
+            ]
+        };
+        let away = Scene {
+            // Turned to the side, not around: this frame's hits are in
+            // front of last frame's camera, just out of its view -- the
+            // case the view's edges decide (behind it, its depth does).
+            look_at: Vec3::new(60.0, 2.0, 2.0),
+            ..scene(d(), on())
+        };
+        let seen = h.render_at_frame(&away, 0);
+        let corner = seen.at(0, 0);
+        assert!(
+            corner[1] > 100 && corner[0] < 30,
+            "premise: last frame saw the green wall to its corners: {corner:?}"
+        );
+        floor_band(&h.render_at_frame(&scene(d(), on()), 1), NEAR.0, NEAR.1)
+    };
+    let (one, many) = (run(false), run(true));
+    assert!(
+        ((many - one) / one).abs().max_element() < 0.01,
+        "every hit unseen last frame, one bounce: {many} against {one}"
     );
 }

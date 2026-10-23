@@ -935,7 +935,7 @@ struct SsrCamera {
     misc: vec4<f32>,
 };
 
-// Last frame's lit scene (`ssr_history`): what a hit found this frame looked
+// Last frame's lit scene (`lit_history`): what a hit found this frame looked
 // like then. The trace runs before this frame's opaque pass -- which reads
 // its result -- so this frame's scene does not exist yet.
 @group(0) @binding(0) var scene_tex: texture_2d<f32>;
@@ -1142,10 +1142,18 @@ struct SsgiCamera {
     // resolution, 2 at half.
     params2: vec4<f32>,
     prev_view_proj: mat4x4<f32>,
+    // x 1 when the trace's `history_tex` holds last frame's lit scene.
+    misc: vec4<f32>,
 };
 
+// This frame's lit scene, before screen-space GI -- one bounce -- and last
+// frame's, after it (`lit_history`): where a hit is read from when there is
+// one, so the light it brings back has bounced already, and every frame adds
+// a bounce. Each surface takes its albedo's share of what reaches it, so the
+// bounces converge.
 @group(0) @binding(0) var scene_tex: texture_2d<f32>;
-@group(0) @binding(1) var scene_samp: sampler;
+@group(0) @binding(1) var history_tex: texture_2d<f32>;
+@group(0) @binding(2) var scene_samp: sampler;
 @group(1) @binding(0) var depth_tex: texture_depth_2d;
 @group(2) @binding(0) var normal_tex: texture_2d<f32>;
 @group(2) @binding(1) var normal_samp: sampler;
@@ -1263,7 +1271,22 @@ fn fs_ssgi(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
                 if dot(hit - world, n) < 0.5 * stride {
                     continue;
                 }
-                light += textureSampleLevel(scene_tex, scene_samp, s.xy, 0.0).rgb;
+                // Where the hit was last frame, through last frame's camera,
+                // and its light then -- lit by the GI as well, which is the
+                // next bounce; or, with no last frame or the hit outside what
+                // it saw, this frame's, lit directly: one bounce, never none.
+                var hit_light = textureSampleLevel(scene_tex, scene_samp, s.xy, 0.0).rgb;
+                if (cam.misc.x > 0.5) {
+                    let prev_clip = cam.prev_view_proj * vec4<f32>(hit, 1.0);
+                    if (prev_clip.w > 0.0) {
+                        let p = prev_clip.xy / prev_clip.w;
+                        let prev_uv = vec2<f32>(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5);
+                        if (all(prev_uv >= vec2<f32>(0.0)) && all(prev_uv <= vec2<f32>(1.0))) {
+                            hit_light = textureSampleLevel(history_tex, scene_samp, prev_uv, 0.0).rgb;
+                        }
+                    }
+                }
+                light += hit_light;
                 hits += 1.0;
                 break;
             }
@@ -1297,6 +1320,8 @@ struct SsgiCamera {
     params: vec4<f32>,
     params2: vec4<f32>,
     prev_view_proj: mat4x4<f32>,
+    // x 1 when the trace's `history_tex` holds last frame's lit scene.
+    misc: vec4<f32>,
 };
 @group(0) @binding(0) var ssgi_tex: texture_2d<f32>;
 @group(0) @binding(1) var ssgi_samp: sampler;
@@ -1397,6 +1422,8 @@ struct SsgiCamera {
     // the history holds a previous frame, w the trace's scale.
     params2: vec4<f32>,
     prev_view_proj: mat4x4<f32>,
+    // x 1 when the trace's `history_tex` holds last frame's lit scene.
+    misc: vec4<f32>,
 };
 @group(0) @binding(0) var current_tex: texture_2d<f32>;
 @group(0) @binding(1) var current_samp: sampler;
@@ -1510,6 +1537,8 @@ struct SsgiCamera {
     params: vec4<f32>,
     params2: vec4<f32>,
     prev_view_proj: mat4x4<f32>,
+    // x 1 when the trace's `history_tex` holds last frame's lit scene.
+    misc: vec4<f32>,
 };
 @group(0) @binding(0) var light_tex: texture_2d<f32>;
 @group(0) @binding(1) var light_samp: sampler;
@@ -1605,8 +1634,11 @@ pub struct SsgiCameraGpu {
     /// history, `z` whether the history holds a previous frame (set by
     /// [`PostProcessState::update_ssgi_camera`]).
     pub params2: [f32; 4],
-    /// Last frame's unjittered view-projection, for the temporal pass.
+    /// Last frame's unjittered view-projection, for the temporal pass and
+    /// for finding a hit in last frame's lit scene.
     pub prev_view_proj: [[f32; 4]; 4],
+    /// `x` whether that scene exists: set by the post pass, not the caller.
+    pub misc: [f32; 4],
 }
 
 /// The share of each frame in screen-space GI's history: an exponential
@@ -2970,8 +3002,10 @@ struct PostProcessTargets {
     ssr_normal_view: wgpu::TextureView,
     ssr_normal_bg: wgpu::BindGroup,
     /// Last frame's lit scene, which a hit's light is read from.
-    ssr_history_texture: crate::profiler::TrackedTexture,
-    ssr_history_bg: wgpu::BindGroup,
+    lit_history_texture: crate::profiler::TrackedTexture,
+    lit_history_bg: wgpu::BindGroup,
+    /// This frame's lit scene and that one, as the GI trace reads them.
+    ssgi_scene_bg: wgpu::BindGroup,
     ldr_texture: crate::profiler::TrackedTexture,
     ldr_view: wgpu::TextureView,
     ldr_bg: wgpu::BindGroup,
@@ -3078,6 +3112,11 @@ pub struct PostProcessState {
     /// Whether the spatial filter runs: always, but for the test that
     /// measures what it takes away.
     ssgi_spatial: bool,
+    /// Whether the GI trace reads its hits from last frame's lit scene
+    /// (every frame a bounce more): always, but for the tests about
+    /// something else that a fresh renderer, with no last frame, is compared
+    /// against.
+    ssgi_multibounce: bool,
     ssgi_history_bgl: wgpu::BindGroupLayout,
     ssgi_composite_bgl: wgpu::BindGroupLayout,
     /// How many screen pixels each way one trace pixel stands for: 2, or 1
@@ -3108,12 +3147,14 @@ pub struct PostProcessState {
     ssr_normal_bg: wgpu::BindGroup,
     /// The lit scene of the last frame that traced reflections, copied out
     /// after screen-space GI: what a hit's light is read from.
-    ssr_history_texture: crate::profiler::TrackedTexture,
-    ssr_history_bg: wgpu::BindGroup,
-    /// Whether [`Self::ssr_history_texture`] holds the frame before this one:
+    lit_history_texture: crate::profiler::TrackedTexture,
+    lit_history_bg: wgpu::BindGroup,
+    /// This frame's lit scene and last frame's, as the GI trace reads them.
+    ssgi_scene_bg: wgpu::BindGroup,
+    /// Whether [`Self::lit_history_texture`] holds the frame before this one:
     /// not on the first frame, after a resize, or after a frame without
     /// reflections.
-    ssr_history_valid: bool,
+    lit_history_valid: bool,
     ldr_bg: wgpu::BindGroup,
     depth_bg: wgpu::BindGroup,
     sampler: wgpu::Sampler,
@@ -4127,7 +4168,7 @@ impl PostProcessState {
             "ssgi",
             SSGI_WGSL,
             "fs_ssgi",
-            &[&tex2d_bgl, &depth_bgl, &tex2d_bgl, &ssr_cam_bgl],
+            &[&ssgi_history_bgl, &depth_bgl, &tex2d_bgl, &ssr_cam_bgl],
             Some(wgpu::BlendState::REPLACE),
             wgpu::ColorWrites::ALL,
         );
@@ -4239,6 +4280,7 @@ impl PostProcessState {
             ssgi_current: 0,
             ssgi_history_valid: false,
             ssgi_spatial: true,
+            ssgi_multibounce: true,
             ssgi_history_bgl,
             ssgi_composite_bgl,
             ssgi_scale: SSGI_DEFAULT_SCALE,
@@ -4255,9 +4297,10 @@ impl PostProcessState {
             ssr_normal_view: targets.ssr_normal_view,
             _ssr_normal_texture: targets.ssr_normal_texture,
             ssr_normal_bg: targets.ssr_normal_bg,
-            ssr_history_texture: targets.ssr_history_texture,
-            ssr_history_bg: targets.ssr_history_bg,
-            ssr_history_valid: false,
+            lit_history_texture: targets.lit_history_texture,
+            lit_history_bg: targets.lit_history_bg,
+            ssgi_scene_bg: targets.ssgi_scene_bg,
+            lit_history_valid: false,
             ldr_bg: targets.ldr_bg,
             depth_bg: targets.depth_bg,
             sampler,
@@ -4468,7 +4511,7 @@ impl PostProcessState {
         };
 
         // Copyable: the reflections read last frame's lit scene from a copy
-        // of it (`ssr_history`).
+        // of it (`lit_history`).
         let hdr_texture = crate::profiler::create_tracked_texture(
             device,
             &wgpu::TextureDescriptor {
@@ -4556,10 +4599,10 @@ impl PostProcessState {
         let ssr_normal_texture = make_tex("pp ssr normal", NORMAL_FORMAT);
         let ssr_normal_view =
             ssr_normal_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let ssr_history_texture = crate::profiler::create_tracked_texture(
+        let lit_history_texture = crate::profiler::create_tracked_texture(
             device,
             &wgpu::TextureDescriptor {
-                label: Some("pp ssr history"),
+                label: Some("pp lit history"),
                 size: wgpu::Extent3d {
                     width,
                     height,
@@ -4573,8 +4616,8 @@ impl PostProcessState {
                 view_formats: &[],
             },
         );
-        let ssr_history_view =
-            ssr_history_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let lit_history_view =
+            lit_history_texture.create_view(&wgpu::TextureViewDescriptor::default());
         // `surface_format`, not HDR_FORMAT: this holds the already-tonemapped
         // LDR image on its way to the swapchain, so matching the swapchain's
         // format keeps the round trip through it exact.
@@ -4620,7 +4663,26 @@ impl PostProcessState {
         let ao_raw_bg = make_tex2d_bg("pp ao raw bg", &ao_raw_view);
         let normal_bg = make_tex2d_bg("pp normal bg", &normal_view);
         let ssr_normal_bg = make_tex2d_bg("pp ssr normal bg", &ssr_normal_view);
-        let ssr_history_bg = make_tex2d_bg("pp ssr history bg", &ssr_history_view);
+        let lit_history_bg = make_tex2d_bg("pp lit history bg", &lit_history_view);
+        // This frame's lit scene and last frame's, for the GI trace.
+        let ssgi_scene_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("pp ssgi scene bg"),
+            layout: ssgi_history_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&hdr_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&lit_history_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+            ],
+        });
         let ssgi = Self::create_ssgi_targets(
             device,
             (width, height),
@@ -4691,8 +4753,9 @@ impl PostProcessState {
             ssr_normal_texture,
             ssr_normal_view,
             ssr_normal_bg,
-            ssr_history_texture,
-            ssr_history_bg,
+            lit_history_texture,
+            lit_history_bg,
+            ssgi_scene_bg,
             ldr_texture,
             ldr_view,
             ldr_bg,
@@ -5363,10 +5426,11 @@ impl PostProcessState {
         self.ssr_normal_view = t.ssr_normal_view;
         self._ssr_normal_texture = t.ssr_normal_texture;
         self.ssr_normal_bg = t.ssr_normal_bg;
-        self.ssr_history_texture = t.ssr_history_texture;
-        self.ssr_history_bg = t.ssr_history_bg;
+        self.lit_history_texture = t.lit_history_texture;
+        self.lit_history_bg = t.lit_history_bg;
+        self.ssgi_scene_bg = t.ssgi_scene_bg;
         // A new texture holds no frame: no reflection until one is copied.
-        self.ssr_history_valid = false;
+        self.lit_history_valid = false;
         self.ldr_view = t.ldr_view;
         self._ldr_texture = t.ldr_texture;
         self.fxaa_view = t.fxaa_view;
@@ -5696,6 +5760,14 @@ impl PostProcessState {
         )
     }
 
+    /// Switches screen-space GI's further bounces, which are always on, for
+    /// the tests that compare against a renderer with no last frame. Off,
+    /// every hit's light is this frame's: one bounce.
+    #[doc(hidden)]
+    pub fn set_ssgi_multibounce_for_testing(&mut self, on: bool) {
+        self.ssgi_multibounce = on;
+    }
+
     /// Uploads screen-space GI's camera and trace; an intensity of zero
     /// switches both its passes off.
     pub fn update_ssgi_camera(&mut self, queue: &wgpu::Queue, mut cam: SsgiCameraGpu) {
@@ -5707,6 +5779,11 @@ impl PostProcessState {
         }
         cam.params2[1] = SSGI_HISTORY_BLEND;
         cam.params2[3] = self.ssgi_scale as f32;
+        cam.misc[0] = if self.lit_history_valid && self.ssgi_multibounce {
+            1.0
+        } else {
+            0.0
+        };
         cam.params2[2] = if self.ssgi_history_valid { 1.0 } else { 0.0 };
         queue.write_buffer(&self.ssgi_cam_buffer, 0, bytemuck::bytes_of(&cam));
     }
@@ -5718,12 +5795,7 @@ impl PostProcessState {
         // a zero-intensity trace that still marches every pixel is the cost
         // without the effect.
         self.ssr_enabled = cam.params[3] > 0.0;
-        if !self.ssr_enabled {
-            // Its history is of a frame that may be long gone by the time
-            // reflections come back on.
-            self.ssr_history_valid = false;
-        }
-        cam.misc[0] = if self.ssr_history_valid { 1.0 } else { 0.0 };
+        cam.misc[0] = if self.lit_history_valid { 1.0 } else { 0.0 };
         queue.write_buffer(&self.ssr_cam_buffer, 0, bytemuck::bytes_of(&cam));
     }
 
@@ -5757,7 +5829,7 @@ impl PostProcessState {
             return 0;
         }
         pass.set_pipeline(&self.ssr_pipeline);
-        pass.set_bind_group(0, &self.ssr_history_bg, &[]);
+        pass.set_bind_group(0, &self.lit_history_bg, &[]);
         pass.set_bind_group(1, &self.depth_bg, &[]);
         pass.set_bind_group(2, &self.ssr_normal_bg, &[]);
         pass.set_bind_group(3, &self.ssr_cam_bg, &[]);
@@ -5866,7 +5938,7 @@ impl PostProcessState {
                     ..Default::default()
                 });
                 pass.set_pipeline(&self.ssgi_pipeline);
-                pass.set_bind_group(0, &self.hdr_bg, &[]);
+                pass.set_bind_group(0, &self.ssgi_scene_bg, &[]);
                 pass.set_bind_group(1, &self.depth_bg, &[]);
                 pass.set_bind_group(2, &self.normal_bg, &[]);
                 pass.set_bind_group(3, &self.ssgi_cam_bg, &[]);
@@ -5968,17 +6040,20 @@ impl PostProcessState {
             }
         }
 
-        // Last frame's lit scene, for next frame's reflections: copied here,
-        // after screen-space GI has replaced what it replaces and before fog
-        // and the rest are laid over it -- the scene as surfaces see it, as
-        // HDRP's colour pyramid is.
-        if self.ssr_enabled && !fast_render {
+        // Last frame's lit scene, for next frame's reflections and GI: copied
+        // here, after screen-space GI has replaced what it replaces and before
+        // fog and the rest are laid over it -- the scene as surfaces see it,
+        // as HDRP's colour pyramid is. A frame that copies nothing leaves it
+        // a frame that is no longer the last one, and says so.
+        if (self.ssr_enabled || self.ssgi_enabled) && !fast_render {
             encoder.copy_texture_to_texture(
                 self._hdr_texture.as_image_copy(),
-                self.ssr_history_texture.as_image_copy(),
+                self.lit_history_texture.as_image_copy(),
                 self._hdr_texture.size(),
             );
-            self.ssr_history_valid = true;
+            self.lit_history_valid = true;
+        } else {
+            self.lit_history_valid = false;
         }
 
         if self.fog_enabled {

@@ -123,31 +123,50 @@ fn floor_band(p: &Pixels, x0: u32, x1: u32) -> Vec3 {
     sum / n
 }
 
+/// One frame of a scene -- the first, on a surface of its own, so screen-space
+/// GI's history holds nothing of another scene and the frame is this trace
+/// alone (the temporal tests render sequences on purpose).
+fn first_frame(
+    ssgi: Option<ScreenSpaceGlobalIllumination>,
+    draws: impl FnOnce(&mut Harness) -> Vec<Draw>,
+) -> Pixels {
+    let mut h = Harness::new();
+    let d = draws(&mut h);
+    h.render(&scene(d, ssgi))
+}
+
+/// The floor, and the wall standing on it glowing `glow` (reflecting nothing).
+fn floor_and_wall(glow: Vec3) -> impl FnOnce(&mut Harness) -> Vec<Draw> {
+    move |h| {
+        let (f, w) = (floor(h), wall(h));
+        vec![
+            Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
+            Draw::new(w, Vec3::ZERO).colour(Vec3::ZERO).emissive(glow),
+        ]
+    }
+}
+
+fn floor_alone(h: &mut Harness) -> Vec<Draw> {
+    let f = floor(h);
+    vec![Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0)]
+}
+
+const RED: Vec3 = Vec3::new(3.0, 0.0, 0.0);
+
 /// The red wall's light lands on the floor beside it: the floor near the wall
 /// reddens -- red up, green and blue barely -- and more than the floor far
 /// from it does.
 #[test]
 fn a_red_wall_bleeds_onto_the_floor_beside_it() {
-    let mut h = Harness::new();
-    let (f, w) = (floor(&mut h), wall(&mut h));
-    let draws = || {
-        vec![
-            Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
-            Draw::new(w, Vec3::ZERO)
-                .colour(Vec3::ZERO)
-                .emissive(Vec3::new(3.0, 0.0, 0.0)),
-        ]
-    };
-    let off = h.render(&scene(draws(), None));
-    let lit = h.render(&scene(draws(), on()));
-    let (near, far) = (NEAR, FAR);
+    let off = first_frame(None, floor_and_wall(RED));
+    let lit = first_frame(on(), floor_and_wall(RED));
     let (near_off, near_on) = (
-        floor_band(&off, near.0, near.1),
-        floor_band(&lit, near.0, near.1),
+        floor_band(&off, NEAR.0, NEAR.1),
+        floor_band(&lit, NEAR.0, NEAR.1),
     );
     let (far_off, far_on) = (
-        floor_band(&off, far.0, far.1),
-        floor_band(&lit, far.0, far.1),
+        floor_band(&off, FAR.0, FAR.1),
+        floor_band(&lit, FAR.0, FAR.1),
     );
     let gain = near_on - near_off;
     assert!(
@@ -171,20 +190,15 @@ fn a_red_wall_bleeds_onto_the_floor_beside_it() {
 /// floor there darkens. A trace that only added could never do that.
 #[test]
 fn a_black_wall_darkens_the_floor_it_shades() {
-    let mut h = Harness::new();
-    let (f, w) = (floor(&mut h), wall(&mut h));
-    let draws = || {
-        vec![
-            Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
-            Draw::new(w, Vec3::ZERO).colour(Vec3::ZERO),
-        ]
-    };
-    let off = h.render(&scene(draws(), None));
-    let lit = h.render(&scene(draws(), on()));
-    let band = NEAR;
-    let (before, after) = (
-        floor_band(&off, band.0, band.1),
-        floor_band(&lit, band.0, band.1),
+    let before = floor_band(
+        &first_frame(None, floor_and_wall(Vec3::ZERO)),
+        NEAR.0,
+        NEAR.1,
+    );
+    let after = floor_band(
+        &first_frame(on(), floor_and_wall(Vec3::ZERO)),
+        NEAR.0,
+        NEAR.1,
     );
     assert!(
         after.y < before.y * 0.9,
@@ -207,25 +221,13 @@ fn a_black_wall_darkens_the_floor_it_shades() {
 /// and the share replaced to one another.
 #[test]
 fn a_wall_as_bright_as_the_ambient_changes_nothing() {
-    let mut h = Harness::new();
-    let (f, w) = (floor(&mut h), wall(&mut h));
-    let draws = |glow: Vec3| {
-        vec![
-            Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
-            Draw::new(w, Vec3::ZERO).colour(Vec3::ZERO).emissive(glow),
-        ]
-    };
-    let off = h.render(&scene(draws(AMBIENT), None));
-    let lit = h.render(&scene(draws(AMBIENT), on()));
-    let dark = h.render(&scene(draws(Vec3::ZERO), on()));
-    let dark_off = h.render(&scene(draws(Vec3::ZERO), None));
-    let (before, after) = (
-        floor_band(&off, NEAR.0, NEAR.1),
-        floor_band(&lit, NEAR.0, NEAR.1),
-    );
-    let darkened = floor_band(&dark_off, NEAR.0, NEAR.1) - floor_band(&dark, NEAR.0, NEAR.1);
+    let band = |p: &Pixels| floor_band(p, NEAR.0, NEAR.1);
+    let before = band(&first_frame(None, floor_and_wall(AMBIENT)));
+    let after = band(&first_frame(on(), floor_and_wall(AMBIENT)));
+    let dark_off = band(&first_frame(None, floor_and_wall(Vec3::ZERO)));
+    let darkened = dark_off - band(&first_frame(on(), floor_and_wall(Vec3::ZERO)));
     assert!(
-        darkened.min_element() > 0.0 && darkened.y > 0.1 * floor_band(&dark_off, NEAR.0, NEAR.1).y,
+        darkened.min_element() > 0.0 && darkened.y > 0.1 * dark_off.y,
         "premise: the floor's rays find the wall: {darkened}"
     );
     // Per channel, against what the same rays take away when the wall is
@@ -246,27 +248,14 @@ fn a_wall_as_bright_as_the_ambient_changes_nothing() {
 /// of what it takes at one.
 #[test]
 fn the_intensity_scales_what_is_replaced() {
-    let mut h = Harness::new();
-    let (f, w) = (floor(&mut h), wall(&mut h));
-    let draws = || {
-        vec![
-            Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
-            Draw::new(w, Vec3::ZERO).colour(Vec3::ZERO),
-        ]
-    };
-    let off = floor_band(&h.render(&scene(draws(), None)), NEAR.0, NEAR.1);
-    let full = floor_band(&h.render(&scene(draws(), on())), NEAR.0, NEAR.1);
-    let half = floor_band(
-        &h.render(&scene(
-            draws(),
-            on().map(|s| ScreenSpaceGlobalIllumination {
-                intensity: 0.5,
-                ..s
-            }),
-        )),
-        NEAR.0,
-        NEAR.1,
-    );
+    let band = |p: &Pixels| floor_band(p, NEAR.0, NEAR.1);
+    let off = band(&first_frame(None, floor_and_wall(Vec3::ZERO)));
+    let full = band(&first_frame(on(), floor_and_wall(Vec3::ZERO)));
+    let half_on = on().map(|s| ScreenSpaceGlobalIllumination {
+        intensity: 0.5,
+        ..s
+    });
+    let half = band(&first_frame(half_on, floor_and_wall(Vec3::ZERO)));
     let (d1, d2) = ((off - full).y, (off - half).y);
     assert!(d1 > 0.01, "premise: the wall darkens the floor: {d1}");
     assert!(
@@ -281,34 +270,455 @@ fn the_intensity_scales_what_is_replaced() {
 /// component, the whole frame identical.
 #[test]
 fn with_nothing_to_find_the_frame_is_unchanged() {
-    let mut h = Harness::new();
-    let f = floor(&mut h);
-    let draws = || vec![Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0)];
-    let off = h.render(&scene(draws(), None));
-    let lit = h.render(&scene(draws(), on()));
+    let off = first_frame(None, floor_alone);
+    let lit = first_frame(on(), floor_alone);
     // The floor's own interior, byte for byte. At its outer edge, where the
     // depth jumps to the background, a grazing ray can pass behind the edge
-    // within the thickness and count as a hit -- a handful of pixels (3 here),
-    // the depth buffer's own ambiguity rather than light from anything.
-    let mut interior = 0;
+    // within the thickness and count as a hit -- a handful of pixels, the
+    // depth buffer's own ambiguity rather than light from anything (the
+    // spatial filter spreads each a pixel or two).
     for y in HEIGHT / 4..HEIGHT * 3 / 4 {
         for x in WIDTH / 4..WIDTH * 3 / 4 {
             assert_eq!(lit.at(x, y), off.at(x, y), "({x}, {y})");
-            interior += 1;
         }
     }
-    assert!(interior > 0);
     assert!(
-        lit.differing_pixels(&off) <= 8,
+        lit.differing_pixels(&off) <= 40,
         "only the edge: {} pixels",
         lit.differing_pixels(&off)
     );
-    let disabled = h.render(&scene(
-        draws(),
+    let disabled = first_frame(
         Some(ScreenSpaceGlobalIllumination {
             enabled: false,
             ..Default::default()
         }),
-    ));
+        floor_alone,
+    );
     assert!(!disabled.differs_from(&off));
+}
+
+/// Mean absolute difference between horizontally neighbouring pixels' red,
+/// in linear light, over the floor beside the wall: how noisy the floor is
+/// there (the light itself varies far more slowly than a pixel).
+fn noise(p: &Pixels) -> f32 {
+    let mut sum = 0.0f32;
+    let mut n = 0.0f32;
+    for y in HEIGHT / 2..HEIGHT * 3 / 4 {
+        for x in NEAR.0..NEAR.1 - 1 {
+            let (a, b) = (p.at(x, y), p.at(x + 1, y));
+            if a[0] > a[1] && b[0] > b[1] {
+                sum += (linear(a[0]) - linear(b[0])).abs();
+                n += 1.0;
+            }
+        }
+    }
+    sum / n.max(1.0)
+}
+
+fn few_rays() -> Option<ScreenSpaceGlobalIllumination> {
+    on().map(|s| ScreenSpaceGlobalIllumination { rays: 2, ..s })
+}
+
+/// Frames accumulate: with two rays a pixel the first frame is noisy, and
+/// after two dozen -- each turned differently -- the floor beside the red
+/// wall is smoother, and its light the same: the mean of many frames of two
+/// rays is the mean of one frame of sixteen, as an average of independent
+/// estimates of the same light should be.
+#[test]
+fn frames_accumulate_into_less_noise_and_the_same_light() {
+    let mut h = Harness::new();
+    let draws = floor_and_wall(RED)(&mut h);
+    let s = scene(draws, few_rays());
+    let first = noise(&h.render_at_frame(&s, 0));
+    for frame in 1..31 {
+        h.render_at_frame(&s, frame);
+    }
+    let last = h.render_at_frame(&s, 31);
+    assert!(
+        noise(&last) < 0.6 * first,
+        "the history settles the noise: {first} -> {}",
+        noise(&last)
+    );
+    let reference = floor_band(&first_frame(on(), floor_and_wall(RED)), NEAR.0, NEAR.1);
+    let settled = floor_band(&last, NEAR.0, NEAR.1);
+    assert!(
+        ((settled - reference) / reference).abs().max_element() < 0.05,
+        "the same light: {settled} vs {reference}"
+    );
+}
+
+/// A surface just uncovered has no history: where the wall stood, the far
+/// wall now showing is that wall's first frame, not a blend into what the
+/// near wall gathered. Its view depth is not what the history recorded
+/// there. The floor glows while the near wall stands, so what the near wall
+/// gathered -- the floor's light, from close by -- is far from what the far
+/// wall's own trace finds, and a blend into it would show.
+///
+/// The far wall is what makes this a measurement: with nothing behind the
+/// near wall, the uncovered pixels are background, which the temporal pass
+/// leaves alone whatever it does with a history -- the first version of
+/// this test compared background with background and passed with the
+/// rejection deleted.
+#[test]
+fn an_uncovered_surface_starts_its_history_over() {
+    let mut h = Harness::new();
+    let (f, w) = (floor(&mut h), wall(&mut h));
+    let draws = move |near: bool| {
+        let mut far = Draw::new(w, Vec3::ZERO).colour(FLOOR).roughness(1.0);
+        // Three further along x, and reaching below the floor's plane, so
+        // that it fills every ray that went past the near wall's place.
+        far.transform = glam::Mat4::from_scale_rotation_translation(
+            Vec3::new(1.0, 2.0, 1.0),
+            glam::Quat::IDENTITY,
+            Vec3::new(3.0, -3.0, 0.0),
+        );
+        let mut d = vec![
+            Draw::new(f, Vec3::ZERO)
+                .colour(FLOOR)
+                .roughness(1.0)
+                .emissive(Vec3::splat(0.4)),
+            far,
+        ];
+        if near {
+            d.push(Draw::new(w, Vec3::ZERO).colour(Vec3::ONE));
+        }
+        d
+    };
+    for frame in 0..20 {
+        h.render_at_frame(&scene(draws(true), on()), frame);
+    }
+    let uncovered = h.render_at_frame(&scene(draws(false), on()), 20);
+    // The same frame's rays, on a renderer with no history at all.
+    let fresh = {
+        let mut h = Harness::new();
+        let (f2, w2) = (floor(&mut h), wall(&mut h));
+        assert_eq!((f2, w2), (f, w), "premise: the same mesh ids");
+        h.render_at_frame(&scene(draws(false), on()), 20)
+    };
+    // Where the near wall stood: the columns it covered, middle rows -- the
+    // pixels of those that show the far wall now (lit brighter than the
+    // background's 80); the rest still look past it.
+    let mut worst = 0i32;
+    let (mut n, mut brightest) = (0, 0u8);
+    for y in HEIGHT * 3 / 8..HEIGHT / 2 {
+        for x in WIDTH * 14 / 24..WIDTH * 17 / 24 {
+            if fresh.at(x, y)[0] <= 100 {
+                continue;
+            }
+            n += 1;
+            brightest = brightest.max(fresh.at(x, y)[0]);
+            for c in 0..3 {
+                worst = worst
+                    .max((i32::from(uncovered.at(x, y)[c]) - i32::from(fresh.at(x, y)[c])).abs());
+            }
+        }
+    }
+    // Premise: the far wall fills a good part of the near wall's place, and
+    // is not clipped, which would hide a blend under 255.
+    assert!(
+        n > 200 && brightest < 240,
+        "premise: the far wall, unclipped: {n} pixels, up to {brightest}"
+    );
+    assert!(
+        worst <= 3,
+        "the uncovered wall is its own first frame: off by {worst}"
+    );
+}
+
+/// The spatial filter takes noise out of a single frame: with two rays a
+/// pixel, the first frame's floor beside the red wall is far less noisy
+/// filtered than not, and lit the same.
+#[test]
+fn the_spatial_filter_smooths_a_frame() {
+    let one = |spatial: bool| {
+        let mut h = Harness::new();
+        h.set_ssgi_spatial(spatial);
+        // Dimmer than `RED`: a noisy pixel over 1 clips in the 8-bit frame,
+        // which would bias the unfiltered mean low.
+        let d = floor_and_wall(Vec3::new(0.8, 0.0, 0.0))(&mut h);
+        h.render(&scene(d, few_rays()))
+    };
+    let (raw, filtered) = (one(false), one(true));
+    assert!(
+        noise(&filtered) < 0.6 * noise(&raw),
+        "filtered {} against raw {}",
+        noise(&filtered),
+        noise(&raw)
+    );
+    let (a, b) = (
+        floor_band(&raw, NEAR.0, NEAR.1),
+        floor_band(&filtered, NEAR.0, NEAR.1),
+    );
+    assert!(
+        ((a - b) / a).abs().max_element() < 0.05,
+        "the same light: {a} vs {b}"
+    );
+}
+
+/// A white plate floating over the floor beside the red wall, facing up.
+fn plate(h: &mut Harness) -> u64 {
+    let n = [0.0, 1.0, 0.0];
+    h.mesh(
+        &[
+            vertex([-0.6, 0.6, -5.0], n),
+            vertex([0.4, 0.6, -5.0], n),
+            vertex([0.4, 0.6, -8.0], n),
+            vertex([-0.6, 0.6, -8.0], n),
+        ],
+        &[0, 1, 2, 0, 2, 3],
+    )
+}
+
+/// A moving surface keeps its history: the plate jumps between two places
+/// beside the wall every frame, and its own velocity finds where it was --
+/// so its light settles over the frames as a still surface's does. The two
+/// places do not overlap: reprojected by the camera alone, every frame would
+/// look where the plate no longer is, find the floor's depth there, and
+/// start over, as noisy as the first. (A plate sliding within its own plane
+/// would not show this: the same depth lies under every pixel either way.)
+#[test]
+fn a_moving_surface_keeps_its_history() {
+    let at = |frame: u32| {
+        glam::Mat4::from_translation(Vec3::new(
+            if frame.is_multiple_of(2) { 0.0 } else { -1.3 },
+            0.0,
+            0.0,
+        ))
+    };
+    let mut h = Harness::new();
+    let (f, w, pl) = (floor(&mut h), wall(&mut h), plate(&mut h));
+    let frame_of = |frame: u32| {
+        let mut moving = Draw::new(pl, Vec3::ZERO).colour(Vec3::ONE).roughness(1.0);
+        moving.transform = at(frame);
+        let mut d = vec![
+            Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
+            Draw::new(w, Vec3::ZERO)
+                .colour(Vec3::ZERO)
+                .emissive(Vec3::new(0.8, 0.0, 0.0)),
+        ];
+        d.push(if frame == 0 {
+            moving
+        } else {
+            moving.moved_from(at(frame - 1))
+        });
+        d
+    };
+    let last = 24u32;
+    // The plate's pixels in the last frame, marked by drawing it magenta there.
+    let mask = {
+        let mut m = Harness::new();
+        let pl = plate(&mut m);
+        let mut marker = Draw::new(pl, Vec3::ZERO)
+            .colour(Vec3::ZERO)
+            .emissive(Vec3::new(1.0, 0.0, 1.0));
+        marker.transform = at(last);
+        m.render(&scene(vec![marker], None))
+    };
+    let plate_noise = |p: &Pixels| {
+        let mut sum = 0.0f32;
+        let mut n = 0.0f32;
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH - 1 {
+                let (a, b) = (mask.at(x, y), mask.at(x + 1, y));
+                if a[0] > 200 && a[2] > 200 && b[0] > 200 && b[2] > 200 {
+                    sum += (linear(p.at(x, y)[0]) - linear(p.at(x + 1, y)[0])).abs();
+                    n += 1.0;
+                }
+            }
+        }
+        assert!(n > 50.0, "premise: the plate is in view: {n}");
+        sum / n
+    };
+    let first = {
+        let mut f0 = Harness::new();
+        let (_, _, pl0) = (floor(&mut f0), wall(&mut f0), plate(&mut f0));
+        assert_eq!(pl0, pl, "premise: the same mesh ids");
+        // The last frame's scene, as a first frame: its noise unaccumulated.
+        f0.render_at_frame(&scene(frame_of(last), few_rays()), last)
+    };
+    for frame in 0..last {
+        h.render_at_frame(&scene(frame_of(frame), few_rays()), frame);
+    }
+    let settled = h.render_at_frame(&scene(frame_of(last), few_rays()), last);
+    assert!(
+        plate_noise(&settled) < 0.6 * plate_noise(&first),
+        "the moving plate settles: {} -> {}",
+        plate_noise(&first),
+        plate_noise(&settled)
+    );
+}
+
+/// How far the spatial filter moves the pixels of one surface that lie
+/// within its 5 x 5 reach of another: the mean, per channel, of filtered
+/// minus unfiltered light over them -- signed, so the rays' noise, which the
+/// filter takes out, averages away and what is left is light carried over
+/// from the other side. `draws` builds the scene, `marked` the same scene
+/// with the surface measured glowing green and every other surface blue.
+fn spill(
+    draws: impl Fn(&mut Harness) -> Vec<Draw>,
+    marked: impl Fn(&mut Harness) -> Vec<Draw>,
+) -> (Vec3, u32) {
+    let one = |spatial: bool| {
+        let mut h = Harness::new();
+        h.set_ssgi_spatial(spatial);
+        let d = draws(&mut h);
+        h.render(&scene(d, on()))
+    };
+    let (raw, filtered) = (one(false), one(true));
+    let mask = first_frame(None, &marked);
+    let green = |x: u32, y: u32| {
+        let c = mask.at(x, y);
+        c[1] > 200 && c[2] < 50
+    };
+    let blue = |x: i32, y: i32| {
+        let (x, y) = (
+            x.clamp(0, WIDTH as i32 - 1) as u32,
+            y.clamp(0, HEIGHT as i32 - 1) as u32,
+        );
+        let c = mask.at(x, y);
+        c[2] > 200 && c[1] < 50
+    };
+    let mut sum = Vec3::ZERO;
+    let mut n = 0;
+    for y in 2..HEIGHT - 2 {
+        for x in 2..WIDTH - 2 {
+            if !green(x, y) {
+                continue;
+            }
+            let near = (-2..=2).any(|dy| (-2..=2).any(|dx| blue(x as i32 + dx, y as i32 + dy)));
+            if !near {
+                continue;
+            }
+            let (a, b) = (filtered.at(x, y), raw.at(x, y));
+            sum += Vec3::new(
+                linear(a[0]) - linear(b[0]),
+                linear(a[1]) - linear(b[1]),
+                linear(a[2]) - linear(b[2]),
+            );
+            n += 1;
+        }
+    }
+    (sum / n.max(1) as f32, n)
+}
+
+/// The spatial filter keeps to one surface across a crease: the floor
+/// beside the red wall meets it at the same depth, so only the normals tell
+/// them apart. The wall's rays find the floor's light -- green in it, which
+/// the floor's own rays, finding the wall, do not -- and the floor within the
+/// filter's reach of the wall keeps its own: filtered, it moves by under a
+/// sixth of what it does with the normal weight left out (-0.006 red here,
+/// against -0.039).
+#[test]
+fn the_spatial_filter_keeps_to_one_surface_across_a_crease() {
+    let (moved, n) = spill(
+        |h: &mut Harness| floor_and_wall(Vec3::new(0.8, 0.0, 0.0))(h),
+        |h| {
+            let (f, w) = (floor(h), wall(h));
+            vec![
+                Draw::new(f, Vec3::ZERO)
+                    .colour(Vec3::ZERO)
+                    .emissive(Vec3::new(0.0, 1.0, 0.0)),
+                Draw::new(w, Vec3::ZERO)
+                    .colour(Vec3::ZERO)
+                    .emissive(Vec3::new(0.0, 0.0, 1.0)),
+            ]
+        },
+    );
+    assert!(n > 100, "premise: the floor along the wall is in view: {n}");
+    assert!(
+        moved.abs().max_element() < 0.015,
+        "the floor keeps its own light: {moved}"
+    );
+}
+
+/// The spatial filter keeps to one surface across a step: the plate glows
+/// green over the floor, facing up as the floor does, so only the depth
+/// tells them apart. The floor's rays find the plate's green and the plate's
+/// own rays (up, at the wall and the sky) do not, and the plate within the
+/// filter's reach of the floor keeps its own: filtered, its green moves by
+/// almost nothing (-0.0002 here; +0.05 with the depth weight left out).
+#[test]
+fn the_spatial_filter_keeps_to_one_surface_across_a_step() {
+    let (moved, n) = spill(
+        |h: &mut Harness| {
+            let (f, w, pl) = (floor(h), wall(h), plate(h));
+            vec![
+                Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
+                Draw::new(w, Vec3::ZERO)
+                    .colour(Vec3::ZERO)
+                    .emissive(Vec3::new(0.8, 0.0, 0.0)),
+                Draw::new(pl, Vec3::ZERO)
+                    .colour(Vec3::ONE)
+                    .roughness(1.0)
+                    .emissive(Vec3::new(0.0, 0.5, 0.0)),
+            ]
+        },
+        |h| {
+            let (f, w, pl) = (floor(h), wall(h), plate(h));
+            let blue = Vec3::new(0.0, 0.0, 1.0);
+            vec![
+                Draw::new(f, Vec3::ZERO).colour(Vec3::ZERO).emissive(blue),
+                Draw::new(w, Vec3::ZERO).colour(Vec3::ZERO).emissive(blue),
+                Draw::new(pl, Vec3::ZERO)
+                    .colour(Vec3::ZERO)
+                    .emissive(Vec3::new(0.0, 1.0, 0.0)),
+            ]
+        },
+    );
+    assert!(n > 50, "premise: the plate's rim is in view: {n}");
+    assert!(
+        moved.abs().max_element() < 0.015,
+        "the plate keeps its own light: {moved}"
+    );
+}
+
+/// Switched off and back on, the trace starts over: the history it left
+/// when switched off is of a scene that may have changed since -- here the
+/// wall stops glowing red while the trace is off -- and the depth check
+/// cannot tell, because nothing moved. The first frame back is the black
+/// wall's own first frame, not a blend into the red one's history.
+#[test]
+fn switched_back_on_it_starts_over() {
+    let draws = |f: u64, w: u64, glow: Vec3| {
+        vec![
+            Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
+            Draw::new(w, Vec3::ZERO).colour(Vec3::ZERO).emissive(glow),
+        ]
+    };
+    // Twenty frames of the red wall, then the black one at frame 21 --
+    // `off` frames with the trace switched off in between.
+    let after = |off: u32| {
+        let mut h = Harness::new();
+        let (f, w) = (floor(&mut h), wall(&mut h));
+        for frame in 0..20 {
+            h.render_at_frame(&scene(draws(f, w, RED), on()), frame);
+        }
+        for frame in 20..20 + off {
+            h.render_at_frame(&scene(draws(f, w, Vec3::ZERO), None), frame);
+        }
+        h.render_at_frame(&scene(draws(f, w, Vec3::ZERO), on()), 21)
+    };
+    let fresh = {
+        let mut h = Harness::new();
+        let (f, w) = (floor(&mut h), wall(&mut h));
+        h.render_at_frame(&scene(draws(f, w, Vec3::ZERO), on()), 21)
+    };
+    let worst = |p: &Pixels| {
+        let mut worst = 0i32;
+        for y in HEIGHT / 2..HEIGHT * 3 / 4 {
+            for x in NEAR.0..NEAR.1 {
+                for c in 0..3 {
+                    worst =
+                        worst.max((i32::from(p.at(x, y)[c]) - i32::from(fresh.at(x, y)[c])).abs());
+                }
+            }
+        }
+        worst
+    };
+    // Premise: kept on, the history does carry the red over -- it is what
+    // switching off has to throw away.
+    let kept = worst(&after(0));
+    assert!(kept > 10, "premise: kept on, the red history shows: {kept}");
+    let back = worst(&after(1));
+    assert!(back <= 3, "switched back on, it starts over: off by {back}");
 }

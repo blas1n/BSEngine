@@ -47,6 +47,16 @@ fn scene(mesh: u64, ssr: Option<ScreenSpaceReflections>) -> Scene {
     }
 }
 
+/// `scene` as its second frame: the first leaves the lit scene the
+/// reflections read their hits from, which is the previous frame's -- the
+/// first frame with reflections on has none to read, and reflects nothing.
+/// Every frame with reflections on is measured as a second one, or the
+/// "reflects nothing" tests below would pass on the first frame's emptiness.
+fn settled(h: &mut Harness, scene: &Scene) -> common::Pixels {
+    h.render(scene);
+    h.render(scene)
+}
+
 /// The floor in front of the pillar, where its reflection should appear.
 ///
 /// Computed from the frame rather than written down: the reflection lands
@@ -62,7 +72,10 @@ fn a_mirror_floor_reflects_what_stands_on_it() {
     let cube = h.cube();
 
     let without = h.render(&scene(cube, None));
-    let with = h.render(&scene(cube, Some(ScreenSpaceReflections::default())));
+    let with = settled(
+        &mut h,
+        &scene(cube, Some(ScreenSpaceReflections::default())),
+    );
 
     let y = reflection_row(without.height);
     let x = with.width / 2;
@@ -82,13 +95,16 @@ fn switching_it_off_is_the_same_as_not_having_it() {
     let cube = h.cube();
 
     let absent = h.render(&scene(cube, None));
-    let disabled = h.render(&scene(
-        cube,
-        Some(ScreenSpaceReflections {
-            enabled: false,
-            ..Default::default()
-        }),
-    ));
+    let disabled = settled(
+        &mut h,
+        &scene(
+            cube,
+            Some(ScreenSpaceReflections {
+                enabled: false,
+                ..Default::default()
+            }),
+        ),
+    );
 
     assert!(
         !disabled.differs_from(&absent),
@@ -116,7 +132,7 @@ fn a_rough_floor_does_not_reflect() {
         }
     };
 
-    let with = h.render(&rough);
+    let with = settled(&mut h, &rough);
     let without = h.render(&rough_off);
     assert!(
         with.max_channel_diff(&without) <= 2,
@@ -139,7 +155,7 @@ fn a_reflection_with_nothing_to_hit_adds_nothing() {
     };
 
     let without = h.render(&empty(None));
-    let with = h.render(&empty(Some(ScreenSpaceReflections::default())));
+    let with = settled(&mut h, &empty(Some(ScreenSpaceReflections::default())));
 
     assert!(
         with.max_channel_diff(&without) <= 2,
@@ -169,15 +185,18 @@ fn thickness_decides_whether_passing_behind_something_counts_as_hitting_it() {
         stride: 3.0,
         ..Default::default()
     };
-    let normal = h.render(&scene(cube, Some(coarse)));
-    let swallowed = h.render(&scene(
-        cube,
-        Some(ScreenSpaceReflections {
-            // NDC depth spans 0..1, so this accepts a hit anywhere behind.
-            thickness: 10.0,
-            ..coarse
-        }),
-    ));
+    let normal = settled(&mut h, &scene(cube, Some(coarse)));
+    let swallowed = settled(
+        &mut h,
+        &scene(
+            cube,
+            Some(ScreenSpaceReflections {
+                // NDC depth spans 0..1, so this accepts a hit anywhere behind.
+                thickness: 10.0,
+                ..coarse
+            }),
+        ),
+    );
 
     assert!(
         swallowed.differs_from(&normal),
@@ -195,18 +214,174 @@ fn a_ray_that_runs_out_of_steps_finds_nothing() {
     let cube = h.cube();
 
     let without = h.render(&scene(cube, None));
-    let short = h.render(&scene(
-        cube,
-        Some(ScreenSpaceReflections {
-            steps: 1,
-            stride: 0.01,
-            ..Default::default()
-        }),
-    ));
+    let short = settled(
+        &mut h,
+        &scene(
+            cube,
+            Some(ScreenSpaceReflections {
+                steps: 1,
+                stride: 0.01,
+                ..Default::default()
+            }),
+        ),
+    );
 
     assert!(
         short.max_channel_diff(&without) <= 2,
         "a ray reaching one centimetre cannot have found the pillar: {}",
         short.describe()
+    );
+}
+
+// ---- composed with the environment ------------------------------------------
+
+/// The floor as a metal mirror of `colour`: what it reflects is all it shows,
+/// through its own `F0`.
+fn metal_floor(mesh: u64, colour: Vec3) -> Draw {
+    floor(mesh).colour(colour).metallic(1.0)
+}
+
+/// A pillar glowing `glow`, at `x`.
+fn pillar_at(mesh: u64, x: f32, glow: Vec3) -> Draw {
+    Draw::new(mesh, Vec3::new(x, 1.5, 0.0))
+        .scaled(Vec3::new(1.0, 2.0, 1.0), Vec3::new(x, 1.5, 0.0))
+        .colour(Vec3::ZERO)
+        .emissive(glow)
+}
+
+/// The reflection's pixel: below the pillar, as [`reflection_row`] has it.
+fn reflection_at(p: &common::Pixels) -> [u8; 4] {
+    p.at(p.width / 2, reflection_row(p.height))
+}
+
+/// Where the screen finds what a surface reflects, that replaces the
+/// environment's reflection there -- it does not add to it. A metal mirror
+/// under a blue sky reflects the sky everywhere; in front of the red pillar,
+/// with reflections on, it reflects the pillar instead: red up, and the
+/// sky's blue gone from that pixel. Added on top (as the reflection pass
+/// once was), the blue would stay and the red would come on top of it.
+#[test]
+fn a_reflection_replaces_the_environment_it_found_something_in_front_of() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    h.set_test_skybox([0, 0, 200, 255]);
+    let room = |ssr| Scene {
+        draws: vec![metal_floor(cube, Vec3::ONE), pillar(cube)],
+        with_skybox: true,
+        ..scene(cube, ssr)
+    };
+    let without = reflection_at(&h.render(&room(None)));
+    let with = reflection_at(&settled(
+        &mut h,
+        &room(Some(ScreenSpaceReflections::default())),
+    ));
+    assert!(
+        without[2] > 60,
+        "premise: the mirror reflects the blue sky there: {without:?}"
+    );
+    assert!(
+        with[0] > without[0] + 40,
+        "with reflections, the pillar's red: {without:?} -> {with:?}"
+    );
+    assert!(
+        (with[2] as f32) < 0.5 * without[2] as f32,
+        "and not the sky's blue as well: {without:?} -> {with:?}"
+    );
+}
+
+/// The reflection goes through the surface's own reflectance, as the
+/// environment's does: a gold mirror shows the white pillar gold -- red over
+/// green over blue, as its `F0` (1, 0.8, 0.3) is. Unweighted (as the pass
+/// once added it), white.
+#[test]
+fn a_metal_reflects_what_it_finds_in_its_own_colour() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let gold = Vec3::new(1.0, 0.8, 0.3);
+    let room = Scene {
+        draws: vec![
+            metal_floor(cube, gold),
+            pillar_at(cube, 0.0, Vec3::splat(2.0)),
+        ],
+        ..scene(cube, Some(ScreenSpaceReflections::default()))
+    };
+    let p = reflection_at(&settled(&mut h, &room));
+    assert!(
+        p[0] > 60,
+        "premise: the pillar is reflected, brightly: {p:?}"
+    );
+    assert!(
+        p[0] > p[1] && p[1] > p[2] && (p[2] as f32) < 0.6 * p[0] as f32,
+        "gold, not white: {p:?}"
+    );
+}
+
+/// A hit's light is last frame's: the pillar turns from red to green, and
+/// the frame it turns still reflects it red -- the reflection's colour comes
+/// from the scene of the frame before -- and the next one green.
+#[test]
+fn a_reflection_shows_its_hit_as_it_was_last_frame() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let room = |glow| Scene {
+        draws: vec![metal_floor(cube, Vec3::ONE), pillar_at(cube, 0.0, glow)],
+        ..scene(cube, Some(ScreenSpaceReflections::default()))
+    };
+    let (red, green) = (Vec3::new(3.0, 0.0, 0.0), Vec3::new(0.0, 3.0, 0.0));
+    let before = reflection_at(&settled(&mut h, &room(red)));
+    let turning = reflection_at(&h.render(&room(green)));
+    let after = reflection_at(&h.render(&room(green)));
+    assert!(
+        before[0] > before[1] + 40,
+        "premise: red reflected: {before:?}"
+    );
+    assert!(
+        turning[0] > turning[1] + 40,
+        "the frame it turns green, still red: {turning:?}"
+    );
+    assert!(
+        after[1] > after[0] + 40,
+        "and green the frame after: {after:?}"
+    );
+}
+
+/// A hit is found in last frame's scene where last frame's camera saw it,
+/// not at the pixel it is at now: the camera slides sideways between two
+/// frames, and the reflection of the red and the green pillar side by side
+/// is what two frames from where it stopped show -- the boundary between
+/// them where it is. Read from last frame's scene at this frame's pixels, it
+/// would sit where the camera left it.
+#[test]
+fn a_hit_is_found_where_the_last_frame_saw_it() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let room = |dx: f32| Scene {
+        draws: vec![
+            metal_floor(cube, Vec3::ONE),
+            pillar_at(cube, -0.5, Vec3::new(3.0, 0.0, 0.0)),
+            pillar_at(cube, 0.5, Vec3::new(0.0, 3.0, 0.0)),
+        ],
+        camera_pos: CAMERA + Vec3::new(dx, 0.0, 0.0),
+        look_at: Vec3::new(dx, 0.6, 0.0),
+        ..scene(cube, Some(ScreenSpaceReflections::default()))
+    };
+    // Slid: one frame from 0.4 to the left, then the frame at 0.
+    h.render(&room(-0.4));
+    let slid = h.render(&room(0.0));
+    let still = settled(&mut h, &room(0.0));
+    let y = reflection_row(still.height);
+    let mut worst = 0i32;
+    let mut colour = 0;
+    for x in still.width / 4..still.width * 3 / 4 {
+        let (a, b) = (slid.at(x, y), still.at(x, y));
+        colour = colour.max(b[0].max(b[1]) as i32);
+        for c in 0..3 {
+            worst = worst.max((a[c] as i32 - b[c] as i32).abs());
+        }
+    }
+    assert!(colour > 60, "premise: the pillars are reflected: {colour}");
+    assert!(
+        worst <= 12,
+        "after the slide the reflection is where it is from standing still: off by {worst}"
     );
 }

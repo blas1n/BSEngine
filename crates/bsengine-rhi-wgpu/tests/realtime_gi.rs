@@ -2168,15 +2168,18 @@ fn a_skinned_renderer_is_traced_as_it_is_posed() {
         (at_rest - sky).abs() < 0.01,
         "premise: at rest it is far below, and the sky shows: {at_rest}"
     );
+    // One update: the first after the pose already traces it. (A refit
+    // that made a node's box before its children's would lag a depth an
+    // update, and only catch up over several.)
     s.pose(mesh, &[Mat4::from_translation(-below)]);
-    s.run(&input, 3);
+    s.run(&input, 1);
     let posed = s.irradiance(0, Vec3::NEG_Y).x;
     assert!(
         (posed - 2.0).abs() < 0.05,
         "posed under the probes, it glows below them: {posed}"
     );
     s.pose(mesh, &[Mat4::IDENTITY]);
-    s.run(&input, 3);
+    s.run(&input, 1);
     let back = s.irradiance(0, Vec3::NEG_Y).x;
     assert!(
         (back - sky).abs() < 0.01,

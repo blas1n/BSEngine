@@ -4211,6 +4211,17 @@ impl WgpuSurface {
     /// `cfg(test)` item is compiled only for this crate's own test binary.
     #[doc(hidden)]
     pub fn offscreen_for_testing(width: u32, height: u32) -> Result<Self, String> {
+        Self::offscreen_for_testing_with(width, height, false)
+    }
+
+    /// [`Self::offscreen_for_testing`] with `fast_render` as given -- what the
+    /// pixel tests' harness builds every renderer with, on the one device.
+    #[doc(hidden)]
+    pub fn offscreen_for_testing_with(
+        width: u32,
+        height: u32,
+        fast_render: bool,
+    ) -> Result<Self, String> {
         let (device, queue, timestamp_supported, instancing_supported, msaa_supported) =
             Self::shared_test_device().clone();
         let texture = crate::output::create_offscreen_texture(&device, width, height);
@@ -4223,7 +4234,7 @@ impl WgpuSurface {
                 height,
                 format: crate::output::OFFSCREEN_FORMAT,
             },
-            false,
+            fast_render,
             timestamp_supported,
             instancing_supported,
             msaa_supported,

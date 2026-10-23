@@ -471,10 +471,15 @@ fn the_first_frame_keeps_the_environment() {
 
 /// A transparent surface takes no reflections from the screen: the trace is
 /// of the opaque surface behind it, at its pixel, and is not what the pane
-/// in front reflects. A half-transparent metal pane between the camera and
-/// the red pillar's reflection in the floor shows the floor through it at
-/// half -- half its red -- and a pane taking the floor's reflection for its
-/// own would add the red again on top.
+/// in front reflects. A half-transparent metal pane low in front of the
+/// camera -- over the floor where the red pillar is reflected, clear of the
+/// pillar itself -- shows that reflection through it at half, and a pane
+/// taking the floor's reflection for its own would add the red again.
+///
+/// ⚠️ Clear of the pillar: a pane over the pillar dims the pillar in the
+/// scene the reflections read their hits from, and halves the reflection
+/// with no pane over it at all -- the first version of this test measured
+/// that, and passed with the guard deleted.
 #[test]
 fn a_transparent_surface_takes_no_reflection_from_the_screen() {
     let mut h = Harness::new();
@@ -485,11 +490,10 @@ fn a_transparent_surface_takes_no_reflection_from_the_screen() {
             .metallic(1.0)
             .roughness(0.02)
             .opacity(0.5);
-        // Upright, facing the camera, low in front of it: over the floor
-        // where the pillar is reflected.
-        d.transform = glam::Mat4::from_translation(Vec3::new(0.0, 0.8, 4.0))
+        // Upright, facing the camera, just in front of it and below its eye.
+        d.transform = glam::Mat4::from_translation(Vec3::new(0.0, PANE_Y, PANE_Z))
             * glam::Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2)
-            * glam::Mat4::from_scale(Vec3::new(4.0, 1.0, 2.0));
+            * glam::Mat4::from_scale(Vec3::new(2.0, 1.0, PANE_H));
         d
     };
     let room = |with_pane: bool| {
@@ -505,15 +509,97 @@ fn a_transparent_surface_takes_no_reflection_from_the_screen() {
             ..scene(cube, Some(ScreenSpaceReflections::default()))
         })
     };
-    let bare = reflection_at(&settled(&mut h, &room(false)));
-    let behind = reflection_at(&settled(&mut h, &room(true)));
+    let bare = settled(&mut h, &room(false));
+    let behind = settled(&mut h, &room(true));
+    // The pillar itself, straight ahead at the frame's centre.
+    let pillar = |p: &common::Pixels| linear(p.at(p.width / 2, p.height / 2)[0]);
     assert!(
-        bare.x > 0.1,
-        "premise: the floor reflects the pillar there: {bare}"
+        (pillar(&bare) - pillar(&behind)).abs() < 0.01,
+        "premise: the pane is clear of the pillar: {} -> {}",
+        pillar(&bare),
+        pillar(&behind)
+    );
+    let (bare, behind) = (reflection_at(&bare), reflection_at(&behind));
+    assert!(
+        bare.x > 0.1 && behind.x < 0.9 * bare.x,
+        "premise: the floor reflects the pillar there, and the pane covers it: {bare} -> {behind}"
     );
     assert!(
         behind.x < 0.75 * bare.x,
-        "through the half-transparent pane, about half of it -- not the pane \
-         reflecting it again: {bare} -> {behind}"
+        "through the half-transparent pane, about half of it -- not the pane          reflecting it again: {bare} -> {behind}"
+    );
+}
+
+/// Where the pane of the transparency test stands: low, and near the camera.
+const PANE_Y: f32 = 0.85;
+const PANE_Z: f32 = 5.0;
+const PANE_H: f32 = 0.3;
+
+/// A hit the last frame's camera did not see has no light to bring back, and
+/// leaves the environment's reflection whole: the camera looked at a green
+/// wall far off last frame, so this frame's hits on the pillar fall outside
+/// what it saw, and the mirror under the blue sky shows the sky as it does
+/// with reflections off. Read at the nearest edge of last frame's view, they
+/// would bring back that wall's green.
+#[test]
+fn a_hit_the_last_frame_did_not_see_brings_back_nothing() {
+    let mut h = Harness::new();
+    let (cube, plane) = (h.cube(), h.plane());
+    h.set_test_skybox([0, 0, 160, 255]);
+    let wall = || {
+        Draw::new(cube, Vec3::new(-40.0, 1.0, 0.0))
+            .scaled(Vec3::new(1.0, 30.0, 30.0), Vec3::new(-40.0, 1.0, 0.0))
+            .colour(Vec3::ZERO)
+            .emissive(Vec3::new(0.0, 0.8, 0.0))
+    };
+    let room = |look_at: Vec3, ssr| {
+        plain(Scene {
+            draws: vec![
+                metal_floor(plane, Vec3::ONE),
+                pillar_at(cube, 0.0, Vec3::new(0.8, 0.0, 0.0)),
+                wall(),
+            ],
+            with_skybox: true,
+            look_at,
+            ..scene(cube, ssr)
+        })
+    };
+    let ahead = Vec3::new(0.0, 0.6, 0.0);
+    let without = reflection_at(&h.render(&room(ahead, None)));
+    let on = Some(ScreenSpaceReflections::default());
+    // Last frame at the wall, reflections on (so it is the history); this
+    // frame ahead.
+    h.render(&room(Vec3::new(-40.0, 1.0, 6.0), on));
+    let back = reflection_at(&h.render(&room(ahead, on)));
+    assert!(
+        (back - without).abs().max_element() < 0.02,
+        "no light from a hit last frame did not see: {without} -> {back}"
+    );
+}
+
+/// A hit is traced against this frame's geometry: the pillar jumps aside,
+/// and the frame it jumps the floor where its reflection was shows none --
+/// the rays there pass where it no longer stands. (Its new reflection comes
+/// a frame later: last frame's scene has nothing there to read.) Traced
+/// against last frame's depth, the rays would still find it where it was.
+#[test]
+fn a_hit_is_traced_against_this_frames_geometry() {
+    let mut h = Harness::new();
+    let (cube, plane) = (h.cube(), h.plane());
+    let room = |x: f32| {
+        plain(Scene {
+            draws: vec![
+                metal_floor(plane, Vec3::ONE),
+                pillar_at(cube, x, Vec3::new(0.8, 0.0, 0.0)),
+            ],
+            ..scene(cube, Some(ScreenSpaceReflections::default()))
+        })
+    };
+    let there = reflection_at(&settled(&mut h, &room(0.0)));
+    let gone = reflection_at(&h.render(&room(4.0)));
+    assert!(there.x > 0.1, "premise: reflected where it stood: {there}");
+    assert!(
+        gone.x < 0.25 * there.x,
+        "the frame it moves, no reflection where it was: {there} -> {gone}"
     );
 }

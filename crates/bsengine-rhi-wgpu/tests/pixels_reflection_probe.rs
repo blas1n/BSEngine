@@ -89,6 +89,9 @@ fn probe(center: Vec3, half_extents: Vec3) -> ReflectionProbeParams {
         box_projection: false,
         intensity: 1.0,
         realtime: false,
+        // A hard edge: these tests are about which probe governs a
+        // surface, the blend tests below about how they hand over.
+        blend_distance: 0.0,
     }
 }
 

@@ -24,9 +24,13 @@ pub const MAX_REFLECTION_PROBES: usize = 4;
 /// moving a lamp after load keeps the old reflection; `Realtime` re-captures
 /// it a face a frame.
 ///
-/// Where boxes overlap, the smallest box containing the surface wins.
-/// Unity and Godot can also blend across a margin; this does not, so the
-/// switch between two probes is a hard edge.
+/// Where boxes overlap they blend, the smaller over the larger: inside its
+/// box, within [`ReflectionProbe::blend_distance`] of a face, a probe's
+/// share fades from all of the reflection to none, and what it leaves is the
+/// next larger box's, then the sky's. The shape Unreal's captures have
+/// (sorted by size, each blended over the ones behind it by a transition
+/// distance) and Unity HDRP's and Godot's blend distances, all measured
+/// inward from the box's faces.
 ///
 /// Absent means no probe: surfaces reflect the skybox (or nothing without
 /// one), exactly as before.
@@ -48,6 +52,11 @@ pub struct ReflectionProbe {
     /// Captured once (the default) or kept up to date, a face a frame. See
     /// [`crate::ProbeUpdate`].
     pub update: crate::ProbeUpdate,
+    /// How far in from its box's faces the probe fades out, in world units:
+    /// at a face its share is none, this far inside it is all. 0 is a hard
+    /// edge. 1, as Godot's and Unity HDRP's default blend distance and
+    /// Unreal's default transition distance (100 cm) are.
+    pub blend_distance: f32,
 }
 
 impl Default for ReflectionProbe {
@@ -57,6 +66,7 @@ impl Default for ReflectionProbe {
             box_projection: false,
             intensity: 1.0,
             update: crate::ProbeUpdate::Once,
+            blend_distance: 1.0,
         }
     }
 }

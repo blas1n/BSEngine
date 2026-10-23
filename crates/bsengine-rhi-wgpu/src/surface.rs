@@ -169,6 +169,8 @@ struct ReflectionProbeEntry {
     intensity: f32,
     half_extents: vec3<f32>,
     box_projection: u32,
+    // x the blend distance; the rest padding.
+    blend: vec4<f32>,
 };
 struct ReflectionProbeUniform {
     count: u32,
@@ -422,24 +424,55 @@ fn fresnel_schlick_roughness(cos_theta: f32, f0: vec3<f32>, roughness: f32) -> v
     let inv_rough = vec3<f32>(1.0 - roughness);
     return f0 + (max(inv_rough, f0) - f0) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
 }
-// The reflection probe governing `world_pos`: the smallest box containing it,
-// or -1 for none. Smallest rather than first, so a probe placed inside a room
-// covered by a larger hall probe wins inside the room -- the containment rule
-// Unity's and Godot's importance/priority defaults amount to for nested boxes.
-fn reflection_probe_at(world_pos: vec3<f32>) -> i32 {
-    var best = -1;
-    var best_volume = 3.4e38;
+// Probe `e`'s share at `world_pos`: none outside its box, all of it deeper
+// inside than its blend distance from every face, and in between in
+// proportion -- measured inward, as Unreal's transition distance and Godot's
+// and Unity HDRP's blend distances are. A blend distance of 0 is a hard edge.
+fn reflection_probe_weight(e: ReflectionProbeEntry, world_pos: vec3<f32>) -> f32 {
+    let inside = e.half_extents - abs(world_pos - e.center);
+    if (any(inside < vec3<f32>(0.0))) {
+        return 0.0;
+    }
+    if (e.blend.x <= 0.0) {
+        return 1.0;
+    }
+    return clamp(min(inside.x, min(inside.y, inside.z)) / e.blend.x, 0.0, 1.0);
+}
+
+// The probes whose boxes hold `world_pos`, smallest box first: the order they
+// are blended in, each over the ones behind it -- so a probe placed inside a
+// room covered by a larger hall probe wins inside the room, whatever their
+// order in the list (Unreal sorts its captures by size the same way; Unity's
+// and Godot's importance/priority defaults amount to it for nested boxes).
+struct ProbeOrder {
+    count: u32,
+    index: array<u32, 4>,
+};
+fn reflection_probes_at(world_pos: vec3<f32>) -> ProbeOrder {
+    var order: ProbeOrder;
+    order.count = 0u;
     for (var i = 0u; i < min(reflection_probes.count, 4u); i = i + 1u) {
         let e = reflection_probes.entries[i];
-        if (all(abs(world_pos - e.center) <= e.half_extents)) {
-            let volume = e.half_extents.x * e.half_extents.y * e.half_extents.z;
-            if (volume < best_volume) {
-                best = i32(i);
-                best_volume = volume;
+        if (reflection_probe_weight(e, world_pos) <= 0.0) {
+            continue;
+        }
+        let volume = e.half_extents.x * e.half_extents.y * e.half_extents.z;
+        // Insertion: past every smaller box already placed.
+        var at = order.count;
+        for (var k = 0u; k < order.count; k = k + 1u) {
+            let o = reflection_probes.entries[order.index[k]];
+            if (volume < o.half_extents.x * o.half_extents.y * o.half_extents.z) {
+                at = k;
+                break;
             }
         }
+        for (var k = order.count; k > at; k = k - 1u) {
+            order.index[k] = order.index[k - 1u];
+        }
+        order.index[at] = i;
+        order.count = order.count + 1u;
     }
-    return best;
+    return order;
 }
 
 // The direction to look up in probe `e`'s cube for reflection ray `r` leaving
@@ -631,19 +664,16 @@ fn fs_main(in: VertOut) -> SceneOut {
         let brdf = textureSample(brdf_lut, ibl_sampler, vec2<f32>(n_dot_v, roughness)).rg;
         specular_ibl = prefiltered * (f_ibl * brdf.x + brdf.y);
     }
-    let reflection_probe = reflection_probe_at(in.world_pos);
-    if (reflection_probe >= 0) {
-        // REPLACES the sky's specular, never adds to it: the probe captured
-        // the sky too, wherever it could see it, so adding would reflect the
-        // sky twice. Works without a skybox as well -- the BRDF LUT is built
-        // at startup and always bound, and a probe in a sky-less scene is
-        // exactly where the room's own reflection matters most.
-        let e = reflection_probes.entries[reflection_probe];
-        let dir = reflection_probe_dir(e, in.world_pos, r);
-        let captured = textureSampleLevel(
-            reflection_cubes, ibl_sampler, dir, reflection_probe,
-            roughness * reflection_probes.max_mip
-        ).rgb;
+    let reflection_probes_here = reflection_probes_at(in.world_pos);
+    if (reflection_probes_here.count > 0u) {
+        // REPLACES the sky's specular, never adds to it: a probe captured the
+        // sky too, wherever it could see it, so adding would reflect the sky
+        // twice. Each probe, smallest box first, takes its share of what the
+        // ones before it left; the sky's specular has the rest -- all of it
+        // only outside every box. Works without a skybox as well -- the BRDF
+        // LUT is built at startup and always bound, and a probe in a sky-less
+        // scene is exactly where the room's own reflection matters most.
+        //
         // `textureSampleLevel`, not `textureSample`: this branch depends on
         // the fragment's position, and implicit-derivative sampling is only
         // allowed in uniform control flow. The LUT has one mip, so level 0 is
@@ -651,7 +681,21 @@ fn fs_main(in: VertOut) -> SceneOut {
         let brdf = textureSampleLevel(
             brdf_lut, ibl_sampler, vec2<f32>(n_dot_v, roughness), 0.0
         ).rg;
-        specular_ibl = captured * (f_ibl * brdf.x + brdf.y) * e.intensity;
+        var left = 1.0;
+        var reflected = vec3<f32>(0.0);
+        for (var k = 0u; k < reflection_probes_here.count; k = k + 1u) {
+            let i = reflection_probes_here.index[k];
+            let e = reflection_probes.entries[i];
+            let share = reflection_probe_weight(e, in.world_pos) * left;
+            let dir = reflection_probe_dir(e, in.world_pos, r);
+            let captured = textureSampleLevel(
+                reflection_cubes, ibl_sampler, dir, i32(i),
+                roughness * reflection_probes.max_mip
+            ).rgb;
+            reflected = reflected + captured * (f_ibl * brdf.x + brdf.y) * e.intensity * share;
+            left = left - share;
+        }
+        specular_ibl = reflected + specular_ibl * left;
     }
     if (probes.enabled != 0u && inside_probe_volume(in.world_pos)) {
         // REPLACES the ambient/IBL irradiance, never adds to it. The probes
@@ -2037,6 +2081,9 @@ pub struct ReflectionProbeParams {
     /// again one cube face a frame, and filtered into its slot once all six
     /// are in.
     pub realtime: bool,
+    /// How far in from the box's faces the probe fades out, in world units
+    /// (`bsengine_core::ReflectionProbe::blend_distance`); 0 is a hard edge.
+    pub blend_distance: f32,
 }
 
 /// Where the realtime reflection refresh is: the probe slot being captured
@@ -2053,7 +2100,8 @@ struct ReflectionRefresh {
 /// same prefilter and copied mip for mip into the probe's slot.
 const REFLECTION_FACE_SIZE: u32 = crate::ibl::PREFILTER_CUBE_SIZE;
 
-/// Mirrors the WGSL `ReflectionProbeEntry`: two vec3 + scalar rows, 32 bytes.
+/// Mirrors the WGSL `ReflectionProbeEntry`: two vec3 + scalar rows and the
+/// blend distance's, 48 bytes.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct ReflectionProbeEntryData {
@@ -2061,6 +2109,8 @@ struct ReflectionProbeEntryData {
     intensity: f32,
     half_extents: [f32; 3],
     box_projection: u32,
+    /// `[blend_distance, 0, 0, 0]`.
+    blend: [f32; 4],
 }
 
 /// Mirrors the WGSL `ReflectionProbeUniform`.
@@ -6855,6 +6905,7 @@ impl WgpuSurface {
                 intensity: probe.intensity,
                 half_extents: probe.half_extents.to_array(),
                 box_projection: u32::from(probe.box_projection),
+                blend: [probe.blend_distance, 0.0, 0.0, 0.0],
             };
         }
         data.count = probes.len() as u32;
@@ -11741,6 +11792,7 @@ mod tests {
             box_projection: false,
             intensity: 1.0,
             realtime: false,
+            blend_distance: 0.0,
         }]);
         let faces = scene.read_reflection_slot(0);
 
@@ -11808,6 +11860,7 @@ mod tests {
             box_projection: false,
             intensity: 1.0,
             realtime: false,
+            blend_distance: 0.0,
         }]);
         let faces = scene.read_reflection_slot(0);
         let n = REFLECTION_FACE_SIZE;

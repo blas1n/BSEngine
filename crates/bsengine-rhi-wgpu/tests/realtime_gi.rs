@@ -2132,7 +2132,9 @@ fn bound_to(j: u32) -> bsengine_rhi_wgpu::skinning::GpuVertexSkin {
 /// rest pose's; its triangles, its boxes and its instance's box in the world
 /// follow the pose. Leave out any of the three and the posed floor is
 /// missed: the triangles still far below, or a box that does not reach up
-/// to them, or the instance's box where the floor was read back.
+/// to them, or the instance's box where the floor was read back. Its
+/// triangles are wound against its normals, so a refitted face left
+/// unturned is a back face, black.
 #[test]
 fn a_skinned_renderer_is_traced_as_it_is_posed() {
     let sky = 0.2f32;
@@ -2145,7 +2147,10 @@ fn a_skinned_renderer_is_traced_as_it_is_posed() {
     let mesh = s.add_skinned(
         &vertices,
         &[bound_to(0); 4],
-        &[0, 1, 2, 0, 2, 3],
+        // Wound clockwise from above, against its normals: the refit's
+        // shading normal has to be turned to them, as the tree built on the
+        // CPU turns it, or the probes would meet the floor's back.
+        &[0, 2, 1, 0, 3, 2],
         1,
         Vec3::ZERO,
         Vec3::splat(2.0),

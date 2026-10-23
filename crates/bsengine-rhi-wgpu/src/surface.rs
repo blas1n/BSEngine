@@ -169,6 +169,8 @@ struct ReflectionProbeEntry {
     intensity: f32,
     half_extents: vec3<f32>,
     box_projection: u32,
+    // x the blend distance; the rest padding.
+    blend: vec4<f32>,
 };
 struct ReflectionProbeUniform {
     count: u32,
@@ -422,24 +424,24 @@ fn fresnel_schlick_roughness(cos_theta: f32, f0: vec3<f32>, roughness: f32) -> v
     let inv_rough = vec3<f32>(1.0 - roughness);
     return f0 + (max(inv_rough, f0) - f0) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
 }
-// The reflection probe governing `world_pos`: the smallest box containing it,
-// or -1 for none. Smallest rather than first, so a probe placed inside a room
-// covered by a larger hall probe wins inside the room -- the containment rule
-// Unity's and Godot's importance/priority defaults amount to for nested boxes.
-fn reflection_probe_at(world_pos: vec3<f32>) -> i32 {
-    var best = -1;
-    var best_volume = 3.4e38;
-    for (var i = 0u; i < min(reflection_probes.count, 4u); i = i + 1u) {
-        let e = reflection_probes.entries[i];
-        if (all(abs(world_pos - e.center) <= e.half_extents)) {
-            let volume = e.half_extents.x * e.half_extents.y * e.half_extents.z;
-            if (volume < best_volume) {
-                best = i32(i);
-                best_volume = volume;
-            }
-        }
+// Probe `e`'s share at `world_pos`: none outside its box, all of it deeper
+// inside than its blend distance from every face, and in between in
+// proportion -- measured inward, as Unreal's transition distance and Godot's
+// and Unity HDRP's blend distances are. A blend distance of 0 is a hard edge.
+fn reflection_probe_weight(e: ReflectionProbeEntry, world_pos: vec3<f32>) -> f32 {
+    let inside = e.half_extents - abs(world_pos - e.center);
+    if (any(inside < vec3<f32>(0.0))) {
+        return 0.0;
     }
-    return best;
+    if (e.blend.x <= 0.0) {
+        return 1.0;
+    }
+    return clamp(min(inside.x, min(inside.y, inside.z)) / e.blend.x, 0.0, 1.0);
+}
+
+// Probe `e`'s box's volume: what the blend orders probes by.
+fn reflection_probe_volume(e: ReflectionProbeEntry) -> f32 {
+    return e.half_extents.x * e.half_extents.y * e.half_extents.z;
 }
 
 // The direction to look up in probe `e`'s cube for reflection ray `r` leaving
@@ -631,19 +633,25 @@ fn fs_main(in: VertOut) -> SceneOut {
         let brdf = textureSample(brdf_lut, ibl_sampler, vec2<f32>(n_dot_v, roughness)).rg;
         specular_ibl = prefiltered * (f_ibl * brdf.x + brdf.y);
     }
-    let reflection_probe = reflection_probe_at(in.world_pos);
-    if (reflection_probe >= 0) {
-        // REPLACES the sky's specular, never adds to it: the probe captured
-        // the sky too, wherever it could see it, so adding would reflect the
-        // sky twice. Works without a skybox as well -- the BRDF LUT is built
-        // at startup and always bound, and a probe in a sky-less scene is
-        // exactly where the room's own reflection matters most.
-        let e = reflection_probes.entries[reflection_probe];
-        let dir = reflection_probe_dir(e, in.world_pos, r);
-        let captured = textureSampleLevel(
-            reflection_cubes, ibl_sampler, dir, reflection_probe,
-            roughness * reflection_probes.max_mip
-        ).rgb;
+    if (reflection_probes.count > 0u) {
+        // REPLACES the sky's specular, never adds to it: a probe captured the
+        // sky too, wherever it could see it, so adding would reflect the sky
+        // twice. The probes whose boxes hold the surface blend smallest box
+        // first -- so a probe placed inside a room covered by a larger hall
+        // probe wins inside the room, whatever their order in the list
+        // (Unreal sorts its captures by size the same way; Unity's and
+        // Godot's importance/priority defaults amount to it for nested
+        // boxes) -- each taking its share of what the ones before it left;
+        // the sky's specular has the rest, all of it only outside every box.
+        // Works without a skybox as well -- the BRDF LUT is built at startup
+        // and always bound, and a probe in a sky-less scene is exactly where
+        // the room's own reflection matters most.
+        //
+        // Each turn picks the next box up by volume (ties by slot) rather
+        // than sorting into a local array: FXC cannot unroll a loop that
+        // writes a function-local array at a computed index (X3511), and
+        // D3D12 is what Windows players run.
+        //
         // `textureSampleLevel`, not `textureSample`: this branch depends on
         // the fragment's position, and implicit-derivative sampling is only
         // allowed in uniform control flow. The LUT has one mip, so level 0 is
@@ -651,7 +659,42 @@ fn fs_main(in: VertOut) -> SceneOut {
         let brdf = textureSampleLevel(
             brdf_lut, ibl_sampler, vec2<f32>(n_dot_v, roughness), 0.0
         ).rg;
-        specular_ibl = captured * (f_ibl * brdf.x + brdf.y) * e.intensity;
+        var left = 1.0;
+        var reflected = vec3<f32>(0.0);
+        var last_volume = -1.0;
+        var last = -1;
+        for (var k = 0u; k < 4u; k = k + 1u) {
+            var next = -1;
+            var next_volume = 3.4e38;
+            for (var i = 0u; i < min(reflection_probes.count, 4u); i = i + 1u) {
+                let e = reflection_probes.entries[i];
+                if (reflection_probe_weight(e, in.world_pos) <= 0.0) {
+                    continue;
+                }
+                let v = reflection_probe_volume(e);
+                let after_last = v > last_volume || (v == last_volume && i32(i) > last);
+                let before_next = v < next_volume || (v == next_volume && i32(i) < next);
+                if (after_last && before_next) {
+                    next = i32(i);
+                    next_volume = v;
+                }
+            }
+            if (next < 0) {
+                break;
+            }
+            let e = reflection_probes.entries[next];
+            let share = reflection_probe_weight(e, in.world_pos) * left;
+            let dir = reflection_probe_dir(e, in.world_pos, r);
+            let captured = textureSampleLevel(
+                reflection_cubes, ibl_sampler, dir, next,
+                roughness * reflection_probes.max_mip
+            ).rgb;
+            reflected = reflected + captured * (f_ibl * brdf.x + brdf.y) * e.intensity * share;
+            left = left - share;
+            last_volume = next_volume;
+            last = next;
+        }
+        specular_ibl = reflected + specular_ibl * left;
     }
     if (probes.enabled != 0u && inside_probe_volume(in.world_pos)) {
         // REPLACES the ambient/IBL irradiance, never adds to it. The probes
@@ -2037,6 +2080,9 @@ pub struct ReflectionProbeParams {
     /// again one cube face a frame, and filtered into its slot once all six
     /// are in.
     pub realtime: bool,
+    /// How far in from the box's faces the probe fades out, in world units
+    /// (`bsengine_core::ReflectionProbe::blend_distance`); 0 is a hard edge.
+    pub blend_distance: f32,
 }
 
 /// Where the realtime reflection refresh is: the probe slot being captured
@@ -2053,7 +2099,8 @@ struct ReflectionRefresh {
 /// same prefilter and copied mip for mip into the probe's slot.
 const REFLECTION_FACE_SIZE: u32 = crate::ibl::PREFILTER_CUBE_SIZE;
 
-/// Mirrors the WGSL `ReflectionProbeEntry`: two vec3 + scalar rows, 32 bytes.
+/// Mirrors the WGSL `ReflectionProbeEntry`: two vec3 + scalar rows and the
+/// blend distance's, 48 bytes.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct ReflectionProbeEntryData {
@@ -2061,6 +2108,8 @@ struct ReflectionProbeEntryData {
     intensity: f32,
     half_extents: [f32; 3],
     box_projection: u32,
+    /// `[blend_distance, 0, 0, 0]`.
+    blend: [f32; 4],
 }
 
 /// Mirrors the WGSL `ReflectionProbeUniform`.
@@ -6855,6 +6904,7 @@ impl WgpuSurface {
                 intensity: probe.intensity,
                 half_extents: probe.half_extents.to_array(),
                 box_projection: u32::from(probe.box_projection),
+                blend: [probe.blend_distance, 0.0, 0.0, 0.0],
             };
         }
         data.count = probes.len() as u32;
@@ -11082,13 +11132,15 @@ mod tests {
     /// **replaces** the sky's specular. The capture already saw the sky
     /// wherever the sky was visible, so adding would reflect it twice -- and,
     /// as with the light probes above, the result is merely brighter, which
-    /// no pixel test flags on its own.
+    /// no pixel test flags on its own. With blending the sky keeps only what
+    /// the probes leave (`left`, 0 deep inside a box), never all of itself on
+    /// top of them.
     #[test]
     fn the_scene_shader_replaces_the_sky_specular_inside_a_reflection_probe() {
         assert!(
-            MESH_WGSL
-                .contains("specular_ibl = captured * (f_ibl * brdf.x + brdf.y) * e.intensity;"),
-            "the reflection branch must assign `specular_ibl`"
+            MESH_WGSL.contains("specular_ibl = reflected + specular_ibl * left;"),
+            "the reflection branch must assign `specular_ibl`: the probes' share, \
+             and the sky's only for what they leave"
         );
         for adding in ["specular_ibl +=", "specular_ibl = specular_ibl +"] {
             assert!(
@@ -11741,6 +11793,7 @@ mod tests {
             box_projection: false,
             intensity: 1.0,
             realtime: false,
+            blend_distance: 0.0,
         }]);
         let faces = scene.read_reflection_slot(0);
 
@@ -11808,6 +11861,7 @@ mod tests {
             box_projection: false,
             intensity: 1.0,
             realtime: false,
+            blend_distance: 0.0,
         }]);
         let faces = scene.read_reflection_slot(0);
         let n = REFLECTION_FACE_SIZE;

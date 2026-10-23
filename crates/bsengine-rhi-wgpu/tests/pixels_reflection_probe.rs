@@ -89,6 +89,9 @@ fn probe(center: Vec3, half_extents: Vec3) -> ReflectionProbeParams {
         box_projection: false,
         intensity: 1.0,
         realtime: false,
+        // A hard edge: these tests are about which probe governs a
+        // surface, the blend tests below about how they hand over.
+        blend_distance: 0.0,
     }
 }
 
@@ -448,4 +451,167 @@ fn a_whole_capture_restarts_the_realtime_refresh() {
             "frame {frame}: the left floor must keep reflecting its red ceiling: {px:?}"
         );
     }
+}
+
+// ---- blending ---------------------------------------------------------------
+
+/// An 8-bit sRGB level back to linear light.
+fn linear(c: u8) -> f32 {
+    let c = c as f32 / 255.0;
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// The floor's centre pixel, in linear light, of `scene` rendered without
+/// tone mapping -- so a probe's share of the reflection is that share of the
+/// light, not of a curve -- and without bloom, whose glow from the bright
+/// floor around a pixel falls away as the floor beside it darkens: through a
+/// blend it took a tenth off the probe's share at the pixel.
+fn floor_light(h: &mut Harness, mut scene: Scene) -> Vec3 {
+    scene.tone_map = Some(bsengine_core::ToneMap::new(
+        bsengine_core::ToneMappingMode::None,
+    ));
+    scene.bloom = Some(bsengine_core::Bloom::default().disabled());
+    scene.ssao = Some(bsengine_core::AmbientOcclusion::default().disabled());
+    let p = floor(&h.render(&scene));
+    Vec3::new(linear(p[0]), linear(p[1]), linear(p[2]))
+}
+
+/// A probe at a quarter of its brightness: the white ceiling's reflection,
+/// three times over the panels' radiance at full, would clip unmapped.
+fn dim(p: ReflectionProbeParams) -> ReflectionProbeParams {
+    ReflectionProbeParams {
+        intensity: 0.25,
+        ..p
+    }
+}
+
+/// Inside a smaller box, within its blend distance of a face, the surface
+/// hands over to the larger box around it in proportion: the inner probe
+/// (intensity 0, so its share is black) is all of the reflection deeper in
+/// than its blend distance of 1, and none at its face -- a floor point 0.75
+/// in from the face shows three quarters of it, so a quarter of the outer
+/// probe's light. In either order in the list. The hard edge this replaced
+/// showed the inner probe whole right up to the face: black at every one of
+/// these points.
+#[test]
+fn a_smaller_probe_hands_over_to_the_larger_across_its_blend_distance() {
+    let mut h = Harness::new();
+    let (plane, cube) = (h.plane(), h.cube());
+    let panels = [(-20.0, 20.0, WHITE)];
+    // The floor point at half the inner box's height, so only its x faces
+    // are near; deep inside the outer box everywhere here.
+    let outer = ReflectionProbeParams {
+        blend_distance: 1.0,
+        ..dim(probe(Vec3::new(0.0, 1.5, 0.0), Vec3::new(8.0, 3.0, 8.0)))
+    };
+    let inner = ReflectionProbeParams {
+        intensity: 0.0,
+        blend_distance: 1.0,
+        ..probe(Vec3::ZERO, Vec3::splat(1.5))
+    };
+    let at = |h: &mut Harness, x: f32, probes: Vec<ReflectionProbeParams>| {
+        // An empty list first, so each list is captured afresh (see the top).
+        h.render(&mirror_room(plane, cube, &panels, Vec3::ZERO, Vec::new()));
+        floor_light(
+            h,
+            mirror_room(plane, cube, &panels, Vec3::new(x, 0.0, 0.0), probes),
+        )
+        .x
+    };
+    let alone = at(&mut h, 0.0, vec![outer]);
+    assert!(
+        alone > 0.3 && alone < 0.95,
+        "premise: the outer probe alone lights the floor, unclipped: {alone}"
+    );
+    // (x, the inner probe's share there): 1.5 - |x| in from its face.
+    for (x, inner_share) in [
+        (0.0, 1.0),
+        (0.75, 0.75),
+        (1.0, 0.5),
+        (1.25, 0.25),
+        (1.6, 0.0),
+    ] {
+        for (what, probes) in [
+            ("inner first", vec![inner, outer]),
+            ("outer first", vec![outer, inner]),
+        ] {
+            let seen = at(&mut h, x, probes) / alone;
+            assert!(
+                (seen - (1.0 - inner_share)).abs() < 0.06,
+                "{what}, x = {x}: the outer probe's share should be {}, it is {seen}",
+                1.0 - inner_share
+            );
+        }
+    }
+}
+
+/// At its own faces a probe hands over to the sky, as it would to a larger
+/// box: halfway through its blend distance the floor reflects half the
+/// probe's capture (the white ceiling, in every channel) and half the sky's
+/// specular (blue, in blue alone). Faded to nothing instead, the blue would
+/// be half the probe's and none of the sky's.
+#[test]
+fn a_probe_hands_over_to_the_sky_at_its_own_faces() {
+    let mut h = Harness::new();
+    let (plane, cube) = (h.plane(), h.cube());
+    h.set_test_skybox([0, 0, 128, 255]);
+    let panels = [(-20.0, 20.0, WHITE)];
+    let p = ReflectionProbeParams {
+        blend_distance: 1.0,
+        ..dim(probe(Vec3::new(0.0, 1.5, 0.0), Vec3::new(2.0, 3.0, 8.0)))
+    };
+    let mut at = |x: f32| {
+        h.render(&mirror_room(plane, cube, &panels, Vec3::ZERO, Vec::new()));
+        floor_light(
+            &mut h,
+            mirror_room(plane, cube, &panels, Vec3::new(x, 0.0, 0.0), vec![p]),
+        )
+    };
+    let (inside, halfway, outside) = (at(0.0), at(1.5), at(2.5));
+    assert!(
+        inside.x > 0.3 && outside.z > 0.05 && outside.x < 0.02,
+        "premise: inside, the white capture; outside, the blue sky alone: {inside} / {outside}"
+    );
+    assert!(
+        (halfway.x / inside.x - 0.5).abs() < 0.06,
+        "halfway, half the capture: {halfway} against {inside}"
+    );
+    let want = 0.5 * inside.z + 0.5 * outside.z;
+    assert!(
+        (halfway.z - want).abs() < 0.06 * want,
+        "and half the sky: blue {} where half of each is {want}",
+        halfway.z
+    );
+}
+
+/// A blend distance of 0 is the hard edge: the inner probe (black) whole
+/// right up to its face -- 0.1 in, the floor still black.
+#[test]
+fn a_blend_distance_of_zero_is_a_hard_edge() {
+    let mut h = Harness::new();
+    let (plane, cube) = (h.plane(), h.cube());
+    let panels = [(-20.0, 20.0, WHITE)];
+    let outer = dim(probe(Vec3::new(0.0, 1.5, 0.0), Vec3::new(8.0, 3.0, 8.0)));
+    let inner = ReflectionProbeParams {
+        intensity: 0.0,
+        ..probe(Vec3::ZERO, Vec3::splat(1.5))
+    };
+    let near_face = floor_light(
+        &mut h,
+        mirror_room(
+            plane,
+            cube,
+            &panels,
+            Vec3::new(1.4, 0.0, 0.0),
+            vec![outer, inner],
+        ),
+    );
+    assert!(
+        near_face.max_element() < 0.01,
+        "0.1 inside a hard-edged black probe, black: {near_face}"
+    );
 }

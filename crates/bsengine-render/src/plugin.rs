@@ -1023,6 +1023,8 @@ fn render_frame(
                         box_projection: probe.box_projection,
                         intensity: probe.intensity,
                         realtime: probe.update == bsengine_core::ProbeUpdate::Realtime,
+                        // Negative is no distance at all: a hard edge.
+                        blend_distance: probe.blend_distance.max(0.0),
                     },
                 )
             })
@@ -3519,6 +3521,7 @@ mod tests {
                     box_projection: true,
                     intensity: 0.5,
                     update: bsengine_core::ProbeUpdate::Realtime,
+                    blend_distance: 0.25,
                 },
                 Transform::from_position(Vec3::new(1.0, 2.0, 3.0)),
             ))
@@ -3548,6 +3551,7 @@ mod tests {
         assert_eq!(probes[0].half_extents, Vec3::new(1.0, 2.0, 3.0));
         assert!(probes[0].box_projection);
         assert_eq!(probes[0].intensity, 0.5);
+        assert_eq!(probes[0].blend_distance, 0.25);
         assert!(
             probes[0].realtime && !probes[1].realtime,
             "the refresh mode reaches the surface: realtime for the first, once for the second"

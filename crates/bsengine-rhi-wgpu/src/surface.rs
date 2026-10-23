@@ -180,6 +180,12 @@ fn decal_colour(p: vec2<i32>) -> vec4<f32> {
 fn decal_normal(p: vec2<i32>) -> vec4<f32> {
     return textureLoad(decal_buffers, p, 1, 0);
 }
+// This frame's screen-space reflections, traced before this pass from the
+// prepass's depth and normals and last frame's lit scene
+// (`post_process::trace_ssr`): premultiplied light in rgb, in alpha the share
+// of the specular environment the screen found. Zero where it found nothing,
+// and everywhere when the camera has none. Read at the fragment's own pixel.
+@group(2) @binding(11) var ssr_tex: texture_2d<f32>;
 // Reflection probes: each a captured, prefiltered cubemap (six layers of
 // `reflection_cubes` per probe, mips by roughness exactly like
 // `prefilter_cube`) and the box it governs. Bound every frame; `count` 0
@@ -504,6 +510,21 @@ struct SceneOut {
     @location(4) gi_albedo: vec2<f32>,
 };
 
+// The reflections' prepass: the normal and roughness `fs_main` shades with,
+// but for the decals (whose own pass runs on this prepass's depth, so has
+// not run yet) -- what the screen-space reflections are traced from, before
+// this frame's opaque pass has written its own normals.
+@fragment
+fn fs_ssr_normal(in: VertOut) -> @location(0) vec4<f32> {
+    var n = normalize(in.world_normal);
+    if (model_data.normal_scale != 0.0) {
+        n = normal_mapped(n, in.world_tangent, in.uv, model_data.normal_scale);
+    }
+    let orm = textureSample(t_orm, s_orm, in.uv).rgb;
+    let roughness = max(model_data.roughness * orm.g, 0.04);
+    return vec4<f32>(n, roughness);
+}
+
 @fragment
 fn fs_main(in: VertOut) -> SceneOut {
     var geom_n = normalize(in.world_normal);
@@ -715,6 +736,24 @@ fn fs_main(in: VertOut) -> SceneOut {
             last = next;
         }
         specular_ibl = reflected + specular_ibl * left;
+    }
+    // Screen-space reflections first, then the probes, then the sky -- HDRP's
+    // order: where the screen found what this surface reflects, that is its
+    // specular environment, in place of the probes' and the sky's, never on
+    // top of them (which would reflect the room twice); what it did not find
+    // keeps theirs. Through the same `F * brdf` the probes go through, so a
+    // gold mirror reflects gold. Only an opaque draw's: the trace is of the
+    // opaque surface at this pixel, and a transparent one in front of it is
+    // not that surface (`opacity < 1` is how `render_frame` splits them).
+    if (model_data.opacity >= 1.0) {
+        let ssr = textureLoad(ssr_tex, vec2<i32>(in.clip_pos.xy), 0);
+        if (ssr.a > 0.0) {
+            let ssr_brdf = textureSampleLevel(
+                brdf_lut, ibl_sampler, vec2<f32>(n_dot_v, roughness), 0.0
+            ).rg;
+            specular_ibl = ssr.rgb * (f_ibl * ssr_brdf.x + ssr_brdf.y)
+                + specular_ibl * (1.0 - ssr.a);
+        }
     }
     if (probes.enabled != 0u && inside_probe_volume(in.world_pos)) {
         // REPLACES the ambient/IBL irradiance, never adds to it. The probes
@@ -2863,6 +2902,9 @@ struct LightBindings<'a> {
     /// This frame's decal buffers, colour and normal as one array. Always
     /// present; cleared to "no decals" when the scene has none.
     decal_view: &'a wgpu::TextureView,
+    /// This frame's screen-space reflections. Always present; cleared to
+    /// "nothing reflected" when the camera has none.
+    ssr_view: &'a wgpu::TextureView,
     /// The reflection probes' boxes. Always present; `count` is 0 when none
     /// has been captured.
     reflection_probe_buffer: &'a wgpu::Buffer,
@@ -2935,6 +2977,10 @@ fn create_light_bind_group(
         wgpu::BindGroupEntry {
             binding: 10,
             resource: wgpu::BindingResource::TextureView(bindings.decal_view),
+        },
+        wgpu::BindGroupEntry {
+            binding: 11,
+            resource: wgpu::BindingResource::TextureView(bindings.ssr_view),
         },
         wgpu::BindGroupEntry {
             binding: 12,
@@ -3111,6 +3157,20 @@ fn light_bgl_entries() -> Vec<wgpu::BindGroupLayoutEntry> {
             ty: wgpu::BindingType::Texture {
                 sample_type: wgpu::TextureSampleType::Float { filterable: true },
                 view_dimension: wgpu::TextureViewDimension::D2Array,
+                multisampled: false,
+            },
+            count: None,
+        },
+        // 11 is the screen-space reflections, traced before the opaque pass
+        // and read at each fragment's own pixel: the share of its specular
+        // environment the screen found, which it takes in place of the
+        // probes' and the sky's (`post_process::trace_ssr`).
+        wgpu::BindGroupLayoutEntry {
+            binding: 11,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2,
                 multisampled: false,
             },
             count: None,
@@ -3354,6 +3414,12 @@ pub struct WgpuSurface {
     /// a separate vertex shader could drift from it and the decals would then
     /// project onto geometry that is not quite where it gets drawn.
     depth_prepass_pipeline: wgpu::RenderPipeline,
+    /// The reflections' prepass: on the depth prepass's depth (`LessEqual`,
+    /// not written), the opaque meshes' normals and roughness into
+    /// `post_process.ssr_normal_view`. The same `vs_main`, so the same depth.
+    ssr_normal_pipeline: wgpu::RenderPipeline,
+    /// Group 2 of [`Self::ssr_normal_pipeline`]: nothing.
+    empty_bind_group: wgpu::BindGroup,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     model_buffer: wgpu::Buffer,
@@ -5043,6 +5109,9 @@ impl WgpuSurface {
             brdf_lut_view: &brdf_lut_view,
             probe_buffer: &probe_buffer,
             decal_view: &decals.array_view,
+            // A stand-in until the post pass that owns the reflections exists:
+            // the group is built again, with them, the moment it does.
+            ssr_view: &brdf_lut_view,
             reflection_probe_buffer: &reflection_probe_buffer,
             reflection_cubes_view: &reflection_cubes_view,
             rect_light_buffer: &rect_light_buffer,
@@ -5522,6 +5591,69 @@ impl WgpuSurface {
                 cache: None,
             });
 
+        // The reflections' prepass. Groups 0, 1 and 3 as the mesh pipeline
+        // has them -- `fs_ssr_normal` reads the model's factors and the
+        // material's normal and ORM maps -- and an empty group 2: it lights
+        // nothing, and the lighting group holds the very reflections this
+        // prepass is the first step of.
+        let empty_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("empty bgl"),
+            entries: &[],
+        });
+        let ssr_normal_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("ssr normal pipeline layout"),
+            bind_group_layouts: &[
+                &camera_bgl,
+                &model_bgl,
+                &empty_bgl,
+                material_textures.layout(),
+            ],
+            push_constant_ranges: &[],
+        });
+        let ssr_normal_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("ssr normal pipeline"),
+            layout: Some(&ssr_normal_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_main",
+                buffers: std::slice::from_ref(&vertex_buffer_layout),
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_ssr_normal",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: crate::post_process::NORMAL_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: Some(wgpu::Face::Back),
+                front_face: wgpu::FrontFace::Ccw,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                // On the depth prepass's depth, unwritten: the nearest surface
+                // at each pixel is the one whose normal is kept.
+                depth_write_enabled: false,
+                depth_compare: wgpu::CompareFunction::LessEqual,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+        let empty_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("empty bg"),
+            layout: &empty_bgl,
+            entries: &[],
+        });
+
         let pipeline_desc = wgpu::RenderPipelineDescriptor {
             label: Some("mesh pipeline"),
             layout: Some(&pipeline_layout),
@@ -5782,7 +5914,7 @@ impl WgpuSurface {
             },
         );
 
-        Ok(Self {
+        let mut surface = Self {
             output,
             device,
             queue,
@@ -5797,6 +5929,8 @@ impl WgpuSurface {
             depth_view,
             decals,
             depth_prepass_pipeline,
+            ssr_normal_pipeline,
+            empty_bind_group,
             camera_buffer,
             camera_bind_group,
             model_buffer,
@@ -5919,7 +6053,10 @@ impl WgpuSurface {
                     crate::profiler::FRAME_STATS_HISTORY_CAPACITY,
                 ),
             )),
-        })
+        };
+        // With the reflections bound in place of the stand-in above.
+        surface.rebuild_light_bind_group();
+        Ok(surface)
     }
 
     fn create_depth_texture(
@@ -6315,6 +6452,7 @@ impl WgpuSurface {
             brdf_lut_view: &self.brdf_lut_view,
             probe_buffer: &self.probe_buffer,
             decal_view: &self.decals.array_view,
+            ssr_view: &self.post_process.ssr_view,
             reflection_probe_buffer: &self.reflection_probe_buffer,
             reflection_cubes_view: &self.reflection_cubes_view,
             rect_light_buffer: &self.rect_light_buffer,
@@ -8000,6 +8138,8 @@ impl WgpuSurface {
                         ssr_settings.thickness,
                         ssr_intensity,
                     ],
+                    prev_view_proj: self.prev_unjittered_view_proj.to_cols_array_2d(),
+                    misc: [0.0; 4],
                 },
             );
             // Screen-space GI's trace, through the same unjittered matrices
@@ -8591,7 +8731,10 @@ impl WgpuSurface {
                 tex_registry,
             )
         };
-        if decal_count > 0 {
+        // The reflections trace from this frame's depth and normals before
+        // the opaque pass reads them, so they need the prepass too.
+        let ssr_on = self.post_process.ssr_enabled() && !self.fast_render;
+        if decal_count > 0 || ssr_on {
             {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("depth prepass"),
@@ -8644,6 +8787,54 @@ impl WgpuSurface {
                     pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                     pass.draw_indexed(0..mesh.index_count, 0, 0..1);
                 }
+            }
+        }
+        if ssr_on {
+            // The opaque meshes' normals and roughness on that depth, for the
+            // trace. Terrain and custom-shaded draws are left at the clear --
+            // no surface, no reflection -- as the trace treats a pixel with
+            // no normal.
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("ssr normal prepass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.post_process.ssr_normal_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            pass.set_pipeline(&self.ssr_normal_pipeline);
+            pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            pass.set_bind_group(2, &self.empty_bind_group, &[]);
+            for &i in &opaque {
+                let (mesh_id, _, tex_id, mat, custom_path) = &draw_calls[i];
+                if custom_path.is_some() {
+                    continue;
+                }
+                let Some(mesh) = registry.get(*mesh_id) else {
+                    continue;
+                };
+                let tex_bg = self
+                    .material_textures
+                    .group(material_texture_ids(*tex_id, mat), tex_registry);
+                let offset = (i as u64 * MODEL_STRIDE) as u32;
+                pass.set_bind_group(1, &self.model_bind_group, &[offset]);
+                pass.set_bind_group(3, tex_bg, &[]);
+                pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..mesh.index_count, 0, 0..1);
             }
         }
         {
@@ -8707,6 +8898,9 @@ impl WgpuSurface {
                     .draw(&mut pass, &self.camera_bind_group, decal_count);
             }
         }
+        // This frame's reflections, for the opaque pass to read -- or cleared
+        // to none, which it reads just the same.
+        frame_draw_calls += self.post_process.trace_ssr(&mut encoder, self.fast_render);
 
         // --- MSAA: the targets and pipelines the geometry passes use ---
         //

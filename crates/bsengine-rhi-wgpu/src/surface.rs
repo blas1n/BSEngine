@@ -7003,6 +7003,10 @@ impl WgpuSurface {
     /// `None` for none. Kept until changed, as the component is.
     pub fn set_ssgi(&mut self, ssgi: Option<bsengine_core::ScreenSpaceGlobalIllumination>) {
         self.ssgi = ssgi;
+        if let Some(s) = ssgi {
+            self.post_process
+                .set_ssgi_full_resolution(&self.device, s.full_resolution);
+        }
     }
 
     /// Switches screen-space GI's spatial filter, for the test that
@@ -7010,6 +7014,12 @@ impl WgpuSurface {
     #[doc(hidden)]
     pub fn set_ssgi_spatial_for_testing(&mut self, on: bool) {
         self.post_process.set_ssgi_spatial_for_testing(on);
+    }
+
+    /// The size screen-space GI traces at, for the tests that measure it.
+    #[doc(hidden)]
+    pub fn ssgi_trace_size(&self) -> (u32, u32) {
+        self.post_process.ssgi_trace_size()
     }
 
     /// What [`Self::set_ssgi`] last set, for the plugin's tests.

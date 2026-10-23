@@ -1130,7 +1130,8 @@ struct SsgiCamera {
     // x rays, y steps, z stride in world units, w thickness in NDC depth.
     params: vec4<f32>,
     // x intensity, y the history's blend, z whether the history holds a
-    // previous frame (the temporal pass's).
+    // previous frame (the temporal pass's), w the trace's scale: 1 at full
+    // resolution, 2 at half.
     params2: vec4<f32>,
     prev_view_proj: mat4x4<f32>,
 };
@@ -1166,6 +1167,19 @@ fn project(p: vec3<f32>) -> vec3<f32> {
     return vec3<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5, ndc.z);
 }
 
+// The full-resolution pixel a trace pixel stands for: itself at full
+// resolution; at half, the first of its 2 x 2 block. The same one every
+// frame: a sample turning through the block would, on an edge, land on one
+// surface and then the other, and the history -- thrown away whenever the
+// depth it recorded is another surface's -- would start over every frame
+// there. The composite brings the light back up to the other three by depth.
+fn sample_coord(h: vec2<i32>, full: vec2<i32>) -> vec2<i32> {
+    if cam.params2.w < 1.5 {
+        return h;
+    }
+    return min(h * 2, full - vec2<i32>(1));
+}
+
 fn pcg(v: u32) -> u32 {
     let state = v * 747796405u + 2891336453u;
     let word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
@@ -1187,9 +1201,10 @@ fn cosine_direction(n: vec3<f32>, u1: f32, u2: f32) -> vec3<f32> {
 
 @fragment
 fn fs_ssgi(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
-    let dims = vec2<f32>(textureDimensions(depth_tex, 0));
-    let uv = frag.xy / dims;
-    let coord = vec2<i32>(frag.xy);
+    let full = vec2<i32>(textureDimensions(depth_tex, 0));
+    let dims = vec2<f32>(full);
+    let coord = sample_coord(vec2<i32>(frag.xy), full);
+    let uv = (vec2<f32>(coord) + vec2<f32>(0.5)) / dims;
     let depth = textureLoad(depth_tex, coord, 0);
     let nr = textureSampleLevel(normal_tex, normal_samp, uv, 0.0);
     // Nothing opaque here (the normal buffer clears to zero): no surface to
@@ -1255,13 +1270,34 @@ fn fs_ssgi(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
 /// found something for: `reflectance * E_traced - share * indirect`, added
 /// to the scene. Signed, which the HDR target holds: where the trace saw a
 /// darker world than the probes did, the surface darkens.
+///
+/// At half resolution the traced light is brought up to each pixel from the
+/// four trace pixels around it, bilinearly, each weighted as well by how
+/// close its view depth (the history's, this frame's sample) is to this
+/// pixel's -- a joint bilateral upsample, as Unity HDRP's and Unreal's
+/// half-resolution screen traces are brought back -- so the light of a
+/// surface does not spread onto the one in front of or behind it. Where
+/// none of the four is near -- a thing thinner than a trace pixel, which
+/// every trace sample went past -- nothing is replaced: it keeps the light
+/// it had, rather than the light of what stands behind it.
 const SSGI_COMPOSITE_WGSL: &str = r#"
+struct SsgiCamera {
+    view: mat4x4<f32>,
+    proj: mat4x4<f32>,
+    inv_view_proj: mat4x4<f32>,
+    cam_pos: vec4<f32>,
+    params: vec4<f32>,
+    params2: vec4<f32>,
+    prev_view_proj: mat4x4<f32>,
+};
 @group(0) @binding(0) var ssgi_tex: texture_2d<f32>;
 @group(0) @binding(1) var ssgi_samp: sampler;
 @group(1) @binding(0) var indirect_tex: texture_2d<f32>;
-@group(1) @binding(1) var indirect_samp: sampler;
-@group(2) @binding(0) var albedo_tex: texture_2d<f32>;
-@group(2) @binding(1) var albedo_samp: sampler;
+@group(1) @binding(1) var albedo_tex: texture_2d<f32>;
+@group(1) @binding(2) var trace_depth_tex: texture_2d<f32>;
+@group(1) @binding(3) var inputs_samp: sampler;
+@group(2) @binding(0) var depth_tex: texture_depth_2d;
+@group(3) @binding(0) var<uniform> cam: SsgiCamera;
 
 @vertex
 fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
@@ -1273,10 +1309,59 @@ fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32>
     return vec4<f32>(p[vi], 0.0, 1.0);
 }
 
+fn view_depth(coord: vec2<i32>, depth: f32, dims: vec2<f32>) -> f32 {
+    let uv = (vec2<f32>(coord) + vec2<f32>(0.5)) / dims;
+    let ndc = vec4<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth, 1.0);
+    let w = cam.inv_view_proj * ndc;
+    return (cam.proj * cam.view * vec4<f32>(w.xyz / w.w, 1.0)).w;
+}
+
+fn traced_at(coord: vec2<i32>) -> vec4<f32> {
+    if cam.params2.w < 1.5 {
+        return textureLoad(ssgi_tex, coord, 0);
+    }
+    let depth = textureLoad(depth_tex, coord, 0);
+    if depth >= 1.0 {
+        return vec4<f32>(0.0);
+    }
+    let dims = vec2<f32>(textureDimensions(depth_tex, 0));
+    let w0 = view_depth(coord, depth, dims);
+    let size = vec2<i32>(textureDimensions(ssgi_tex, 0));
+    // This pixel among the trace pixels, which stand at the first pixel of
+    // each block: a traced pixel is its own trace exactly (t = 0), the
+    // others between the traces around them.
+    let f = vec2<f32>(coord) / cam.params2.w;
+    let base = vec2<i32>(floor(f));
+    let t = f - floor(f);
+    var sum = vec4<f32>(0.0);
+    var weight = 0.0;
+    for (var dy = 0; dy <= 1; dy++) {
+        for (var dx = 0; dx <= 1; dx++) {
+            let q = clamp(base + vec2<i32>(dx, dy), vec2<i32>(0), size - vec2<i32>(1));
+            let dq = textureLoad(trace_depth_tex, q, 0).r;
+            // Background in the trace: nothing there to bring up.
+            if dq <= 0.0 {
+                continue;
+            }
+            let l = textureLoad(ssgi_tex, q, 0);
+            let bx = select(1.0 - t.x, t.x, dx == 1);
+            let by = select(1.0 - t.y, t.y, dy == 1);
+            let diff = abs(dq - w0);
+            let w = bx * by * exp(-diff / (0.02 * w0));
+            sum += l * w;
+            weight += w;
+        }
+    }
+    if weight > 1e-4 {
+        return sum / weight;
+    }
+    return vec4<f32>(0.0);
+}
+
 @fragment
 fn fs_composite(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     let coord = vec2<i32>(frag.xy);
-    let traced = textureLoad(ssgi_tex, coord, 0);
+    let traced = traced_at(coord);
     let indirect = textureLoad(indirect_tex, coord, 0);
     let gb = textureLoad(albedo_tex, coord, 0).xy;
     // The reflectance's red rides in the indirect target's alpha
@@ -1301,7 +1386,7 @@ struct SsgiCamera {
     cam_pos: vec4<f32>,
     params: vec4<f32>,
     // x intensity, y the history's blend (the share of this frame), z 1 when
-    // the history holds a previous frame.
+    // the history holds a previous frame, w the trace's scale.
     params2: vec4<f32>,
     prev_view_proj: mat4x4<f32>,
 };
@@ -1319,6 +1404,19 @@ struct TemporalOut {
     @location(1) depth: vec4<f32>,
 };
 
+// The full-resolution pixel a trace pixel stands for: itself at full
+// resolution; at half, the first of its 2 x 2 block. The same one every
+// frame: a sample turning through the block would, on an edge, land on one
+// surface and then the other, and the history -- thrown away whenever the
+// depth it recorded is another surface's -- would start over every frame
+// there. The composite brings the light back up to the other three by depth.
+fn sample_coord(h: vec2<i32>, full: vec2<i32>) -> vec2<i32> {
+    if cam.params2.w < 1.5 {
+        return h;
+    }
+    return min(h * 2, full - vec2<i32>(1));
+}
+
 @vertex
 fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
     var p = array<vec2<f32>, 3>(
@@ -1331,10 +1429,13 @@ fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32>
 
 @fragment
 fn fs_temporal(@builtin(position) frag: vec4<f32>) -> TemporalOut {
-    let coord = vec2<i32>(frag.xy);
-    let dims = vec2<f32>(textureDimensions(depth_tex, 0));
-    let uv = frag.xy / dims;
-    let current = textureLoad(current_tex, coord, 0);
+    let full = vec2<i32>(textureDimensions(depth_tex, 0));
+    let dims = vec2<f32>(full);
+    // This trace pixel's own value, and the full-resolution pixel it was
+    // traced from this frame: its depth, its velocity, its place.
+    let current = textureLoad(current_tex, vec2<i32>(frag.xy), 0);
+    let coord = sample_coord(vec2<i32>(frag.xy), full);
+    let uv = (vec2<f32>(coord) + vec2<f32>(0.5)) / dims;
     let depth = textureLoad(depth_tex, coord, 0);
     var out: TemporalOut;
     out.light = current;
@@ -1364,14 +1465,24 @@ fn fs_temporal(@builtin(position) frag: vec4<f32>) -> TemporalOut {
     if any(prev_uv < vec2<f32>(0.0)) || any(prev_uv > vec2<f32>(1.0)) {
         return out;
     }
-    let recorded = textureSampleLevel(history_depth_tex, history_samp, prev_uv, 0.0).r;
+    // Where that is among the history's own pixels, whose samples stand at
+    // the first screen pixel of each block (`sample_coord`): at half
+    // resolution, screen position `p` is trace position `(p - 0.5) / 2 + 0.5`.
+    // ⚠️ Not `prev_uv` itself: that puts each trace pixel's own sample a
+    // quarter of a pixel off its centre, and the filtered read then mixes in
+    // a quarter of the neighbour's -- across an edge, the other surface's
+    // light, blended into this one's history frame after frame.
+    let scale = max(cam.params2.w, 1.0);
+    let history_size = vec2<f32>(textureDimensions(history_tex, 0));
+    let history_uv = ((prev_uv * dims - vec2<f32>(0.5)) / scale + vec2<f32>(0.5)) / history_size;
+    let recorded = textureSampleLevel(history_depth_tex, history_samp, history_uv, 0.0).r;
     // The same surface last frame stood where the previous camera saw it at
     // `prev_clip.w`; a history that recorded something else there is
     // another surface's -- the one this pixel's surface was hidden behind.
     if recorded <= 0.0 || abs(recorded - prev_clip.w) > 0.05 * prev_clip.w {
         return out;
     }
-    let history = textureSampleLevel(history_tex, history_samp, prev_uv, 0.0);
+    let history = textureSampleLevel(history_tex, history_samp, history_uv, 0.0);
     out.light = mix(history, current, cam.params2.y);
     return out;
 }
@@ -1409,6 +1520,19 @@ fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32>
     return vec4<f32>(p[vi], 0.0, 1.0);
 }
 
+// The full-resolution pixel a trace pixel stands for: itself at full
+// resolution; at half, the first of its 2 x 2 block. The same one every
+// frame: a sample turning through the block would, on an edge, land on one
+// surface and then the other, and the history -- thrown away whenever the
+// depth it recorded is another surface's -- would start over every frame
+// there. The composite brings the light back up to the other three by depth.
+fn sample_coord(h: vec2<i32>, full: vec2<i32>) -> vec2<i32> {
+    if cam.params2.w < 1.5 {
+        return h;
+    }
+    return min(h * 2, full - vec2<i32>(1));
+}
+
 fn view_depth(coord: vec2<i32>, dims: vec2<f32>) -> f32 {
     let depth = textureLoad(depth_tex, coord, 0);
     let uv = (vec2<f32>(coord) + vec2<f32>(0.5)) / dims;
@@ -1419,24 +1543,29 @@ fn view_depth(coord: vec2<i32>, dims: vec2<f32>) -> f32 {
 
 @fragment
 fn fs_spatial(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
+    // Neighbours among the trace's pixels; their depths and normals at the
+    // full-resolution pixels they were traced from.
     let coord = vec2<i32>(frag.xy);
-    let size = vec2<i32>(textureDimensions(depth_tex, 0));
-    let dims = vec2<f32>(size);
-    if textureLoad(depth_tex, coord, 0) >= 1.0 {
+    let size = vec2<i32>(textureDimensions(light_tex, 0));
+    let full = vec2<i32>(textureDimensions(depth_tex, 0));
+    let dims = vec2<f32>(full);
+    let c0 = sample_coord(coord, full);
+    if textureLoad(depth_tex, c0, 0) >= 1.0 {
         return vec4<f32>(0.0);
     }
-    let d0 = view_depth(coord, dims);
-    let n0 = textureLoad(normal_tex, coord, 0).xyz;
+    let d0 = view_depth(c0, dims);
+    let n0 = textureLoad(normal_tex, c0, 0).xyz;
     var sum = vec4<f32>(0.0);
     var weight = 0.0;
     for (var dy = -2; dy <= 2; dy++) {
         for (var dx = -2; dx <= 2; dx++) {
             let q = clamp(coord + vec2<i32>(dx, dy), vec2<i32>(0), size - vec2<i32>(1));
-            if textureLoad(depth_tex, q, 0) >= 1.0 {
+            let cq = sample_coord(q, full);
+            if textureLoad(depth_tex, cq, 0) >= 1.0 {
                 continue;
             }
-            let dq = view_depth(q, dims);
-            let nq = textureLoad(normal_tex, q, 0).xyz;
+            let dq = view_depth(cq, dims);
+            let nq = textureLoad(normal_tex, cq, 0).xyz;
             let spatial = exp(-f32(dx * dx + dy * dy) / 4.5);
             let depth_w = exp(-abs(dq - d0) / (0.02 * d0));
             let normal_w = pow(max(dot(n0, nq), 0.0), 16.0);
@@ -1481,6 +1610,10 @@ pub const SSGI_HISTORY_BLEND: f32 = 0.1;
 /// rejection compares at, to well past any distance a screen trace sees.
 const SSGI_DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg16Float;
 
+/// Screen-space GI's trace scale until a camera asks for full resolution:
+/// half, as `ScreenSpaceGlobalIllumination::full_resolution` defaults.
+const SSGI_DEFAULT_SCALE: u32 = 2;
+
 /// One half of screen-space GI's history.
 struct SsgiHistory {
     _light: crate::profiler::TrackedTexture,
@@ -1491,6 +1624,18 @@ struct SsgiHistory {
     depth_view: wgpu::TextureView,
     /// Light and depth together, as the temporal pass reads last frame's.
     pair_bg: wgpu::BindGroup,
+    /// The composite's inputs with this history's depth: the GI targets'
+    /// indirect light and reflectance, and the trace's depths to upsample by.
+    composite_bg: wgpu::BindGroup,
+}
+
+/// Screen-space GI's own targets, at the trace's resolution: made with the
+/// rest, and again by themselves when the resolution is switched.
+struct SsgiTargets {
+    texture: crate::profiler::TrackedTexture,
+    view: wgpu::TextureView,
+    bg: wgpu::BindGroup,
+    history: [SsgiHistory; 2],
 }
 
 const SSAO_WGSL: &str = r#"
@@ -2921,6 +3066,13 @@ pub struct PostProcessState {
     /// measures what it takes away.
     ssgi_spatial: bool,
     ssgi_history_bgl: wgpu::BindGroupLayout,
+    ssgi_composite_bgl: wgpu::BindGroupLayout,
+    /// How many screen pixels each way one trace pixel stands for: 2, or 1
+    /// at full resolution (`ScreenSpaceGlobalIllumination::full_resolution`).
+    ssgi_scale: u32,
+    /// The screen's size, which the trace's targets are made from again
+    /// when the scale changes.
+    ssgi_screen: (u32, u32),
     /// Screen-space GI's passes, its camera and whether it runs.
     ssgi_pipeline: wgpu::RenderPipeline,
     ssgi_temporal_pipeline: wgpu::RenderPipeline,
@@ -3912,6 +4064,24 @@ impl PostProcessState {
                 },
             ],
         });
+        // The composite's inputs: the GI targets' indirect light and
+        // reflectance and the trace's depths, in one group -- with this
+        // frame's trace, the screen's depth and the camera, four.
+        let ssgi_composite_bgl =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("pp ssgi composite bgl"),
+                entries: &[
+                    filterable(0),
+                    filterable(1),
+                    filterable(2),
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
         let ssgi_temporal_pipeline = Self::make_targets_pipeline(
             device,
             "ssgi temporal",
@@ -3944,7 +4114,7 @@ impl PostProcessState {
             "ssgi composite",
             SSGI_COMPOSITE_WGSL,
             "fs_composite",
-            &[&tex2d_bgl, &tex2d_bgl, &tex2d_bgl],
+            &[&tex2d_bgl, &ssgi_composite_bgl, &depth_bgl, &ssr_cam_bgl],
             Some(wgpu::BlendState {
                 color: wgpu::BlendComponent {
                     src_factor: wgpu::BlendFactor::One,
@@ -3991,6 +4161,8 @@ impl PostProcessState {
             &tex2d_bgl,
             &depth_bgl,
             &ssgi_history_bgl,
+            &ssgi_composite_bgl,
+            SSGI_DEFAULT_SCALE,
             surface_format,
         );
 
@@ -4044,6 +4216,9 @@ impl PostProcessState {
             ssgi_history_valid: false,
             ssgi_spatial: true,
             ssgi_history_bgl,
+            ssgi_composite_bgl,
+            ssgi_scale: SSGI_DEFAULT_SCALE,
+            ssgi_screen: (width, height),
             ssgi_pipeline,
             ssgi_temporal_pipeline,
             ssgi_spatial_pipeline,
@@ -4111,6 +4286,124 @@ impl PostProcessState {
         }
     }
 
+    /// Screen-space GI's targets for a screen of `screen` at `scale`: the
+    /// trace's, and the history pair's, each a `scale`-th of the screen each
+    /// way (rounded up, so the last trace pixel covers the last screen one).
+    #[allow(clippy::too_many_arguments)]
+    fn create_ssgi_targets(
+        device: &wgpu::Device,
+        screen: (u32, u32),
+        scale: u32,
+        sampler: &wgpu::Sampler,
+        tex2d_bgl: &wgpu::BindGroupLayout,
+        ssgi_history_bgl: &wgpu::BindGroupLayout,
+        ssgi_composite_bgl: &wgpu::BindGroupLayout,
+        gi: (&wgpu::TextureView, &wgpu::TextureView),
+    ) -> SsgiTargets {
+        let (width, height) = (screen.0.div_ceil(scale), screen.1.div_ceil(scale));
+        let make_tex = |label: &str, fmt: wgpu::TextureFormat| {
+            crate::profiler::create_tracked_texture(
+                device,
+                &wgpu::TextureDescriptor {
+                    label: Some(label),
+                    size: wgpu::Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: fmt,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                },
+            )
+        };
+        let make_tex2d_bg = |label: &str, view: &wgpu::TextureView| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some(label),
+                layout: tex2d_bgl,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(sampler),
+                    },
+                ],
+            })
+        };
+        let ssgi_texture = make_tex("pp ssgi", HDR_FORMAT);
+        let ssgi_view = ssgi_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let ssgi_bg = make_tex2d_bg("pp ssgi bg", &ssgi_view);
+        let ssgi_history = [0, 1].map(|i| {
+            let light = make_tex(&format!("pp ssgi history {i}"), HDR_FORMAT);
+            let light_view = light.create_view(&wgpu::TextureViewDescriptor::default());
+            let depth = make_tex(&format!("pp ssgi history depth {i}"), SSGI_DEPTH_FORMAT);
+            let depth_view = depth.create_view(&wgpu::TextureViewDescriptor::default());
+            let light_bg = make_tex2d_bg("pp ssgi history light bg", &light_view);
+            let pair_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("pp ssgi history bg"),
+                layout: ssgi_history_bgl,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&light_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&depth_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(sampler),
+                    },
+                ],
+            });
+            let composite_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("pp ssgi composite bg"),
+                layout: ssgi_composite_bgl,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(gi.0),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(gi.1),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(&depth_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::Sampler(sampler),
+                    },
+                ],
+            });
+            SsgiHistory {
+                composite_bg,
+                _light: light,
+                light_view,
+                light_bg,
+                _depth: depth,
+                depth_view,
+                pair_bg,
+            }
+        });
+        SsgiTargets {
+            texture: ssgi_texture,
+            view: ssgi_view,
+            bg: ssgi_bg,
+            history: ssgi_history,
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn create_targets(
         device: &wgpu::Device,
@@ -4121,6 +4414,8 @@ impl PostProcessState {
         tex2d_bgl: &wgpu::BindGroupLayout,
         depth_bgl: &wgpu::BindGroupLayout,
         ssgi_history_bgl: &wgpu::BindGroupLayout,
+        ssgi_composite_bgl: &wgpu::BindGroupLayout,
+        ssgi_scale: u32,
         surface_format: wgpu::TextureFormat,
     ) -> PostProcessTargets {
         let make_tex = |label: &str, fmt: wgpu::TextureFormat| {
@@ -4255,42 +4550,16 @@ impl PostProcessState {
         let ao_raw_bg = make_tex2d_bg("pp ao raw bg", &ao_raw_view);
         let normal_bg = make_tex2d_bg("pp normal bg", &normal_view);
         let ssr_bg = make_tex2d_bg("pp ssr bg", &ssr_view);
-        let ssgi_texture = make_tex("pp ssgi", HDR_FORMAT);
-        let ssgi_view = ssgi_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let ssgi_bg = make_tex2d_bg("pp ssgi bg", &ssgi_view);
-        let ssgi_history = [0, 1].map(|i| {
-            let light = make_tex(&format!("pp ssgi history {i}"), HDR_FORMAT);
-            let light_view = light.create_view(&wgpu::TextureViewDescriptor::default());
-            let depth = make_tex(&format!("pp ssgi history depth {i}"), SSGI_DEPTH_FORMAT);
-            let depth_view = depth.create_view(&wgpu::TextureViewDescriptor::default());
-            let light_bg = make_tex2d_bg("pp ssgi history light bg", &light_view);
-            let pair_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("pp ssgi history bg"),
-                layout: ssgi_history_bgl,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&light_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&depth_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Sampler(sampler),
-                    },
-                ],
-            });
-            SsgiHistory {
-                _light: light,
-                light_view,
-                light_bg,
-                _depth: depth,
-                depth_view,
-                pair_bg,
-            }
-        });
+        let ssgi = Self::create_ssgi_targets(
+            device,
+            (width, height),
+            ssgi_scale,
+            sampler,
+            tex2d_bgl,
+            ssgi_history_bgl,
+            ssgi_composite_bgl,
+            (&gi_indirect_view, &gi_albedo_view),
+        );
         let gi_indirect_bg = make_tex2d_bg("pp gi indirect bg", &gi_indirect_view);
         let gi_albedo_bg = make_tex2d_bg("pp gi albedo bg", &gi_albedo_view);
         let ldr_bg = make_tex2d_bg("pp ldr bg", &ldr_view);
@@ -4342,10 +4611,10 @@ impl PostProcessState {
             gi_indirect_view,
             gi_indirect_bg,
             gi_albedo_bg,
-            ssgi_texture,
-            ssgi_view,
-            ssgi_bg,
-            ssgi_history,
+            ssgi_texture: ssgi.texture,
+            ssgi_view: ssgi.view,
+            ssgi_bg: ssgi.bg,
+            ssgi_history: ssgi.history,
             ssr_texture,
             ssr_view,
             ssr_bg,
@@ -5032,8 +5301,11 @@ impl PostProcessState {
             &self.tex2d_bgl,
             &self.depth_bgl,
             &self.ssgi_history_bgl,
+            &self.ssgi_composite_bgl,
+            self.ssgi_scale,
             self.surface_format,
         );
+        self.ssgi_screen = (width, height);
         self.hdr_view = t.hdr_view;
         self._hdr_texture = t.hdr_texture;
         self.fog_hdr_view = t.fog_hdr_view;
@@ -5358,6 +5630,42 @@ impl PostProcessState {
         self.ssgi_spatial = on;
     }
 
+    /// Traces screen-space GI at full resolution or at half: on a change,
+    /// its targets are made anew at the other size, and the history starts
+    /// over.
+    pub fn set_ssgi_full_resolution(&mut self, device: &wgpu::Device, full: bool) {
+        let scale = if full { 1 } else { 2 };
+        if scale == self.ssgi_scale {
+            return;
+        }
+        let t = Self::create_ssgi_targets(
+            device,
+            self.ssgi_screen,
+            scale,
+            &self.sampler,
+            &self.tex2d_bgl,
+            &self.ssgi_history_bgl,
+            &self.ssgi_composite_bgl,
+            (&self.gi_indirect_view, &self.gi_albedo_view),
+        );
+        self.ssgi_scale = scale;
+        self._ssgi_texture = t.texture;
+        self.ssgi_view = t.view;
+        self.ssgi_bg = t.bg;
+        self.ssgi_history = t.history;
+        self.ssgi_history_valid = false;
+    }
+
+    /// The size screen-space GI traces at, for the tests that it is a
+    /// quarter of the screen's pixels.
+    #[doc(hidden)]
+    pub fn ssgi_trace_size(&self) -> (u32, u32) {
+        (
+            self.ssgi_screen.0.div_ceil(self.ssgi_scale),
+            self.ssgi_screen.1.div_ceil(self.ssgi_scale),
+        )
+    }
+
     /// Uploads screen-space GI's camera and trace; an intensity of zero
     /// switches both its passes off.
     pub fn update_ssgi_camera(&mut self, queue: &wgpu::Queue, mut cam: SsgiCameraGpu) {
@@ -5368,6 +5676,7 @@ impl PostProcessState {
             self.ssgi_history_valid = false;
         }
         cam.params2[1] = SSGI_HISTORY_BLEND;
+        cam.params2[3] = self.ssgi_scale as f32;
         cam.params2[2] = if self.ssgi_history_valid { 1.0 } else { 0.0 };
         queue.write_buffer(&self.ssgi_cam_buffer, 0, bytemuck::bytes_of(&cam));
     }
@@ -5575,8 +5884,9 @@ impl PostProcessState {
                     &self.ssgi_history[self.ssgi_current].light_bg
                 };
                 pass.set_bind_group(0, light, &[]);
-                pass.set_bind_group(1, &self.gi_indirect_bg, &[]);
-                pass.set_bind_group(2, &self.gi_albedo_bg, &[]);
+                pass.set_bind_group(1, &self.ssgi_history[self.ssgi_current].composite_bg, &[]);
+                pass.set_bind_group(2, &self.depth_bg, &[]);
+                pass.set_bind_group(3, &self.ssgi_cam_bg, &[]);
                 pass.draw(0..3, 0..1);
                 draw_calls += 1;
                 triangles += 1;

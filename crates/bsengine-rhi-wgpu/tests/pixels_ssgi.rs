@@ -1099,3 +1099,46 @@ fn every_frame_the_light_bounces_once_more() {
         "and it converges: {many:?}"
     );
 }
+
+/// A hit last frame's camera did not see is read from this frame, as on a
+/// first frame: one bounce, not none, and not whatever lay at the edge of
+/// last frame's view. The camera looked at a green wall filling its view
+/// last frame; this frame, every hit on the floor and the red wall is one
+/// that frame did not see, and the floor beside the red wall is what one
+/// bounce a frame makes it. Read at the nearest edge of last frame's view,
+/// the wall's green would come in.
+#[test]
+fn a_hit_the_last_frame_did_not_see_is_read_from_this_one() {
+    let run = |bounces: bool| {
+        let mut h = Harness::new();
+        h.set_ssgi_multibounce(bounces);
+        let (f, w, c) = (floor(&mut h), wall(&mut h), h.cube());
+        let d = || {
+            vec![
+                Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
+                Draw::new(w, Vec3::ZERO).colour(Vec3::ZERO).emissive(RED),
+                // Far behind the camera, big enough to fill a view of it.
+                Draw::new(c, Vec3::new(0.0, 1.0, 60.0))
+                    .scaled(Vec3::new(400.0, 400.0, 1.0), Vec3::new(0.0, 1.0, 60.0))
+                    .colour(Vec3::ZERO)
+                    .emissive(Vec3::new(0.0, 0.8, 0.0)),
+            ]
+        };
+        let away = Scene {
+            look_at: Vec3::new(-1.5, 3.0, 60.0),
+            ..scene(d(), on())
+        };
+        let seen = h.render_at_frame(&away, 0);
+        let corner = seen.at(0, 0);
+        assert!(
+            corner[1] > 100 && corner[0] < 30,
+            "premise: last frame saw the green wall to its corners: {corner:?}"
+        );
+        floor_band(&h.render_at_frame(&scene(d(), on()), 1), NEAR.0, NEAR.1)
+    };
+    let (one, many) = (run(false), run(true));
+    assert!(
+        ((many - one) / one).abs().max_element() < 0.01,
+        "every hit unseen last frame, one bounce: {many} against {one}"
+    );
+}

@@ -235,6 +235,29 @@ fn a_ray_that_runs_out_of_steps_finds_nothing() {
 
 // ---- composed with the environment ------------------------------------------
 
+/// Measured in light, not in levels: no bloom (the glow of the bright mirror
+/// and pillars around a pixel would spread onto it), no tone mapping (whose
+/// shoulder flattens the very differences these tests read).
+fn plain(scene: Scene) -> Scene {
+    Scene {
+        bloom: Some(bsengine_core::Bloom::default().disabled()),
+        tone_map: Some(bsengine_core::ToneMap::new(
+            bsengine_core::ToneMappingMode::None,
+        )),
+        ..scene
+    }
+}
+
+/// An 8-bit sRGB level back to linear light.
+fn linear(c: u8) -> f32 {
+    let c = c as f32 / 255.0;
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
 /// The floor as a metal mirror of `colour`: what it reflects is all it shows,
 /// through its own `F0`.
 fn metal_floor(mesh: u64, colour: Vec3) -> Draw {
@@ -249,70 +272,72 @@ fn pillar_at(mesh: u64, x: f32, glow: Vec3) -> Draw {
         .emissive(glow)
 }
 
-/// The reflection's pixel: below the pillar, as [`reflection_row`] has it.
-fn reflection_at(p: &common::Pixels) -> [u8; 4] {
-    p.at(p.width / 2, reflection_row(p.height))
+/// The reflection's pixel, below the pillar as [`reflection_row`] has it, in
+/// linear light.
+fn reflection_at(p: &common::Pixels) -> Vec3 {
+    let c = p.at(p.width / 2, reflection_row(p.height));
+    Vec3::new(linear(c[0]), linear(c[1]), linear(c[2]))
 }
 
 /// Where the screen finds what a surface reflects, that replaces the
-/// environment's reflection there -- it does not add to it. A metal mirror
-/// under a blue sky reflects the sky everywhere; in front of the red pillar,
-/// with reflections on, it reflects the pillar instead: red up, and the
-/// sky's blue gone from that pixel. Added on top (as the reflection pass
-/// once was), the blue would stay and the red would come on top of it.
+/// environment's reflection there -- it does not add to it. A white metal
+/// mirror under a blue sky reflects the sky; in front of the red pillar,
+/// with reflections on, the share `w` the screen found (its red, over the
+/// pillar's) is the pillar's, and the sky keeps only `1 - w` of the blue.
+/// Added on top (as the reflection pass once was), the blue would stay
+/// whole whatever the red.
 #[test]
 fn a_reflection_replaces_the_environment_it_found_something_in_front_of() {
     let mut h = Harness::new();
     let cube = h.cube();
-    h.set_test_skybox([0, 0, 200, 255]);
-    let room = |ssr| Scene {
-        draws: vec![metal_floor(cube, Vec3::ONE), pillar(cube)],
-        with_skybox: true,
-        ..scene(cube, ssr)
+    h.set_test_skybox([0, 0, 160, 255]);
+    let glow = Vec3::new(0.8, 0.0, 0.0);
+    let room = |ssr| {
+        plain(Scene {
+            draws: vec![metal_floor(cube, Vec3::ONE), pillar_at(cube, 0.0, glow)],
+            with_skybox: true,
+            ..scene(cube, ssr)
+        })
     };
     let without = reflection_at(&h.render(&room(None)));
     let with = reflection_at(&settled(
         &mut h,
         &room(Some(ScreenSpaceReflections::default())),
     ));
+    let w = with.x / glow.x;
     assert!(
-        without[2] > 60,
-        "premise: the mirror reflects the blue sky there: {without:?}"
+        without.z > 0.1 && w > 0.2 && w < 1.01,
+        "premise: the sky is reflected there, and then the pillar is: {without} -> {with} (w {w})"
     );
     assert!(
-        with[0] > without[0] + 40,
-        "with reflections, the pillar's red: {without:?} -> {with:?}"
-    );
-    assert!(
-        (with[2] as f32) < 0.5 * without[2] as f32,
-        "and not the sky's blue as well: {without:?} -> {with:?}"
+        (with.z / without.z - (1.0 - w)).abs() < 0.08,
+        "the sky keeps {} of its blue there, and it kept {}: {without} -> {with}",
+        1.0 - w,
+        with.z / without.z
     );
 }
 
 /// The reflection goes through the surface's own reflectance, as the
-/// environment's does: a gold mirror shows the white pillar gold -- red over
-/// green over blue, as its `F0` (1, 0.8, 0.3) is. Unweighted (as the pass
-/// once added it), white.
+/// environment's does: a gold mirror shows the white pillar gold -- its
+/// channels in the proportion of its `F0`, (1, 0.8, 0.3). Unweighted (as the
+/// pass once added it), white.
 #[test]
 fn a_metal_reflects_what_it_finds_in_its_own_colour() {
     let mut h = Harness::new();
     let cube = h.cube();
     let gold = Vec3::new(1.0, 0.8, 0.3);
-    let room = Scene {
+    let room = plain(Scene {
         draws: vec![
             metal_floor(cube, gold),
-            pillar_at(cube, 0.0, Vec3::splat(2.0)),
+            pillar_at(cube, 0.0, Vec3::splat(0.8)),
         ],
         ..scene(cube, Some(ScreenSpaceReflections::default()))
-    };
+    });
     let p = reflection_at(&settled(&mut h, &room));
+    assert!(p.x > 0.15, "premise: the pillar is reflected: {p}");
     assert!(
-        p[0] > 60,
-        "premise: the pillar is reflected, brightly: {p:?}"
-    );
-    assert!(
-        p[0] > p[1] && p[1] > p[2] && (p[2] as f32) < 0.6 * p[0] as f32,
-        "gold, not white: {p:?}"
+        (p.y / p.x - 0.8).abs() < 0.1 && (p.z / p.x - 0.3).abs() < 0.1,
+        "gold: green and blue at 0.8 and 0.3 of red, not white: {p}"
     );
 }
 
@@ -323,25 +348,27 @@ fn a_metal_reflects_what_it_finds_in_its_own_colour() {
 fn a_reflection_shows_its_hit_as_it_was_last_frame() {
     let mut h = Harness::new();
     let cube = h.cube();
-    let room = |glow| Scene {
-        draws: vec![metal_floor(cube, Vec3::ONE), pillar_at(cube, 0.0, glow)],
-        ..scene(cube, Some(ScreenSpaceReflections::default()))
+    let room = |glow| {
+        plain(Scene {
+            draws: vec![metal_floor(cube, Vec3::ONE), pillar_at(cube, 0.0, glow)],
+            ..scene(cube, Some(ScreenSpaceReflections::default()))
+        })
     };
-    let (red, green) = (Vec3::new(3.0, 0.0, 0.0), Vec3::new(0.0, 3.0, 0.0));
+    let (red, green) = (Vec3::new(0.8, 0.0, 0.0), Vec3::new(0.0, 0.8, 0.0));
     let before = reflection_at(&settled(&mut h, &room(red)));
     let turning = reflection_at(&h.render(&room(green)));
     let after = reflection_at(&h.render(&room(green)));
     assert!(
-        before[0] > before[1] + 40,
-        "premise: red reflected: {before:?}"
+        before.x > 0.15 && before.y < 0.02,
+        "premise: red reflected: {before}"
     );
     assert!(
-        turning[0] > turning[1] + 40,
-        "the frame it turns green, still red: {turning:?}"
+        turning.x > 0.15 && turning.y < 0.02,
+        "the frame it turns green, still red: {turning}"
     );
     assert!(
-        after[1] > after[0] + 40,
-        "and green the frame after: {after:?}"
+        after.y > 0.15 && after.x < 0.02,
+        "and green the frame after: {after}"
     );
 }
 
@@ -355,33 +382,38 @@ fn a_reflection_shows_its_hit_as_it_was_last_frame() {
 fn a_hit_is_found_where_the_last_frame_saw_it() {
     let mut h = Harness::new();
     let cube = h.cube();
-    let room = |dx: f32| Scene {
-        draws: vec![
-            metal_floor(cube, Vec3::ONE),
-            pillar_at(cube, -0.5, Vec3::new(3.0, 0.0, 0.0)),
-            pillar_at(cube, 0.5, Vec3::new(0.0, 3.0, 0.0)),
-        ],
-        camera_pos: CAMERA + Vec3::new(dx, 0.0, 0.0),
-        look_at: Vec3::new(dx, 0.6, 0.0),
-        ..scene(cube, Some(ScreenSpaceReflections::default()))
+    let room = |dx: f32| {
+        plain(Scene {
+            draws: vec![
+                metal_floor(cube, Vec3::ONE),
+                pillar_at(cube, -0.5, Vec3::new(0.8, 0.0, 0.0)),
+                pillar_at(cube, 0.5, Vec3::new(0.0, 0.8, 0.0)),
+            ],
+            camera_pos: CAMERA + Vec3::new(dx, 0.0, 0.0),
+            look_at: Vec3::new(dx, 0.6, 0.0),
+            ..scene(cube, Some(ScreenSpaceReflections::default()))
+        })
     };
     // Slid: one frame from 0.4 to the left, then the frame at 0.
     h.render(&room(-0.4));
     let slid = h.render(&room(0.0));
     let still = settled(&mut h, &room(0.0));
     let y = reflection_row(still.height);
-    let mut worst = 0i32;
-    let mut colour = 0;
+    let mut worst = 0.0f32;
+    let mut colour = 0.0f32;
     for x in still.width / 4..still.width * 3 / 4 {
         let (a, b) = (slid.at(x, y), still.at(x, y));
-        colour = colour.max(b[0].max(b[1]) as i32);
+        colour = colour.max(linear(b[0]).max(linear(b[1])));
         for c in 0..3 {
-            worst = worst.max((a[c] as i32 - b[c] as i32).abs());
+            worst = worst.max((linear(a[c]) - linear(b[c])).abs());
         }
     }
-    assert!(colour > 60, "premise: the pillars are reflected: {colour}");
     assert!(
-        worst <= 12,
+        colour > 0.15,
+        "premise: the pillars are reflected: {colour}"
+    );
+    assert!(
+        worst < 0.03,
         "after the slide the reflection is where it is from standing still: off by {worst}"
     );
 }

@@ -7245,6 +7245,13 @@ impl WgpuSurface {
         self.post_process.ssgi_trace_size()
     }
 
+    /// Switches screen-space GI's further bounces, for the tests that compare
+    /// against a renderer with no last frame.
+    #[doc(hidden)]
+    pub fn set_ssgi_multibounce_for_testing(&mut self, on: bool) {
+        self.post_process.set_ssgi_multibounce_for_testing(on);
+    }
+
     /// What [`Self::set_ssgi`] last set, for the plugin's tests.
     #[doc(hidden)]
     pub fn ssgi(&self) -> Option<bsengine_core::ScreenSpaceGlobalIllumination> {

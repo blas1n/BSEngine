@@ -361,7 +361,11 @@ fn frames_accumulate_into_less_noise_and_the_same_light() {
 /// rejection deleted.
 #[test]
 fn an_uncovered_surface_starts_its_history_over() {
+    // One bounce, in both renderers: the fresh one below has no last frame
+    // to read further bounces from, and this test is about the history of
+    // the trace, not of the scene.
     let mut h = Harness::new();
+    h.set_ssgi_multibounce(false);
     let (f, w) = (floor(&mut h), wall(&mut h));
     let draws = move |near: bool| {
         let mut far = Draw::new(w, Vec3::ZERO).colour(FLOOR).roughness(1.0);
@@ -391,6 +395,7 @@ fn an_uncovered_surface_starts_its_history_over() {
     // The same frame's rays, on a renderer with no history at all.
     let fresh = {
         let mut h = Harness::new();
+        h.set_ssgi_multibounce(false);
         let (f2, w2) = (floor(&mut h), wall(&mut h));
         assert_eq!((f2, w2), (f, w), "premise: the same mesh ids");
         h.render_at_frame(&scene(draws(false), on()), 20)

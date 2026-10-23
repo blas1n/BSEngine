@@ -3112,6 +3112,11 @@ pub struct PostProcessState {
     /// Whether the spatial filter runs: always, but for the test that
     /// measures what it takes away.
     ssgi_spatial: bool,
+    /// Whether the GI trace reads its hits from last frame's lit scene
+    /// (every frame a bounce more): always, but for the tests about
+    /// something else that a fresh renderer, with no last frame, is compared
+    /// against.
+    ssgi_multibounce: bool,
     ssgi_history_bgl: wgpu::BindGroupLayout,
     ssgi_composite_bgl: wgpu::BindGroupLayout,
     /// How many screen pixels each way one trace pixel stands for: 2, or 1
@@ -4275,6 +4280,7 @@ impl PostProcessState {
             ssgi_current: 0,
             ssgi_history_valid: false,
             ssgi_spatial: true,
+            ssgi_multibounce: true,
             ssgi_history_bgl,
             ssgi_composite_bgl,
             ssgi_scale: SSGI_DEFAULT_SCALE,
@@ -5754,6 +5760,14 @@ impl PostProcessState {
         )
     }
 
+    /// Switches screen-space GI's further bounces, which are always on, for
+    /// the tests that compare against a renderer with no last frame. Off,
+    /// every hit's light is this frame's: one bounce.
+    #[doc(hidden)]
+    pub fn set_ssgi_multibounce_for_testing(&mut self, on: bool) {
+        self.ssgi_multibounce = on;
+    }
+
     /// Uploads screen-space GI's camera and trace; an intensity of zero
     /// switches both its passes off.
     pub fn update_ssgi_camera(&mut self, queue: &wgpu::Queue, mut cam: SsgiCameraGpu) {
@@ -5765,7 +5779,11 @@ impl PostProcessState {
         }
         cam.params2[1] = SSGI_HISTORY_BLEND;
         cam.params2[3] = self.ssgi_scale as f32;
-        cam.misc[0] = if self.lit_history_valid { 1.0 } else { 0.0 };
+        cam.misc[0] = if self.lit_history_valid && self.ssgi_multibounce {
+            1.0
+        } else {
+            0.0
+        };
         cam.params2[2] = if self.ssgi_history_valid { 1.0 } else { 0.0 };
         queue.write_buffer(&self.ssgi_cam_buffer, 0, bytemuck::bytes_of(&cam));
     }

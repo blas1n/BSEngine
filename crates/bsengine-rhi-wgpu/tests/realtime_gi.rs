@@ -270,6 +270,60 @@ impl GiScene {
         self.dynamics.len() - 1
     }
 
+    /// A moving entity drawing `vertices` -- its own mesh, any shape -- placed
+    /// at the origin. Returns its mesh's id.
+    fn add_dynamic_mesh(
+        &mut self,
+        vertices: &[Vertex],
+        indices: &[u32],
+        albedo: Vec3,
+        emissive: Vec3,
+    ) -> u64 {
+        let mesh_id = self.scene.registry.register(vertices, indices);
+        self.dynamics
+            .push(bsengine_rhi_wgpu::realtime_gi::GiDynamic {
+                mesh_id,
+                model: Mat4::IDENTITY,
+                albedo,
+                emissive,
+            });
+        mesh_id
+    }
+
+    /// A moving entity drawing a skinned mesh: `vertices` at rest, each
+    /// bound by `skin` to the joints of a palette of `joints`. Posed by
+    /// [`Self::pose`]; returns its mesh's id.
+    fn add_skinned(
+        &mut self,
+        vertices: &[Vertex],
+        skin: &[bsengine_rhi_wgpu::skinning::GpuVertexSkin],
+        indices: &[u32],
+        joints: u32,
+        albedo: Vec3,
+        emissive: Vec3,
+    ) -> u64 {
+        let mesh_id = self
+            .scene
+            .registry
+            .register_skinned(vertices, skin, indices, joints);
+        self.dynamics
+            .push(bsengine_rhi_wgpu::realtime_gi::GiDynamic {
+                mesh_id,
+                model: Mat4::IDENTITY,
+                albedo,
+                emissive,
+            });
+        mesh_id
+    }
+
+    /// Poses skinned mesh `mesh` with `joints` and runs the skinning pass,
+    /// as the skinning system does ahead of the frame.
+    fn pose(&mut self, mesh: u64, joints: &[Mat4]) {
+        let queue = self.scene.surface.queue_arc();
+        assert!(self.scene.registry.skin(&queue, mesh, joints), "posed");
+        self.scene.registry.flush_skinning(&queue);
+    }
+
     fn input(
         &self,
         volume: ProbeVolumeParams,
@@ -2046,5 +2100,176 @@ fn baked_bricks_past_the_buffer_grow_it() {
         grid.moments[n - 1],
         last_moments,
         "the last probe's moments"
+    );
+}
+
+// ---- skinned renderers -----------------------------------------------------
+
+/// A vertex at `p` facing `n`.
+fn vertex_at(p: Vec3, n: Vec3) -> Vertex {
+    Vertex {
+        position: p.to_array(),
+        color: [1.0, 1.0, 1.0],
+        normal: n.to_array(),
+        uv: [0.0, 0.0],
+        uv2: [0.0, 0.0],
+        tangent: [0.0; 4],
+    }
+}
+
+/// Bound to joint `j` alone.
+fn bound_to(j: u32) -> bsengine_rhi_wgpu::skinning::GpuVertexSkin {
+    bsengine_rhi_wgpu::skinning::GpuVertexSkin {
+        joints: [j, 0, 0, 0],
+        weights: [1.0, 0.0, 0.0, 0.0],
+    }
+}
+
+/// A skinned renderer is traced as it is posed, with nothing rebuilt: the
+/// floor quad glowing, its rest pose ten thousand below the probes -- where
+/// its tree is built, read back as it first stands -- is posed up under
+/// them, and they see it glow; posed back, the sky. The tree's shape is the
+/// rest pose's; its triangles, its boxes and its instance's box in the world
+/// follow the pose. Leave out any of the three and the posed floor is
+/// missed: the triangles still far below, or a box that does not reach up
+/// to them, or the instance's box where the floor was read back.
+#[test]
+fn a_skinned_renderer_is_traced_as_it_is_posed() {
+    let sky = 0.2f32;
+    let mut s = GiScene::new(Vec3::splat(sky));
+    let below = Vec3::new(0.0, -1.0e4, 0.0);
+    let vertices: Vec<Vertex> = floor_quad()
+        .iter()
+        .map(|&p| vertex_at(p + below, Vec3::Y))
+        .collect();
+    let mesh = s.add_skinned(
+        &vertices,
+        &[bound_to(0); 4],
+        &[0, 1, 2, 0, 2, 3],
+        1,
+        Vec3::ZERO,
+        Vec3::splat(2.0),
+    );
+    s.pose(mesh, &[Mat4::IDENTITY]);
+    let input = s.input(floor_volume(), 0.0, 1 << 20);
+    s.run(&input, 3);
+    assert_eq!(
+        s.scene.surface.realtime_gi_instances(),
+        1,
+        "premise: traced"
+    );
+    let at_rest = s.irradiance(0, Vec3::NEG_Y).x;
+    assert!(
+        (at_rest - sky).abs() < 0.01,
+        "premise: at rest it is far below, and the sky shows: {at_rest}"
+    );
+    s.pose(mesh, &[Mat4::from_translation(-below)]);
+    s.run(&input, 3);
+    let posed = s.irradiance(0, Vec3::NEG_Y).x;
+    assert!(
+        (posed - 2.0).abs() < 0.05,
+        "posed under the probes, it glows below them: {posed}"
+    );
+    s.pose(mesh, &[Mat4::IDENTITY]);
+    s.run(&input, 3);
+    let back = s.irradiance(0, Vec3::NEG_Y).x;
+    assert!(
+        (back - sky).abs() < 0.01,
+        "posed back, the sky again: {back}"
+    );
+    assert_eq!(
+        s.scene.surface.realtime_gi_readbacks(),
+        1,
+        "posing reads nothing back and rebuilds no tree"
+    );
+}
+
+/// The strip of two quads under the probes, folded at z = 0: the far half
+/// turned up by 60 degrees about the hinge. Its vertices at rest, the
+/// joint each is bound to (the far edge to 1, the rest to 0), and the two
+/// joints' matrices for the fold.
+fn folded_strip() -> (Vec<Vertex>, Vec<u32>, [Mat4; 2]) {
+    let mut vertices = Vec::new();
+    let mut joint = Vec::new();
+    for (z, j) in [(50.0f32, 0u32), (0.0, 0), (-50.0, 1)] {
+        for x in [-50.0f32, 50.0] {
+            vertices.push(vertex_at(Vec3::new(x, 0.0, z), Vec3::Y));
+            joint.push(j);
+        }
+    }
+    let fold = Mat4::from_rotation_x(60f32.to_radians());
+    (vertices, joint, [Mat4::IDENTITY, fold])
+}
+
+/// Both quads of [`folded_strip`], facing up.
+const STRIP_INDICES: [u32; 12] = [0, 1, 3, 0, 3, 2, 2, 3, 5, 2, 5, 4];
+
+/// A skinned renderer is traced where the skinning pass put each vertex:
+/// the strip folded by its second joint gives the probes what a rigid mesh
+/// with the folded vertices -- each placed and turned by its own joint on
+/// the CPU -- gives them, in every direction of all eight probes. The
+/// premise: folded, the probes see something other than the flat strip.
+#[test]
+fn a_skinned_renderer_is_traced_as_its_folded_vertices_are() {
+    let (rest, joint, joints) = folded_strip();
+    let run = |skinned: bool, pose: [Mat4; 2]| {
+        let mut s = GiScene::new(Vec3::splat(0.2));
+        if skinned {
+            let skin: Vec<_> = joint.iter().map(|&j| bound_to(j)).collect();
+            let mesh = s.add_skinned(
+                &rest,
+                &skin,
+                &STRIP_INDICES,
+                2,
+                Vec3::ZERO,
+                Vec3::splat(2.0),
+            );
+            s.pose(mesh, &pose);
+        } else {
+            let posed: Vec<Vertex> = rest
+                .iter()
+                .zip(&joint)
+                .map(|(v, &j)| {
+                    let m = pose[j as usize];
+                    vertex_at(
+                        m.transform_point3(Vec3::from(v.position)),
+                        m.transform_vector3(Vec3::from(v.normal)),
+                    )
+                })
+                .collect();
+            s.add_dynamic_mesh(&posed, &STRIP_INDICES, Vec3::ZERO, Vec3::splat(2.0));
+        }
+        let input = s.input(floor_volume(), 0.0, 1 << 20);
+        s.run(&input, 3);
+        let dirs = [
+            Vec3::X,
+            Vec3::NEG_X,
+            Vec3::Y,
+            Vec3::NEG_Y,
+            Vec3::Z,
+            Vec3::NEG_Z,
+        ];
+        (0..8)
+            .flat_map(|p| dirs.map(|d| s.irradiance(p, d).x))
+            .collect::<Vec<f32>>()
+    };
+    let skinned = run(true, joints);
+    let rigid = run(false, joints);
+    let flat = run(false, [Mat4::IDENTITY; 2]);
+    let most = |a: &[f32], b: &[f32]| {
+        a.iter()
+            .zip(b)
+            .map(|(x, y)| (x - y).abs())
+            .fold(0.0f32, f32::max)
+    };
+    assert!(
+        most(&rigid, &flat) > 0.2,
+        "premise: folded, the probes see another shape: {}",
+        most(&rigid, &flat)
+    );
+    assert!(
+        most(&skinned, &rigid) < 0.01,
+        "the skinned strip is traced as its folded vertices: off by {}",
+        most(&skinned, &rigid)
     );
 }

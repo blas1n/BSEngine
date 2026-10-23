@@ -1118,10 +1118,13 @@ struct BoundsJob {
 /// [`RefitParams`] sits at a multiple of it.
 const REFIT_PARAMS_SLOT: u64 = 256;
 
-/// The refit's pass: each skinned triangle rewritten from the pool, each
-/// node's box from its triangles or children, deepest first, and each
-/// skinned instance's world box from its root's.
-const REFIT_WGSL: &str = r#"
+/// The refit's types, shared by its three shaders.
+///
+/// Three shaders, not one with three entry points: each binds only the three
+/// buffers it uses, because WebGPU's downlevel baseline -- the limits every
+/// device here is made with -- allows four storage buffers a stage, and the
+/// refit touches seven between its passes.
+const REFIT_COMMON_WGSL: &str = r#"
 struct Node {
     lo: vec3<f32>,
     start: u32,
@@ -1159,15 +1162,16 @@ struct BoundsJob {
     _p0: u32,
     _p1: u32,
 };
+"#;
 
-@group(0) @binding(0) var<storage, read_write> nodes: array<Node>;
-@group(0) @binding(1) var<storage, read_write> tris: array<Tri>;
-@group(0) @binding(2) var<storage, read_write> instances: array<GiInstance>;
-@group(0) @binding(3) var<storage, read> pool: array<f32>;
-@group(0) @binding(4) var<storage, read> tri_jobs: array<vec4<u32>>;
-@group(0) @binding(5) var<storage, read> node_jobs: array<vec4<u32>>;
-@group(0) @binding(6) var<storage, read> bounds_jobs: array<BoundsJob>;
-@group(0) @binding(7) var<uniform> rp: RefitParams;
+/// Each skinned triangle where the skinning pass put its vertices: its
+/// corners, and `trace.rs`'s shading normal -- the geometric one, turned to
+/// the side the vertex normals face (`GpuGeometry::build`'s, on the CPU).
+const SKIN_TRIS_WGSL: &str = r#"
+@group(0) @binding(0) var<storage, read_write> tris: array<Tri>;
+@group(0) @binding(1) var<storage, read> pool: array<f32>;
+@group(0) @binding(2) var<storage, read> tri_jobs: array<vec4<u32>>;
+@group(0) @binding(3) var<uniform> rp: RefitParams;
 
 fn position(v: u32) -> vec3<f32> {
     let b = v * rp.stride;
@@ -1178,9 +1182,6 @@ fn normal(v: u32) -> vec3<f32> {
     return vec3<f32>(pool[b], pool[b + 1u], pool[b + 2u]);
 }
 
-// A triangle where the skinning pass put its vertices: its corners, and
-// `trace.rs`'s shading normal -- the geometric one, turned to the side the
-// vertex normals face (`GpuGeometry::build`'s, on the CPU).
 @compute @workgroup_size(64, 1, 1)
 fn cs_skin_tris(@builtin(global_invocation_id) gid: vec3<u32>) {
     if gid.x >= rp.count {
@@ -1203,9 +1204,16 @@ fn cs_skin_tris(@builtin(global_invocation_id) gid: vec3<u32>) {
     tris[job.x].p2 = vec4<f32>(c, 0.0);
     tris[job.x].n = vec4<f32>(n, 0.0);
 }
+"#;
 
-// One depth's nodes: a leaf's box around its triangles, an interior node's
-// around its two children's (the next node, and its tree's `start`).
+/// One depth's nodes: a leaf's box around its triangles, an interior node's
+/// around its two children's (the next node, and its tree's `start`).
+const REFIT_NODES_WGSL: &str = r#"
+@group(0) @binding(0) var<storage, read_write> nodes: array<Node>;
+@group(0) @binding(1) var<storage, read> tris: array<Tri>;
+@group(0) @binding(2) var<storage, read> node_jobs: array<vec4<u32>>;
+@group(0) @binding(3) var<uniform> rp: RefitParams;
+
 @compute @workgroup_size(64, 1, 1)
 fn cs_refit(@builtin(global_invocation_id) gid: vec3<u32>) {
     if gid.x >= rp.count {
@@ -1230,9 +1238,16 @@ fn cs_refit(@builtin(global_invocation_id) gid: vec3<u32>) {
     nodes[job.x].lo = lo;
     nodes[job.x].hi = hi;
 }
+"#;
 
-// A skinned instance's world box: its refitted root's eight corners through
-// its transform, over the box the CPU sent from the read-back pose.
+/// A skinned instance's world box: its refitted root's eight corners through
+/// its transform, over the box the CPU sent from the read-back pose.
+const INSTANCE_BOUNDS_WGSL: &str = r#"
+@group(0) @binding(0) var<storage, read> nodes: array<Node>;
+@group(0) @binding(1) var<storage, read_write> instances: array<GiInstance>;
+@group(0) @binding(2) var<storage, read> bounds_jobs: array<BoundsJob>;
+@group(0) @binding(3) var<uniform> rp: RefitParams;
+
 @compute @workgroup_size(64, 1, 1)
 fn cs_instance_bounds(@builtin(global_invocation_id) gid: vec3<u32>) {
     if gid.x >= rp.count {
@@ -1287,14 +1302,13 @@ struct Geometry {
     skinned: Option<SkinnedRefit>,
 }
 
-/// The update's two pipelines, and the refit's three with their layout.
+/// The update's two pipelines, and the refit's three, each with its layout.
 struct Pipelines {
     update: wgpu::ComputePipeline,
     carry: wgpu::ComputePipeline,
-    refit_layout: wgpu::BindGroupLayout,
-    skin_tris: wgpu::ComputePipeline,
-    refit: wgpu::ComputePipeline,
-    instance_bounds: wgpu::ComputePipeline,
+    skin_tris: (wgpu::ComputePipeline, wgpu::BindGroupLayout),
+    refit: (wgpu::ComputePipeline, wgpu::BindGroupLayout),
+    instance_bounds: (wgpu::ComputePipeline, wgpu::BindGroupLayout),
 }
 
 /// Where the pipelines are. Built on a thread of their own, never in a frame:
@@ -1342,57 +1356,70 @@ fn build_pipelines(device: &wgpu::Device, layout: &wgpu::BindGroupLayout) -> Pip
             cache: None,
         })
     };
-    let compute = wgpu::ShaderStages::COMPUTE;
-    let refit_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("realtime gi refit bgl"),
-        entries: &[
-            storage_layout_entry(0, compute, false),
-            storage_layout_entry(1, compute, false),
-            storage_layout_entry(2, compute, false),
-            storage_layout_entry(3, compute, true),
-            storage_layout_entry(4, compute, true),
-            storage_layout_entry(5, compute, true),
-            storage_layout_entry(6, compute, true),
-            wgpu::BindGroupLayoutEntry {
-                binding: 7,
-                visibility: compute,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: true,
-                    min_binding_size: wgpu::BufferSize::new(
-                        std::mem::size_of::<RefitParams>() as u64
-                    ),
+    // A refit pass: its shader over the common types, three storage buffers
+    // (which of them it writes), and its slot of the parameters.
+    let refit_pass = |label: &str, source: &str, writes: [bool; 3], entry_point: &str| {
+        let compute = wgpu::ShaderStages::COMPUTE;
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some(label),
+            entries: &[
+                storage_layout_entry(0, compute, !writes[0]),
+                storage_layout_entry(1, compute, !writes[1]),
+                storage_layout_entry(2, compute, !writes[2]),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: compute,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: true,
+                        min_binding_size: wgpu::BufferSize::new(
+                            std::mem::size_of::<RefitParams>() as u64
+                        ),
+                    },
+                    count: None,
                 },
-                count: None,
-            },
-        ],
-    });
-    let refit_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("realtime gi refit"),
-        source: wgpu::ShaderSource::Wgsl(REFIT_WGSL.into()),
-    });
-    let refit_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("realtime gi refit layout"),
-        bind_group_layouts: &[&refit_layout],
-        push_constant_ranges: &[],
-    });
-    let refit_entry = |entry_point| {
-        device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            ],
+        });
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(label),
+            source: wgpu::ShaderSource::Wgsl(format!("{REFIT_COMMON_WGSL}{source}").into()),
+        });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some(label),
+            bind_group_layouts: &[&layout],
+            push_constant_ranges: &[],
+        });
+        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some(entry_point),
-            layout: Some(&refit_pipeline_layout),
-            module: &refit_module,
+            layout: Some(&pipeline_layout),
+            module: &module,
             entry_point,
             compilation_options: Default::default(),
             cache: None,
-        })
+        });
+        (pipeline, layout)
     };
     Pipelines {
         update: entry("cs_update"),
         carry: entry("cs_carry"),
-        skin_tris: refit_entry("cs_skin_tris"),
-        refit: refit_entry("cs_refit"),
-        instance_bounds: refit_entry("cs_instance_bounds"),
-        refit_layout,
+        skin_tris: refit_pass(
+            "realtime gi refit triangles",
+            SKIN_TRIS_WGSL,
+            [true, false, false],
+            "cs_skin_tris",
+        ),
+        refit: refit_pass(
+            "realtime gi refit nodes",
+            REFIT_NODES_WGSL,
+            [true, false, false],
+            "cs_refit",
+        ),
+        instance_bounds: refit_pass(
+            "realtime gi refit boxes",
+            INSTANCE_BOUNDS_WGSL,
+            [false, true, false],
+            "cs_instance_bounds",
+        ),
     }
 }
 
@@ -2159,50 +2186,50 @@ impl RealtimeGi {
                     bounds_slot + 4,
                     bytemuck::bytes_of(&(jobs.len() as u32)),
                 );
-                let refit_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("realtime gi refit bg"),
-                    layout: &pipelines.refit_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: geometry.nodes.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: geometry.tris.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: self.instances.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: refit.pool.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 4,
-                            resource: refit.tri_jobs.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 5,
-                            resource: refit.node_jobs.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 6,
-                            resource: refit.bounds_jobs.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 7,
-                            resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                                buffer: &refit.params,
-                                offset: 0,
-                                size: wgpu::BufferSize::new(
-                                    std::mem::size_of::<RefitParams>() as u64
-                                ),
-                            }),
-                        },
-                    ],
+                let params = wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &refit.params,
+                    offset: 0,
+                    size: wgpu::BufferSize::new(std::mem::size_of::<RefitParams>() as u64),
                 });
+                let bind = |label, layout: &wgpu::BindGroupLayout, buffers: [&wgpu::Buffer; 3]| {
+                    device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some(label),
+                        layout,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: buffers[0].as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: buffers[1].as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 2,
+                                resource: buffers[2].as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 3,
+                                resource: params.clone(),
+                            },
+                        ],
+                    })
+                };
+                let tris_bind = bind(
+                    "realtime gi refit triangles",
+                    &pipelines.skin_tris.1,
+                    [&geometry.tris, &refit.pool, &refit.tri_jobs],
+                );
+                let nodes_bind = bind(
+                    "realtime gi refit nodes",
+                    &pipelines.refit.1,
+                    [&geometry.nodes, &geometry.tris, &refit.node_jobs],
+                );
+                let bounds_bind = bind(
+                    "realtime gi refit boxes",
+                    &pipelines.instance_bounds.1,
+                    [&geometry.nodes, &self.instances, &refit.bounds_jobs],
+                );
                 let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                     label: Some("realtime gi refit"),
                     timestamp_writes: None,
@@ -2211,17 +2238,17 @@ impl RealtimeGi {
                 // the triangles before the leaves, each depth before the
                 // one above, the roots before the boxes.
                 let slot = |k: usize| (k as u64 * REFIT_PARAMS_SLOT) as u32;
-                pass.set_pipeline(&pipelines.skin_tris);
-                pass.set_bind_group(0, &refit_bind, &[slot(0)]);
+                pass.set_pipeline(&pipelines.skin_tris.0);
+                pass.set_bind_group(0, &tris_bind, &[slot(0)]);
                 pass.dispatch_workgroups(refit.tri_count.div_ceil(64), 1, 1);
-                pass.set_pipeline(&pipelines.refit);
+                pass.set_pipeline(&pipelines.refit.0);
                 for (k, &(_, count)) in refit.levels.iter().enumerate() {
-                    pass.set_bind_group(0, &refit_bind, &[slot(k + 1)]);
+                    pass.set_bind_group(0, &nodes_bind, &[slot(k + 1)]);
                     pass.dispatch_workgroups(count.div_ceil(64), 1, 1);
                 }
                 if !jobs.is_empty() {
-                    pass.set_pipeline(&pipelines.instance_bounds);
-                    pass.set_bind_group(0, &refit_bind, &[slot(refit.levels.len() + 1)]);
+                    pass.set_pipeline(&pipelines.instance_bounds.0);
+                    pass.set_bind_group(0, &bounds_bind, &[slot(refit.levels.len() + 1)]);
                     pass.dispatch_workgroups((jobs.len() as u32).div_ceil(64), 1, 1);
                 }
             }

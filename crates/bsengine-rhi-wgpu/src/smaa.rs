@@ -19,6 +19,7 @@
 //! The reference assumes Direct3D texture coordinates -- origin top-left, y
 //! down -- which is what WebGPU uses too, so the tables are read unflipped.
 
+use crate::pipeline_cache::CachedCreate;
 /// `AreaTex`: 160x560 RG8, orthogonal areas in the left half and diagonal
 /// ones in the right, seven subpixel-offset bands stacked vertically.
 const AREA_TEX: &[u8] = include_bytes!("smaa/area_tex.bin");
@@ -480,12 +481,12 @@ struct FrameBindGroups {
 /// uploaded is made the first frame it is needed: a project that never turns
 /// SMAA on never pays for its 180 KB of tables or three targets.
 pub(crate) struct SmaaPass {
-    edges_pipeline: wgpu::RenderPipeline,
-    weights_pipeline: wgpu::RenderPipeline,
-    blend_pipeline: wgpu::RenderPipeline,
-    edges_bgl: wgpu::BindGroupLayout,
-    weights_bgl: wgpu::BindGroupLayout,
-    blend_bgl: wgpu::BindGroupLayout,
+    edges_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
+    weights_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
+    blend_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
+    edges_bgl: std::sync::Arc<wgpu::BindGroupLayout>,
+    weights_bgl: std::sync::Arc<wgpu::BindGroupLayout>,
+    blend_bgl: std::sync::Arc<wgpu::BindGroupLayout>,
     point_sampler: wgpu::Sampler,
     linear_sampler: wgpu::Sampler,
     uniform: wgpu::Buffer,
@@ -539,17 +540,17 @@ fn pipeline(
     entry: &str,
     bgl: &wgpu::BindGroupLayout,
     format: wgpu::TextureFormat,
-) -> wgpu::RenderPipeline {
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+) -> std::sync::Arc<wgpu::RenderPipeline> {
+    let shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some(name),
         source: wgpu::ShaderSource::Wgsl(format!("{COMMON_WGSL}{body}").into()),
     });
-    let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+    let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some(name),
         bind_group_layouts: &[bgl],
         push_constant_ranges: &[],
     });
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(name),
         layout: Some(&layout),
         vertex: wgpu::VertexState {
@@ -580,7 +581,7 @@ impl SmaaPass {
     /// The pipelines and layouts; nothing sized, nothing uploaded.
     pub(crate) fn new(device: &wgpu::Device, output_format: wgpu::TextureFormat) -> Self {
         use wgpu::SamplerBindingType::{Filtering, NonFiltering};
-        let edges_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let edges_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("smaa edges bgl"),
             entries: &[
                 tex_entry(0, false),
@@ -588,7 +589,7 @@ impl SmaaPass {
                 uniform_entry(2),
             ],
         });
-        let weights_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let weights_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("smaa weights bgl"),
             entries: &[
                 tex_entry(0, true),
@@ -598,7 +599,7 @@ impl SmaaPass {
                 uniform_entry(4),
             ],
         });
-        let blend_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let blend_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("smaa blend bgl"),
             entries: &[
                 tex_entry(0, true),

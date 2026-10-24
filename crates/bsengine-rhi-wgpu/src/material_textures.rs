@@ -18,6 +18,7 @@
 //! [`MaterialTextures::begin_frame`], so the cache holds the materials on
 //! screen and not every combination ever drawn.
 
+use crate::pipeline_cache::CachedCreate;
 use crate::texture::GpuTextureRegistry;
 use std::collections::{HashMap, HashSet};
 
@@ -71,7 +72,7 @@ pub fn layout_entries() -> Vec<wgpu::BindGroupLayoutEntry> {
 
 /// Group 3's layout, its defaults, and the groups built so far.
 pub struct MaterialTextures {
-    layout: wgpu::BindGroupLayout,
+    layout: std::sync::Arc<wgpu::BindGroupLayout>,
     white: wgpu::TextureView,
     flat_normal: wgpu::TextureView,
     sampler: wgpu::Sampler,
@@ -83,7 +84,7 @@ pub struct MaterialTextures {
 impl MaterialTextures {
     /// The layout and the two 1 x 1 defaults.
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let layout = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("material textures"),
             entries: &layout_entries(),
         });

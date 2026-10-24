@@ -22,6 +22,7 @@
 //! box has no idea which surfaces it was meant for -- without the fade, a decal
 //! that barely clips a wall smears down it in long streaks.
 
+use crate::pipeline_cache::CachedCreate;
 use wgpu::util::DeviceExt;
 
 use crate::profiler::TrackedTexture;
@@ -247,18 +248,18 @@ pub struct DecalResources {
     /// done on the read.
     pub array_view: wgpu::TextureView,
     _buffers: TrackedTexture,
-    pipeline: wgpu::RenderPipeline,
+    pipeline: std::sync::Arc<wgpu::RenderPipeline>,
     uniform: wgpu::Buffer,
     uniform_bind_group: wgpu::BindGroup,
     depth_bind_group: wgpu::BindGroup,
-    depth_bgl: wgpu::BindGroupLayout,
+    depth_bgl: std::sync::Arc<wgpu::BindGroupLayout>,
     /// Two textures and a sampler, per decal.
     ///
     /// A decal needs its colour *and* its normal map bound together, and wgpu
     /// allows only four bind groups -- camera, uniform, depth and this one --
     /// so a second texture cannot have a group of its own. Built per decal per
     /// frame, the way terrain builds its layer group per chunk.
-    texture_bgl: wgpu::BindGroupLayout,
+    texture_bgl: std::sync::Arc<wgpu::BindGroupLayout>,
     /// Bound for a decal with no normal map: a flat one, so its surface keeps
     /// the normal it already had.
     flat_normal: wgpu::TextureView,
@@ -301,7 +302,7 @@ impl DecalResources {
     ) -> Self {
         let (buffers, view, normal_view, array_view) = Self::create_buffers(device, width, height);
 
-        let uniform_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let uniform_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("decal uniform bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -334,7 +335,7 @@ impl DecalResources {
             }],
         });
 
-        let depth_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let depth_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("decal depth bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -351,7 +352,7 @@ impl DecalResources {
 
         // Colour, normal map and sampler in one group. `texture_bgl` from the
         // renderer holds one texture and a sampler, which is one short.
-        let decal_texture_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let decal_texture_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("decal texture bgl"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -431,16 +432,16 @@ impl DecalResources {
         );
         let flat_white = flat_white_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("decal shader"),
             source: wgpu::ShaderSource::Wgsl(DECAL_WGSL.into()),
         });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("decal pipeline layout"),
             bind_group_layouts: &[camera_bgl, &uniform_bgl, &depth_bgl, &decal_texture_bgl],
             push_constant_ranges: &[],
         });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let pipeline = device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("decal pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {

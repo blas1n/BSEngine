@@ -24,6 +24,7 @@
 //! source that was decoded from sRGB on the way in would be stored as if its
 //! encoded values were the light.
 
+use crate::pipeline_cache::CachedCreate;
 /// How many distinct lightmap textures a frame can use. A level with more
 /// atlases than this should pack them tighter: the extra renderers shade
 /// without a lightmap rather than with another renderer's.
@@ -99,8 +100,8 @@ pub(crate) struct LightmapAtlas {
     pub(crate) array_view: wgpu::TextureView,
     /// One render-target view per layer, for the blit.
     layer_views: Vec<wgpu::TextureView>,
-    blit_pipeline: wgpu::RenderPipeline,
-    blit_layout: wgpu::BindGroupLayout,
+    blit_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
+    blit_layout: std::sync::Arc<wgpu::BindGroupLayout>,
     /// Trilinear, so a source larger than a layer is read through its mips.
     blit_sampler: wgpu::Sampler,
     /// What each layer was last drawn from: `(texture id, its generation)`.
@@ -153,7 +154,7 @@ impl LightmapAtlas {
             mipmap_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
-        let blit_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let blit_layout = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("lightmap blit bgl"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -174,16 +175,16 @@ impl LightmapAtlas {
                 },
             ],
         });
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let module = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("lightmap blit"),
             source: wgpu::ShaderSource::Wgsl(crate::cookie::BLIT_WGSL.into()),
         });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("lightmap blit layout"),
             bind_group_layouts: &[&blit_layout],
             push_constant_ranges: &[],
         });
-        let blit_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let blit_pipeline = device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("lightmap blit"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {

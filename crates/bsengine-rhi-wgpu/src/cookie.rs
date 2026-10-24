@@ -22,6 +22,7 @@
 //! video cookie on its first picture. A layer is 256x256 -- eight of them are
 //! less than one shadow-map clear.
 
+use crate::pipeline_cache::CachedCreate;
 use glam::Vec3;
 
 /// How many distinct cookie textures a frame can use: one per spot light the
@@ -217,8 +218,8 @@ pub(crate) struct CookieAtlas {
     /// Binding 19: bilinear, clamped (outside the square is outside the cone
     /// anyway, and a repeat would bleed the opposite edge into the rim).
     pub(crate) sampler: wgpu::Sampler,
-    blit_pipeline: wgpu::RenderPipeline,
-    blit_layout: wgpu::BindGroupLayout,
+    blit_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
+    blit_layout: std::sync::Arc<wgpu::BindGroupLayout>,
     /// Trilinear, so a large cookie's mips are used on the way down.
     blit_sampler: wgpu::Sampler,
 }
@@ -270,7 +271,7 @@ impl CookieAtlas {
         let sampler = clamped("spot cookie sampler", wgpu::FilterMode::Nearest);
         let blit_sampler = clamped("spot cookie blit sampler", wgpu::FilterMode::Linear);
 
-        let blit_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let blit_layout = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("spot cookie blit bgl"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -291,16 +292,16 @@ impl CookieAtlas {
                 },
             ],
         });
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let module = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("spot cookie blit"),
             source: wgpu::ShaderSource::Wgsl(BLIT_WGSL.into()),
         });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("spot cookie blit layout"),
             bind_group_layouts: &[&blit_layout],
             push_constant_ranges: &[],
         });
-        let blit_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let blit_pipeline = device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("spot cookie blit"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {

@@ -11,6 +11,7 @@
 //! Only 4x: the one count WebGPU guarantees for multisample-capable formats.
 //! Unity and Godot offer 2x and 8x too, which are per-adapter here.
 
+use crate::pipeline_cache::CachedCreate;
 /// The sample count MSAA uses.
 pub const MSAA_SAMPLES: u32 = 4;
 
@@ -21,9 +22,9 @@ pub fn variant(
     device: &wgpu::Device,
     desc: &wgpu::RenderPipelineDescriptor<'_>,
     supported: bool,
-) -> Option<wgpu::RenderPipeline> {
+) -> Option<std::sync::Arc<wgpu::RenderPipeline>> {
     supported.then(|| {
-        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             multisample: wgpu::MultisampleState {
                 count: MSAA_SAMPLES,
                 ..desc.multisample
@@ -153,9 +154,9 @@ impl MsaaTargets {
 /// CopyDepth reads one sample the same way.
 pub struct DepthResolve {
     /// The layout of [`MsaaTargets::depth_resolve_bg`].
-    pub bgl: wgpu::BindGroupLayout,
+    pub bgl: std::sync::Arc<wgpu::BindGroupLayout>,
     /// The pass.
-    pub pipeline: wgpu::RenderPipeline,
+    pub pipeline: std::sync::Arc<wgpu::RenderPipeline>,
 }
 
 const DEPTH_RESOLVE_WGSL: &str = r#"
@@ -178,7 +179,7 @@ fn fs_resolve(@builtin(position) pos: vec4<f32>) -> @builtin(frag_depth) f32 {
 impl DepthResolve {
     /// The pipeline and its layout.
     pub fn new(device: &wgpu::Device) -> Self {
-        let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("msaa depth resolve bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -191,16 +192,16 @@ impl DepthResolve {
                 count: None,
             }],
         });
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("msaa depth resolve shader"),
             source: wgpu::ShaderSource::Wgsl(DEPTH_RESOLVE_WGSL.into()),
         });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("msaa depth resolve pll"),
             bind_group_layouts: &[&bgl],
             push_constant_ranges: &[],
         });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let pipeline = device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("msaa depth resolve pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {

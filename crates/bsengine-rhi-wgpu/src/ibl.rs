@@ -11,6 +11,7 @@
 //!
 //! See `docs/superpowers/specs/2026-08-30-ibl-design.md`.
 
+use crate::pipeline_cache::CachedCreate;
 use crate::profiler::{create_tracked_texture, TrackedTexture};
 
 /// Edge length of each face of the environment cubemap.
@@ -140,8 +141,8 @@ fn face_pass_bind_group_layout(
     label: &str,
     uniform_size: u64,
     source_dimension: wgpu::TextureViewDimension,
-) -> wgpu::BindGroupLayout {
-    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+) -> std::sync::Arc<wgpu::BindGroupLayout> {
+    device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some(label),
         entries: &[
             wgpu::BindGroupLayoutEntry {
@@ -223,17 +224,17 @@ fn face_pass_pipeline(
     fragment_entry: &str,
     bgl: &wgpu::BindGroupLayout,
     format: wgpu::TextureFormat,
-) -> wgpu::RenderPipeline {
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+) -> std::sync::Arc<wgpu::RenderPipeline> {
+    let shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some(label),
         source: wgpu::ShaderSource::Wgsl(wgsl.into()),
     });
-    let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+    let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some(label),
         bind_group_layouts: &[bgl],
         push_constant_ranges: &[],
     });
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(label),
         layout: Some(&layout),
         vertex: wgpu::VertexState {
@@ -499,7 +500,7 @@ pub fn generate_brdf_lut(
     );
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+    let shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("ibl brdf lut shader"),
         source: wgpu::ShaderSource::Wgsl(
             format!("{COMMON_WGSL}{IMPORTANCE_SAMPLING_WGSL}{BRDF_LUT_WGSL}").into(),
@@ -507,12 +508,12 @@ pub fn generate_brdf_lut(
     });
     // No bind groups at all: the integration reads nothing but its own
     // fragment coordinates.
-    let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+    let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("ibl brdf lut pll"),
         bind_group_layouts: &[],
         push_constant_ranges: &[],
     });
-    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    let pipeline = device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("ibl brdf lut pipeline"),
         layout: Some(&layout),
         vertex: wgpu::VertexState {

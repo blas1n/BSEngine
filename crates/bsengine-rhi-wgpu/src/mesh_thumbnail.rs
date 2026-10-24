@@ -7,6 +7,7 @@
 //! `docs/superpowers/specs/2026-08-27-mesh-3d-thumbnails-design.md`.
 
 use crate::mesh::Vertex;
+use crate::pipeline_cache::CachedCreate;
 use std::path::Path;
 
 /// A decoded RGBA8 image, already resolved from whatever format glTF stored
@@ -249,7 +250,7 @@ pub fn render_thumbnail(
         contents: bytemuck::cast_slice(&[camera_uniform]),
         usage: wgpu::BufferUsages::UNIFORM,
     });
-    let camera_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+    let camera_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("thumbnail camera bgl"),
         entries: &[wgpu::BindGroupLayoutEntry {
             binding: 0,
@@ -271,7 +272,7 @@ pub fn render_thumbnail(
         }],
     });
 
-    let material_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+    let material_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("thumbnail material bgl"),
         entries: &[
             wgpu::BindGroupLayoutEntry {
@@ -303,11 +304,11 @@ pub fn render_thumbnail(
         ],
     });
 
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+    let shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("thumbnail shader"),
         source: wgpu::ShaderSource::Wgsl(THUMBNAIL_WGSL.into()),
     });
-    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+    let pipeline_layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("thumbnail pipeline layout"),
         bind_group_layouts: &[&camera_bgl, &material_bgl],
         push_constant_ranges: &[],
@@ -339,7 +340,7 @@ pub fn render_thumbnail(
         ],
     };
     let color_target_format = wgpu::TextureFormat::Rgba8UnormSrgb;
-    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    let pipeline = device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("thumbnail pipeline"),
         layout: Some(&pipeline_layout),
         vertex: wgpu::VertexState {

@@ -10,6 +10,7 @@
 //! frame here at paper white, as Unity and Unreal composite their UI under HDR
 //! (Unreal's `r.HDR.UI.Level`).
 
+use crate::pipeline_cache::CachedCreate;
 use crate::profiler::TrackedTexture;
 
 /// The format the UI is drawn in under HDR output: what it would be in SDR.
@@ -46,10 +47,10 @@ fn fs_ui(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
 pub(crate) struct UiLayer {
     texture: TrackedTexture,
     view: wgpu::TextureView,
-    layout: wgpu::BindGroupLayout,
+    layout: std::sync::Arc<wgpu::BindGroupLayout>,
     uniform: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
-    pipeline: wgpu::RenderPipeline,
+    pipeline: std::sync::Arc<wgpu::RenderPipeline>,
 }
 
 impl UiLayer {
@@ -61,7 +62,7 @@ impl UiLayer {
         target_format: wgpu::TextureFormat,
         paper_white_scale: f32,
     ) -> Self {
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let layout = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("hdr ui layer bgl"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -97,11 +98,11 @@ impl UiLayer {
             0,
             bytemuck::cast_slice(&[paper_white_scale, 0.0, 0.0, 0.0]),
         );
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("hdr ui layer shader"),
             source: wgpu::ShaderSource::Wgsl(UI_COMPOSITE_WGSL.into()),
         });
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let pipeline_layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("hdr ui layer pll"),
             bind_group_layouts: &[&layout],
             push_constant_ranges: &[],
@@ -111,7 +112,7 @@ impl UiLayer {
             dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
             operation: wgpu::BlendOperation::Add,
         };
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let pipeline = device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("hdr ui layer pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {

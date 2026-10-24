@@ -54,6 +54,7 @@ mod output;
 pub mod panels;
 /// Billboarded particle quads, drawn instanced.
 pub mod particles;
+pub mod pipeline_cache;
 /// The Bevy plugin that creates the render target and wires up resize handling.
 pub mod plugin;
 /// Post-processing render passes (bloom, tonemapping, etc).

@@ -573,6 +573,11 @@ impl Harness {
         }
     }
 
+    /// The device this renderer is on: the one every test here shares.
+    pub fn device(&self) -> std::sync::Arc<wgpu::Device> {
+        self.surface.device_arc()
+    }
+
     pub fn cube(&mut self) -> u64 {
         let (v, i) = cube_vertices();
         self.registry.register(&v, &i)

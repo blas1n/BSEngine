@@ -5,6 +5,7 @@
 //! triangle. What varies per particle rides an instance buffer rewritten each
 //! frame.
 
+use crate::pipeline_cache::CachedCreate;
 use crate::post_process::HDR_FORMAT;
 use crate::texture::GpuTextureRegistry;
 
@@ -40,14 +41,14 @@ const MAX_INSTANCES: usize = 16384;
 
 /// Pipeline and instance buffer for the particle pass.
 pub struct ParticleRenderer {
-    pipeline: wgpu::RenderPipeline,
+    pipeline: std::sync::Arc<wgpu::RenderPipeline>,
     /// The pipeline for a multisampled pass (`None` where the adapter
     /// cannot).
-    pipeline_msaa: Option<wgpu::RenderPipeline>,
+    pipeline_msaa: Option<std::sync::Arc<wgpu::RenderPipeline>>,
     instances: wgpu::Buffer,
     /// Structurally identical to the one `GpuTextureRegistry` builds its bind
     /// groups with, which is what lets those bind groups be used here.
-    _texture_bgl: wgpu::BindGroupLayout,
+    _texture_bgl: std::sync::Arc<wgpu::BindGroupLayout>,
 }
 
 impl ParticleRenderer {
@@ -58,7 +59,7 @@ impl ParticleRenderer {
         camera_bgl: &wgpu::BindGroupLayout,
         msaa_supported: bool,
     ) -> Self {
-        let texture_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let texture_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("particle texture bgl"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -80,12 +81,12 @@ impl ParticleRenderer {
             ],
         });
 
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("particle shader"),
             source: wgpu::ShaderSource::Wgsl(PARTICLE_WGSL.into()),
         });
 
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("particle pipeline layout"),
             bind_group_layouts: &[camera_bgl, &texture_bgl],
             push_constant_ranges: &[],
@@ -155,7 +156,7 @@ impl ParticleRenderer {
             multiview: None,
             cache: None,
         };
-        let pipeline = device.create_render_pipeline(&pipeline_desc);
+        let pipeline = device.cached_render_pipeline(&pipeline_desc);
         let pipeline_msaa = crate::msaa::variant(device, &pipeline_desc, msaa_supported);
 
         let instances = device.create_buffer(&wgpu::BufferDescriptor {

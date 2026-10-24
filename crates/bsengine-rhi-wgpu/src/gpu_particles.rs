@@ -28,6 +28,7 @@
 //! costs vertex work on dead ones; it is what lets the draw need no count read
 //! back from the GPU.
 
+use crate::pipeline_cache::CachedCreate;
 use std::collections::HashMap;
 
 use crate::particles::ParticleInstance;
@@ -148,10 +149,10 @@ struct EmitterState {
 
 /// Every GPU emitter's buffers and the compute pipeline that steps them.
 pub struct GpuParticles {
-    pipeline: wgpu::ComputePipeline,
-    layout: wgpu::BindGroupLayout,
+    pipeline: std::sync::Arc<wgpu::ComputePipeline>,
+    layout: std::sync::Arc<wgpu::BindGroupLayout>,
     /// Group 1: the scene view and its depth.
-    depth_layout: wgpu::BindGroupLayout,
+    depth_layout: std::sync::Arc<wgpu::BindGroupLayout>,
     scene_view: wgpu::Buffer,
     /// Bound when there is no depth buffer, so the layout is always
     /// satisfied. The scene view is all zeros then, which the shader reads
@@ -176,7 +177,7 @@ impl GpuParticles {
             },
             count: None,
         };
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let layout = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("gpu particles bgl"),
             entries: &[
                 entry(0, wgpu::BufferBindingType::Uniform),
@@ -184,11 +185,11 @@ impl GpuParticles {
                 entry(2, wgpu::BufferBindingType::Storage { read_only: false }),
             ],
         });
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("gpu particles shader"),
             source: wgpu::ShaderSource::Wgsl(GPU_PARTICLES_WGSL.into()),
         });
-        let depth_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let depth_layout = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("gpu particles depth bgl"),
             entries: &[
                 entry(0, wgpu::BufferBindingType::Uniform),
@@ -226,12 +227,12 @@ impl GpuParticles {
                 view_formats: &[],
             })
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let pipeline_layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("gpu particles pipeline layout"),
             bind_group_layouts: &[&layout, &depth_layout],
             push_constant_ranges: &[],
         });
-        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        let pipeline = device.cached_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("gpu particles pipeline"),
             layout: Some(&pipeline_layout),
             module: &shader,

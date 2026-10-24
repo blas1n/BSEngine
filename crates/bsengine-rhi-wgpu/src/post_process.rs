@@ -1,3 +1,4 @@
+use crate::pipeline_cache::CachedCreate;
 /// Texture format used for the HDR scene-color render target, before tonemapping.
 pub const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 const BLOOM_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
@@ -3053,7 +3054,7 @@ pub struct PostProcessState {
     fxaa_bg: wgpu::BindGroup,
     /// The FXAA pass, its uniform and that uniform's group; `fxaa_on` is
     /// whether this frame runs it (see `update_fxaa`).
-    fxaa_pipeline: wgpu::RenderPipeline,
+    fxaa_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
     fxaa_buffer: wgpu::Buffer,
     fxaa_bg_uniform: wgpu::BindGroup,
     fxaa_on: bool,
@@ -3117,8 +3118,8 @@ pub struct PostProcessState {
     /// something else that a fresh renderer, with no last frame, is compared
     /// against.
     ssgi_multibounce: bool,
-    ssgi_history_bgl: wgpu::BindGroupLayout,
-    ssgi_composite_bgl: wgpu::BindGroupLayout,
+    ssgi_history_bgl: std::sync::Arc<wgpu::BindGroupLayout>,
+    ssgi_composite_bgl: std::sync::Arc<wgpu::BindGroupLayout>,
     /// How many screen pixels each way one trace pixel stands for: 2, or 1
     /// at full resolution (`ScreenSpaceGlobalIllumination::full_resolution`).
     ssgi_scale: u32,
@@ -3126,10 +3127,10 @@ pub struct PostProcessState {
     /// when the scale changes.
     ssgi_screen: (u32, u32),
     /// Screen-space GI's passes, its camera and whether it runs.
-    ssgi_pipeline: wgpu::RenderPipeline,
-    ssgi_temporal_pipeline: wgpu::RenderPipeline,
-    ssgi_spatial_pipeline: wgpu::RenderPipeline,
-    ssgi_composite_pipeline: wgpu::RenderPipeline,
+    ssgi_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
+    ssgi_temporal_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
+    ssgi_spatial_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
+    ssgi_composite_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
     ssgi_cam_buffer: wgpu::Buffer,
     ssgi_cam_bg: wgpu::BindGroup,
     ssgi_enabled: bool,
@@ -3162,14 +3163,14 @@ pub struct PostProcessState {
     config_bg: wgpu::BindGroup,
     /// The depth-of-field pass, its settings uniform and that uniform's
     /// group; `dof_on` is whether this frame runs it (see `update_dof`).
-    dof_pipeline: wgpu::RenderPipeline,
+    dof_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
     dof_buffer: wgpu::Buffer,
     dof_bg: wgpu::BindGroup,
     dof_on: bool,
     /// The motion blur pass, its uniform and that uniform's group;
     /// `motion_blur_on` is whether this frame runs it (see
     /// `update_motion_blur`).
-    motion_blur_pipeline: wgpu::RenderPipeline,
+    motion_blur_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
     motion_blur_buffer: wgpu::Buffer,
     motion_blur_bg: wgpu::BindGroup,
     motion_blur_on: bool,
@@ -3182,7 +3183,7 @@ pub struct PostProcessState {
     motion_blur_prev_valid: bool,
     /// The composite pass's group 3 (see where it is built) and its layout,
     /// kept to rebuild the group when the LUT changes.
-    composite_config_bgl: wgpu::BindGroupLayout,
+    composite_config_bgl: std::sync::Arc<wgpu::BindGroupLayout>,
     composite_config_bg: wgpu::BindGroup,
     /// [`HdrOutputGpu`], bound in `composite_config_bg`.
     hdr_buffer: wgpu::Buffer,
@@ -3268,32 +3269,32 @@ pub struct PostProcessState {
     /// fog is off, and it cannot read the flag back out of the uniform buffer.
     fog_enabled: bool,
     /// Compute pipeline that fills the scattering volume.
-    fog_inject_pipeline: wgpu::ComputePipeline,
+    fog_inject_pipeline: std::sync::Arc<wgpu::ComputePipeline>,
     /// Compute pipeline that marches each froxel column front to back.
-    fog_integrate_pipeline: wgpu::ComputePipeline,
+    fog_integrate_pipeline: std::sync::Arc<wgpu::ComputePipeline>,
     /// Pipeline for the volumetric-fog apply shader, the first pass of the
     /// chain: it composites the integrated volume onto the scene's HDR image.
     /// An exact passthrough while `fog.enabled` is zero.
-    pub fog_pipeline: wgpu::RenderPipeline,
+    pub fog_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
     /// Pipeline for the bright-pass bloom extraction shader.
-    pub bloom_pipeline: wgpu::RenderPipeline,
+    pub bloom_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
     /// Pipeline for the SSAO occlusion shader.
-    pub ssao_pipeline: wgpu::RenderPipeline,
+    pub ssao_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
     /// Averages the SSAO pass's output over the 4x4 tile of its rotations.
-    ssao_blur_pipeline: wgpu::RenderPipeline,
+    ssao_blur_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
     /// Traces the reflections into [`Self::ssr_view`].
-    ssr_pipeline: wgpu::RenderPipeline,
+    ssr_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
     ssr_cam_buffer: wgpu::Buffer,
     ssr_cam_bg: wgpu::BindGroup,
     /// Whether the reflection passes run this frame.
     ssr_enabled: bool,
     /// Pipeline for the final composite (HDR + bloom + AO, tonemapped) shader.
-    pub composite_pipeline: wgpu::RenderPipeline,
+    pub composite_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
     /// Pipeline for the temporal-antialiasing resolve. Writes both the
     /// swapchain image and next frame's history target.
-    pub taa_pipeline: wgpu::RenderPipeline,
-    tex2d_bgl: wgpu::BindGroupLayout,
-    depth_bgl: wgpu::BindGroupLayout,
+    pub taa_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
+    tex2d_bgl: std::sync::Arc<wgpu::BindGroupLayout>,
+    depth_bgl: std::sync::Arc<wgpu::BindGroupLayout>,
     /// Format of the final swapchain image. The LDR intermediate target must
     /// match it exactly, or the round trip through it would requantize the
     /// frame; kept here so `resize_targets` can recreate that target.
@@ -3324,7 +3325,7 @@ impl PostProcessState {
             ..Default::default()
         });
 
-        let tex2d_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let tex2d_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("pp tex2d bgl"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -3346,7 +3347,7 @@ impl PostProcessState {
             ],
         });
 
-        let depth_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let depth_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("pp depth bgl"),
             // The velocity rides with the depth: the two passes that read it
             // (TAA and motion blur) already use all four bind groups WebGPU
@@ -3377,7 +3378,7 @@ impl PostProcessState {
             ],
         });
 
-        let config_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let config_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("pp config bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -3391,7 +3392,7 @@ impl PostProcessState {
             }],
         });
 
-        let ssao_cam_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let ssao_cam_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("pp ssao cam bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -3408,7 +3409,7 @@ impl PostProcessState {
         // The resolve pass already needs four groups (LDR, history, depth,
         // uniforms) and `max_bind_groups` is 4 on the WebGPU baseline, so the
         // config and camera uniforms share one group rather than taking two.
-        let taa_uniform_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let taa_uniform_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("pp taa uniform bgl"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -3454,7 +3455,7 @@ impl PostProcessState {
         // layout so that the LUT can be swapped without touching the bloom,
         // SSAO and TAA passes that bind the plain config group.
         let composite_config_bgl =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("pp composite config bgl"),
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
@@ -3535,7 +3536,7 @@ impl PostProcessState {
             &hdr_buffer,
         );
 
-        let dof_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let dof_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("pp dof bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -3563,7 +3564,7 @@ impl PostProcessState {
             }],
         });
 
-        let motion_blur_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let motion_blur_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("pp motion blur bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -3591,7 +3592,7 @@ impl PostProcessState {
             }],
         });
 
-        let fxaa_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let fxaa_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("pp fxaa bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -3663,7 +3664,7 @@ impl PostProcessState {
         // Visible to both stages: the two compute passes read these parameters
         // to fill the volumes, and the apply pass reads the same buffer for
         // `enabled`, the near/far mapping, and the camera matrix.
-        let fog_uniform_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let fog_uniform_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("pp fog uniform bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -3681,7 +3682,7 @@ impl PostProcessState {
         // a `Comparison` sampler, and a *non-filterable* float array for the
         // point shadows, which is what `R32Float` allows without the
         // FLOAT32_FILTERABLE feature this engine never requests.
-        let froxel_shadow_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let froxel_shadow_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("pp froxel shadow bgl"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -3817,7 +3818,7 @@ impl PostProcessState {
                 },
             ],
         });
-        let froxel_write_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let froxel_write_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("pp froxel write bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -3830,7 +3831,7 @@ impl PostProcessState {
                 count: None,
             }],
         });
-        let froxel_read_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let froxel_read_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("pp froxel read bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -3848,7 +3849,7 @@ impl PostProcessState {
         // unlike `froxel_read_bgl` above, because the reprojected history lookup
         // lands between froxels and a nearest read would snap it to whole ones.
         let froxel_history_bgl =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("pp froxel history bgl"),
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
@@ -3874,7 +3875,7 @@ impl PostProcessState {
         // binding cannot give it -- so its layout is a `Texture` entry with a
         // `D3` view dimension plus a filtering sampler, not the storage entry
         // the integration pass writes through.
-        let froxel_apply_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let froxel_apply_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("pp froxel apply bgl"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -4061,7 +4062,7 @@ impl PostProcessState {
         let ssao_blur_pipeline =
             Self::make_ssao_blur_pipeline(device, &depth_bgl, &tex2d_bgl, &ssao_cam_bgl);
 
-        let ssr_cam_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let ssr_cam_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("pp ssr cam bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -4116,7 +4117,7 @@ impl PostProcessState {
             },
             count: None,
         };
-        let ssgi_history_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let ssgi_history_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("pp ssgi history bgl"),
             entries: &[
                 filterable(0),
@@ -4133,7 +4134,7 @@ impl PostProcessState {
         // reflectance and the trace's depths, in one group -- with this
         // frame's trace, the screen's depth and the camera, four.
         let ssgi_composite_bgl =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("pp ssgi composite bgl"),
                 entries: &[
                     filterable(0),
@@ -4781,12 +4782,12 @@ impl PostProcessState {
         froxel_write_bgl: &wgpu::BindGroupLayout,
         froxel_shadow_bgl: &wgpu::BindGroupLayout,
         froxel_history_bgl: &wgpu::BindGroupLayout,
-    ) -> wgpu::ComputePipeline {
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+    ) -> std::sync::Arc<wgpu::ComputePipeline> {
+        let shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("fog inject shader"),
             source: wgpu::ShaderSource::Wgsl(fog_inject_wgsl().into()),
         });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("fog inject pll"),
             bind_group_layouts: &[
                 fog_uniform_bgl,
@@ -4796,7 +4797,7 @@ impl PostProcessState {
             ],
             push_constant_ranges: &[],
         });
-        device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        device.cached_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("fog inject pipeline"),
             layout: Some(&layout),
             module: &shader,
@@ -4814,17 +4815,17 @@ impl PostProcessState {
         fog_uniform_bgl: &wgpu::BindGroupLayout,
         froxel_read_bgl: &wgpu::BindGroupLayout,
         froxel_write_bgl: &wgpu::BindGroupLayout,
-    ) -> wgpu::ComputePipeline {
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+    ) -> std::sync::Arc<wgpu::ComputePipeline> {
+        let shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("fog integrate shader"),
             source: wgpu::ShaderSource::Wgsl(fog_integrate_wgsl().into()),
         });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("fog integrate pll"),
             bind_group_layouts: &[fog_uniform_bgl, froxel_read_bgl, froxel_write_bgl],
             push_constant_ranges: &[],
         });
-        device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        device.cached_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("fog integrate pipeline"),
             layout: Some(&layout),
             module: &shader,
@@ -4846,17 +4847,17 @@ impl PostProcessState {
         depth_bgl: &wgpu::BindGroupLayout,
         froxel_apply_bgl: &wgpu::BindGroupLayout,
         fog_uniform_bgl: &wgpu::BindGroupLayout,
-    ) -> wgpu::RenderPipeline {
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+    ) -> std::sync::Arc<wgpu::RenderPipeline> {
+        let shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("fog shader"),
             source: wgpu::ShaderSource::Wgsl(fog_apply_wgsl().into()),
         });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("fog pll"),
             bind_group_layouts: &[tex2d_bgl, depth_bgl, froxel_apply_bgl, fog_uniform_bgl],
             push_constant_ranges: &[],
         });
-        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("fog pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
@@ -4887,17 +4888,17 @@ impl PostProcessState {
         device: &wgpu::Device,
         tex2d_bgl: &wgpu::BindGroupLayout,
         config_bgl: &wgpu::BindGroupLayout,
-    ) -> wgpu::RenderPipeline {
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+    ) -> std::sync::Arc<wgpu::RenderPipeline> {
+        let shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("bloom shader"),
             source: wgpu::ShaderSource::Wgsl(BLOOM_WGSL.into()),
         });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("bloom pll"),
             bind_group_layouts: &[tex2d_bgl, config_bgl],
             push_constant_ranges: &[],
         });
-        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("bloom pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
@@ -4935,12 +4936,12 @@ impl PostProcessState {
         entry_point: &str,
         groups: &[&wgpu::BindGroupLayout],
         formats: &[wgpu::TextureFormat],
-    ) -> wgpu::RenderPipeline {
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+    ) -> std::sync::Arc<wgpu::RenderPipeline> {
+        let shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some(label),
             source: wgpu::ShaderSource::Wgsl(source.into()),
         });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some(label),
             bind_group_layouts: groups,
             push_constant_ranges: &[],
@@ -4955,7 +4956,7 @@ impl PostProcessState {
                 })
             })
             .collect();
-        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some(label),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
@@ -4988,17 +4989,17 @@ impl PostProcessState {
         groups: &[&wgpu::BindGroupLayout],
         blend: Option<wgpu::BlendState>,
         write_mask: wgpu::ColorWrites,
-    ) -> wgpu::RenderPipeline {
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+    ) -> std::sync::Arc<wgpu::RenderPipeline> {
+        let shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some(label),
             source: wgpu::ShaderSource::Wgsl(source.into()),
         });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some(label),
             bind_group_layouts: groups,
             push_constant_ranges: &[],
         });
-        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some(label),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
@@ -5030,17 +5031,17 @@ impl PostProcessState {
         tex2d_bgl: &wgpu::BindGroupLayout,
         depth_bgl: &wgpu::BindGroupLayout,
         ssr_cam_bgl: &wgpu::BindGroupLayout,
-    ) -> wgpu::RenderPipeline {
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+    ) -> std::sync::Arc<wgpu::RenderPipeline> {
+        let shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("ssr shader"),
             source: wgpu::ShaderSource::Wgsl(SSR_WGSL.into()),
         });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("ssr pll"),
             bind_group_layouts: &[tex2d_bgl, depth_bgl, tex2d_bgl, ssr_cam_bgl],
             push_constant_ranges: &[],
         });
-        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("ssr pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
@@ -5072,17 +5073,17 @@ impl PostProcessState {
         depth_bgl: &wgpu::BindGroupLayout,
         config_bgl: &wgpu::BindGroupLayout,
         ssao_cam_bgl: &wgpu::BindGroupLayout,
-    ) -> wgpu::RenderPipeline {
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+    ) -> std::sync::Arc<wgpu::RenderPipeline> {
+        let shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("ssao shader"),
             source: wgpu::ShaderSource::Wgsl(SSAO_WGSL.into()),
         });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("ssao pll"),
             bind_group_layouts: &[depth_bgl, config_bgl, ssao_cam_bgl],
             push_constant_ranges: &[],
         });
-        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("ssao pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
@@ -5114,17 +5115,17 @@ impl PostProcessState {
         depth_bgl: &wgpu::BindGroupLayout,
         tex2d_bgl: &wgpu::BindGroupLayout,
         ssao_cam_bgl: &wgpu::BindGroupLayout,
-    ) -> wgpu::RenderPipeline {
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+    ) -> std::sync::Arc<wgpu::RenderPipeline> {
+        let shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("ssao blur shader"),
             source: wgpu::ShaderSource::Wgsl(SSAO_BLUR_WGSL.into()),
         });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("ssao blur pll"),
             bind_group_layouts: &[depth_bgl, tex2d_bgl, ssao_cam_bgl],
             push_constant_ranges: &[],
         });
-        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("ssao blur pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
@@ -5157,17 +5158,17 @@ impl PostProcessState {
         depth_bgl: &wgpu::BindGroupLayout,
         ssao_cam_bgl: &wgpu::BindGroupLayout,
         dof_bgl: &wgpu::BindGroupLayout,
-    ) -> wgpu::RenderPipeline {
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+    ) -> std::sync::Arc<wgpu::RenderPipeline> {
+        let shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("dof shader"),
             source: wgpu::ShaderSource::Wgsl(DOF_WGSL.into()),
         });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("dof pll"),
             bind_group_layouts: &[tex2d_bgl, depth_bgl, ssao_cam_bgl, dof_bgl],
             push_constant_ranges: &[],
         });
-        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("dof pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
@@ -5199,17 +5200,17 @@ impl PostProcessState {
         tex2d_bgl: &wgpu::BindGroupLayout,
         fxaa_bgl: &wgpu::BindGroupLayout,
         surface_format: wgpu::TextureFormat,
-    ) -> wgpu::RenderPipeline {
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+    ) -> std::sync::Arc<wgpu::RenderPipeline> {
+        let shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("fxaa shader"),
             source: wgpu::ShaderSource::Wgsl(FXAA_WGSL.into()),
         });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("fxaa pll"),
             bind_group_layouts: &[tex2d_bgl, fxaa_bgl],
             push_constant_ranges: &[],
         });
-        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("fxaa pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
@@ -5242,17 +5243,17 @@ impl PostProcessState {
         depth_bgl: &wgpu::BindGroupLayout,
         taa_uniform_bgl: &wgpu::BindGroupLayout,
         motion_blur_bgl: &wgpu::BindGroupLayout,
-    ) -> wgpu::RenderPipeline {
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+    ) -> std::sync::Arc<wgpu::RenderPipeline> {
+        let shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("motion blur shader"),
             source: wgpu::ShaderSource::Wgsl(MOTION_BLUR_WGSL.into()),
         });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("motion blur pll"),
             bind_group_layouts: &[tex2d_bgl, depth_bgl, taa_uniform_bgl, motion_blur_bgl],
             push_constant_ranges: &[],
         });
-        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("motion blur pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
@@ -5284,17 +5285,17 @@ impl PostProcessState {
         tex2d_bgl: &wgpu::BindGroupLayout,
         config_bgl: &wgpu::BindGroupLayout,
         surface_format: wgpu::TextureFormat,
-    ) -> wgpu::RenderPipeline {
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+    ) -> std::sync::Arc<wgpu::RenderPipeline> {
+        let shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("composite shader"),
             source: wgpu::ShaderSource::Wgsl(COMPOSITE_WGSL.into()),
         });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("composite pll"),
             bind_group_layouts: &[tex2d_bgl, tex2d_bgl, tex2d_bgl, config_bgl],
             push_constant_ranges: &[],
         });
-        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("composite pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
@@ -5331,12 +5332,12 @@ impl PostProcessState {
         depth_bgl: &wgpu::BindGroupLayout,
         taa_uniform_bgl: &wgpu::BindGroupLayout,
         surface_format: wgpu::TextureFormat,
-    ) -> wgpu::RenderPipeline {
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+    ) -> std::sync::Arc<wgpu::RenderPipeline> {
+        let shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("taa shader"),
             source: wgpu::ShaderSource::Wgsl(TAA_WGSL.into()),
         });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("taa pll"),
             bind_group_layouts: &[tex2d_bgl, tex2d_bgl, depth_bgl, taa_uniform_bgl],
             push_constant_ranges: &[],
@@ -5346,7 +5347,7 @@ impl PostProcessState {
             blend: Some(wgpu::BlendState::REPLACE),
             write_mask: wgpu::ColorWrites::ALL,
         });
-        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("taa pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {

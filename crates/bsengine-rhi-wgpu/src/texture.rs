@@ -1,3 +1,4 @@
+use crate::pipeline_cache::CachedCreate;
 use bsengine_core::{TextureFilter, TextureImportSettings, TextureWrap};
 use bsengine_ecs::Resource;
 use std::collections::HashMap;
@@ -554,7 +555,7 @@ pub const STREAMING_INITIAL_MAX_DIM: u32 = 64;
 pub struct GpuTextureRegistry {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
-    bgl: wgpu::BindGroupLayout,
+    bgl: std::sync::Arc<wgpu::BindGroupLayout>,
     textures: HashMap<u64, GpuTexture>,
     next_id: u64,
     /// The next [`GpuTexture::generation`]; see there.
@@ -853,8 +854,8 @@ impl GpuTextureRegistry {
         encoded
     }
 
-    fn create_bgl(device: &wgpu::Device) -> wgpu::BindGroupLayout {
-        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+    fn create_bgl(device: &wgpu::Device) -> std::sync::Arc<wgpu::BindGroupLayout> {
+        device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("tex reg bgl"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {

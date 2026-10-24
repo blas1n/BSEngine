@@ -1,4 +1,5 @@
 use crate::mesh::GpuMeshRegistry;
+use crate::pipeline_cache::CachedCreate;
 use bsengine_ecs::Resource;
 use glam::{Mat4, Vec3};
 use std::sync::Arc;
@@ -2607,10 +2608,10 @@ struct SkyUniformData {
 }
 
 struct SkyboxState {
-    pipeline: wgpu::RenderPipeline,
+    pipeline: std::sync::Arc<wgpu::RenderPipeline>,
     /// The pipeline for a multisampled pass (`None` where the adapter
     /// cannot).
-    pipeline_msaa: Option<wgpu::RenderPipeline>,
+    pipeline_msaa: Option<std::sync::Arc<wgpu::RenderPipeline>>,
     uniform_buffer: wgpu::Buffer,
     uniform_bg: wgpu::BindGroup,
     texture_bg: wgpu::BindGroup,
@@ -3374,8 +3375,8 @@ fn terrain_texture_bgl_entries() -> Vec<wgpu::BindGroupLayoutEntry> {
 #[cfg(target_arch = "wasm32")]
 struct PendingCustomShader {
     path: String,
-    pipeline: wgpu::RenderPipeline,
-    pipeline_msaa: Option<wgpu::RenderPipeline>,
+    pipeline: std::sync::Arc<wgpu::RenderPipeline>,
+    pipeline_msaa: Option<std::sync::Arc<wgpu::RenderPipeline>>,
     /// Set once by the spawned error-scope future: `None` inside for
     /// accepted, the device's message for rejected.
     verdict: std::sync::Arc<std::sync::OnceLock<Option<String>>>,
@@ -3388,12 +3389,12 @@ pub struct WgpuSurface {
     output: crate::output::Output,
     pub(crate) device: Arc<wgpu::Device>,
     pub(crate) queue: Arc<wgpu::Queue>,
-    pipeline: wgpu::RenderPipeline,
-    transparent_pipeline: wgpu::RenderPipeline,
+    pipeline: std::sync::Arc<wgpu::RenderPipeline>,
+    transparent_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
     /// [`Self::pipeline`] and [`Self::transparent_pipeline`] for a
     /// multisampled pass (`None` where the adapter cannot).
-    pipeline_msaa: Option<wgpu::RenderPipeline>,
-    transparent_pipeline_msaa: Option<wgpu::RenderPipeline>,
+    pipeline_msaa: Option<std::sync::Arc<wgpu::RenderPipeline>>,
+    transparent_pipeline_msaa: Option<std::sync::Arc<wgpu::RenderPipeline>>,
     particles: crate::particles::ParticleRenderer,
     /// GPU-simulated emitters' buffers and the compute pass that steps them;
     /// drawn by `particles` in the same pass as the CPU ones.
@@ -3413,11 +3414,11 @@ pub struct WgpuSurface {
     /// depth it writes is bit-for-bit what the opaque pass would compute --
     /// a separate vertex shader could drift from it and the decals would then
     /// project onto geometry that is not quite where it gets drawn.
-    depth_prepass_pipeline: wgpu::RenderPipeline,
+    depth_prepass_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
     /// The reflections' prepass: on the depth prepass's depth (`LessEqual`,
     /// not written), the opaque meshes' normals and roughness into
     /// `post_process.ssr_normal_view`. The same `vs_main`, so the same depth.
-    ssr_normal_pipeline: wgpu::RenderPipeline,
+    ssr_normal_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
     /// Group 2 of [`Self::ssr_normal_pipeline`]: nothing.
     empty_bind_group: wgpu::BindGroup,
     camera_buffer: wgpu::Buffer,
@@ -3438,8 +3439,8 @@ pub struct WgpuSurface {
     /// Kept because `light_bind_group` is rebuilt whenever the skybox changes:
     /// a bind group is immutable, so swapping the dummy IBL maps for real ones
     /// (or back) means building a new one against this same layout.
-    light_bgl: wgpu::BindGroupLayout,
-    light_bgl_terrain: wgpu::BindGroupLayout,
+    light_bgl: std::sync::Arc<wgpu::BindGroupLayout>,
+    light_bgl_terrain: std::sync::Arc<wgpu::BindGroupLayout>,
     _white_texture: crate::profiler::TrackedTexture,
     _sampler: wgpu::Sampler,
     default_texture_bind_group: wgpu::BindGroup,
@@ -3450,7 +3451,7 @@ pub struct WgpuSurface {
     /// tests: what tells "the material named a map" from "a map reached the
     /// shader".
     mapped_draws: MappedDraws,
-    shadow_pipeline: wgpu::RenderPipeline,
+    shadow_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
     _shadow_map_texture: crate::profiler::TrackedTexture,
     shadow_map_view: wgpu::TextureView,
     /// One single-layer view per cascade, to render into. A render pass
@@ -3461,7 +3462,7 @@ pub struct WgpuSurface {
     // No longer underscore-prefixed: the two shadow samplers and the point
     // shadow array view are read back whenever `light_bind_group` is rebuilt.
     shadow_comparison_sampler: wgpu::Sampler,
-    point_shadow_pipeline: wgpu::RenderPipeline,
+    point_shadow_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
     _point_shadow_color_texture: crate::profiler::TrackedTexture,
     _point_shadow_depth_texture: crate::profiler::TrackedTexture,
     point_shadow_color_full_view: wgpu::TextureView,
@@ -3481,9 +3482,9 @@ pub struct WgpuSurface {
     probe_capture_depth_view: wgpu::TextureView,
     /// Draws scene geometry into a capture face with **direct light only** --
     /// see [`PROBE_CAPTURE_WGSL`] for why that restriction is load-bearing.
-    probe_capture_pipeline: wgpu::RenderPipeline,
+    probe_capture_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
     /// Fills the rest of a capture face with the skybox, when one is loaded.
-    probe_capture_sky_pipeline: wgpu::RenderPipeline,
+    probe_capture_sky_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
     /// Per-face camera for the capture, one `PROBE_CAPTURE_STRIDE` slot per
     /// `(probe, face)`. A capture renders every face inside one command
     /// encoder, and `queue.write_buffer` cannot vary between passes of a
@@ -3556,7 +3557,7 @@ pub struct WgpuSurface {
     reflection_capture_depth_view: wgpu::TextureView,
     /// See the comment where it is built: the capture pipeline with its
     /// winding reversed for the clip-space flip.
-    reflection_capture_pipeline: wgpu::RenderPipeline,
+    reflection_capture_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
     /// The probes [`Self::reflection_cubes`] currently holds, in slot order.
     /// Compared against each frame's list exactly as `baked_probe_volume` is.
     captured_reflection_probes: Vec<ReflectionProbeParams>,
@@ -3583,7 +3584,7 @@ pub struct WgpuSurface {
     /// built inside `set_skybox_from_rgba` because `probe_capture_sky_pipeline`
     /// is built once at construction and has to bind `SkyboxState::texture_bg`
     /// against the very same layout object.
-    sky_tex_bgl: wgpu::BindGroupLayout,
+    sky_tex_bgl: std::sync::Arc<wgpu::BindGroupLayout>,
     egui_ctx: egui::Context,
     egui_renderer: egui_wgpu::Renderer,
     /// egui's handle for each GPU texture a UI image has drawn, keyed by the
@@ -3627,13 +3628,13 @@ pub struct WgpuSurface {
     dummy_ibl_cube_view: wgpu::TextureView,
     /// Held only to keep [`Self::dummy_ibl_cube_view`]'s texture alive.
     _dummy_ibl_cube_texture: crate::profiler::TrackedTexture,
-    pipeline_layout: wgpu::PipelineLayout,
-    terrain_pipeline: wgpu::RenderPipeline,
-    terrain_pipeline_msaa: Option<wgpu::RenderPipeline>,
-    terrain_bgl: wgpu::BindGroupLayout,
-    custom_pipelines: std::collections::HashMap<String, wgpu::RenderPipeline>,
+    pipeline_layout: std::sync::Arc<wgpu::PipelineLayout>,
+    terrain_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
+    terrain_pipeline_msaa: Option<std::sync::Arc<wgpu::RenderPipeline>>,
+    terrain_bgl: std::sync::Arc<wgpu::BindGroupLayout>,
+    custom_pipelines: std::collections::HashMap<String, std::sync::Arc<wgpu::RenderPipeline>>,
     /// Each custom shader's multisampled pipeline, alongside.
-    custom_pipelines_msaa: std::collections::HashMap<String, wgpu::RenderPipeline>,
+    custom_pipelines_msaa: std::collections::HashMap<String, std::sync::Arc<wgpu::RenderPipeline>>,
     /// In a browser, custom shaders whose device verdict has not arrived:
     /// see [`Self::compile_and_store_shader`] and
     /// [`Self::settle_custom_shaders`].
@@ -4387,6 +4388,12 @@ impl WgpuSurface {
                 msaa_supported,
             ) = pollster::block_on(Self::request_device(&instance, None))
                 .expect("headless device for test");
+            // Every renderer the tests make lands on this device, and this
+            // device lives as long as the process: the case
+            // `pipeline_cache` exists for. A renderer after the first
+            // compiles nothing (2 s each on Windows CI's software D3D12, 70%
+            // of a pixel test).
+            crate::pipeline_cache::share_across_renderers(&device);
             (
                 device,
                 queue,
@@ -4536,7 +4543,7 @@ impl WgpuSurface {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let camera_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let camera_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("camera bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -4571,7 +4578,7 @@ impl WgpuSurface {
                 | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let model_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let model_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("model bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -4614,7 +4621,7 @@ impl WgpuSurface {
         // offset struct. Vertex stage only -- the shadow shaders have no
         // fragment-stage use for model data, which is precisely why they
         // can move to storage while MESH_WGSL cannot.
-        let model_storage_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let model_storage_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("model storage bgl"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -4672,12 +4679,12 @@ impl WgpuSurface {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let light_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let light_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("light bgl"),
             entries: &light_bgl_entries(),
         });
         // The terrain's own variant: the same group minus the lightmap array.
-        let light_bgl_terrain = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let light_bgl_terrain = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("light bgl (terrain)"),
             entries: &terrain_light_bgl_entries(),
         });
@@ -4868,7 +4875,7 @@ impl WgpuSurface {
             mapped_at_creation: false,
         });
         let cascade_uniform_bgl =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("cascade uniform bgl"),
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
@@ -4906,7 +4913,7 @@ impl WgpuSurface {
             mapped_at_creation: false,
         });
         let point_shadow_uniform_bgl =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("point shadow uniform bgl"),
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
@@ -5213,12 +5220,12 @@ impl WgpuSurface {
             ],
         };
 
-        let shadow_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let shadow_shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("shadow shader"),
             source: wgpu::ShaderSource::Wgsl(shadow_wgsl(instancing_supported).into()),
         });
         let shadow_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("shadow pipeline layout"),
                 // The ONLY two pipeline layouts that change. The main,
                 // transparent, terrain and probe pipelines keep model_bgl,
@@ -5237,7 +5244,7 @@ impl WgpuSurface {
                 ],
                 push_constant_ranges: &[],
             });
-        let shadow_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let shadow_pipeline = device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("shadow pipeline"),
             layout: Some(&shadow_pipeline_layout),
             vertex: wgpu::VertexState {
@@ -5269,12 +5276,12 @@ impl WgpuSurface {
             cache: None,
         });
 
-        let point_shadow_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let point_shadow_shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("point shadow shader"),
             source: wgpu::ShaderSource::Wgsl(point_shadow_wgsl(instancing_supported).into()),
         });
         let point_shadow_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("point shadow pipeline layout"),
                 bind_group_layouts: &[
                     &point_shadow_uniform_bgl,
@@ -5287,7 +5294,7 @@ impl WgpuSurface {
                 push_constant_ranges: &[],
             });
         let point_shadow_pipeline =
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("point shadow pipeline"),
                 layout: Some(&point_shadow_pipeline_layout),
                 vertex: wgpu::VertexState {
@@ -5370,7 +5377,7 @@ impl WgpuSurface {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let probe_capture_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let probe_capture_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("probe capture bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -5400,7 +5407,7 @@ impl WgpuSurface {
             }],
         });
 
-        let probe_capture_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let probe_capture_shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("probe capture shader"),
             source: wgpu::ShaderSource::Wgsl(PROBE_CAPTURE_WGSL.into()),
         });
@@ -5410,7 +5417,7 @@ impl WgpuSurface {
         // declares; a bind group layout may expose more than an entry point
         // uses.
         let probe_capture_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("probe capture pipeline layout"),
                 bind_group_layouts: &[
                     &probe_capture_bgl,
@@ -5421,7 +5428,7 @@ impl WgpuSurface {
                 push_constant_ranges: &[],
             });
         let probe_capture_pipeline =
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("probe capture pipeline"),
                 layout: Some(&probe_capture_pipeline_layout),
                 vertex: wgpu::VertexState {
@@ -5472,7 +5479,7 @@ impl WgpuSurface {
         // captures are read back texel by texel through
         // `probe_face_texel_direction`, never sampled as a cube.
         let reflection_capture_pipeline =
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("reflection capture pipeline"),
                 layout: Some(&probe_capture_pipeline_layout),
                 vertex: wgpu::VertexState {
@@ -5509,7 +5516,7 @@ impl WgpuSurface {
                 cache: None,
             });
 
-        let sky_tex_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let sky_tex_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("sky tex bgl"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -5530,18 +5537,18 @@ impl WgpuSurface {
                 },
             ],
         });
-        let probe_capture_sky_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let probe_capture_sky_shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("probe capture sky shader"),
             source: wgpu::ShaderSource::Wgsl(PROBE_CAPTURE_SKY_WGSL.into()),
         });
         let probe_capture_sky_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("probe capture sky pipeline layout"),
                 bind_group_layouts: &[&probe_capture_bgl, &sky_tex_bgl],
                 push_constant_ranges: &[],
             });
         let probe_capture_sky_pipeline =
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("probe capture sky pipeline"),
                 layout: Some(&probe_capture_sky_pipeline_layout),
                 vertex: wgpu::VertexState {
@@ -5579,12 +5586,12 @@ impl WgpuSurface {
                 cache: None,
             });
 
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("mesh shader"),
             source: wgpu::ShaderSource::Wgsl(MESH_WGSL.into()),
         });
 
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let pipeline_layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("mesh pipeline layout"),
             bind_group_layouts: &[
                 &camera_bgl,
@@ -5600,13 +5607,13 @@ impl WgpuSurface {
         // between the two would land decals slightly off the geometry they were
         // meant for. `vs_main` reads only groups 0 and 1, which is why a layout
         // with just those two validates.
-        let depth_prepass_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let depth_prepass_layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("depth prepass pipeline layout"),
             bind_group_layouts: &[&camera_bgl, &model_bgl],
             push_constant_ranges: &[],
         });
         let depth_prepass_pipeline =
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("depth prepass pipeline"),
                 layout: Some(&depth_prepass_layout),
                 vertex: wgpu::VertexState {
@@ -5642,11 +5649,11 @@ impl WgpuSurface {
         // material's normal and ORM maps -- and an empty group 2: it lights
         // nothing, and the lighting group holds the very reflections this
         // prepass is the first step of.
-        let empty_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let empty_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("empty bgl"),
             entries: &[],
         });
-        let ssr_normal_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let ssr_normal_layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("ssr normal pipeline layout"),
             bind_group_layouts: &[
                 &camera_bgl,
@@ -5656,7 +5663,7 @@ impl WgpuSurface {
             ],
             push_constant_ranges: &[],
         });
-        let ssr_normal_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let ssr_normal_pipeline = device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("ssr normal pipeline"),
             layout: Some(&ssr_normal_layout),
             vertex: wgpu::VertexState {
@@ -5763,7 +5770,7 @@ impl WgpuSurface {
             multiview: None,
             cache: None,
         };
-        let pipeline = device.create_render_pipeline(&pipeline_desc);
+        let pipeline = device.cached_render_pipeline(&pipeline_desc);
         let pipeline_msaa = crate::msaa::variant(&device, &pipeline_desc, msaa_supported);
 
         // Same shader, same layout, same vertex format as the opaque pipeline.
@@ -5843,21 +5850,21 @@ impl WgpuSurface {
             multiview: None,
             cache: None,
         };
-        let transparent_pipeline = device.create_render_pipeline(&transparent_desc);
+        let transparent_pipeline = device.cached_render_pipeline(&transparent_desc);
         let transparent_pipeline_msaa =
             crate::msaa::variant(&device, &transparent_desc, msaa_supported);
 
-        let terrain_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let terrain_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("terrain texture bgl"),
             entries: &terrain_texture_bgl_entries(),
         });
 
-        let terrain_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let terrain_shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("terrain shader"),
             source: wgpu::ShaderSource::Wgsl(TERRAIN_WGSL.into()),
         });
         let terrain_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("terrain pipeline layout"),
                 bind_group_layouts: &[&camera_bgl, &model_bgl, &light_bgl_terrain, &terrain_bgl],
                 push_constant_ranges: &[],
@@ -5925,7 +5932,7 @@ impl WgpuSurface {
             multiview: None,
             cache: None,
         };
-        let terrain_pipeline = device.create_render_pipeline(&terrain_desc);
+        let terrain_pipeline = device.cached_render_pipeline(&terrain_desc);
         let terrain_pipeline_msaa = crate::msaa::variant(&device, &terrain_desc, msaa_supported);
 
         let particles =
@@ -6140,7 +6147,7 @@ impl WgpuSurface {
     ) -> (
         crate::profiler::TrackedTexture,
         wgpu::Sampler,
-        wgpu::BindGroupLayout,
+        std::sync::Arc<wgpu::BindGroupLayout>,
         wgpu::BindGroup,
     ) {
         let texture = crate::profiler::create_tracked_texture(
@@ -6183,7 +6190,7 @@ impl WgpuSurface {
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
-        let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("texture bgl"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -6338,7 +6345,7 @@ impl WgpuSurface {
         });
         let sky_uniform_bgl =
             self.device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                .cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("sky uniform bgl"),
                     entries: &[wgpu::BindGroupLayoutEntry {
                         binding: 0,
@@ -6381,13 +6388,13 @@ impl WgpuSurface {
 
         let shader = self
             .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
+            .cached_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("skybox shader"),
                 source: wgpu::ShaderSource::Wgsl(SKYBOX_WGSL.into()),
             });
         let pipeline_layout = self
             .device
-            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            .cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("skybox pipeline layout"),
                 bind_group_layouts: &[&sky_uniform_bgl, sky_tex_bgl],
                 push_constant_ranges: &[],
@@ -6431,7 +6438,7 @@ impl WgpuSurface {
             multiview: None,
             cache: None,
         };
-        let pipeline = self.device.create_render_pipeline(&pipeline_desc);
+        let pipeline = self.device.cached_render_pipeline(&pipeline_desc);
         let pipeline_msaa = crate::msaa::variant(&self.device, &pipeline_desc, self.msaa_supported);
 
         // The environment changed, so everything convolved from the old one is
@@ -10516,7 +10523,14 @@ impl WgpuSurface {
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            self.store_custom_pipeline(path, pipeline, pipeline_msaa);
+            // Made here, not through `pipeline_cache`: a custom shader is the
+            // project's source, recompiled on every save, and the error scope
+            // above is how a rejection is seen -- a cached pipeline would
+            // answer a second compile of a bad source with no error at all.
+            // (Its MSAA variant goes through `msaa::variant`, which asks the
+            // cache, and is made uncached there: its module is not one the
+            // cache made.)
+            self.store_custom_pipeline(path, std::sync::Arc::new(pipeline), pipeline_msaa);
             Ok(())
         }
     }
@@ -10525,8 +10539,8 @@ impl WgpuSurface {
     fn store_custom_pipeline(
         &mut self,
         path: &str,
-        pipeline: wgpu::RenderPipeline,
-        pipeline_msaa: Option<wgpu::RenderPipeline>,
+        pipeline: std::sync::Arc<wgpu::RenderPipeline>,
+        pipeline_msaa: Option<std::sync::Arc<wgpu::RenderPipeline>>,
     ) {
         self.custom_pipelines.insert(path.to_string(), pipeline);
         match pipeline_msaa {

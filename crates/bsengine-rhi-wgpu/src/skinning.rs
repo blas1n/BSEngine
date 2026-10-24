@@ -34,6 +34,7 @@
 //! read is not. The per-vertex skin is its own buffer, 32 bytes, 16-aligned.
 
 use crate::mesh::{GpuMeshRegistry, Vertex};
+use crate::pipeline_cache::CachedCreate;
 use glam::Mat4;
 use std::sync::Arc;
 use tracing::warn;
@@ -215,13 +216,13 @@ fn cs_skin(@builtin(global_invocation_id) gid: vec3<u32>) {
 /// The one compute pipeline every skinned mesh dispatches through; built on
 /// first use and kept on the registry.
 pub struct SkinningPipeline {
-    pipeline: wgpu::ComputePipeline,
-    layout: wgpu::BindGroupLayout,
+    pipeline: std::sync::Arc<wgpu::ComputePipeline>,
+    layout: std::sync::Arc<wgpu::BindGroupLayout>,
 }
 
 impl SkinningPipeline {
     fn new(device: &wgpu::Device) -> Self {
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let module = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("compute skinning"),
             source: wgpu::ShaderSource::Wgsl(SHADER.into()),
         });
@@ -235,7 +236,7 @@ impl SkinningPipeline {
             },
             count: None,
         };
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let layout = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("compute skinning"),
             entries: &[
                 storage(0, true),
@@ -254,12 +255,12 @@ impl SkinningPipeline {
                 },
             ],
         });
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let pipeline_layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("compute skinning"),
             bind_group_layouts: &[&layout],
             push_constant_ranges: &[],
         });
-        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        let pipeline = device.cached_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("compute skinning"),
             layout: Some(&pipeline_layout),
             module: &module,

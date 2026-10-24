@@ -3,50 +3,19 @@ use std::sync::OnceLock;
 
 use bsengine_mcp::SessionRegistry;
 
-/// Builds `bsengine-runtime` (if not already up to date) and returns the
-/// path to its executable, by parsing `cargo build --message-format=json`.
-/// `CARGO_BIN_EXE_<name>` only works for a package's own binaries, not a
-/// different package's — so this shells out instead of relying on it.
+/// The `bsengine-runtime` this test binary was built with.
+///
+/// Cargo builds a package's own binaries for its integration tests in the same
+/// invocation and with the same features, so this is always the runtime under
+/// test and never costs a build. These tests lived in `bsengine-mcp` until
+/// 2026-10-24, where the only way to the binary was a nested
+/// `cargo build -p bsengine-runtime`: right after a workspace `cargo test`,
+/// that build resolved features differently and recompiled 23 crates (167 s
+/// locally, about 200 s on Windows CI) -- a wait every test in the binary sat
+/// behind, `send_to_unknown_session_errors` included, which starts nothing.
 fn runtime_bin_path() -> &'static PathBuf {
     static PATH: OnceLock<PathBuf> = OnceLock::new();
-    PATH.get_or_init(|| {
-        let output = std::process::Command::new(env!("CARGO"))
-            .args([
-                "build",
-                "-p",
-                "bsengine-runtime",
-                "--bin",
-                "bsengine-runtime",
-                "--message-format=json",
-            ])
-            .output()
-            .expect("failed to run cargo build for bsengine-runtime");
-        assert!(
-            output.status.success(),
-            "cargo build -p bsengine-runtime failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines() {
-            let msg: serde_json::Value = match serde_json::from_str(line) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            if msg.get("reason").and_then(|v| v.as_str()) == Some("compiler-artifact")
-                && msg
-                    .get("target")
-                    .and_then(|t| t.get("name"))
-                    .and_then(|v| v.as_str())
-                    == Some("bsengine-runtime")
-            {
-                if let Some(exe) = msg.get("executable").and_then(|v| v.as_str()) {
-                    return PathBuf::from(exe);
-                }
-            }
-        }
-        panic!("could not locate bsengine-runtime executable in cargo build output");
-    })
+    PATH.get_or_init(|| PathBuf::from(env!("CARGO_BIN_EXE_bsengine-runtime")))
 }
 
 fn test_registry() -> SessionRegistry {

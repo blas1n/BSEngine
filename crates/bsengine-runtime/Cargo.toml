@@ -65,6 +65,10 @@ tempfile        = "3"
 # than a second `remove_dir_all` that would leave litter whenever it lost that
 # race. Same arrangement `bsengine-scene` uses, and for the same reason.
 bsengine-asset  = { workspace = true, features = ["test-support"] }
+# The MCP session tests (`tests/mcp_*.rs`): `bsengine_mcp::SessionRegistry`
+# driving this crate's own binary, which only its own tests can name
+# (`CARGO_BIN_EXE_bsengine-runtime`) without a second cargo build.
+bsengine-mcp    = { workspace = true }
 
 [features]
 # Video playback on Linux, through GStreamer (`bsengine-video`'s

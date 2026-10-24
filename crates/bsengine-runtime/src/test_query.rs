@@ -403,7 +403,7 @@ mod tests {
     // `AssetStatuses`' map is private and written by nothing but the real
     // collector, deliberately, so that no caller can forge a verdict. The
     // `Failed`/`Loaded` directions are therefore pinned where they can be
-    // driven for real — `crates/bsengine-mcp/tests/test_tools.rs`, against a
+    // driven for real — `crates/bsengine-runtime/tests/mcp_test_tools.rs`, against a
     // live session with a load that actually fails.
     #[test]
     fn get_asset_status_is_unknown_when_the_status_resource_is_absent() {

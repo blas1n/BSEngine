@@ -1191,6 +1191,7 @@ dependencies = [
  "bsengine-editor",
  "bsengine-gltf",
  "bsengine-input",
+ "bsengine-mcp",
  "bsengine-network",
  "bsengine-physics",
  "bsengine-render",

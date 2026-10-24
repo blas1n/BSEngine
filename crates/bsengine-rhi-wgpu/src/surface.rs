@@ -10503,7 +10503,8 @@ impl WgpuSurface {
             self.pending_custom_shaders.retain(|p| p.path != path);
             self.pending_custom_shaders.push(PendingCustomShader {
                 path: path.to_string(),
-                pipeline,
+                // Uncached, as below and for the same reason.
+                pipeline: std::sync::Arc::new(pipeline),
                 pipeline_msaa,
                 verdict,
             });

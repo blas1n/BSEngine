@@ -19,6 +19,7 @@ pub mod probe_bake;
 pub mod probe_bricks;
 pub mod sample;
 pub mod scene;
+pub mod shader_compiler;
 pub mod trace;
 
 pub use gpu::{is_hardware, GpuBaker};

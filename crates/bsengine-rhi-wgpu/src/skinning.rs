@@ -706,10 +706,7 @@ mod tests {
         static SHARED: OnceLock<(Arc<wgpu::Device>, Arc<wgpu::Queue>)> = OnceLock::new();
         SHARED
             .get_or_init(|| {
-                let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-                    backends: wgpu::Backends::all(),
-                    ..Default::default()
-                });
+                let instance = crate::surface::new_instance();
                 let adapter =
                     pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
                         power_preference: wgpu::PowerPreference::None,

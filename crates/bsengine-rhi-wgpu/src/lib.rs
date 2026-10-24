@@ -83,6 +83,10 @@ pub mod tangents;
 /// GPU texture loading and the texture registry.
 pub mod texture;
 pub mod theme;
+// Which compiler D3D12 shaders go through, here for the runtime's
+// `--package` (which ships DXC's libraries): the runtime takes the bake crate
+// only off the web, and `--package` is compiled for the web too.
+pub use bsengine_bake::shader_compiler;
 pub use lightmap::LightmapParams;
 pub use mesh::{
     capsule_vertices, cube_vertices, cylinder_vertices, plane_vertices, sphere_vertices,

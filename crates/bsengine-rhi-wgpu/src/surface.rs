@@ -3650,6 +3650,13 @@ pub struct WgpuSurface {
     /// needs this; see the design doc for why it must be clear-only, not a
     /// bare skip.
     fast_render: bool,
+    /// What the adapter this renderer's device came from offers, set where the
+    /// renderer made its own device (empty on the tests' shared one). On D3D12
+    /// it is where the shader compiler shows: shader model 6's features exist
+    /// only under DXC (see [`Self::adapter_features`]).
+    adapter_features: wgpu::Features,
+    /// That adapter's backend, likewise (`None` on the shared device).
+    adapter_backend: Option<wgpu::Backend>,
     /// Whether the adapter this device came from supports
     /// `wgpu::Features::TIMESTAMP_QUERY`. Set once at construction; every
     /// other `timestamp_*` field is `Some` iff this is `true`.
@@ -3728,6 +3735,35 @@ pub struct WgpuSurface {
     depth_resolve: crate::msaa::DepthResolve,
 }
 
+/// Every instance this renderer makes, from
+/// [`bsengine_bake::shader_compiler::instance_descriptor`]: every backend, and
+/// D3D12 shaders through DXC where its libraries are found (FXC otherwise).
+/// Which compiler that came to is logged, once a process -- a player's machine
+/// on FXC is waiting far longer for its GI pipelines than it needs to, and
+/// this line is how a report would show it.
+pub(crate) fn new_instance() -> wgpu::Instance {
+    static LOGGED: std::sync::Once = std::sync::Once::new();
+    let descriptor = bsengine_bake::shader_compiler::instance_descriptor();
+    if cfg!(windows) {
+        LOGGED.call_once(|| match &descriptor.dx12_shader_compiler {
+            wgpu::Dx12Compiler::Dxc {
+                dxc_path: Some(dir),
+                ..
+            } => tracing::info!("D3D12 shaders compile with DXC from {}", dir.display()),
+            wgpu::Dx12Compiler::Dxc { .. } => {
+                tracing::info!("D3D12 shaders compile with DXC, from the DLL search path")
+            }
+            wgpu::Dx12Compiler::Fxc => tracing::warn!(
+                "D3D12 shaders compile with FXC: no {} found beside the executable, in {} \
+                 or in a Windows SDK -- pipelines take several times longer to build",
+                bsengine_bake::shader_compiler::DXC_LIBRARIES.join(" and "),
+                bsengine_bake::shader_compiler::DXC_DIR_ENV
+            ),
+        });
+    }
+    wgpu::Instance::new(descriptor)
+}
+
 impl WgpuSurface {
     /// Initializes the wgpu adapter/device/swapchain for `window` and builds
     /// every pipeline, buffer, and bind group the main render loop needs.
@@ -3742,10 +3778,7 @@ impl WgpuSurface {
         window: Arc<winit::window::Window>,
         hdr: bsengine_core::HdrOutputSettings,
     ) -> Result<Self, String> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
+        let instance = new_instance();
 
         let surface = instance
             .create_surface(window.clone())
@@ -3838,14 +3871,11 @@ impl WgpuSurface {
     /// windowed path uses, so pixels observed here are the output of the
     /// pipelines that draw to a window.
     pub async fn new_offscreen(width: u32, height: u32, fast_render: bool) -> Result<Self, String> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
-        let (_adapter, device, queue, timestamp_supported, instancing_supported, msaa_supported) =
+        let instance = new_instance();
+        let (adapter, device, queue, timestamp_supported, instancing_supported, msaa_supported) =
             Self::request_device(&instance, None).await?;
         let texture = crate::output::create_offscreen_texture(&device, width, height);
-        Self::build(
+        let mut surface = Self::build(
             device,
             queue,
             crate::output::Output::Offscreen {
@@ -3858,7 +3888,26 @@ impl WgpuSurface {
             timestamp_supported,
             instancing_supported,
             msaa_supported,
-        )
+        )?;
+        surface.adapter_features = adapter.features();
+        surface.adapter_backend = Some(adapter.get_info().backend);
+        Ok(surface)
+    }
+
+    /// What the adapter under this renderer offers: empty for one on the
+    /// tests' shared device, which made no adapter of its own. A renderer's
+    /// device requests none of these beyond what it needs; this is what was
+    /// on offer, which on D3D12 shows the compiler -- `SUBGROUP` and
+    /// `SHADER_INT64` come with shader model 6, which wgpu offers only when
+    /// DXC loaded.
+    pub fn adapter_features(&self) -> wgpu::Features {
+        self.adapter_features
+    }
+
+    /// The backend of the adapter under this renderer; `None` on the tests'
+    /// shared device, as [`Self::adapter_features`] is empty there.
+    pub fn adapter_backend(&self) -> Option<wgpu::Backend> {
+        self.adapter_backend
     }
 
     /// The pixels of the frame most recently rendered, tightly packed RGBA8,
@@ -4328,10 +4377,7 @@ impl WgpuSurface {
             bool,
         )> = std::sync::OnceLock::new();
         SHARED.get_or_init(|| {
-            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-                backends: wgpu::Backends::all(),
-                ..Default::default()
-            });
+            let instance = new_instance();
             let (
                 _adapter,
                 device,
@@ -6039,6 +6085,8 @@ impl WgpuSurface {
             dock_state: None,
             last_saved_layout_json: None,
             fast_render,
+            adapter_features: wgpu::Features::empty(),
+            adapter_backend: None,
             timestamp_supported,
             instancing_supported,
             timestamp_query_set,

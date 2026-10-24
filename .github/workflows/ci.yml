@@ -275,6 +275,12 @@ jobs:
       - name: Test
         env:
           RUST_MIN_STACK: 16777216
+          # Windows: the runner's Windows SDK has DXC, which every device here
+          # compiles D3D12 shaders with (`bsengine_bake::shader_compiler`) --
+          # 801 s of GI tests became 496 s against FXC. Required, so a runner
+          # image without it fails `dx12_compiler` instead of every GPU test
+          # quietly measuring FXC. (The `#[cfg(windows)]` tests alone read it.)
+          BSENGINE_REQUIRE_DXC: "1"
         run: cargo test --workspace --exclude bsengine-editor
 
       - name: Test (editor, isolated)

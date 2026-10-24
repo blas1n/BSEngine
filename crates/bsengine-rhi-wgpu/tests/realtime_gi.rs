@@ -160,8 +160,12 @@ impl Surface {
 #[cfg(windows)]
 #[test]
 fn the_update_compiles_for_d3d12() {
+    // FXC by name, not by default: the engine's own devices compile with DXC
+    // where its libraries are found, and FXC is the fallback a machine without
+    // them -- every single-file build -- still runs this update through.
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::DX12,
+        dx12_shader_compiler: wgpu::Dx12Compiler::Fxc,
         ..Default::default()
     });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {

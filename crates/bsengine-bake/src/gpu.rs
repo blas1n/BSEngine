@@ -106,7 +106,7 @@ impl GpuBaker {
 
     #[cfg(feature = "native")]
     fn open(allow_software: bool) -> Result<Self, String> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
+        let instance = wgpu::Instance::new(crate::shader_compiler::instance_descriptor());
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: None,

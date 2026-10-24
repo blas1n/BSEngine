@@ -345,21 +345,21 @@ fn run_package(
     // tracer on a desktop GPU). Found where the runtime itself looks for them
     // (`shader_compiler::locate`); none found is a warning, not a failure --
     // the build runs, on FXC. Windows alone: elsewhere there is no D3D12.
-    let runtime_libraries: Vec<std::path::PathBuf> = match bsengine_bake::shader_compiler::locate()
-    {
-        Some(dir) => bsengine_bake::shader_compiler::DXC_LIBRARIES
-            .iter()
-            .map(|library| dir.join(library))
-            .collect(),
-        None => Vec::new(),
-    };
+    let runtime_libraries: Vec<std::path::PathBuf> =
+        match bsengine_rhi_wgpu::shader_compiler::locate() {
+            Some(dir) => bsengine_rhi_wgpu::shader_compiler::DXC_LIBRARIES
+                .iter()
+                .map(|library| dir.join(library))
+                .collect(),
+            None => Vec::new(),
+        };
     if cfg!(windows) && !matches!(mode, bsengine_asset::cook::PackageMode::Web) {
         if runtime_libraries.is_empty() {
             println!(
                 "warning: no {} found ({}, beside this executable, or a Windows SDK): \
                  this build's D3D12 shaders will compile with FXC, several times slower",
-                bsengine_bake::shader_compiler::DXC_LIBRARIES.join(" and "),
-                bsengine_bake::shader_compiler::DXC_DIR_ENV
+                bsengine_rhi_wgpu::shader_compiler::DXC_LIBRARIES.join(" and "),
+                bsengine_rhi_wgpu::shader_compiler::DXC_DIR_ENV
             );
         } else if matches!(mode, bsengine_asset::cook::PackageMode::Single) {
             println!(

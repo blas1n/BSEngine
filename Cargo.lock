@@ -910,6 +910,7 @@ dependencies = [
  "glam 0.29.3",
  "pollster",
  "rayon",
+ "tempfile",
  "wgpu",
 ]
 

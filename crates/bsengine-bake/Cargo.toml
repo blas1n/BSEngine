@@ -21,3 +21,6 @@ pollster = { workspace = true, optional = true }
 [features]
 default = ["native"]
 native = ["dep:rayon", "dep:pollster"]
+
+[dev-dependencies]
+tempfile = "3"

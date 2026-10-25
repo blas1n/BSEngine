@@ -112,14 +112,13 @@ pub fn sdk_bin_dirs(bin_root: &Path) -> Vec<PathBuf> {
 /// to compare the two or to rule DXC out of a fault. Asked for DXC that way
 /// with nothing located, wgpu searches the usual DLL paths itself.
 pub fn dx12_compiler() -> wgpu::Dx12Compiler {
-    let forced = wgpu::util::dx12_shader_compiler_from_env();
+    let forced = wgpu::Dx12Compiler::from_env();
     if matches!(forced, Some(wgpu::Dx12Compiler::Fxc)) {
         return wgpu::Dx12Compiler::Fxc;
     }
     match locate() {
-        Some(dir) => wgpu::Dx12Compiler::Dxc {
-            dxil_path: Some(dir.clone()),
-            dxc_path: Some(dir),
+        Some(dir) => wgpu::Dx12Compiler::DynamicDxc {
+            dxc_path: dir.join(DXC_LIBRARIES[0]).to_string_lossy().into_owned(),
         },
         None => forced.unwrap_or(wgpu::Dx12Compiler::Fxc),
     }
@@ -132,11 +131,10 @@ pub fn dx12_compiler() -> wgpu::Dx12Compiler {
 /// backends, so a fault seen on one can be reproduced on it alone; on Windows
 /// a machine otherwise gets whichever adapter comes first, usually Vulkan's.
 pub fn instance_descriptor() -> wgpu::InstanceDescriptor {
-    wgpu::InstanceDescriptor {
-        backends: wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::all()),
-        dx12_shader_compiler: dx12_compiler(),
-        ..Default::default()
-    }
+    let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+    descriptor.backends = wgpu::Backends::from_env().unwrap_or(wgpu::Backends::all());
+    descriptor.backend_options.dx12.shader_compiler = dx12_compiler();
+    descriptor
 }
 
 #[cfg(test)]

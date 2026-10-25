@@ -438,16 +438,21 @@ impl DecalResources {
         });
         let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("decal pipeline layout"),
-            bind_group_layouts: &[camera_bgl, &uniform_bgl, &depth_bgl, &decal_texture_bgl],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[
+                Some(camera_bgl),
+                Some(&uniform_bgl),
+                Some(&depth_bgl),
+                Some(&decal_texture_bgl),
+            ],
+            immediate_size: 0,
         });
         let pipeline = device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("decal pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_decal",
-                buffers: &[wgpu::VertexBufferLayout {
+                entry_point: Some("vs_decal"),
+                buffers: &[Some(wgpu::VertexBufferLayout {
                     array_stride: 12,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &[wgpu::VertexAttribute {
@@ -455,12 +460,12 @@ impl DecalResources {
                         offset: 0,
                         shader_location: 0,
                     }],
-                }],
+                })],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_decal",
+                entry_point: Some("fs_decal"),
                 targets: &[
                     Some(wgpu::ColorTargetState {
                         format: DBUFFER_FORMAT,
@@ -516,7 +521,7 @@ impl DecalResources {
             // texture, and a depth buffer cannot be both at once.
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -532,14 +537,14 @@ impl DecalResources {
         });
 
         queue.write_texture(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &flat_normal_texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
             &[128u8, 128, 255, 255],
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(4),
                 rows_per_image: Some(1),
@@ -552,14 +557,14 @@ impl DecalResources {
         );
 
         queue.write_texture(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &flat_white_texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
             &[255u8, 255, 255, 255],
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(4),
                 rows_per_image: Some(1),

@@ -1343,15 +1343,15 @@ fn build_pipelines(device: &wgpu::Device, layout: &wgpu::BindGroupLayout) -> Pip
     });
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("realtime gi layout"),
-        bind_group_layouts: &[layout],
-        push_constant_ranges: &[],
+        bind_group_layouts: &[Some(layout)],
+        immediate_size: 0,
     });
     let entry = |entry_point| {
         device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some(entry_point),
             layout: Some(&pipeline_layout),
             module: &module,
-            entry_point,
+            entry_point: Some(entry_point),
             compilation_options: Default::default(),
             cache: None,
         })
@@ -1386,14 +1386,14 @@ fn build_pipelines(device: &wgpu::Device, layout: &wgpu::BindGroupLayout) -> Pip
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some(label),
-            bind_group_layouts: &[&layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&layout)],
+            immediate_size: 0,
         });
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some(entry_point),
             layout: Some(&pipeline_layout),
             module: &module,
-            entry_point,
+            entry_point: Some(entry_point),
             compilation_options: Default::default(),
             cache: None,
         });
@@ -1727,7 +1727,11 @@ impl RealtimeGi {
         let mut skinned_sources: std::collections::HashMap<u64, (Vec<u32>, u64)> =
             std::collections::HashMap::new();
         {
-            let bytes = readback.staging.slice(..).get_mapped_range();
+            let bytes = readback
+                .staging
+                .slice(..)
+                .get_mapped_range()
+                .expect("a mapped buffer");
             for (id, (vo, vb, io, ib)) in &readback.meshes {
                 let vertices: &[Vertex] =
                     bytemuck::cast_slice(&bytes[*vo as usize..(vo + vb) as usize]);
@@ -1958,7 +1962,7 @@ impl RealtimeGi {
     ) -> Result<bool, usize> {
         self.request_geometry(device, queue, registry, &input.statics, &input.dynamics);
         // Lands a readback the GPU has finished; never blocks.
-        device.poll(wgpu::Maintain::Poll);
+        let _ = device.poll(wgpu::PollType::Poll);
         self.land_geometry(device, registry);
         let Some(node_count) = self.geometry.as_ref().map(|g| g.node_count) else {
             return Ok(false);
@@ -2338,7 +2342,7 @@ pub(crate) fn probe_cells(
         label: Some("probe cells"),
         layout: None,
         module: &module,
-        entry_point: "cs_cells",
+        entry_point: Some("cs_cells"),
         compilation_options: Default::default(),
         cache: None,
     });
@@ -2396,7 +2400,13 @@ pub(crate) fn probe_cells(
     rx.recv()
         .expect("map_async reported")
         .expect("mapping the probe cells failed");
-    let words: Vec<u32> = bytemuck::cast_slice(&staging.slice(..).get_mapped_range()).to_vec();
+    let words: Vec<u32> = bytemuck::cast_slice(
+        &staging
+            .slice(..)
+            .get_mapped_range()
+            .expect("a mapped buffer"),
+    )
+    .to_vec();
     staging.unmap();
     (0..points.len())
         .map(|i| {

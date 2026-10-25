@@ -4846,18 +4846,18 @@ impl PostProcessState {
         let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("fog inject pll"),
             bind_group_layouts: &[
-                fog_uniform_bgl,
-                froxel_write_bgl,
-                froxel_shadow_bgl,
-                froxel_history_bgl,
+                Some(fog_uniform_bgl),
+                Some(froxel_write_bgl),
+                Some(froxel_shadow_bgl),
+                Some(froxel_history_bgl),
             ],
-            push_constant_ranges: &[],
+            immediate_size: 0,
         });
         device.cached_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("fog inject pipeline"),
             layout: Some(&layout),
             module: &shader,
-            entry_point: "cs_inject",
+            entry_point: Some("cs_inject"),
             compilation_options: Default::default(),
             cache: None,
         })
@@ -4878,14 +4878,18 @@ impl PostProcessState {
         });
         let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("fog integrate pll"),
-            bind_group_layouts: &[fog_uniform_bgl, froxel_read_bgl, froxel_write_bgl],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[
+                Some(fog_uniform_bgl),
+                Some(froxel_read_bgl),
+                Some(froxel_write_bgl),
+            ],
+            immediate_size: 0,
         });
         device.cached_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("fog integrate pipeline"),
             layout: Some(&layout),
             module: &shader,
-            entry_point: "cs_integrate",
+            entry_point: Some("cs_integrate"),
             compilation_options: Default::default(),
             cache: None,
         })
@@ -4910,21 +4914,26 @@ impl PostProcessState {
         });
         let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("fog pll"),
-            bind_group_layouts: &[tex2d_bgl, depth_bgl, froxel_apply_bgl, fog_uniform_bgl],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[
+                Some(tex2d_bgl),
+                Some(depth_bgl),
+                Some(froxel_apply_bgl),
+                Some(fog_uniform_bgl),
+            ],
+            immediate_size: 0,
         });
         device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("fog pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_fullscreen",
+                entry_point: Some("vs_fullscreen"),
                 buffers: &[],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_fog",
+                entry_point: Some("fs_fog"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: HDR_FORMAT,
                     blend: Some(wgpu::BlendState::REPLACE),
@@ -4935,7 +4944,7 @@ impl PostProcessState {
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         })
     }
@@ -4951,21 +4960,21 @@ impl PostProcessState {
         });
         let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("bloom pll"),
-            bind_group_layouts: &[tex2d_bgl, config_bgl],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(tex2d_bgl), Some(config_bgl)],
+            immediate_size: 0,
         });
         device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("bloom pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_fullscreen",
+                entry_point: Some("vs_fullscreen"),
                 buffers: &[],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_bloom",
+                entry_point: Some("fs_bloom"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: BLOOM_FORMAT,
                     blend: Some(wgpu::BlendState::REPLACE),
@@ -4976,7 +4985,7 @@ impl PostProcessState {
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         })
     }
@@ -4997,10 +5006,11 @@ impl PostProcessState {
             label: Some(label),
             source: wgpu::ShaderSource::Wgsl(source.into()),
         });
+        let groups: Vec<Option<&wgpu::BindGroupLayout>> = groups.iter().map(|g| Some(*g)).collect();
         let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some(label),
-            bind_group_layouts: groups,
-            push_constant_ranges: &[],
+            bind_group_layouts: &groups,
+            immediate_size: 0,
         });
         let targets: Vec<Option<wgpu::ColorTargetState>> = formats
             .iter()
@@ -5017,20 +5027,20 @@ impl PostProcessState {
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_fullscreen",
+                entry_point: Some("vs_fullscreen"),
                 buffers: &[],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point,
+                entry_point: Some(entry_point),
                 targets: &targets,
                 compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         })
     }
@@ -5050,23 +5060,24 @@ impl PostProcessState {
             label: Some(label),
             source: wgpu::ShaderSource::Wgsl(source.into()),
         });
+        let groups: Vec<Option<&wgpu::BindGroupLayout>> = groups.iter().map(|g| Some(*g)).collect();
         let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some(label),
-            bind_group_layouts: groups,
-            push_constant_ranges: &[],
+            bind_group_layouts: &groups,
+            immediate_size: 0,
         });
         device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some(label),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_fullscreen",
+                entry_point: Some("vs_fullscreen"),
                 buffers: &[],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point,
+                entry_point: Some(entry_point),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: HDR_FORMAT,
                     blend,
@@ -5077,7 +5088,7 @@ impl PostProcessState {
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         })
     }
@@ -5095,21 +5106,26 @@ impl PostProcessState {
         });
         let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("ssr pll"),
-            bind_group_layouts: &[tex2d_bgl, depth_bgl, surface_bgl, ssr_cam_bgl],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[
+                Some(tex2d_bgl),
+                Some(depth_bgl),
+                Some(surface_bgl),
+                Some(ssr_cam_bgl),
+            ],
+            immediate_size: 0,
         });
         device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("ssr pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_fullscreen",
+                entry_point: Some("vs_fullscreen"),
                 buffers: &[],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_ssr",
+                entry_point: Some("fs_ssr"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: HDR_FORMAT,
                     blend: Some(wgpu::BlendState::REPLACE),
@@ -5120,7 +5136,7 @@ impl PostProcessState {
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         })
     }
@@ -5137,21 +5153,21 @@ impl PostProcessState {
         });
         let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("ssao pll"),
-            bind_group_layouts: &[depth_bgl, config_bgl, ssao_cam_bgl],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(depth_bgl), Some(config_bgl), Some(ssao_cam_bgl)],
+            immediate_size: 0,
         });
         device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("ssao pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_fullscreen",
+                entry_point: Some("vs_fullscreen"),
                 buffers: &[],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_ssao",
+                entry_point: Some("fs_ssao"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: AO_FORMAT,
                     blend: Some(wgpu::BlendState::REPLACE),
@@ -5162,7 +5178,7 @@ impl PostProcessState {
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         })
     }
@@ -5179,21 +5195,21 @@ impl PostProcessState {
         });
         let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("ssao blur pll"),
-            bind_group_layouts: &[depth_bgl, tex2d_bgl, ssao_cam_bgl],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(depth_bgl), Some(tex2d_bgl), Some(ssao_cam_bgl)],
+            immediate_size: 0,
         });
         device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("ssao blur pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_fullscreen",
+                entry_point: Some("vs_fullscreen"),
                 buffers: &[],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_ssao_blur",
+                entry_point: Some("fs_ssao_blur"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: AO_FORMAT,
                     blend: Some(wgpu::BlendState::REPLACE),
@@ -5204,7 +5220,7 @@ impl PostProcessState {
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         })
     }
@@ -5222,21 +5238,26 @@ impl PostProcessState {
         });
         let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("dof pll"),
-            bind_group_layouts: &[tex2d_bgl, depth_bgl, ssao_cam_bgl, dof_bgl],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[
+                Some(tex2d_bgl),
+                Some(depth_bgl),
+                Some(ssao_cam_bgl),
+                Some(dof_bgl),
+            ],
+            immediate_size: 0,
         });
         device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("dof pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_fullscreen",
+                entry_point: Some("vs_fullscreen"),
                 buffers: &[],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_dof",
+                entry_point: Some("fs_dof"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: HDR_FORMAT,
                     blend: Some(wgpu::BlendState::REPLACE),
@@ -5247,7 +5268,7 @@ impl PostProcessState {
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         })
     }
@@ -5264,21 +5285,21 @@ impl PostProcessState {
         });
         let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("fxaa pll"),
-            bind_group_layouts: &[tex2d_bgl, fxaa_bgl],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(tex2d_bgl), Some(fxaa_bgl)],
+            immediate_size: 0,
         });
         device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("fxaa pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_fullscreen",
+                entry_point: Some("vs_fullscreen"),
                 buffers: &[],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_fxaa",
+                entry_point: Some("fs_fxaa"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_format,
                     blend: Some(wgpu::BlendState::REPLACE),
@@ -5289,7 +5310,7 @@ impl PostProcessState {
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         })
     }
@@ -5307,21 +5328,26 @@ impl PostProcessState {
         });
         let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("motion blur pll"),
-            bind_group_layouts: &[tex2d_bgl, depth_bgl, taa_uniform_bgl, motion_blur_bgl],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[
+                Some(tex2d_bgl),
+                Some(depth_bgl),
+                Some(taa_uniform_bgl),
+                Some(motion_blur_bgl),
+            ],
+            immediate_size: 0,
         });
         device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("motion blur pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_fullscreen",
+                entry_point: Some("vs_fullscreen"),
                 buffers: &[],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_motion_blur",
+                entry_point: Some("fs_motion_blur"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: HDR_FORMAT,
                     blend: Some(wgpu::BlendState::REPLACE),
@@ -5332,7 +5358,7 @@ impl PostProcessState {
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         })
     }
@@ -5349,21 +5375,26 @@ impl PostProcessState {
         });
         let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("composite pll"),
-            bind_group_layouts: &[tex2d_bgl, tex2d_bgl, tex2d_bgl, config_bgl],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[
+                Some(tex2d_bgl),
+                Some(tex2d_bgl),
+                Some(tex2d_bgl),
+                Some(config_bgl),
+            ],
+            immediate_size: 0,
         });
         device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("composite pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_fullscreen",
+                entry_point: Some("vs_fullscreen"),
                 buffers: &[],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_composite",
+                entry_point: Some("fs_composite"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_format,
                     blend: Some(wgpu::BlendState::REPLACE),
@@ -5374,7 +5405,7 @@ impl PostProcessState {
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         })
     }
@@ -5396,8 +5427,13 @@ impl PostProcessState {
         });
         let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("taa pll"),
-            bind_group_layouts: &[tex2d_bgl, tex2d_bgl, depth_bgl, taa_uniform_bgl],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[
+                Some(tex2d_bgl),
+                Some(tex2d_bgl),
+                Some(depth_bgl),
+                Some(taa_uniform_bgl),
+            ],
+            immediate_size: 0,
         });
         let color_target = Some(wgpu::ColorTargetState {
             format: surface_format,
@@ -5409,20 +5445,20 @@ impl PostProcessState {
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_fullscreen",
+                entry_point: Some("vs_fullscreen"),
                 buffers: &[],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_taa",
+                entry_point: Some("fs_taa"),
                 targets: &[color_target.clone(), color_target],
                 compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         })
     }
@@ -5877,6 +5913,7 @@ impl PostProcessState {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &self.ssr_view,
                 resolve_target: None,
+                depth_slice: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                     store: wgpu::StoreOp::Store,
@@ -5989,6 +6026,7 @@ impl PostProcessState {
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &self.ssgi_view,
                         resolve_target: None,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                             store: wgpu::StoreOp::Store,
@@ -6015,6 +6053,7 @@ impl PostProcessState {
                         Some(wgpu::RenderPassColorAttachment {
                             view: &self.ssgi_history[write].light_view,
                             resolve_target: None,
+                            depth_slice: None,
                             ops: wgpu::Operations {
                                 load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                                 store: wgpu::StoreOp::Store,
@@ -6023,6 +6062,7 @@ impl PostProcessState {
                         Some(wgpu::RenderPassColorAttachment {
                             view: &self.ssgi_history[write].depth_view,
                             resolve_target: None,
+                            depth_slice: None,
                             ops: wgpu::Operations {
                                 load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                                 store: wgpu::StoreOp::Store,
@@ -6049,6 +6089,7 @@ impl PostProcessState {
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &self.ssgi_view,
                         resolve_target: None,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                             store: wgpu::StoreOp::Store,
@@ -6074,6 +6115,7 @@ impl PostProcessState {
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &self.hdr_view,
                         resolve_target: None,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Load,
                             store: wgpu::StoreOp::Store,
@@ -6180,6 +6222,7 @@ impl PostProcessState {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &self.fog_hdr_view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,
@@ -6214,6 +6257,7 @@ impl PostProcessState {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &self.hdr_view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,
@@ -6251,6 +6295,7 @@ impl PostProcessState {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: target,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,
@@ -6282,6 +6327,7 @@ impl PostProcessState {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &self.bloom_view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,
@@ -6306,6 +6352,7 @@ impl PostProcessState {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &self.ao_raw_view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
                         store: wgpu::StoreOp::Store,
@@ -6331,6 +6378,7 @@ impl PostProcessState {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &self.ao_view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
                         store: wgpu::StoreOp::Store,
@@ -6356,6 +6404,7 @@ impl PostProcessState {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &self.ldr_view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,
@@ -6396,6 +6445,7 @@ impl PostProcessState {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &self.fxaa_view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,
@@ -6438,6 +6488,7 @@ impl PostProcessState {
                     Some(wgpu::RenderPassColorAttachment {
                         view: surface_view,
                         resolve_target: None,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                             store: wgpu::StoreOp::Store,
@@ -6446,6 +6497,7 @@ impl PostProcessState {
                     Some(wgpu::RenderPassColorAttachment {
                         view: history_dst,
                         resolve_target: None,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                             store: wgpu::StoreOp::Store,
@@ -6720,14 +6772,14 @@ mod tests {
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&fog_uniform_bgl, &out_bgl],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&fog_uniform_bgl), Some(&out_bgl)],
+            immediate_size: 0,
         });
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: None,
             layout: Some(&layout),
             module: &shader,
-            entry_point: "cs_probe",
+            entry_point: Some("cs_probe"),
             compilation_options: Default::default(),
             cache: None,
         });
@@ -6752,11 +6804,12 @@ mod tests {
         slice.map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
         });
-        device.poll(wgpu::Maintain::Wait);
+        let _ = device.poll(wgpu::PollType::wait_indefinitely());
         rx.recv()
             .expect("map_async never reported a result")
             .expect("mapping the readback buffer failed");
-        let got: Vec<f32> = bytemuck::cast_slice(&slice.get_mapped_range()).to_vec();
+        let got: Vec<f32> =
+            bytemuck::cast_slice(&slice.get_mapped_range().expect("a mapped buffer")).to_vec();
         readback.unmap();
         got
     }
@@ -7335,7 +7388,7 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
         let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
 
         let shadow = TestShadowResources::new(&device);
-        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let error_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let mut pp = PostProcessState::new(
             &device,
             width,
@@ -7366,9 +7419,9 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
         queue.submit(Some(encoder.finish()));
         assert_eq!(pp.history_read, 0, "the second resolve flips it back");
 
-        device.poll(wgpu::Maintain::Wait);
+        let _ = device.poll(wgpu::PollType::wait_indefinitely());
         assert!(
-            pollster::block_on(device.pop_error_scope()).is_none(),
+            pollster::block_on(error_scope.pop()).is_none(),
             "the TAA resolve pass must record cleanly; a validation error here \
              means the pipeline layout, the bind groups, or the two colour \
              attachments disagree with the shader"
@@ -7408,7 +7461,7 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
         let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
 
         let shadow = TestShadowResources::new(&device);
-        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let error_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let mut pp = PostProcessState::new(
             &device,
             width,
@@ -7484,8 +7537,8 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
             );
         }
 
-        device.poll(wgpu::Maintain::Wait);
-        let err = pollster::block_on(device.pop_error_scope());
+        let _ = device.poll(wgpu::PollType::wait_indefinitely());
+        let err = pollster::block_on(error_scope.pop());
         assert!(
             err.is_none(),
             "the froxel injection and integration passes must record cleanly; \

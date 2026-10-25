@@ -526,27 +526,26 @@ mod tests {
             std::sync::Arc<wgpu::Queue>,
         )> = std::sync::OnceLock::new();
         GPU.get_or_init(|| {
-            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-                backends: wgpu::Backends::all(),
-                ..Default::default()
-            });
+            let instance =
+                wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
             let adapter =
                 pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
                     power_preference: wgpu::PowerPreference::None,
                     compatible_surface: None,
                     force_fallback_adapter: false,
+                    apply_limit_buckets: false,
                 }))
                 .expect("a headless adapter; the rest of this suite already requires one");
-            let (device, queue) = pollster::block_on(adapter.request_device(
-                &wgpu::DeviceDescriptor {
+            let (device, queue) =
+                pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
                     label: Some("bsengine-app cloth test device"),
                     required_features: wgpu::Features::empty(),
                     required_limits: wgpu::Limits::downlevel_defaults(),
                     memory_hints: wgpu::MemoryHints::default(),
-                },
-                None,
-            ))
-            .expect("headless device request");
+                    experimental_features: wgpu::ExperimentalFeatures::disabled(),
+                    trace: wgpu::Trace::Off,
+                }))
+                .expect("headless device request");
             (std::sync::Arc::new(device), std::sync::Arc::new(queue))
         })
         .clone()

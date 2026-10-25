@@ -1150,7 +1150,7 @@ impl EditorPanel for TimelinePanel {
                 for (label, track) in kinds {
                     if ui.button(label).clicked() {
                         self.add_track(track);
-                        ui.close_menu();
+                        ui.close();
                         break;
                     }
                 }
@@ -1256,24 +1256,28 @@ mod tests {
         }
 
         fn frame(&mut self, events: Vec<egui::Event>) -> egui::FullOutput {
-            self.egui_ctx.run(
-                egui::RawInput {
-                    screen_rect: Some(self.screen_rect),
-                    events,
-                    ..Default::default()
-                },
-                |egui_ctx| {
-                    egui::CentralPanel::default().show(egui_ctx, |ui| {
-                        let mut panel_ctx = EditorPanelContext {
-                            insp: &mut self.insp,
-                            entities_snapshot: &self.entities_snapshot,
-                            cursor_pos: (0.0, 0.0),
-                            type_registry: None,
-                        };
-                        self.panel.ui(ui, &mut panel_ctx);
-                    });
-                },
-            )
+            {
+                let mut output = self.egui_ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(self.screen_rect),
+                        events,
+                        ..Default::default()
+                    },
+                    |root_ui| {
+                        egui::CentralPanel::default().show(root_ui, |ui| {
+                            let mut panel_ctx = EditorPanelContext {
+                                insp: &mut self.insp,
+                                entities_snapshot: &self.entities_snapshot,
+                                cursor_pos: (0.0, 0.0),
+                                type_registry: None,
+                            };
+                            self.panel.ui(ui, &mut panel_ctx);
+                        });
+                    },
+                );
+                output.textures_delta.clear();
+                output
+            }
         }
 
         fn draw(&mut self) -> egui::FullOutput {

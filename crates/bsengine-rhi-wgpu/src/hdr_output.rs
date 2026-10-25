@@ -104,8 +104,8 @@ impl UiLayer {
         });
         let pipeline_layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("hdr ui layer pll"),
-            bind_group_layouts: &[&layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&layout)],
+            immediate_size: 0,
         });
         let blend = wgpu::BlendComponent {
             src_factor: wgpu::BlendFactor::One,
@@ -117,13 +117,13 @@ impl UiLayer {
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_fullscreen",
+                entry_point: Some("vs_fullscreen"),
                 buffers: &[],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_ui",
+                entry_point: Some("fs_ui"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: target_format,
                     blend: Some(wgpu::BlendState {
@@ -137,7 +137,7 @@ impl UiLayer {
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
         let (texture, view) = Self::target(device, width, height);
@@ -221,6 +221,7 @@ impl UiLayer {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: target,
                 resolve_target: None,
+                depth_slice: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Load,
                     store: wgpu::StoreOp::Store,

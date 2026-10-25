@@ -547,21 +547,21 @@ fn pipeline(
     });
     let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some(name),
-        bind_group_layouts: &[bgl],
-        push_constant_ranges: &[],
+        bind_group_layouts: &[Some(bgl)],
+        immediate_size: 0,
     });
     device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(name),
         layout: Some(&layout),
         vertex: wgpu::VertexState {
             module: &shader,
-            entry_point: "vs_fullscreen",
+            entry_point: Some("vs_fullscreen"),
             buffers: &[],
             compilation_options: Default::default(),
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
-            entry_point: entry,
+            entry_point: Some(entry),
             targets: &[Some(wgpu::ColorTargetState {
                 format,
                 blend: Some(wgpu::BlendState::REPLACE),
@@ -572,7 +572,7 @@ fn pipeline(
         primitive: wgpu::PrimitiveState::default(),
         depth_stencil: None,
         multisample: wgpu::MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     })
 }
@@ -907,6 +907,7 @@ impl SmaaPass {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                         store: wgpu::StoreOp::Store,

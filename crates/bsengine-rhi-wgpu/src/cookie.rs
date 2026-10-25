@@ -268,8 +268,8 @@ impl CookieAtlas {
                 ..Default::default()
             })
         };
-        let sampler = clamped("spot cookie sampler", wgpu::FilterMode::Nearest);
-        let blit_sampler = clamped("spot cookie blit sampler", wgpu::FilterMode::Linear);
+        let sampler = clamped("spot cookie sampler", wgpu::MipmapFilterMode::Nearest);
+        let blit_sampler = clamped("spot cookie blit sampler", wgpu::MipmapFilterMode::Linear);
 
         let blit_layout = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("spot cookie blit bgl"),
@@ -298,21 +298,21 @@ impl CookieAtlas {
         });
         let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("spot cookie blit layout"),
-            bind_group_layouts: &[&blit_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&blit_layout)],
+            immediate_size: 0,
         });
         let blit_pipeline = device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("spot cookie blit"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &module,
-                entry_point: "vs",
+                entry_point: Some("vs"),
                 buffers: &[],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &module,
-                entry_point: "fs",
+                entry_point: Some("fs"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: ATLAS_FORMAT,
                     blend: None,
@@ -323,7 +323,7 @@ impl CookieAtlas {
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
         Self {
@@ -397,6 +397,7 @@ impl CookieAtlas {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &self.layer_views[layer],
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,
@@ -405,6 +406,7 @@ impl CookieAtlas {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(&self.blit_pipeline);
             pass.set_bind_group(0, &bind_group, &[]);

@@ -252,26 +252,30 @@ mod tests {
         let mut texts = Vec::new();
         for _ in 0..2 {
             texts.clear();
-            let output = ctx.run(
-                egui::RawInput {
-                    screen_rect: Some(egui::Rect::from_min_size(
-                        egui::Pos2::ZERO,
-                        egui::vec2(400.0, 400.0),
-                    )),
-                    ..Default::default()
-                },
-                |ctx| {
-                    egui::CentralPanel::default().show(ctx, |ui| {
-                        let mut panel_ctx = EditorPanelContext {
-                            insp: &mut insp,
-                            entities_snapshot: &[],
-                            cursor_pos: (0.0, 0.0),
-                            type_registry: None,
-                        };
-                        panel.ui(ui, &mut panel_ctx);
-                    });
-                },
-            );
+            let output = {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(400.0, 400.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |root_ui| {
+                        egui::CentralPanel::default().show(root_ui, |ui| {
+                            let mut panel_ctx = EditorPanelContext {
+                                insp: &mut insp,
+                                entities_snapshot: &[],
+                                cursor_pos: (0.0, 0.0),
+                                type_registry: None,
+                            };
+                            panel.ui(ui, &mut panel_ctx);
+                        });
+                    },
+                );
+                output.textures_delta.clear();
+                output
+            };
             for clipped in &output.shapes {
                 collect_text(&clipped.shape, &mut texts);
             }

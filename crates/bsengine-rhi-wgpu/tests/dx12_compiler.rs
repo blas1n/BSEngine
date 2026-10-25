@@ -37,9 +37,10 @@ fn d3d12_compiles_with_dxc_where_its_libraries_are() {
         eprintln!("no DXC on this machine: nothing to check");
         return;
     }
-    let fxc = shader_model_6_features(wgpu::InstanceDescriptor {
-        dx12_shader_compiler: wgpu::Dx12Compiler::Fxc,
-        ..Default::default()
+    let fxc = shader_model_6_features({
+        let mut d = wgpu::InstanceDescriptor::new_without_display_handle();
+        d.backend_options.dx12.shader_compiler = wgpu::Dx12Compiler::Fxc;
+        d
     });
     assert!(
         fxc.is_empty(),

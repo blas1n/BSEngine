@@ -185,24 +185,28 @@ mod tests {
 
         fn frame(&mut self, events: Vec<egui::Event>) -> egui::FullOutput {
             let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(600.0, 400.0));
-            self.egui_ctx.run(
-                egui::RawInput {
-                    screen_rect: Some(screen_rect),
-                    events,
-                    ..Default::default()
-                },
-                |egui_ctx| {
-                    egui::CentralPanel::default().show(egui_ctx, |ui| {
-                        let mut ctx = EditorPanelContext {
-                            insp: &mut self.insp,
-                            entities_snapshot: &self.entities,
-                            cursor_pos: (0.0, 0.0),
-                            type_registry: None,
-                        };
-                        self.panel.ui(ui, &mut ctx);
-                    });
-                },
-            )
+            {
+                let mut output = self.egui_ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(screen_rect),
+                        events,
+                        ..Default::default()
+                    },
+                    |root_ui| {
+                        egui::CentralPanel::default().show(root_ui, |ui| {
+                            let mut ctx = EditorPanelContext {
+                                insp: &mut self.insp,
+                                entities_snapshot: &self.entities,
+                                cursor_pos: (0.0, 0.0),
+                                type_registry: None,
+                            };
+                            self.panel.ui(ui, &mut ctx);
+                        });
+                    },
+                );
+                output.textures_delta.clear();
+                output
+            }
         }
 
         fn draw(&mut self) -> egui::FullOutput {

@@ -257,14 +257,14 @@ impl SkinningPipeline {
         });
         let pipeline_layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("compute skinning"),
-            bind_group_layouts: &[&layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&layout)],
+            immediate_size: 0,
         });
         let pipeline = device.cached_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("compute skinning"),
             layout: Some(&pipeline_layout),
             module: &module,
-            entry_point: "cs_skin",
+            entry_point: Some("cs_skin"),
             compilation_options: Default::default(),
             cache: None,
         });
@@ -609,11 +609,12 @@ impl GpuMeshRegistry {
         slice.map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
         });
-        self.device.poll(wgpu::Maintain::Wait);
+        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
         rx.recv()
             .expect("map_async never reported a result")
             .expect("mapping the vertex readback buffer failed");
-        let vertices: Vec<Vertex> = bytemuck::cast_slice(&slice.get_mapped_range()).to_vec();
+        let vertices: Vec<Vertex> =
+            bytemuck::cast_slice(&slice.get_mapped_range().expect("a mapped buffer")).to_vec();
         staging.unmap();
         Some(vertices)
     }
@@ -713,18 +714,19 @@ mod tests {
                         power_preference: wgpu::PowerPreference::None,
                         compatible_surface: None,
                         force_fallback_adapter: false,
+                        apply_limit_buckets: false,
                     }))
                     .expect("a headless adapter; the rest of this crate's tests need one too");
-                let (device, queue) = pollster::block_on(adapter.request_device(
-                    &wgpu::DeviceDescriptor {
+                let (device, queue) =
+                    pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
                         label: Some("compute skinning tests"),
                         required_features: wgpu::Features::empty(),
                         required_limits: wgpu::Limits::downlevel_defaults(),
                         memory_hints: wgpu::MemoryHints::default(),
-                    },
-                    None,
-                ))
-                .expect("headless device");
+                        experimental_features: wgpu::ExperimentalFeatures::disabled(),
+                        trace: wgpu::Trace::Off,
+                    }))
+                    .expect("headless device");
                 (Arc::new(device), Arc::new(queue))
             })
             .clone()

@@ -2,7 +2,7 @@
 //! Every panel/toolbar reads colors from here rather than hard-coding hex
 //! values at each call site.
 
-use egui::{Color32, Rounding, Stroke};
+use egui::{Color32, CornerRadius, Stroke};
 
 /// Base panel/window background.
 pub const BG: Color32 = Color32::from_rgb(0x18, 0x1a, 0x1f);
@@ -35,7 +35,7 @@ pub const ACCENT: Color32 = Color32::from_rgb(0xe0, 0x91, 0x3a);
 pub const ACCENT_WASH: Color32 = Color32::from_rgba_premultiplied(0x1e, 0x13, 0x08, 0x22);
 
 /// Corner rounding shared by every widget-state block below.
-const ROUNDING: Rounding = Rounding::same(5.0);
+const ROUNDING: CornerRadius = CornerRadius::same(5);
 
 /// Builds the editor's `egui::Visuals` from the palette above, starting from
 /// `Visuals::dark()` as a base so every field egui expects has a sane
@@ -53,31 +53,31 @@ pub fn build_visuals() -> egui::Visuals {
     visuals.widgets.noninteractive.weak_bg_fill = BG;
     visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, TEXT);
     visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, DIVIDER);
-    visuals.widgets.noninteractive.rounding = ROUNDING;
+    visuals.widgets.noninteractive.corner_radius = ROUNDING;
 
     visuals.widgets.inactive.bg_fill = BG_RAISED;
     visuals.widgets.inactive.weak_bg_fill = BG_RAISED;
     visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, TEXT);
     visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, DIVIDER);
-    visuals.widgets.inactive.rounding = ROUNDING;
+    visuals.widgets.inactive.corner_radius = ROUNDING;
 
     visuals.widgets.hovered.bg_fill = DIVIDER;
     visuals.widgets.hovered.weak_bg_fill = DIVIDER;
     visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, TEXT);
     visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, ACCENT);
-    visuals.widgets.hovered.rounding = ROUNDING;
+    visuals.widgets.hovered.corner_radius = ROUNDING;
 
     visuals.widgets.active.bg_fill = ACCENT;
     visuals.widgets.active.weak_bg_fill = ACCENT;
     visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, BG);
     visuals.widgets.active.bg_stroke = Stroke::new(1.0_f32, ACCENT);
-    visuals.widgets.active.rounding = ROUNDING;
+    visuals.widgets.active.corner_radius = ROUNDING;
 
     visuals.widgets.open.bg_fill = DIVIDER;
     visuals.widgets.open.bg_stroke = Stroke::new(1.0_f32, ACCENT);
     visuals.widgets.open.weak_bg_fill = DIVIDER;
     visuals.widgets.open.fg_stroke = Stroke::new(1.0_f32, TEXT);
-    visuals.widgets.open.rounding = ROUNDING;
+    visuals.widgets.open.corner_radius = ROUNDING;
 
     visuals
 }

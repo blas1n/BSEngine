@@ -229,14 +229,14 @@ impl GpuParticles {
             .create_view(&wgpu::TextureViewDescriptor::default());
         let pipeline_layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("gpu particles pipeline layout"),
-            bind_group_layouts: &[&layout, &depth_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&layout), Some(&depth_layout)],
+            immediate_size: 0,
         });
         let pipeline = device.cached_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("gpu particles pipeline"),
             layout: Some(&pipeline_layout),
             module: &shader,
-            entry_point: "cs_step",
+            entry_point: Some("cs_step"),
             compilation_options: Default::default(),
             cache: None,
         });
@@ -444,8 +444,8 @@ impl GpuParticles {
             queue.submit(Some(encoder.finish()));
             let slice = staging.slice(..);
             slice.map_async(wgpu::MapMode::Read, |_| {});
-            device.poll(wgpu::Maintain::Wait);
-            let bytes = slice.get_mapped_range().to_vec();
+            let _ = device.poll(wgpu::PollType::wait_indefinitely());
+            let bytes = slice.get_mapped_range().expect("a mapped buffer").to_vec();
             staging.unmap();
             bytes
         };
@@ -928,6 +928,7 @@ mod tests {
             }),
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
         queue.submit(Some(encoder.finish()));
         view

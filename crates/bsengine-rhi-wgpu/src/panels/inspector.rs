@@ -126,7 +126,7 @@ impl EditorPanel for InspectorPanel {
                         ui.menu_button(egui_phosphor::regular::DOTS_THREE, |ui| {
                             if ui.button("Remove Component").clicked() {
                                 to_remove = Some(type_path.clone());
-                                ui.close_menu();
+                                ui.close();
                             }
                         });
                     })
@@ -291,10 +291,10 @@ fn draw_add_component(
         // and the picker should start with an empty search box (matching
         // Unity). Clearing unconditionally would also fire on the click
         // that *closes* it, which is harmless but muddles the intent.
-        let was_open = ui.memory(|m| m.is_popup_open(popup_id));
-        ui.memory_mut(|m| m.toggle_popup(popup_id));
+        let was_open = egui::Popup::is_id_open(ui.ctx(), popup_id);
+        egui::Popup::toggle_id(ui.ctx(), popup_id);
         if !was_open {
-            let direction_at_open = picker_direction(ui.ctx().screen_rect(), button_response.rect);
+            let direction_at_open = picker_direction(ui.ctx().content_rect(), button_response.rect);
             ui.memory_mut(|m| {
                 m.data.insert_temp(filter_id, String::new());
                 // Unity focuses the search box on open so you can type
@@ -324,19 +324,21 @@ fn draw_add_component(
     // ever cleared under an open popup, where recomputing is a better
     // answer than defaulting to a fixed side.
     let direction = ui
-        .memory(|m| m.data.get_temp::<egui::AboveOrBelow>(direction_id))
-        .unwrap_or_else(|| picker_direction(ui.ctx().screen_rect(), button_response.rect));
+        .memory(|m| m.data.get_temp::<PickerSide>(direction_id))
+        .unwrap_or_else(|| picker_direction(ui.ctx().content_rect(), button_response.rect));
 
     let mut to_attach: Option<String> = None;
-    egui::popup::popup_above_or_below_widget(
-        ui,
-        popup_id,
-        &button_response,
-        direction,
+    egui::Popup::from_response(&button_response)
+        .id(popup_id)
+        .open_memory(None)
+        // The side latched at open time, and only that side: alternatives
+        // would let egui flip it, which is what latching is there to stop.
+        .align(direction.align())
+        .align_alternatives(&[])
         // Not CloseOnClick (what ComboBox uses) -- the search field below
         // must survive being clicked and typed into. Escape still closes.
-        egui::popup::PopupCloseBehavior::CloseOnClickOutside,
-        |ui| {
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .show(|ui| {
             ui.set_min_width(200.0);
             // Transient, panel-local UI state: egui memory keeps it out of
             // InspectorState (a cross-crate type that PRs #1727/#1728
@@ -442,11 +444,10 @@ fn draw_add_component(
                         );
                     }
                 });
-        },
-    );
+        });
 
     if to_attach.is_some() {
-        ui.memory_mut(|m| m.close_popup());
+        egui::Popup::close_all(ui.ctx());
     }
     to_attach
 }
@@ -484,13 +485,31 @@ fn draw_add_component(
 /// popup is still clamped -- choosing the larger side minimises the overlap
 /// rather than removing it. The 400px test screen with two components is
 /// exactly that: `Above` wins with 245px of room and is clamped anyway.
-fn picker_direction(screen: egui::Rect, button_rect: egui::Rect) -> egui::AboveOrBelow {
+fn picker_direction(screen: egui::Rect, button_rect: egui::Rect) -> PickerSide {
     let space_above = button_rect.top() - screen.top();
     let space_below = screen.bottom() - button_rect.bottom();
     if space_above >= space_below {
-        egui::AboveOrBelow::Above
+        PickerSide::Above
     } else {
-        egui::AboveOrBelow::Below
+        PickerSide::Below
+    }
+}
+
+/// Which side of its button the component picker opens on: egui had this
+/// as `AboveOrBelow` until 0.32, and the picker still only ever wants one
+/// of the two, chosen once when it opens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PickerSide {
+    Above,
+    Below,
+}
+
+impl PickerSide {
+    fn align(self) -> egui::RectAlign {
+        match self {
+            PickerSide::Above => egui::RectAlign::TOP_START,
+            PickerSide::Below => egui::RectAlign::BOTTOM_START,
+        }
     }
 }
 
@@ -710,13 +729,14 @@ mod tests {
         ctx.set_fonts(egui::FontDefinitions::empty());
         let mut add_contents = Some(add_contents);
         let mut result = None;
-        let _ = ctx.run(egui::RawInput::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(egui::RawInput::default(), |root_ui| {
+            egui::CentralPanel::default().show(root_ui, |ui| {
                 if let Some(f) = add_contents.take() {
                     result = Some(f(ui));
                 }
             });
-        });
+        })
+        .drop_without_applying_deltas();
         result.expect("add_contents must run exactly once per test frame")
     }
 
@@ -878,24 +898,28 @@ mod tests {
 
         /// Runs one frame with `events` delivered to it.
         fn frame(&mut self, events: Vec<egui::Event>) -> egui::FullOutput {
-            self.egui_ctx.run(
-                egui::RawInput {
-                    screen_rect: Some(self.screen_rect),
-                    events,
-                    ..Default::default()
-                },
-                |egui_ctx| {
-                    egui::CentralPanel::default().show(egui_ctx, |ui| {
-                        let mut ctx = EditorPanelContext {
-                            insp: &mut self.insp,
-                            entities_snapshot: &self.entities_snapshot,
-                            cursor_pos: (0.0, 0.0),
-                            type_registry: Some(&self.registry),
-                        };
-                        self.panel.ui(ui, &mut ctx);
-                    });
-                },
-            )
+            {
+                let mut output = self.egui_ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(self.screen_rect),
+                        events,
+                        ..Default::default()
+                    },
+                    |root_ui| {
+                        egui::CentralPanel::default().show(root_ui, |ui| {
+                            let mut ctx = EditorPanelContext {
+                                insp: &mut self.insp,
+                                entities_snapshot: &self.entities_snapshot,
+                                cursor_pos: (0.0, 0.0),
+                                type_registry: Some(&self.registry),
+                            };
+                            self.panel.ui(ui, &mut ctx);
+                        });
+                    },
+                );
+                output.textures_delta.clear();
+                output
+            }
         }
 
         /// Runs one frame with no input.
@@ -1278,23 +1302,27 @@ mod tests {
         egui_ctx.set_fonts(egui::FontDefinitions::empty());
         let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
 
-        let full_output = egui_ctx.run(
-            egui::RawInput {
-                screen_rect: Some(screen_rect),
-                ..Default::default()
-            },
-            |egui_ctx| {
-                egui::CentralPanel::default().show(egui_ctx, |ui| {
-                    let mut ctx = EditorPanelContext {
-                        insp: &mut insp,
-                        entities_snapshot: &entities_snapshot,
-                        cursor_pos: (0.0, 0.0),
-                        type_registry: Some(&registry),
-                    };
-                    panel.ui(ui, &mut ctx);
-                });
-            },
-        );
+        let full_output = {
+            let mut output = egui_ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen_rect),
+                    ..Default::default()
+                },
+                |root_ui| {
+                    egui::CentralPanel::default().show(root_ui, |ui| {
+                        let mut ctx = EditorPanelContext {
+                            insp: &mut insp,
+                            entities_snapshot: &entities_snapshot,
+                            cursor_pos: (0.0, 0.0),
+                            type_registry: Some(&registry),
+                        };
+                        panel.ui(ui, &mut ctx);
+                    });
+                },
+            );
+            output.textures_delta.clear();
+            output
+        };
 
         let rendered_texts = collect_rendered_texts(&full_output.shapes);
 
@@ -1781,23 +1809,27 @@ mod tests {
         egui_ctx.set_fonts(egui::FontDefinitions::empty());
         let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
 
-        let full_output = egui_ctx.run(
-            egui::RawInput {
-                screen_rect: Some(screen_rect),
-                ..Default::default()
-            },
-            |egui_ctx| {
-                egui::CentralPanel::default().show(egui_ctx, |ui| {
-                    let mut ctx = EditorPanelContext {
-                        insp: &mut insp,
-                        entities_snapshot: &entities_snapshot,
-                        cursor_pos: (0.0, 0.0),
-                        type_registry: Some(&registry),
-                    };
-                    panel.ui(ui, &mut ctx);
-                });
-            },
-        );
+        let full_output = {
+            let mut output = egui_ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen_rect),
+                    ..Default::default()
+                },
+                |root_ui| {
+                    egui::CentralPanel::default().show(root_ui, |ui| {
+                        let mut ctx = EditorPanelContext {
+                            insp: &mut insp,
+                            entities_snapshot: &entities_snapshot,
+                            cursor_pos: (0.0, 0.0),
+                            type_registry: Some(&registry),
+                        };
+                        panel.ui(ui, &mut ctx);
+                    });
+                },
+            );
+            output.textures_delta.clear();
+            output
+        };
 
         let texts = collect_rendered_texts_with_pos(&full_output.shapes);
         let transform_y = texts
@@ -2019,24 +2051,26 @@ mod tests {
                          insp: &mut InspectorState,
                          entities_snapshot: &[InspectorEntityInfo],
                          panel: &mut InspectorPanel| {
-            let _ = egui_ctx.run(
-                egui::RawInput {
-                    screen_rect: Some(screen_rect),
-                    events,
-                    ..Default::default()
-                },
-                |egui_ctx| {
-                    egui::CentralPanel::default().show(egui_ctx, |ui| {
-                        let mut ctx = EditorPanelContext {
-                            insp,
-                            entities_snapshot,
-                            cursor_pos: (0.0, 0.0),
-                            type_registry: None,
-                        };
-                        panel.ui(ui, &mut ctx);
-                    });
-                },
-            );
+            egui_ctx
+                .run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(screen_rect),
+                        events,
+                        ..Default::default()
+                    },
+                    |root_ui| {
+                        egui::CentralPanel::default().show(root_ui, |ui| {
+                            let mut ctx = EditorPanelContext {
+                                insp,
+                                entities_snapshot,
+                                cursor_pos: (0.0, 0.0),
+                                type_registry: None,
+                            };
+                            panel.ui(ui, &mut ctx);
+                        });
+                    },
+                )
+                .drop_without_applying_deltas();
         };
 
         // Frame 1: draw once so the widget tree/focus-interest exists.
@@ -2172,24 +2206,26 @@ mod tests {
                          insp: &mut InspectorState,
                          entities_snapshot: &[InspectorEntityInfo],
                          panel: &mut InspectorPanel| {
-            let _ = egui_ctx.run(
-                egui::RawInput {
-                    screen_rect: Some(screen_rect),
-                    events,
-                    ..Default::default()
-                },
-                |egui_ctx| {
-                    egui::CentralPanel::default().show(egui_ctx, |ui| {
-                        let mut ctx = EditorPanelContext {
-                            insp,
-                            entities_snapshot,
-                            cursor_pos: (0.0, 0.0),
-                            type_registry: None,
-                        };
-                        panel.ui(ui, &mut ctx);
-                    });
-                },
-            );
+            egui_ctx
+                .run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(screen_rect),
+                        events,
+                        ..Default::default()
+                    },
+                    |root_ui| {
+                        egui::CentralPanel::default().show(root_ui, |ui| {
+                            let mut ctx = EditorPanelContext {
+                                insp,
+                                entities_snapshot,
+                                cursor_pos: (0.0, 0.0),
+                                type_registry: None,
+                            };
+                            panel.ui(ui, &mut ctx);
+                        });
+                    },
+                )
+                .drop_without_applying_deltas();
         };
 
         // Frame 1: draw once so the widget tree/focus-interest exists.
@@ -2381,23 +2417,27 @@ mod tests {
         egui_ctx.set_fonts(egui::FontDefinitions::empty());
         let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
 
-        let full_output = egui_ctx.run(
-            egui::RawInput {
-                screen_rect: Some(screen_rect),
-                ..Default::default()
-            },
-            |egui_ctx| {
-                egui::CentralPanel::default().show(egui_ctx, |ui| {
-                    let mut ctx = EditorPanelContext {
-                        insp: &mut insp,
-                        entities_snapshot: &entities_snapshot,
-                        cursor_pos: (0.0, 0.0),
-                        type_registry: None,
-                    };
-                    panel.ui(ui, &mut ctx);
-                });
-            },
-        );
+        let full_output = {
+            let mut output = egui_ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen_rect),
+                    ..Default::default()
+                },
+                |root_ui| {
+                    egui::CentralPanel::default().show(root_ui, |ui| {
+                        let mut ctx = EditorPanelContext {
+                            insp: &mut insp,
+                            entities_snapshot: &entities_snapshot,
+                            cursor_pos: (0.0, 0.0),
+                            type_registry: None,
+                        };
+                        panel.ui(ui, &mut ctx);
+                    });
+                },
+            );
+            output.textures_delta.clear();
+            output
+        };
 
         let rendered_texts = collect_rendered_texts(&full_output.shapes);
 
@@ -2462,23 +2502,27 @@ mod tests {
             egui_ctx.set_fonts(egui::FontDefinitions::empty());
             let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
 
-            let full_output = egui_ctx.run(
-                egui::RawInput {
-                    screen_rect: Some(screen_rect),
-                    ..Default::default()
-                },
-                |egui_ctx| {
-                    egui::CentralPanel::default().show(egui_ctx, |ui| {
-                        let mut ctx = EditorPanelContext {
-                            insp: &mut insp,
-                            entities_snapshot: &entities_snapshot,
-                            cursor_pos: (0.0, 0.0),
-                            type_registry,
-                        };
-                        panel.ui(ui, &mut ctx);
-                    });
-                },
-            );
+            let full_output = {
+                let mut output = egui_ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(screen_rect),
+                        ..Default::default()
+                    },
+                    |root_ui| {
+                        egui::CentralPanel::default().show(root_ui, |ui| {
+                            let mut ctx = EditorPanelContext {
+                                insp: &mut insp,
+                                entities_snapshot: &entities_snapshot,
+                                cursor_pos: (0.0, 0.0),
+                                type_registry,
+                            };
+                            panel.ui(ui, &mut ctx);
+                        });
+                    },
+                );
+                output.textures_delta.clear();
+                output
+            };
 
             full_output.shapes.len()
         }

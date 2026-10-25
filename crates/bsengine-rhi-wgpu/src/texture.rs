@@ -956,14 +956,14 @@ impl GpuTextureRegistry {
             return self.replace(id, width, height, rgba);
         }
         self.queue.write_texture(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &tex._texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
             rgba,
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(4 * width),
                 rows_per_image: Some(height),
@@ -1108,14 +1108,14 @@ impl GpuTextureRegistry {
         );
         for (level, (w, h, pixels)) in resident.iter().enumerate() {
             self.queue.write_texture(
-                wgpu::ImageCopyTexture {
+                wgpu::TexelCopyTextureInfo {
                     texture: &texture,
                     mip_level: level as u32,
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
                 },
                 pixels,
-                wgpu::ImageDataLayout {
+                wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(bytes_per_row_for(format, *w)),
                     rows_per_image: None,
@@ -1356,7 +1356,7 @@ impl GpuTextureRegistry {
             let chain = base + level;
             let (w, h) = dims[chain as usize];
             let extent = copy_extent_for(format, w, h);
-            let destination = wgpu::ImageCopyTexture {
+            let destination = wgpu::TexelCopyTextureInfo {
                 texture: &texture,
                 mip_level: level,
                 origin: wgpu::Origin3d::ZERO,
@@ -1364,7 +1364,7 @@ impl GpuTextureRegistry {
             };
             if chain >= old_base {
                 encoder.copy_texture_to_texture(
-                    wgpu::ImageCopyTexture {
+                    wgpu::TexelCopyTextureInfo {
                         texture: old,
                         mip_level: chain - old_base,
                         origin: wgpu::Origin3d::ZERO,
@@ -1379,7 +1379,7 @@ impl GpuTextureRegistry {
                 self.queue.write_texture(
                     destination,
                     bytes,
-                    wgpu::ImageDataLayout {
+                    wgpu::TexelCopyBufferLayout {
                         offset: 0,
                         bytes_per_row: Some(bytes_per_row_for(format, w)),
                         rows_per_image: None,
@@ -1643,7 +1643,7 @@ impl GpuTextureRegistry {
             // Between mip levels, not within one: with a single level this
             // never engages, and with a chain it is what stops the level
             // switch from showing as a seam.
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {

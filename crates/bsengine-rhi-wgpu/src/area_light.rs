@@ -476,7 +476,7 @@ mod tests {
             });
             let mut encoder = device.create_command_encoder(&Default::default());
             encoder.copy_texture_to_buffer(
-                wgpu::ImageCopyTexture {
+                wgpu::TexelCopyTextureInfo {
                     texture: &tables._tables,
                     mip_level: 0,
                     origin: wgpu::Origin3d {
@@ -486,9 +486,9 @@ mod tests {
                     },
                     aspect: wgpu::TextureAspect::All,
                 },
-                wgpu::ImageCopyBuffer {
+                wgpu::TexelCopyBufferInfo {
                     buffer: &buffer,
-                    layout: wgpu::ImageDataLayout {
+                    layout: wgpu::TexelCopyBufferLayout {
                         offset: 0,
                         bytes_per_row: Some(row),
                         rows_per_image: Some(LTC_SIZE),
@@ -503,8 +503,8 @@ mod tests {
             queue.submit(Some(encoder.finish()));
             let slice = buffer.slice(..);
             slice.map_async(wgpu::MapMode::Read, |_| {});
-            device.poll(wgpu::Maintain::Wait);
-            let got = slice.get_mapped_range().to_vec();
+            let _ = device.poll(wgpu::PollType::wait_indefinitely());
+            let got = slice.get_mapped_range().expect("a mapped buffer").to_vec();
             assert_eq!(
                 got.len(),
                 expected.len(),

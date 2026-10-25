@@ -102,7 +102,7 @@ fn pipeline(
         layout: Some(layout),
         vertex: wgpu::VertexState {
             module,
-            entry_point: "vs",
+            entry_point: Some("vs"),
             compilation_options: Default::default(),
             buffers: &[],
         },
@@ -114,11 +114,11 @@ fn pipeline(
         },
         fragment: Some(wgpu::FragmentState {
             module,
-            entry_point: "fs",
+            entry_point: Some("fs"),
             compilation_options: Default::default(),
             targets: &[Some(format.into())],
         }),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     })
 }
@@ -147,7 +147,7 @@ fn the_same_request_is_shared_and_a_different_one_is_not() {
     let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("pipeline cache test"),
         bind_group_layouts: &[],
-        push_constant_ranges: &[],
+        immediate_size: 0,
     });
 
     let rgba = wgpu::TextureFormat::Rgba8Unorm;
@@ -186,7 +186,7 @@ fn a_pipeline_over_a_module_the_cache_did_not_make_is_never_cached() {
     let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("pipeline cache test"),
         bind_group_layouts: &[],
-        push_constant_ranges: &[],
+        immediate_size: 0,
     });
     let module = device.create_shader_module(module_desc(SHADER));
     let rgba = wgpu::TextureFormat::Rgba8Unorm;

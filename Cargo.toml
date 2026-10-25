@@ -75,7 +75,7 @@ bevy_tasks        = { version = "0.14", default-features = false }
 tracing           = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 winit             = "0.30"
-wgpu              = "22"
+wgpu              = "30"
 pollster          = "0.3"
 bytemuck          = { version = "1", features = ["derive"] }
 glam              = "0.29"
@@ -121,10 +121,10 @@ rapier3d          = { version = "0.33", features = ["default"] }
 # and then fail with "unsupported codec", which is what this engine shipped
 # while advertising all four formats.
 kira              = { version = "0.12", default-features = false, features = ["cpal", "wav", "pcm", "ogg", "vorbis", "mp3", "flac"] }
-egui              = "0.29"
-egui-wgpu         = "0.29"
-egui_dock         = { version = "0.14", features = ["serde"] }
-egui-phosphor     = { version = "0.7.3", default-features = false, features = ["regular"] }
+egui              = "0.36"
+egui-wgpu         = "0.36"
+egui_dock         = { version = "0.21", features = ["serde"] }
+egui-phosphor     = { version = "0.14", default-features = false, features = ["regular"] }
 gilrs             = "0.11"
 bsengine-catalog  = { path = "crates/bsengine-catalog" }
 bsengine-shadergraph = { path = "crates/bsengine-shadergraph" }

@@ -472,7 +472,7 @@ impl EditorPanel for ViewportPanel {
                         let response = ui
                             .add_sized(
                                 brush_button_size,
-                                egui::SelectableLabel::new(
+                                egui::Button::selectable(
                                     insp.terrain_brush_active,
                                     egui_phosphor::regular::PAINT_BRUSH,
                                 ),
@@ -480,18 +480,19 @@ impl EditorPanel for ViewportPanel {
                             .on_hover_text("Terrain Brush");
                         if response.clicked() {
                             insp.terrain_brush_active = !insp.terrain_brush_active;
-                            ui.memory_mut(|m| m.toggle_popup(terrain_brush_popup_id));
+                            egui::Popup::toggle_id(ui.ctx(), terrain_brush_popup_id);
                         }
                         terrain_brush_button = Some(response);
                     });
 
                     if let Some(button_response) = &terrain_brush_button {
-                        egui::popup::popup_below_widget(
-                            ui,
-                            terrain_brush_popup_id,
-                            button_response,
-                            egui::popup::PopupCloseBehavior::CloseOnClickOutside,
-                            |ui| {
+                        egui::Popup::from_response(button_response)
+                            .id(terrain_brush_popup_id)
+                            .open_memory(None)
+                            .align(egui::RectAlign::BOTTOM_START)
+                            .align_alternatives(&[])
+                            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                            .show(|ui| {
                                 ui.set_min_width(180.0);
                                 ui.label("Terrain Brush");
                                 ui.separator();
@@ -549,8 +550,7 @@ impl EditorPanel for ViewportPanel {
                                     egui::Slider::new(&mut settings.strength, 0.0..=1.0)
                                         .text("Strength"),
                                 );
-                            },
-                        );
+                            });
                     }
                 });
             });
@@ -614,24 +614,28 @@ mod tests {
         /// `HierarchyHarness::frame` applies to any position read from this
         /// call's own return value.
         fn frame(&mut self, events: Vec<egui::Event>) -> egui::FullOutput {
-            self.egui_ctx.run(
-                egui::RawInput {
-                    screen_rect: Some(self.screen_rect),
-                    events,
-                    ..Default::default()
-                },
-                |egui_ctx| {
-                    egui::CentralPanel::default().show(egui_ctx, |ui| {
-                        let mut ctx = EditorPanelContext {
-                            insp: &mut self.insp,
-                            entities_snapshot: &self.entities_snapshot,
-                            cursor_pos: (0.0, 0.0),
-                            type_registry: None,
-                        };
-                        self.panel.ui(ui, &mut ctx);
-                    });
-                },
-            )
+            {
+                let mut output = self.egui_ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(self.screen_rect),
+                        events,
+                        ..Default::default()
+                    },
+                    |root_ui| {
+                        egui::CentralPanel::default().show(root_ui, |ui| {
+                            let mut ctx = EditorPanelContext {
+                                insp: &mut self.insp,
+                                entities_snapshot: &self.entities_snapshot,
+                                cursor_pos: (0.0, 0.0),
+                                type_registry: None,
+                            };
+                            self.panel.ui(ui, &mut ctx);
+                        });
+                    },
+                );
+                output.textures_delta.clear();
+                output
+            }
         }
 
         /// A frame that delivers a single press+release click at `pos`.

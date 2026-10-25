@@ -198,21 +198,21 @@ impl DepthResolve {
         });
         let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("msaa depth resolve pll"),
-            bind_group_layouts: &[&bgl],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bgl)],
+            immediate_size: 0,
         });
         let pipeline = device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("msaa depth resolve pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_fullscreen",
+                entry_point: Some("vs_fullscreen"),
                 buffers: &[],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_resolve",
+                entry_point: Some("fs_resolve"),
                 targets: &[],
                 compilation_options: Default::default(),
             }),
@@ -220,13 +220,13 @@ impl DepthResolve {
             // Every pixel is written: `Always`, over a target the pass clears.
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: crate::surface::DEPTH_FORMAT,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Always,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Always),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
         Self { bgl, pipeline }

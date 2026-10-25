@@ -83,7 +83,11 @@ impl Output {
             Output::Window {
                 surface, config, ..
             } => {
-                let frame = surface.get_current_texture().map_err(|e| e.to_string())?;
+                let frame = match surface.get_current_texture() {
+                    wgpu::CurrentSurfaceTexture::Success(frame)
+                    | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
+                    other => return Err(format!("no frame to draw into: {other:?}")),
+                };
                 let view = frame.texture.create_view(&wgpu::TextureViewDescriptor {
                     format: config.view_formats.first().copied(),
                     ..Default::default()
@@ -167,15 +171,15 @@ pub(crate) fn read_texels(
         label: Some("readback encoder"),
     });
     encoder.copy_texture_to_buffer(
-        wgpu::ImageCopyTexture {
+        wgpu::TexelCopyTextureInfo {
             texture,
             mip_level: 0,
             origin: wgpu::Origin3d::ZERO,
             aspect: wgpu::TextureAspect::All,
         },
-        wgpu::ImageCopyBuffer {
+        wgpu::TexelCopyBufferInfo {
             buffer: &buffer,
-            layout: wgpu::ImageDataLayout {
+            layout: wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(padded_bytes_per_row),
                 rows_per_image: Some(height),
@@ -194,12 +198,12 @@ pub(crate) fn read_texels(
     slice.map_async(wgpu::MapMode::Read, move |r| {
         let _ = tx.send(r);
     });
-    device.poll(wgpu::Maintain::Wait);
+    let _ = device.poll(wgpu::PollType::wait_indefinitely());
     rx.recv()
         .expect("map_async never reported a result")
         .expect("mapping the readback buffer failed");
 
-    let mapped = slice.get_mapped_range();
+    let mapped = slice.get_mapped_range().expect("a mapped buffer");
     let mut tight = Vec::with_capacity((unpadded_bytes_per_row * height) as usize);
     for row in 0..height {
         let start = (row * padded_bytes_per_row) as usize;

@@ -2,7 +2,7 @@
 //! painter routine. Kept separate from `surface.rs` so the math is
 //! unit-testable without a live wgpu/winit context.
 
-use egui::{Color32, Painter, Pos2, Rect, Rounding, Stroke, Vec2};
+use egui::{Color32, CornerRadius, Painter, Pos2, Rect, Stroke, Vec2};
 use glam::{Mat4, Quat, Vec3};
 
 /// Gizmo axis id for the X axis.
@@ -180,7 +180,7 @@ fn draw_scale_handle(painter: &Painter, center: Pos2, color: Color32) {
     let size = Vec2::new(side, side);
     painter.rect_filled(
         Rect::from_center_size(center, size),
-        Rounding::same(0.0),
+        CornerRadius::ZERO,
         color,
     );
 }

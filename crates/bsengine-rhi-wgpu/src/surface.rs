@@ -6656,6 +6656,28 @@ impl WgpuSurface {
     /// the newest becomes [`Self::latest_gpu_pass_times`], and each slot is
     /// unmapped and freed for reuse. A failed mapping frees its slot and
     /// reports nothing -- a profiling path must never be why a frame errors.
+    /// Puts every free timestamp readback slot in the state a failed
+    /// `map_async` leaves it in -- `Failed`, and not mapped -- after waiting
+    /// for the GPU so none is mid-mapping. Returns how many it marked (0 on an
+    /// adapter without timestamps, which has no ring).
+    ///
+    /// For the one test that needs a mapping to fail: nothing short of losing
+    /// the device makes one fail for real.
+    #[doc(hidden)]
+    pub fn fail_gpu_pass_readbacks_for_testing(&mut self) -> usize {
+        wait_for_gpu(&self.device, &self.queue);
+        self.collect_gpu_pass_times();
+        let mut marked = 0;
+        for readback in &self.timestamp_readbacks {
+            let mut state = readback.state.lock().unwrap();
+            if *state == ReadbackState::Free {
+                *state = ReadbackState::Failed;
+                marked += 1;
+            }
+        }
+        marked
+    }
+
     fn collect_gpu_pass_times(&mut self) {
         if self.timestamp_readbacks.is_empty() {
             return;
@@ -6692,7 +6714,10 @@ impl WgpuSurface {
                     }
                 }
                 ReadbackState::Failed => {
-                    readback.buffer.unmap();
+                    // Not unmapped: a mapping that failed never mapped the
+                    // buffer, and unmapping one that is not mapped is a
+                    // validation error -- uncaptured, a panic, on the very
+                    // occasion (a device going away) a mapping fails.
                     *readback.state.lock().unwrap() = ReadbackState::Free;
                 }
                 ReadbackState::Free | ReadbackState::Pending => {}

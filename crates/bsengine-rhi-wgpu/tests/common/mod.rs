@@ -1135,6 +1135,11 @@ struct VertOut {{
         self.surface.read_gpu_particles(id)
     }
 
+    /// See `WgpuSurface::fail_gpu_pass_readbacks_for_testing`.
+    pub fn fail_gpu_pass_readbacks(&mut self) -> usize {
+        self.surface.fail_gpu_pass_readbacks_for_testing()
+    }
+
     pub fn frame_stats(&self) -> bsengine_rhi_wgpu::profiler::FrameStats {
         self.surface
             .latest_frame_stats()

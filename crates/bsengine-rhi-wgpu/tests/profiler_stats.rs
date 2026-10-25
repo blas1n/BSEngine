@@ -94,6 +94,37 @@ fn gpu_pass_times_are_consistent_with_gpu_timestamps_supported() {
     }
 }
 
+/// A readback whose mapping failed is freed without being unmapped -- it
+/// was never mapped -- and taken again by later frames. Unmapping it was a
+/// validation error, and an uncaptured one panics: a profiling path took the
+/// frame down, on exactly the occasion (a device going away) a mapping fails.
+/// The frames after it must still get their timings, or freeing the slot
+/// would be a slot lost.
+#[test]
+fn a_readback_whose_mapping_failed_is_freed_and_used_again() {
+    let mut h = Harness::new();
+    for _ in 0..4 {
+        h.render(&Scene::default());
+    }
+    if !h.frame_stats().gpu_timestamps_supported {
+        eprintln!("no GPU timestamps on this adapter: no readback ring to fail");
+        return;
+    }
+    let marked = h.fail_gpu_pass_readbacks();
+    assert!(marked > 0, "premise: some slot was failed");
+    // Eight frames, then how old the newest timings are: the timings from
+    // before the failure are still fresh for the first few frames, so a
+    // check inside the loop would pass on them with every slot lost.
+    for _ in 0..8 {
+        h.render(&Scene::default());
+    }
+    let age = h.frame_stats().gpu_pass_times_frames_ago;
+    assert!(
+        age.is_some_and(|n| n <= 3),
+        "after {marked} failed slot(s), timings stopped arriving: the newest are {age:?} frames old"
+    );
+}
+
 #[test]
 fn frame_stats_history_caps_at_its_capacity() {
     let mut h = Harness::new();

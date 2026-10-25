@@ -6714,10 +6714,19 @@ impl WgpuSurface {
                     }
                 }
                 ReadbackState::Failed => {
-                    // Not unmapped: a mapping that failed never mapped the
-                    // buffer, and unmapping one that is not mapped is a
-                    // validation error -- uncaptured, a panic, on the very
-                    // occasion (a device going away) a mapping fails.
+                    // Natively not unmapped: a mapping that failed never
+                    // mapped the buffer, and unmapping one that is not mapped
+                    // is a validation error -- uncaptured, a panic, on the
+                    // very occasion (a device going away) a mapping fails.
+                    //
+                    // In the browser the opposite holds: wgpu's WebGPU
+                    // backend records the requested range as mapped before
+                    // the browser answers, and keeps it after a refusal, so
+                    // the next `map_async` on the slot panics "already
+                    // mapped" unless this unmap clears it. The browser
+                    // smoke test is what showed it.
+                    #[cfg(target_arch = "wasm32")]
+                    readback.buffer.unmap();
                     *readback.state.lock().unwrap() = ReadbackState::Free;
                 }
                 ReadbackState::Free | ReadbackState::Pending => {}

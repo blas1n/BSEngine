@@ -515,15 +515,33 @@ struct SceneOut {
 // but for the decals (whose own pass runs on this prepass's depth, so has
 // not run yet) -- what the screen-space reflections are traced from, before
 // this frame's opaque pass has written its own normals.
+//
+// And its velocity, as `fs_main` writes it: the trace runs before the opaque
+// pass, so this is the only velocity this frame has when a hit on a moving
+// surface needs to be found where it was last frame.
+struct SsrSurfaceOut {
+    @location(0) normal_roughness: vec4<f32>,
+    @location(1) velocity: vec2<f32>,
+};
+
 @fragment
-fn fs_ssr_normal(in: VertOut) -> @location(0) vec4<f32> {
+fn fs_ssr_normal(in: VertOut) -> SsrSurfaceOut {
     var n = normalize(in.world_normal);
     if (model_data.normal_scale != 0.0) {
         n = normal_mapped(n, in.world_tangent, in.uv, model_data.normal_scale);
     }
     let orm = textureSample(t_orm, s_orm, in.uv).rgb;
     let roughness = max(model_data.roughness * orm.g, 0.04);
-    return vec4<f32>(n, roughness);
+    var out: SsrSurfaceOut;
+    out.normal_roughness = vec4<f32>(n, roughness);
+    if in.prev_clip.w <= 1e-5 {
+        out.velocity = vec2<f32>(65504.0);
+    } else {
+        let curr_ndc = in.curr_clip.xy / in.curr_clip.w;
+        let prev_ndc = in.prev_clip.xy / in.prev_clip.w;
+        out.velocity = (curr_ndc - prev_ndc) * vec2<f32>(0.5, -0.5);
+    }
+    return out;
 }
 
 @fragment
@@ -5675,11 +5693,18 @@ impl WgpuSurface {
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: "fs_ssr_normal",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: crate::post_process::NORMAL_FORMAT,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
+                targets: &[
+                    Some(wgpu::ColorTargetState {
+                        format: crate::post_process::NORMAL_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                    Some(wgpu::ColorTargetState {
+                        format: crate::post_process::VELOCITY_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                ],
                 compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState {
@@ -8859,14 +8884,26 @@ impl WgpuSurface {
             // no normal.
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("ssr normal prepass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.post_process.ssr_normal_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
+                color_attachments: &[
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &self.post_process.ssr_normal_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                    // "No velocity" where nothing is drawn: the trace then
+                    // reprojects a hit there by last frame's camera.
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &self.post_process.ssr_velocity_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(crate::post_process::VELOCITY_NONE),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                ],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &self.depth_view,
                     depth_ops: Some(wgpu::Operations {

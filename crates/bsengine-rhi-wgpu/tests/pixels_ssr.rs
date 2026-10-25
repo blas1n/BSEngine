@@ -651,3 +651,84 @@ fn bench_ssr() {
     }
     eprintln!("ssr costs {:.2} ms/frame at 1080p", times[1] - times[0]);
 }
+
+/// The columns of `row` where red outweighs green and blue by a margin: where
+/// the pillar, or its reflection, is.
+fn red_columns(p: &common::Pixels, row: u32) -> Vec<u32> {
+    (0..p.width)
+        .filter(|&x| {
+            let [r, g, b, _] = p.at(x, row);
+            r as i32 > g as i32 + 20 && r as i32 > b as i32 + 20
+        })
+        .collect()
+}
+
+/// The pillar's glow in the moving-reflection test.
+const RED: Vec3 = Vec3::new(4.0, 0.4, 0.4);
+
+/// A moving object is reflected where it is. The hit is found on this
+/// frame's depth, but its light is read from last frame's scene, so the trace
+/// has to know where the hit was then: for a surface that moved, its own
+/// velocity says so (the prepass writes it, as the opaque pass would). Found
+/// by last frame's camera alone -- correct only for what stands still -- the
+/// pillar's reflection read the floor the pillar had not reached yet, and a
+/// moving object's reflection lagged a frame behind it.
+#[test]
+fn a_moving_object_is_reflected_where_it_is() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let ssr = Some(ScreenSpaceReflections::default());
+    let (from, to) = (-1.6, 1.6);
+    let was = Scene {
+        draws: vec![floor(cube), pillar_at(cube, from, RED)],
+        ..scene(cube, ssr)
+    };
+    let moved = Draw {
+        previous: Some(pillar_at(cube, from, RED).transform),
+        ..pillar_at(cube, to, RED)
+    };
+    let is = Scene {
+        draws: vec![floor(cube), moved],
+        ..scene(cube, ssr)
+    };
+
+    // Where the pillar now stands on screen, from a frame without
+    // reflections: its body's red columns at the frame's middle height.
+    let still = h.render(&Scene {
+        ssr: None,
+        draws: vec![floor(cube), pillar_at(cube, to, RED)],
+        ..scene(cube, None)
+    });
+    let body = red_columns(&still, still.height / 2);
+    assert!(!body.is_empty(), "premise: the pillar is on screen");
+    let x = body[body.len() / 2];
+    let y = reflection_row(still.height);
+    let dark = still.at(x, y);
+
+    // Last frame: the pillar at `from`, nowhere near `x`.
+    let before = h.render(&was);
+    assert!(
+        !red_columns(&before, before.height / 2).contains(&x),
+        "premise: last frame the pillar was elsewhere, so the history at {x} is floor"
+    );
+    let now = h.render_moving(&was, &is);
+    let lit = now.at(x, y);
+    // And as much as a pillar standing there all along reflects.
+    let standing = settled(
+        &mut h,
+        &Scene {
+            draws: vec![floor(cube), pillar_at(cube, to, RED)],
+            ..scene(cube, ssr)
+        },
+    )
+    .at(x, y);
+    assert!(
+        standing[0] > dark[0] + 8,
+        "premise: a pillar standing at {x} is reflected there: {dark:?} -> {standing:?}"
+    );
+    assert!(
+        lit[0] as f32 >= dark[0] as f32 + 0.7 * (standing[0] as f32 - dark[0] as f32),
+        "the moving pillar should be reflected where it is now, as brightly as a \
+         standing one: floor {dark:?}, moving {lit:?}, standing {standing:?} at ({x}, {y})"
+    );
+}

@@ -943,7 +943,10 @@ struct SsrCamera {
 @group(0) @binding(1) var scene_samp: sampler;
 @group(1) @binding(0) var depth_tex: texture_depth_2d;
 @group(2) @binding(0) var normal_tex: texture_2d<f32>;
-@group(2) @binding(1) var normal_samp: sampler;
+// The prepass's velocities: how far each surface moved on screen since last
+// frame -- what finds a moving hit where it was then.
+@group(2) @binding(1) var velocity_tex: texture_2d<f32>;
+@group(2) @binding(2) var normal_samp: sampler;
 @group(3) @binding(0) var<uniform> cam: SsrCamera;
 
 @vertex
@@ -1055,17 +1058,29 @@ fn fs_ssr(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     );
     let edge_fade = clamp(edge / 0.1, 0.0, 1.0);
 
-    // Where the hit was last frame, through last frame's camera, and its
-    // light then -- HDRP's construction: the trace is this frame's, the
-    // colour the previous frame's. A hit last frame's camera could not see
-    // has no answer, and fades like one that left the screen.
-    let hit_depth = textureLoad(depth_tex, vec2<i32>(hit_uv * dims), 0);
-    let hit_world = world_at(hit_uv, hit_depth);
-    let prev_clip = cam.prev_view_proj * vec4<f32>(hit_world, 1.0);
+    // Where the hit was last frame, and its light then -- HDRP's
+    // construction: the trace is this frame's, the colour the previous
+    // frame's. A surface that wrote a velocity in the prepass moved by it:
+    // its own motion and the camera's, so a moving object is read where it
+    // was, not where the camera alone would put it (which, for an object
+    // that moved, is wherever it no longer is -- its reflection read the
+    // background it had left, a frame behind). Without one -- terrain, a
+    // custom shader -- the hit is static, and last frame's camera says where
+    // it was. A hit last frame's camera could not see has no answer, and
+    // fades like one that left the screen.
+    let hit_px = vec2<i32>(hit_uv * dims);
+    let hit_depth = textureLoad(depth_tex, hit_px, 0);
+    let hit_velocity = textureLoad(velocity_tex, hit_px, 0).xy;
     var prev_uv = vec2<f32>(-1.0);
-    if (prev_clip.w > 0.0) {
-        let p = prev_clip.xy / prev_clip.w;
-        prev_uv = vec2<f32>(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5);
+    if (hit_velocity.x < 1000.0) {
+        prev_uv = hit_uv - hit_velocity;
+    } else {
+        let hit_world = world_at(hit_uv, hit_depth);
+        let prev_clip = cam.prev_view_proj * vec4<f32>(hit_world, 1.0);
+        if (prev_clip.w > 0.0) {
+            let p = prev_clip.xy / prev_clip.w;
+            prev_uv = vec2<f32>(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5);
+        }
     }
     let seen_last_frame = f32(
         all(prev_uv >= vec2<f32>(0.0)) && all(prev_uv <= vec2<f32>(1.0))
@@ -3001,6 +3016,9 @@ struct PostProcessTargets {
     /// from.
     ssr_normal_texture: crate::profiler::TrackedTexture,
     ssr_normal_view: wgpu::TextureView,
+    /// The prepass's velocities, which a hit is reprojected by.
+    ssr_velocity_texture: crate::profiler::TrackedTexture,
+    ssr_velocity_view: wgpu::TextureView,
     ssr_normal_bg: wgpu::BindGroup,
     /// Last frame's lit scene, which a hit's light is read from.
     lit_history_texture: crate::profiler::TrackedTexture,
@@ -3145,6 +3163,12 @@ pub struct PostProcessState {
     /// before the opaque pass has written its own.
     pub ssr_normal_view: wgpu::TextureView,
     _ssr_normal_texture: crate::profiler::TrackedTexture,
+    /// The prepass's velocities, as the opaque pass would write them: how
+    /// far each surface moved on screen since last frame. A hit on a moving
+    /// surface is read from last frame's scene where that surface was.
+    /// Cleared to [`VELOCITY_NONE`] where nothing wrote one.
+    pub ssr_velocity_view: wgpu::TextureView,
+    _ssr_velocity_texture: crate::profiler::TrackedTexture,
     ssr_normal_bg: wgpu::BindGroup,
     /// The lit scene of the last frame that traced reflections, copied out
     /// after screen-space GI: what a hit's light is read from.
@@ -4089,7 +4113,6 @@ impl PostProcessState {
                 resource: ssr_cam_buffer.as_entire_binding(),
             }],
         });
-        let ssr_pipeline = Self::make_ssr_pipeline(device, &tex2d_bgl, &depth_bgl, &ssr_cam_bgl);
         let ssgi_cam_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("pp ssgi cam buffer"),
             size: std::mem::size_of::<SsgiCameraGpu>() as u64,
@@ -4130,6 +4153,15 @@ impl PostProcessState {
                 },
             ],
         });
+        // Two textures and a sampler is also the reflections' group 2: the
+        // prepass's normals and its velocities.
+        let ssr_pipeline = Self::make_ssr_pipeline(
+            device,
+            &tex2d_bgl,
+            &depth_bgl,
+            &ssgi_history_bgl,
+            &ssr_cam_bgl,
+        );
         // The composite's inputs: the GI targets' indirect light and
         // reflectance and the trace's depths, in one group -- with this
         // frame's trace, the screen's depth and the camera, four.
@@ -4297,6 +4329,8 @@ impl PostProcessState {
             _ssr_texture: targets.ssr_texture,
             ssr_normal_view: targets.ssr_normal_view,
             _ssr_normal_texture: targets.ssr_normal_texture,
+            ssr_velocity_view: targets.ssr_velocity_view,
+            _ssr_velocity_texture: targets.ssr_velocity_texture,
             ssr_normal_bg: targets.ssr_normal_bg,
             lit_history_texture: targets.lit_history_texture,
             lit_history_bg: targets.lit_history_bg,
@@ -4600,6 +4634,9 @@ impl PostProcessState {
         let ssr_normal_texture = make_tex("pp ssr normal", NORMAL_FORMAT);
         let ssr_normal_view =
             ssr_normal_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let ssr_velocity_texture = make_tex("pp ssr velocity", VELOCITY_FORMAT);
+        let ssr_velocity_view =
+            ssr_velocity_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let lit_history_texture = crate::profiler::create_tracked_texture(
             device,
             &wgpu::TextureDescriptor {
@@ -4663,7 +4700,24 @@ impl PostProcessState {
         let ao_bg = make_tex2d_bg("pp ao bg", &ao_view);
         let ao_raw_bg = make_tex2d_bg("pp ao raw bg", &ao_raw_view);
         let normal_bg = make_tex2d_bg("pp normal bg", &normal_view);
-        let ssr_normal_bg = make_tex2d_bg("pp ssr normal bg", &ssr_normal_view);
+        let ssr_normal_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("pp ssr normal bg"),
+            layout: ssgi_history_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&ssr_normal_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&ssr_velocity_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+            ],
+        });
         let lit_history_bg = make_tex2d_bg("pp lit history bg", &lit_history_view);
         // This frame's lit scene and last frame's, for the GI trace.
         let ssgi_scene_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -4753,6 +4807,8 @@ impl PostProcessState {
             ssr_view,
             ssr_normal_texture,
             ssr_normal_view,
+            ssr_velocity_texture,
+            ssr_velocity_view,
             ssr_normal_bg,
             lit_history_texture,
             lit_history_bg,
@@ -5030,6 +5086,7 @@ impl PostProcessState {
         device: &wgpu::Device,
         tex2d_bgl: &wgpu::BindGroupLayout,
         depth_bgl: &wgpu::BindGroupLayout,
+        surface_bgl: &wgpu::BindGroupLayout,
         ssr_cam_bgl: &wgpu::BindGroupLayout,
     ) -> std::sync::Arc<wgpu::RenderPipeline> {
         let shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
@@ -5038,7 +5095,7 @@ impl PostProcessState {
         });
         let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("ssr pll"),
-            bind_group_layouts: &[tex2d_bgl, depth_bgl, tex2d_bgl, ssr_cam_bgl],
+            bind_group_layouts: &[tex2d_bgl, depth_bgl, surface_bgl, ssr_cam_bgl],
             push_constant_ranges: &[],
         });
         device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -5426,6 +5483,8 @@ impl PostProcessState {
         self._ssr_texture = t.ssr_texture;
         self.ssr_normal_view = t.ssr_normal_view;
         self._ssr_normal_texture = t.ssr_normal_texture;
+        self.ssr_velocity_view = t.ssr_velocity_view;
+        self._ssr_velocity_texture = t.ssr_velocity_texture;
         self.ssr_normal_bg = t.ssr_normal_bg;
         self.lit_history_texture = t.lit_history_texture;
         self.lit_history_bg = t.lit_history_bg;

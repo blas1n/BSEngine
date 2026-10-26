@@ -24,8 +24,10 @@ fn every_renderer_pipeline_compiles_under_fxc() {
     std::env::set_var("WGPU_BACKEND", "dx12");
     let descriptor = bsengine_bake::shader_compiler::instance_descriptor();
     assert!(
-        matches!(descriptor.dx12_shader_compiler, wgpu::Dx12Compiler::Fxc)
-            && descriptor.backends == wgpu::Backends::DX12,
+        matches!(
+            descriptor.backend_options.dx12.shader_compiler,
+            wgpu::Dx12Compiler::Fxc
+        ) && descriptor.backends == wgpu::Backends::DX12,
         "premise: the engine's descriptor asks for FXC on D3D12 alone"
     );
     // Through the path a game takes: its own instance, from that descriptor.

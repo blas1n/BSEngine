@@ -163,32 +163,33 @@ fn the_update_compiles_for_d3d12() {
     // FXC by name, not by default: the engine's own devices compile with DXC
     // where its libraries are found, and FXC is the fallback a machine without
     // them -- every single-file build -- still runs this update through.
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::DX12,
-        dx12_shader_compiler: wgpu::Dx12Compiler::Fxc,
-        ..Default::default()
+    let instance = wgpu::Instance::new({
+        let mut d = wgpu::InstanceDescriptor::new_without_display_handle();
+        d.backends = wgpu::Backends::DX12;
+        d.backend_options.dx12.shader_compiler = wgpu::Dx12Compiler::Fxc;
+        d
     });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::LowPower,
         compatible_surface: None,
         force_fallback_adapter: false,
+        apply_limit_buckets: false,
     }))
     .expect("Windows has a D3D12 adapter (WARP at worst); a skip would look like a pass");
-    let (device, _queue) = pollster::block_on(adapter.request_device(
-        &wgpu::DeviceDescriptor {
-            label: Some("d3d12 compile check"),
-            required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::downlevel_defaults(),
-            memory_hints: wgpu::MemoryHints::default(),
-        },
-        None,
-    ))
+    let (device, _queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("d3d12 compile check"),
+        required_features: wgpu::Features::empty(),
+        required_limits: wgpu::Limits::downlevel_defaults(),
+        memory_hints: wgpu::MemoryHints::default(),
+        experimental_features: wgpu::ExperimentalFeatures::disabled(),
+        trace: wgpu::Trace::Off,
+    }))
     .expect("a D3D12 device");
     let device = std::sync::Arc::new(device);
-    device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let error_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
     let (returned, built, ready) =
         bsengine_rhi_wgpu::realtime_gi::build_pipelines_for_testing(&device);
-    let error = pollster::block_on(device.pop_error_scope());
+    let error = pollster::block_on(error_scope.pop());
     assert!(
         error.is_none(),
         "the update does not compile for D3D12: {error:?}"
@@ -777,7 +778,7 @@ fn bench_realtime_gi() {
             s.pose(mesh, &[sway]);
         }
         s.run(&input, 1);
-        device.poll(wgpu::Maintain::Wait);
+        let _ = device.poll(wgpu::PollType::wait_indefinitely());
     }
     eprintln!(
         "BENCH realtime gi: {probes} probes x 64 rays, {} triangles, {} instances: {:.2} ms per frame (update + frame)",

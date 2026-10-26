@@ -310,8 +310,8 @@ pub fn render_thumbnail(
     });
     let pipeline_layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("thumbnail pipeline layout"),
-        bind_group_layouts: &[&camera_bgl, &material_bgl],
-        push_constant_ranges: &[],
+        bind_group_layouts: &[Some(&camera_bgl), Some(&material_bgl)],
+        immediate_size: 0,
     });
     let vertex_buffer_layout = wgpu::VertexBufferLayout {
         array_stride: std::mem::size_of::<Vertex>() as u64,
@@ -345,13 +345,13 @@ pub fn render_thumbnail(
         layout: Some(&pipeline_layout),
         vertex: wgpu::VertexState {
             module: &shader,
-            entry_point: "vs_main",
-            buffers: &[vertex_buffer_layout],
+            entry_point: Some("vs_main"),
+            buffers: &[Some(vertex_buffer_layout)],
             compilation_options: Default::default(),
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
-            entry_point: "fs_main",
+            entry_point: Some("fs_main"),
             targets: &[Some(wgpu::ColorTargetState {
                 format: color_target_format,
                 blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -366,13 +366,13 @@ pub fn render_thumbnail(
         },
         depth_stencil: Some(wgpu::DepthStencilState {
             format: wgpu::TextureFormat::Depth32Float,
-            depth_write_enabled: true,
-            depth_compare: wgpu::CompareFunction::Less,
+            depth_write_enabled: Some(true),
+            depth_compare: Some(wgpu::CompareFunction::Less),
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
         }),
         multisample: wgpu::MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     });
 
@@ -432,6 +432,7 @@ pub fn render_thumbnail(
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &color_view,
                 resolve_target: None,
+                depth_slice: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color {
                         r: 0.1,
@@ -452,6 +453,7 @@ pub fn render_thumbnail(
             }),
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &camera_bg, &[]);
@@ -539,7 +541,7 @@ pub fn render_thumbnail(
         }
     }
     queue.submit(std::iter::once(encoder.finish()));
-    device.poll(wgpu::Maintain::Wait);
+    let _ = device.poll(wgpu::PollType::wait_indefinitely());
 
     let pixels = crate::output::read_pixels(
         device,

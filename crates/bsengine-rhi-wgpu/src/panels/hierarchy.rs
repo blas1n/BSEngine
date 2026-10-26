@@ -136,8 +136,8 @@ impl EditorPanel for HierarchyPanel {
                 )),
             );
             if response.clicked() {
-                let was_open = ui.memory(|m| m.is_popup_open(create_terrain_popup_id));
-                ui.memory_mut(|m| m.toggle_popup(create_terrain_popup_id));
+                let was_open = egui::Popup::is_id_open(ui.ctx(), create_terrain_popup_id);
+                egui::Popup::toggle_id(ui.ctx(), create_terrain_popup_id);
                 if !was_open {
                     create_terrain_buffer.clear();
                 }
@@ -146,12 +146,13 @@ impl EditorPanel for HierarchyPanel {
         });
 
         if let Some(button_response) = &create_terrain_button {
-            egui::popup::popup_below_widget(
-                ui,
-                create_terrain_popup_id,
-                button_response,
-                egui::popup::PopupCloseBehavior::CloseOnClickOutside,
-                |ui| {
+            egui::Popup::from_response(button_response)
+                .id(create_terrain_popup_id)
+                .open_memory(None)
+                .align(egui::RectAlign::BOTTOM_START)
+                .align_alternatives(&[])
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                .show(|ui| {
                     ui.set_min_width(220.0);
                     ui.label("Heightmap path:");
                     let edit_response = ui.text_edit_singleline(&mut create_terrain_buffer);
@@ -160,10 +161,9 @@ impl EditorPanel for HierarchyPanel {
                     let commit_by_button = ui.button("Create").clicked();
                     if (commit_by_enter || commit_by_button) && !create_terrain_buffer.is_empty() {
                         create_terrain_commit = Some(create_terrain_buffer.clone());
-                        ui.memory_mut(|m| m.close_popup());
+                        egui::Popup::close_all(ui.ctx());
                     }
-                },
-            );
+                });
         }
 
         ui.data_mut(|d| d.insert_temp(create_terrain_buffer_id, create_terrain_buffer));
@@ -651,30 +651,30 @@ impl HierarchyPanel {
                         entity_id: info.id,
                         buffer: info.name.clone().unwrap_or_default(),
                     });
-                    ui.close_menu();
+                    ui.close();
                 }
                 if ui.button("Duplicate").clicked() {
                     *duplicate = Some(info.id);
-                    ui.close_menu();
+                    ui.close();
                 }
                 if ui.button("Delete").clicked() {
                     despawn_ids.push(info.id);
-                    ui.close_menu();
+                    ui.close();
                 }
                 if info.parent_id.is_some() && ui.button("Unparent").clicked() {
                     *remove_parent = Some(info.id);
-                    ui.close_menu();
+                    ui.close();
                 }
                 if ui.button("Create Prefab").clicked() {
                     *create_prefab_state = Some(CreatePrefabState {
                         entity_id: info.id,
                         buffer: info.name.clone().unwrap_or_default(),
                     });
-                    ui.close_menu();
+                    ui.close();
                 }
                 if info.is_prefab_instance && ui.button("Apply to Prefab").clicked() {
                     apply_to_prefab_ids.push(info.id);
-                    ui.close_menu();
+                    ui.close();
                 }
             });
         });
@@ -809,13 +809,13 @@ mod tests {
         let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
 
         let mut row_rect = egui::Rect::NOTHING;
-        let _ = ctx.run(
+        ctx.run_ui(
             egui::RawInput {
                 screen_rect: Some(screen_rect),
                 ..Default::default()
             },
-            |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            |root_ui| {
+                egui::CentralPanel::default().show(root_ui, |ui| {
                     let row_response = ui.selectable_label(false, "row");
                     let drag_id = ui.id().with("row_drag");
                     let _drag_response =
@@ -823,7 +823,8 @@ mod tests {
                     row_rect = row_response.rect;
                 });
             },
-        );
+        )
+        .drop_without_applying_deltas();
 
         let pos = row_rect.center();
         let click_events = vec![
@@ -843,14 +844,14 @@ mod tests {
         ];
 
         let mut clicked = false;
-        let _ = ctx.run(
+        ctx.run_ui(
             egui::RawInput {
                 screen_rect: Some(screen_rect),
                 events: click_events,
                 ..Default::default()
             },
-            |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            |root_ui| {
+                egui::CentralPanel::default().show(root_ui, |ui| {
                     let row_response = ui.selectable_label(false, "row");
                     let drag_id = ui.id().with("row_drag");
                     let drag_response =
@@ -861,7 +862,8 @@ mod tests {
                     }
                 });
             },
-        );
+        )
+        .drop_without_applying_deltas();
 
         assert!(
             clicked,
@@ -952,24 +954,28 @@ mod tests {
         /// position read from this call's own return value is only valid
         /// input to the *next* `frame`/`click` call, never to this one.
         fn frame(&mut self, events: Vec<egui::Event>) -> egui::FullOutput {
-            self.egui_ctx.run(
-                egui::RawInput {
-                    screen_rect: Some(self.screen_rect),
-                    events,
-                    ..Default::default()
-                },
-                |egui_ctx| {
-                    egui::CentralPanel::default().show(egui_ctx, |ui| {
-                        let mut ctx = EditorPanelContext {
-                            insp: &mut self.insp,
-                            entities_snapshot: &self.entities_snapshot,
-                            cursor_pos: (0.0, 0.0),
-                            type_registry: None,
-                        };
-                        self.panel.ui(ui, &mut ctx);
-                    });
-                },
-            )
+            {
+                let mut output = self.egui_ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(self.screen_rect),
+                        events,
+                        ..Default::default()
+                    },
+                    |root_ui| {
+                        egui::CentralPanel::default().show(root_ui, |ui| {
+                            let mut ctx = EditorPanelContext {
+                                insp: &mut self.insp,
+                                entities_snapshot: &self.entities_snapshot,
+                                cursor_pos: (0.0, 0.0),
+                                type_registry: None,
+                            };
+                            self.panel.ui(ui, &mut ctx);
+                        });
+                    },
+                );
+                output.textures_delta.clear();
+                output
+            }
         }
 
         /// A frame that delivers a single press+release click at `pos`.

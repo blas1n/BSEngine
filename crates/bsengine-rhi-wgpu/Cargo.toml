@@ -51,7 +51,7 @@ ron = { workspace = true }
 # the crate, and its WGSL front end is switched on here.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wgpu = { workspace = true, features = ["naga-ir"] }
-naga = { version = "22", features = ["wgsl-in"] }
+naga = { version = "30", features = ["wgsl-in"] }
 # The adapter and device are requested as a future in a page (see
 # `plugin::create_surface_system`).
 wasm-bindgen-futures = "0.4"

@@ -131,8 +131,15 @@ fn package_and_replay_project(project_rel: &str, recording_rel: &str, mode: &str
     // would look fine here. What cannot be faked is the engine asking for an
     // asset and not finding it: that is precisely the cook having left
     // something out, whether or not the recording happens to notice.
+    //
+    // Only the engine's own lines count. Since wgpu 30 a Linux runner without
+    // a GPU also probes GL, and its driver logs `wgpu_hal::gles::egl: ...
+    // DRI2: failed to load driver` -- which matched "failed to load" and
+    // failed every packaged-build test on ubuntu-latest (#2015) with no asset
+    // missing at all.
     let failures: Vec<&str> = log
         .lines()
+        .filter(|line| line.contains("bsengine_"))
         .filter(|line| line.contains("Path not found") || line.contains("failed to load"))
         .collect();
     assert!(

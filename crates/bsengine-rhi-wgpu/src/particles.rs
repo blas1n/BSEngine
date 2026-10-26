@@ -88,8 +88,8 @@ impl ParticleRenderer {
 
         let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("particle pipeline layout"),
-            bind_group_layouts: &[camera_bgl, &texture_bgl],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(camera_bgl), Some(&texture_bgl)],
+            immediate_size: 0,
         });
 
         let instance_layout = wgpu::VertexBufferLayout {
@@ -120,13 +120,13 @@ impl ParticleRenderer {
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_particle",
-                buffers: &[instance_layout],
+                entry_point: Some("vs_particle"),
+                buffers: &[Some(instance_layout)],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_particle",
+                entry_point: Some("fs_particle"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: HDR_FORMAT,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -147,13 +147,13 @@ impl ParticleRenderer {
                 // Test but do not write, exactly as the transparent pass does:
                 // particles are hidden by solid geometry in front of them, and
                 // do not occlude each other.
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::Less,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::Less),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         };
         let pipeline = device.cached_render_pipeline(&pipeline_desc);
@@ -228,6 +228,7 @@ impl ParticleRenderer {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: target,
                 resolve_target,
+                depth_slice: None,
                 ops: wgpu::Operations {
                     // Load, not Clear: this pass blends over the scene that the
                     // opaque, skybox and transparent passes already drew.
@@ -245,6 +246,7 @@ impl ParticleRenderer {
             }),
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
         pass.set_pipeline(
             self.pipeline_msaa

@@ -110,6 +110,27 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: echo "RUSTY_V8_ARCHIVE=$HOME/.rusty_v8/librusty_v8.a.gz" >> $GITHUB_ENV
 
+      # v8's build script unpacks RUSTY_V8_ARCHIVE into `<profile>/gn_out/obj`
+      # -- beside `build/`, not under its OUT_DIR -- and rust-cache saves only
+      # `build/`, `deps/` and `.fingerprint/`. So a restored cache has v8's
+      # build-script run recorded as fresh with the library it produced gone.
+      # Harmless on a full cache match (the v8 rlib, which bundles the library,
+      # is fresh too); but when a Cargo.lock change moves one of v8's
+      # dependencies, the v8 lib recompiles, the build script does not rerun,
+      # and every platform fails with "could not find native static library
+      # `rusty_v8`" (#2015, the wgpu 30 upgrade). Forgetting the build script's
+      # state whenever gn_out is missing makes it rerun, which only unpacks the
+      # archive.
+      - name: Rerun v8's build script when its library was not restored
+        shell: bash
+        run: |
+          for profile in "$CARGO_TARGET_DIR"/debug "$CARGO_TARGET_DIR"/release; do
+            if [ -d "$profile" ] && [ ! -d "$profile/gn_out/obj" ]; then
+              echo "no $profile/gn_out/obj: forgetting v8's build-script state"
+              rm -rf "$profile"/build/v8-* "$profile"/.fingerprint/v8-*
+            fi
+          done
+
       # GitHub's ubuntu-latest runners pre-configure azure.archive.ubuntu.com
       # as a mirror, and it has been degraded: apt-get update against it hung
       # for 40+ minutes with zero output across 3 consecutive runs (confirmed
@@ -341,7 +362,12 @@ jobs:
             project="$(dirname "$(dirname "$(dirname "$log")")")"
             local safe_name
             safe_name="$(echo "$log" | tr '/\\' '__')"
-            if "$bin" --test "$project" --replay "$log" > "$workdir/$safe_name.log" 2>&1; then
+            # 1280x720 / 8. A recording asserts on transforms and HUD text,
+            # never on a frame, and on Windows a frame is WARP: since wgpu 30
+            # every sampler read goes through D3D12's sampler heap, which
+            # WARP runs ~11x slower, and this step went from 14 to 68 minutes
+            # (#2015; see test_mode::SIMULATION_FRAME_DIVISOR).
+            if "$bin" --test "$project" --replay "$log" --frame-divisor 8 > "$workdir/$safe_name.log" 2>&1; then
               echo "PASS" > "$workdir/$safe_name.status"
             else
               echo "FAIL" > "$workdir/$safe_name.status"

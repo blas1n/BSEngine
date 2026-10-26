@@ -35,15 +35,24 @@ use crate::test_query::{eval_op, eval_path, run_query};
 /// whatever the project's entry scene currently is (which changes as a
 /// multi-level game's "real" entry point evolves during development).
 pub fn build_test_app(project_dir: &str, scene_override: Option<&str>, fast_render: bool) -> App {
-    build_test_app_sized(project_dir, scene_override, fast_render, None)
+    build_test_app_sized(project_dir, scene_override, fast_render, 1)
 }
 
-/// The frame a simulation-only test renders: 1280x720 (every game's manifest
-/// window) divided by 8, so the camera's aspect -- and with it the frustum --
-/// is the one the game has. See [`build_test_app_sized`] for what a smaller
-/// frame does and does not change.
+/// What a simulation-only test divides the manifest's window by: 1280x720
+/// (every game's) becomes 160x90, and the camera's aspect -- and with it the
+/// frustum -- stays the one the game has. See [`build_test_app_sized`] for
+/// what a smaller frame does and does not change.
+///
+/// Also what CI's E2E replays pass as `--frame-divisor`: a recording asserts
+/// on transforms and HUD text, never on a frame, and on Windows CI it is all
+/// WARP. wgpu 30 made that cost an hour: its D3D12 backend reads every
+/// sampler through one shader-visible heap (`nagaSamplerHeap[index]`), and
+/// WARP runs that path at a tenth of the speed it ran wgpu 22's per-binding
+/// samplers -- measured 59 ms against 5.5 ms for the same eight-sample
+/// 1280x720 pass, with `textureLoad` and a flat colour unchanged and a
+/// hardware GPU unaffected (#2015). The E2E step went from 14 to 68 minutes.
 #[cfg(test)]
-pub(crate) const SIMULATION_FRAME: (u32, u32) = (160, 90);
+pub(crate) const SIMULATION_FRAME_DIVISOR: u32 = 8;
 
 /// [`build_test_app`] for a test that asserts on the simulation and never on a
 /// frame. Not for anything reading pixels, draw counts, occlusion culling or
@@ -58,12 +67,14 @@ pub(crate) fn build_simulation_app(
         project_dir,
         scene_override,
         fast_render,
-        Some(SIMULATION_FRAME),
+        SIMULATION_FRAME_DIVISOR,
     )
 }
 
-/// [`build_test_app`], rendering at `frame_size` instead of the manifest's
-/// window size when one is given.
+/// [`build_test_app`], rendering the manifest's window size with both sides
+/// divided by `frame_divisor` (1 renders it as it is). A divisor rather than a
+/// size so the aspect ratio -- and the frustum -- is the game's by
+/// construction, whatever a manifest says.
 ///
 /// For tests whose assertions are about the simulation -- where a body came to
 /// rest, where a bone ended up -- and not about a frame. Their cost on Windows
@@ -87,8 +98,9 @@ pub fn build_test_app_sized(
     project_dir: &str,
     scene_override: Option<&str>,
     fast_render: bool,
-    frame_size: Option<(u32, u32)>,
+    frame_divisor: u32,
 ) -> App {
+    assert!(frame_divisor >= 1, "a frame divisor is at least 1");
     // The archive before the manifest, as in `build_windowed_app`: a
     // single-file build keeps its manifest inside the archive.
     let pak = crate::open_pak(project_dir);
@@ -211,8 +223,8 @@ pub fn build_test_app_sized(
         // different order than the real runtime is a regression that would
         // pass every test here while behaving differently windowed.
         .add_plugins({
-            let (width, height) =
-                frame_size.unwrap_or((manifest.window.width, manifest.window.height));
+            let width = (manifest.window.width / frame_divisor).max(1);
+            let height = (manifest.window.height / frame_divisor).max(1);
             WgpuRHIPlugin::offscreen(width, height, fast_render)
         })
         .add_plugins(InputPlugin)
@@ -587,13 +599,13 @@ struct RecordedLog {
 /// Runs a saved action log to completion with no stdin/AI involvement.
 /// Returns `true` if every command succeeded and every `Assert` passed;
 /// on the first failure, prints details to stderr and returns `false`.
-pub fn run_replay_mode(project_dir: &str, log_path: &str) -> bool {
+pub fn run_replay_mode(project_dir: &str, log_path: &str, frame_divisor: u32) -> bool {
     let log_str = std::fs::read_to_string(log_path)
         .unwrap_or_else(|e| panic!("cannot read replay log {log_path}: {e}"));
     let log: RecordedLog = serde_json::from_str(&log_str)
         .unwrap_or_else(|e| panic!("cannot parse replay log {log_path}: {e}"));
 
-    let mut app = build_test_app(project_dir, log.scene.as_deref(), true);
+    let mut app = build_test_app_sized(project_dir, log.scene.as_deref(), true, frame_divisor);
     let mut frame: u64 = 0;
 
     for command in log.actions {
@@ -1339,9 +1351,13 @@ mod tests {
         let project_dir = dir.path().to_str().unwrap();
         let manifest: ProjectManifest = crate::read_manifest(project_dir, None);
         // The premise: the two sizes differ, or the comparison shows nothing.
+        let simulation_frame = (
+            manifest.window.width / SIMULATION_FRAME_DIVISOR,
+            manifest.window.height / SIMULATION_FRAME_DIVISOR,
+        );
         assert_ne!(
             (manifest.window.width, manifest.window.height),
-            SIMULATION_FRAME
+            simulation_frame
         );
 
         let mut small = build_simulation_app(project_dir, None, true);
@@ -1350,7 +1366,7 @@ mod tests {
             .world()
             .resource::<bsengine_rhi_wgpu::surface::WgpuSurfaceResource>()
             .0;
-        assert_eq!((surface.width(), surface.height()), SIMULATION_FRAME);
+        assert_eq!((surface.width(), surface.height()), simulation_frame);
 
         let mut full = build_test_app(project_dir, None, true);
         full.update();

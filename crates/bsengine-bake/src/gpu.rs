@@ -111,8 +111,9 @@ impl GpuBaker {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: None,
             force_fallback_adapter: false,
+            apply_limit_buckets: false,
         }))
-        .ok_or("no GPU adapter")?;
+        .map_err(|e| format!("no GPU adapter: {e}"))?;
         let info = adapter.get_info();
         if !allow_software && !is_hardware(info.device_type) {
             return Err(format!(
@@ -128,15 +129,14 @@ impl GpuBaker {
             max_buffer_size: have.max_buffer_size,
             ..wgpu::Limits::downlevel_defaults()
         };
-        let (device, queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                label: Some("lightmap baker"),
-                required_features: wgpu::Features::empty(),
-                required_limits: limits,
-                memory_hints: wgpu::MemoryHints::default(),
-            },
-            None,
-        ))
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("lightmap baker"),
+            required_features: wgpu::Features::empty(),
+            required_limits: limits,
+            memory_hints: wgpu::MemoryHints::default(),
+            experimental_features: wgpu::ExperimentalFeatures::disabled(),
+            trace: wgpu::Trace::Off,
+        }))
         .map_err(|e| format!("cannot open the GPU: {e}"))?;
         Ok(Self::with_device(Arc::new(device), Arc::new(queue)))
     }
@@ -171,14 +171,14 @@ impl GpuBaker {
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("lightmap bake layout"),
-            bind_group_layouts: &[&layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&layout)],
+            immediate_size: 0,
         });
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("lightmap bake"),
             layout: Some(&pipeline_layout),
             module: &module,
-            entry_point: "cs_bake",
+            entry_point: Some("cs_bake"),
             compilation_options: Default::default(),
             cache: None,
         });
@@ -353,7 +353,7 @@ impl GpuBaker {
                 }
                 self.queue.submit(Some(encoder.finish()));
                 // Waited for here, pass by pass: see the module docs.
-                self.device.poll(wgpu::Maintain::Wait);
+                let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
                 job_offset += count;
             }
             sample_offset += sample_count;
@@ -377,11 +377,12 @@ impl GpuBaker {
         slice.map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
         });
-        self.device.poll(wgpu::Maintain::Wait);
+        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
         rx.recv()
             .expect("map_async reported nothing")
             .expect("the bake output could not be read back");
-        let values: Vec<[[f32; 4]; 2]> = bytemuck::cast_slice(&slice.get_mapped_range()).to_vec();
+        let values: Vec<[[f32; 4]; 2]> =
+            bytemuck::cast_slice(&slice.get_mapped_range().expect("a mapped buffer")).to_vec();
         let n = total as f32;
         values
             .iter()
@@ -1121,14 +1122,14 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&bgl],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bgl)],
+            immediate_size: 0,
         });
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("trace_wgsl consumer"),
             layout: Some(&pipeline_layout),
             module: &module,
-            entry_point: "cs_probe",
+            entry_point: Some("cs_probe"),
             compilation_options: Default::default(),
             cache: None,
         });
@@ -1220,8 +1221,9 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
         slice.map_async(wgpu::MapMode::Read, |r| {
             r.expect("map the consumer's output")
         });
-        device.poll(wgpu::Maintain::Wait);
-        let got: Vec<[f32; 4]> = bytemuck::cast_slice(&slice.get_mapped_range()).to_vec();
+        let _ = device.poll(wgpu::PollType::wait_indefinitely());
+        let got: Vec<[f32; 4]> =
+            bytemuck::cast_slice(&slice.get_mapped_range().expect("a mapped buffer")).to_vec();
 
         let (mut hits, mut misses) = (0, 0);
         for (ray, g) in rays.iter().zip(&got) {

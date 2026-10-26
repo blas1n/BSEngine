@@ -685,13 +685,13 @@ impl AssetBrowserPanel {
             ui.set_width(64.0);
             let response = match entry.kind {
                 AssetKind::Texture => match self.thumbnail_for(ui.ctx(), &entry.path) {
-                    Some(handle) => ui.add(egui::ImageButton::new(
+                    Some(handle) => ui.add(egui::Button::image(
                         egui::Image::new(&handle).fit_to_exact_size(egui::vec2(48.0, 48.0)),
                     )),
                     None => ui.button(Self::icon_for_kind(entry.kind)),
                 },
                 AssetKind::Mesh => match self.mesh_thumbnail_for(ui.ctx(), &entry.path) {
-                    Some(handle) => ui.add(egui::ImageButton::new(
+                    Some(handle) => ui.add(egui::Button::image(
                         egui::Image::new(&handle).fit_to_exact_size(egui::vec2(48.0, 48.0)),
                     )),
                     None => ui.button(Self::icon_for_kind(entry.kind)),
@@ -908,14 +908,14 @@ mod tests {
         let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(600.0, 400.0));
         let run =
             |events: Vec<egui::Event>, panel: &mut AssetBrowserPanel, insp: &mut InspectorState| {
-                ctx.run(
+                let mut output = ctx.run_ui(
                     egui::RawInput {
                         screen_rect: Some(screen_rect),
                         events,
                         ..Default::default()
                     },
-                    |ctx| {
-                        egui::CentralPanel::default().show(ctx, |ui| {
+                    |root_ui| {
+                        egui::CentralPanel::default().show(root_ui, |ui| {
                             let mut pctx = EditorPanelContext {
                                 insp,
                                 entities_snapshot: &entities,
@@ -925,7 +925,9 @@ mod tests {
                             panel.ui(ui, &mut pctx);
                         });
                     },
-                )
+                );
+                output.textures_delta.clear();
+                output
             };
 
         let first = run(Vec::new(), &mut panel, &mut insp);
@@ -1050,13 +1052,13 @@ mod tests {
         let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
 
         let mut tile_rect = egui::Rect::NOTHING;
-        let _ = ctx.run(
+        ctx.run_ui(
             egui::RawInput {
                 screen_rect: Some(screen_rect),
                 ..Default::default()
             },
-            |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            |root_ui| {
+                egui::CentralPanel::default().show(root_ui, |ui| {
                     let response = ui.button("tile");
                     let drag_id = ui.id().with("asset_tile_drag");
                     let _drag_response =
@@ -1064,7 +1066,8 @@ mod tests {
                     tile_rect = response.rect;
                 });
             },
-        );
+        )
+        .drop_without_applying_deltas();
 
         let pos = tile_rect.center();
         let click_events = vec![
@@ -1084,14 +1087,14 @@ mod tests {
         ];
 
         let mut clicked = false;
-        let _ = ctx.run(
+        ctx.run_ui(
             egui::RawInput {
                 screen_rect: Some(screen_rect),
                 events: click_events,
                 ..Default::default()
             },
-            |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            |root_ui| {
+                egui::CentralPanel::default().show(root_ui, |ui| {
                     let response = ui.button("tile");
                     let drag_id = ui.id().with("asset_tile_drag");
                     let drag_response =
@@ -1102,7 +1105,8 @@ mod tests {
                     }
                 });
             },
-        );
+        )
+        .drop_without_applying_deltas();
 
         assert!(
             clicked,
@@ -1141,14 +1145,14 @@ mod tests {
         ctx.set_fonts(egui::FontDefinitions::empty());
         let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(600.0, 400.0));
         let mut run = |events: Vec<egui::Event>, insp: &mut InspectorState| {
-            ctx.run(
+            let mut output = ctx.run_ui(
                 egui::RawInput {
                     screen_rect: Some(screen_rect),
                     events,
                     ..Default::default()
                 },
-                |ctx| {
-                    egui::CentralPanel::default().show(ctx, |ui| {
+                |root_ui| {
+                    egui::CentralPanel::default().show(root_ui, |ui| {
                         let mut pctx = EditorPanelContext {
                             insp,
                             entities_snapshot: &entities,
@@ -1158,7 +1162,9 @@ mod tests {
                         panel.ui(ui, &mut pctx);
                     });
                 },
-            )
+            );
+            output.textures_delta.clear();
+            output
         };
 
         let first = run(Vec::new(), &mut insp);
@@ -1381,13 +1387,13 @@ mod tests {
         let ctx = egui::Context::default();
         ctx.set_fonts(egui::FontDefinitions::empty());
         let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(600.0, 400.0));
-        let _ = ctx.run(
+        ctx.run_ui(
             egui::RawInput {
                 screen_rect: Some(screen_rect),
                 ..Default::default()
             },
-            |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            |root_ui| {
+                egui::CentralPanel::default().show(root_ui, |ui| {
                     let mut pctx = EditorPanelContext {
                         insp: &mut insp,
                         entities_snapshot: &entities,
@@ -1397,7 +1403,8 @@ mod tests {
                     panel.ui(ui, &mut pctx);
                 });
             },
-        );
+        )
+        .drop_without_applying_deltas();
 
         assert!(
             !cache_root.join("stale.png").exists(),

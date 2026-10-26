@@ -3760,17 +3760,29 @@ pub struct WgpuSurface {
 /// Which compiler that came to is logged, once a process -- a player's machine
 /// on FXC is waiting far longer for its GI pipelines than it needs to, and
 /// this line is how a report would show it.
+/// The UI renderer's options: no MSAA, no depth, no dithering -- what
+/// `egui_wgpu::Renderer::new` was given positionally before it took options.
+fn egui_renderer_options() -> egui_wgpu::RendererOptions {
+    egui_wgpu::RendererOptions {
+        msaa_samples: 1,
+        depth_stencil_format: None,
+        dithering: false,
+        ..Default::default()
+    }
+}
+
 pub(crate) fn new_instance() -> wgpu::Instance {
     static LOGGED: std::sync::Once = std::sync::Once::new();
     let descriptor = bsengine_bake::shader_compiler::instance_descriptor();
     if cfg!(windows) {
-        LOGGED.call_once(|| match &descriptor.dx12_shader_compiler {
-            wgpu::Dx12Compiler::Dxc {
-                dxc_path: Some(dir),
-                ..
-            } => tracing::info!("D3D12 shaders compile with DXC from {}", dir.display()),
-            wgpu::Dx12Compiler::Dxc { .. } => {
-                tracing::info!("D3D12 shaders compile with DXC, from the DLL search path")
+        LOGGED.call_once(|| match &descriptor.backend_options.dx12.shader_compiler {
+            wgpu::Dx12Compiler::DynamicDxc { dxc_path } => {
+                tracing::info!("D3D12 shaders compile with DXC from {dxc_path}")
+            }
+            wgpu::Dx12Compiler::StaticDxc | wgpu::Dx12Compiler::Auto => {
+                tracing::info!(
+                    "D3D12 shaders compile with DXC, linked in or from the DLL search path"
+                )
             }
             wgpu::Dx12Compiler::Fxc => tracing::warn!(
                 "D3D12 shaders compile with FXC: no {} found beside the executable, in {} \
@@ -3830,6 +3842,9 @@ impl WgpuSurface {
             present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: caps.alpha_modes[0],
             view_formats,
+            // The format decides, as before wgpu had the choice: scRGB for
+            // a float swapchain, sRGB otherwise.
+            color_space: wgpu::SurfaceColorSpace::Auto,
             desired_maximum_frame_latency: 2,
         };
         surface.configure(&device, &config);
@@ -3863,9 +3878,7 @@ impl WgpuSurface {
         self.egui_renderer = egui_wgpu::Renderer::new(
             &self.device,
             crate::hdr_output::UI_LAYER_FORMAT,
-            None,
-            1,
-            false,
+            egui_renderer_options(),
         );
         self.ui_layer = Some(crate::hdr_output::UiLayer::new(
             &self.device,
@@ -4189,7 +4202,7 @@ impl WgpuSurface {
         self.queue.write_texture(
             texture.as_image_copy(),
             rgba,
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(4 * width),
                 rows_per_image: Some(height),
@@ -4278,17 +4291,19 @@ impl WgpuSurface {
         // wgpu's own examples read it -- "Microsoft Basic Render Driver" is
         // D3D12's WARP, the software adapter Windows CI has and nothing else:
         // what its timings and its failures can only be reproduced on.
-        let adapter = match wgpu::util::initialize_adapter_from_env(instance, compatible_surface) {
-            Some(adapter) => adapter,
-            None => instance
-                .request_adapter(&wgpu::RequestAdapterOptions {
-                    power_preference: wgpu::PowerPreference::None,
-                    compatible_surface,
-                    force_fallback_adapter: false,
-                })
-                .await
-                .ok_or("No adapter found")?,
-        };
+        let adapter =
+            match wgpu::util::initialize_adapter_from_env(instance, compatible_surface).await {
+                Ok(adapter) => adapter,
+                Err(_) => instance
+                    .request_adapter(&wgpu::RequestAdapterOptions {
+                        power_preference: wgpu::PowerPreference::None,
+                        compatible_surface,
+                        force_fallback_adapter: false,
+                        apply_limit_buckets: false,
+                    })
+                    .await
+                    .map_err(|e| format!("No adapter found: {e}"))?,
+            };
 
         let timestamp_supported = adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY);
         // Storage buffers in the vertex stage are an adapter capability,
@@ -4323,15 +4338,24 @@ impl WgpuSurface {
         }
 
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: Some("BSEngine surface device"),
-                    required_features,
-                    required_limits: wgpu::Limits::downlevel_defaults(),
-                    memory_hints: wgpu::MemoryHints::default(),
+            .request_device(&wgpu::DeviceDescriptor {
+                label: Some("BSEngine surface device"),
+                required_features,
+                // The downlevel baseline, but with WebGPU's eight colour
+                // attachments: the opaque pass writes five (colour, normal,
+                // velocity and the two GI targets). wgpu 22's downlevel
+                // baseline allowed eight; from wgpu 30 it is WebGL2's four,
+                // and every mesh pipeline failed validation. Every WebGPU
+                // adapter guarantees eight; only WebGL2 has fewer, and this
+                // engine has no WebGL target.
+                required_limits: wgpu::Limits {
+                    max_color_attachments: 8,
+                    ..wgpu::Limits::downlevel_defaults()
                 },
-                None,
-            )
+                memory_hints: wgpu::MemoryHints::default(),
+                experimental_features: wgpu::ExperimentalFeatures::disabled(),
+                trace: wgpu::Trace::Off,
+            })
             .await
             .map_err(|e| format!("Device request failed: {e}"))?;
 
@@ -4728,14 +4752,14 @@ impl WgpuSurface {
         // contents are a property of this code and not of a backend detail.
         // 8 bytes per Rgba16Float texel, one texel per face, six faces.
         queue.write_texture(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &dummy_ibl_cube_texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
             &[0u8; 48],
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(8),
                 rows_per_image: Some(1),
@@ -4758,7 +4782,7 @@ impl WgpuSurface {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
 
@@ -5153,6 +5177,7 @@ impl WgpuSurface {
                     }),
                     timestamp_writes: None,
                     occlusion_query_set: None,
+                    multiview_mask: None,
                 });
             }
             queue.submit(Some(encoder.finish()));
@@ -5250,25 +5275,27 @@ impl WgpuSurface {
                 // which is what keeps MESH_WGSL's @group(1) contract -- and
                 // every custom shader that copies it -- untouched.
                 bind_group_layouts: &[
-                    // Not `camera_bgl`: the shadow pass is encoded once per
-                    // cascade and each needs its own matrix, which a dynamic
-                    // offset supplies and a shared camera uniform cannot.
-                    &cascade_uniform_bgl,
-                    if instancing_supported {
+                    Some(
+                        // Not `camera_bgl`: the shadow pass is encoded once per
+                        // cascade and each needs its own matrix), Some(which a dynamic
+                        // offset supplies and a shared camera uniform cannot.
+                        &cascade_uniform_bgl,
+                    ),
+                    Some(if instancing_supported {
                         &model_storage_bgl
                     } else {
                         &model_bgl
-                    },
+                    }),
                 ],
-                push_constant_ranges: &[],
+                immediate_size: 0,
             });
         let shadow_pipeline = device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("shadow pipeline"),
             layout: Some(&shadow_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shadow_shader,
-                entry_point: "vs_shadow",
-                buffers: std::slice::from_ref(&vertex_buffer_layout),
+                entry_point: Some("vs_shadow"),
+                buffers: &[Some(vertex_buffer_layout.clone())],
                 compilation_options: Default::default(),
             },
             fragment: None,
@@ -5280,8 +5307,8 @@ impl WgpuSurface {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: DEPTH_FORMAT,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState {
                     constant: 2,
@@ -5290,7 +5317,7 @@ impl WgpuSurface {
                 },
             }),
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -5302,14 +5329,14 @@ impl WgpuSurface {
             device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("point shadow pipeline layout"),
                 bind_group_layouts: &[
-                    &point_shadow_uniform_bgl,
-                    if instancing_supported {
+                    Some(&point_shadow_uniform_bgl),
+                    Some(if instancing_supported {
                         &model_storage_bgl
                     } else {
                         &model_bgl
-                    },
+                    }),
                 ],
-                push_constant_ranges: &[],
+                immediate_size: 0,
             });
         let point_shadow_pipeline =
             device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -5317,13 +5344,13 @@ impl WgpuSurface {
                 layout: Some(&point_shadow_pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &point_shadow_shader,
-                    entry_point: "vs_point_shadow",
-                    buffers: std::slice::from_ref(&vertex_buffer_layout),
+                    entry_point: Some("vs_point_shadow"),
+                    buffers: &[Some(vertex_buffer_layout.clone())],
                     compilation_options: Default::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &point_shadow_shader,
-                    entry_point: "fs_point_shadow",
+                    entry_point: Some("fs_point_shadow"),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: wgpu::TextureFormat::R32Float,
                         blend: None,
@@ -5339,13 +5366,13 @@ impl WgpuSurface {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: DEPTH_FORMAT,
-                    depth_write_enabled: true,
-                    depth_compare: wgpu::CompareFunction::Less,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::Less),
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
                 }),
                 multisample: wgpu::MultisampleState::default(),
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             });
 
@@ -5438,12 +5465,12 @@ impl WgpuSurface {
             device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("probe capture pipeline layout"),
                 bind_group_layouts: &[
-                    &probe_capture_bgl,
-                    &model_bgl,
-                    &light_bgl,
-                    material_textures.layout(),
+                    Some(&probe_capture_bgl),
+                    Some(&model_bgl),
+                    Some(&light_bgl),
+                    Some(material_textures.layout()),
                 ],
-                push_constant_ranges: &[],
+                immediate_size: 0,
             });
         let probe_capture_pipeline =
             device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -5451,13 +5478,13 @@ impl WgpuSurface {
                 layout: Some(&probe_capture_pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &probe_capture_shader,
-                    entry_point: "vs_capture",
-                    buffers: std::slice::from_ref(&vertex_buffer_layout),
+                    entry_point: Some("vs_capture"),
+                    buffers: &[Some(vertex_buffer_layout.clone())],
                     compilation_options: Default::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &probe_capture_shader,
-                    entry_point: "fs_capture",
+                    entry_point: Some("fs_capture"),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: PROBE_CAPTURE_FORMAT,
                         blend: Some(wgpu::BlendState::REPLACE),
@@ -5475,13 +5502,13 @@ impl WgpuSurface {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: DEPTH_FORMAT,
-                    depth_write_enabled: true,
-                    depth_compare: wgpu::CompareFunction::Less,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::Less),
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
                 }),
                 multisample: wgpu::MultisampleState::default(),
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             });
 
@@ -5502,13 +5529,13 @@ impl WgpuSurface {
                 layout: Some(&probe_capture_pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &probe_capture_shader,
-                    entry_point: "vs_capture",
-                    buffers: std::slice::from_ref(&vertex_buffer_layout),
+                    entry_point: Some("vs_capture"),
+                    buffers: &[Some(vertex_buffer_layout.clone())],
                     compilation_options: Default::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &probe_capture_shader,
-                    entry_point: "fs_capture",
+                    entry_point: Some("fs_capture"),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: PROBE_CAPTURE_FORMAT,
                         blend: Some(wgpu::BlendState::REPLACE),
@@ -5524,13 +5551,13 @@ impl WgpuSurface {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: DEPTH_FORMAT,
-                    depth_write_enabled: true,
-                    depth_compare: wgpu::CompareFunction::Less,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::Less),
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
                 }),
                 multisample: wgpu::MultisampleState::default(),
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             });
 
@@ -5562,8 +5589,8 @@ impl WgpuSurface {
         let probe_capture_sky_pipeline_layout =
             device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("probe capture sky pipeline layout"),
-                bind_group_layouts: &[&probe_capture_bgl, &sky_tex_bgl],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&probe_capture_bgl), Some(&sky_tex_bgl)],
+                immediate_size: 0,
             });
         let probe_capture_sky_pipeline =
             device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -5571,13 +5598,13 @@ impl WgpuSurface {
                 layout: Some(&probe_capture_sky_pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &probe_capture_sky_shader,
-                    entry_point: "vs_capture_sky",
+                    entry_point: Some("vs_capture_sky"),
                     buffers: &[],
                     compilation_options: Default::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &probe_capture_sky_shader,
-                    entry_point: "fs_capture_sky",
+                    entry_point: Some("fs_capture_sky"),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: PROBE_CAPTURE_FORMAT,
                         blend: Some(wgpu::BlendState::REPLACE),
@@ -5594,13 +5621,13 @@ impl WgpuSurface {
                 // texels no geometry claimed, and never overwrites one that did.
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: DEPTH_FORMAT,
-                    depth_write_enabled: false,
-                    depth_compare: wgpu::CompareFunction::LessEqual,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(wgpu::CompareFunction::LessEqual),
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
                 }),
                 multisample: wgpu::MultisampleState::default(),
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             });
 
@@ -5612,12 +5639,12 @@ impl WgpuSurface {
         let pipeline_layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("mesh pipeline layout"),
             bind_group_layouts: &[
-                &camera_bgl,
-                &model_bgl,
-                &light_bgl,
-                material_textures.layout(),
+                Some(&camera_bgl),
+                Some(&model_bgl),
+                Some(&light_bgl),
+                Some(material_textures.layout()),
             ],
-            push_constant_ranges: &[],
+            immediate_size: 0,
         });
 
         // Depth-only, and deliberately the *same* `vs_main` the opaque pass
@@ -5627,8 +5654,8 @@ impl WgpuSurface {
         // with just those two validates.
         let depth_prepass_layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("depth prepass pipeline layout"),
-            bind_group_layouts: &[&camera_bgl, &model_bgl],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&camera_bgl), Some(&model_bgl)],
+            immediate_size: 0,
         });
         let depth_prepass_pipeline =
             device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -5636,8 +5663,8 @@ impl WgpuSurface {
                 layout: Some(&depth_prepass_layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
-                    entry_point: "vs_main",
-                    buffers: std::slice::from_ref(&vertex_buffer_layout),
+                    entry_point: Some("vs_main"),
+                    buffers: &[Some(vertex_buffer_layout.clone())],
                     compilation_options: Default::default(),
                 },
                 fragment: None,
@@ -5649,8 +5676,8 @@ impl WgpuSurface {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: DEPTH_FORMAT,
-                    depth_write_enabled: true,
-                    depth_compare: wgpu::CompareFunction::Less,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::Less),
                     stencil: wgpu::StencilState::default(),
                     // No bias, unlike the shadow pipeline: a bias here would move
                     // the depth the decals project onto away from the depth the
@@ -5658,7 +5685,7 @@ impl WgpuSurface {
                     bias: wgpu::DepthBiasState::default(),
                 }),
                 multisample: wgpu::MultisampleState::default(),
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             });
 
@@ -5674,25 +5701,25 @@ impl WgpuSurface {
         let ssr_normal_layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("ssr normal pipeline layout"),
             bind_group_layouts: &[
-                &camera_bgl,
-                &model_bgl,
-                &empty_bgl,
-                material_textures.layout(),
+                Some(&camera_bgl),
+                Some(&model_bgl),
+                Some(&empty_bgl),
+                Some(material_textures.layout()),
             ],
-            push_constant_ranges: &[],
+            immediate_size: 0,
         });
         let ssr_normal_pipeline = device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("ssr normal pipeline"),
             layout: Some(&ssr_normal_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
-                buffers: std::slice::from_ref(&vertex_buffer_layout),
+                entry_point: Some("vs_main"),
+                buffers: &[Some(vertex_buffer_layout.clone())],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_ssr_normal",
+                entry_point: Some("fs_ssr_normal"),
                 targets: &[
                     Some(wgpu::ColorTargetState {
                         format: crate::post_process::NORMAL_FORMAT,
@@ -5717,13 +5744,13 @@ impl WgpuSurface {
                 format: DEPTH_FORMAT,
                 // On the depth prepass's depth, unwritten: the nearest surface
                 // at each pixel is the one whose normal is kept.
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::LessEqual,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
         let empty_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -5737,13 +5764,13 @@ impl WgpuSurface {
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
-                buffers: std::slice::from_ref(&vertex_buffer_layout),
+                entry_point: Some("vs_main"),
+                buffers: &[Some(vertex_buffer_layout.clone())],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 targets: &[
                     Some(wgpu::ColorTargetState {
                         format: crate::post_process::HDR_FORMAT,
@@ -5786,13 +5813,13 @@ impl WgpuSurface {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: DEPTH_FORMAT,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         };
         let pipeline = device.cached_render_pipeline(&pipeline_desc);
@@ -5813,13 +5840,13 @@ impl WgpuSurface {
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
-                buffers: std::slice::from_ref(&vertex_buffer_layout),
+                entry_point: Some("vs_main"),
+                buffers: &[Some(vertex_buffer_layout.clone())],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 targets: &[
                     Some(wgpu::ColorTargetState {
                         format: crate::post_process::HDR_FORMAT,
@@ -5866,13 +5893,13 @@ impl WgpuSurface {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: DEPTH_FORMAT,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::Less,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::Less),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         };
         let transparent_pipeline = device.cached_render_pipeline(&transparent_desc);
@@ -5891,21 +5918,26 @@ impl WgpuSurface {
         let terrain_pipeline_layout =
             device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("terrain pipeline layout"),
-                bind_group_layouts: &[&camera_bgl, &model_bgl, &light_bgl_terrain, &terrain_bgl],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[
+                    Some(&camera_bgl),
+                    Some(&model_bgl),
+                    Some(&light_bgl_terrain),
+                    Some(&terrain_bgl),
+                ],
+                immediate_size: 0,
             });
         let terrain_desc = wgpu::RenderPipelineDescriptor {
             label: Some("terrain pipeline"),
             layout: Some(&terrain_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &terrain_shader,
-                entry_point: "vs_main",
-                buffers: std::slice::from_ref(&vertex_buffer_layout),
+                entry_point: Some("vs_main"),
+                buffers: &[Some(vertex_buffer_layout.clone())],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &terrain_shader,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 targets: &[
                     Some(wgpu::ColorTargetState {
                         format: crate::post_process::HDR_FORMAT,
@@ -5948,13 +5980,13 @@ impl WgpuSurface {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: DEPTH_FORMAT,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         };
         let terrain_pipeline = device.cached_render_pipeline(&terrain_desc);
@@ -5967,7 +5999,7 @@ impl WgpuSurface {
 
         let egui_ctx = egui::Context::default();
         crate::theme::apply(&egui_ctx);
-        let egui_renderer = egui_wgpu::Renderer::new(&device, format, None, 1, false);
+        let egui_renderer = egui_wgpu::Renderer::new(&device, format, egui_renderer_options());
 
         // The froxel injection pass shares the scene's shadow maps and light
         // uniform rather than owning copies -- see `FroxelShadowBindings`. All
@@ -6195,7 +6227,7 @@ impl WgpuSurface {
         queue.write_texture(
             texture.as_image_copy(),
             &[255u8, 255, 255, 255],
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(4),
                 rows_per_image: None,
@@ -6291,7 +6323,7 @@ impl WgpuSurface {
         self.queue.write_texture(
             texture.as_image_copy(),
             rgba,
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(4 * width),
                 rows_per_image: Some(height),
@@ -6421,21 +6453,21 @@ impl WgpuSurface {
             .device
             .cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("skybox pipeline layout"),
-                bind_group_layouts: &[&sky_uniform_bgl, sky_tex_bgl],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&sky_uniform_bgl), Some(sky_tex_bgl)],
+                immediate_size: 0,
             });
         let pipeline_desc = wgpu::RenderPipelineDescriptor {
             label: Some("skybox pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_sky",
+                entry_point: Some("vs_sky"),
                 buffers: &[],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_sky",
+                entry_point: Some("fs_sky"),
                 targets: &[Some(wgpu::ColorTargetState {
                     // The skybox pass draws into the HDR buffer, not the
                     // final output. Building this pipeline for the output
@@ -6454,13 +6486,13 @@ impl WgpuSurface {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: DEPTH_FORMAT,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::LessEqual,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         };
         let pipeline = self.device.cached_render_pipeline(&pipeline_desc);
@@ -6708,7 +6740,7 @@ impl WgpuSurface {
             return;
         }
         // Runs completed `map_async` callbacks; never blocks.
-        self.device.poll(wgpu::Maintain::Poll);
+        let _ = self.device.poll(wgpu::PollType::Poll);
         let period = self.queue.get_timestamp_period();
         let mut newest: Option<(u64, Vec<crate::profiler::PassTiming>)> = None;
         for readback in &mut self.timestamp_readbacks {
@@ -6718,7 +6750,11 @@ impl WgpuSurface {
                     let bytes_len =
                         (readback.pass_names.len() * 2 * wgpu::QUERY_SIZE as usize) as u64;
                     let timings: Vec<crate::profiler::PassTiming> = {
-                        let mapped = readback.buffer.slice(0..bytes_len).get_mapped_range();
+                        let mapped = readback
+                            .buffer
+                            .slice(0..bytes_len)
+                            .get_mapped_range()
+                            .expect("a mapped buffer");
                         let ticks: &[u64] = bytemuck::cast_slice(&mapped);
                         readback
                             .pass_names
@@ -6885,6 +6921,7 @@ impl WgpuSurface {
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &layer_view,
                         resolve_target: None,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             // The same background the main pass clears to, so a
                             // probe in an empty scene records the scene's own
@@ -6912,6 +6949,7 @@ impl WgpuSurface {
                     // rather than every frame, so it is deliberately untimed.
                     timestamp_writes: None,
                     occlusion_query_set: None,
+                    multiview_mask: None,
                 });
                 let uniform_offset = (slot as u64 * PROBE_CAPTURE_STRIDE) as u32;
                 pass.set_pipeline(target.pipeline);
@@ -6991,15 +7029,15 @@ impl WgpuSurface {
                 label: Some("probe capture readback encoder"),
             });
         encoder.copy_texture_to_buffer(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &self.probe_capture_texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            wgpu::ImageCopyBuffer {
+            wgpu::TexelCopyBufferInfo {
                 buffer: &buffer,
-                layout: wgpu::ImageDataLayout {
+                layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(padded_bytes_per_row),
                     rows_per_image: Some(PROBE_FACE_SIZE),
@@ -7023,7 +7061,7 @@ impl WgpuSurface {
             .expect("map_async never reported a result")
             .expect("mapping the probe capture readback buffer failed");
 
-        let mapped = slice.get_mapped_range();
+        let mapped = slice.get_mapped_range().expect("a mapped buffer");
         let mut out = vec![crate::sh::ShL2::default(); probes];
         for (probe_idx, sh) in out.iter_mut().enumerate() {
             for face in 0..6usize {
@@ -7215,13 +7253,13 @@ impl WgpuSurface {
         for mip in 0..crate::ibl::PREFILTER_MIP_LEVELS {
             let size = (REFLECTION_FACE_SIZE >> mip).max(1);
             encoder.copy_texture_to_texture(
-                wgpu::ImageCopyTexture {
+                wgpu::TexelCopyTextureInfo {
                     texture: &prefiltered,
                     mip_level: mip,
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
                 },
-                wgpu::ImageCopyTexture {
+                wgpu::TexelCopyTextureInfo {
                     texture: &self.reflection_cubes,
                     mip_level: mip,
                     origin: wgpu::Origin3d {
@@ -7548,7 +7586,7 @@ impl WgpuSurface {
         rx.recv()
             .expect("map_async never reported a result")
             .expect("mapping the probe grid readback buffer failed");
-        let bytes = slice.get_mapped_range();
+        let bytes = slice.get_mapped_range().expect("a mapped buffer");
         let header =
             *bytemuck::from_bytes::<ProbeGridHeader>(&bytes[..PROBE_GRID_HEADER_SIZE as usize]);
         // The half the header names, `capacity` probes of it.
@@ -8464,6 +8502,7 @@ impl WgpuSurface {
                     &mut gpu_pass_names,
                 ),
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             if !self.fast_render {
                 shadow_pass.set_pipeline(&self.shadow_pipeline);
@@ -8540,6 +8579,7 @@ impl WgpuSurface {
                 }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             if self.fast_render {
                 continue;
@@ -8654,6 +8694,7 @@ impl WgpuSurface {
                             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                                 view: &layer_view,
                                 resolve_target: None,
+                                depth_slice: None,
                                 ops: wgpu::Operations {
                                     load: wgpu::LoadOp::Clear(wgpu::Color {
                                         r: 1.0e6,
@@ -8680,6 +8721,7 @@ impl WgpuSurface {
                                 is_last_point_shadow_pass,
                             ),
                             occlusion_query_set: None,
+                            multiview_mask: None,
                         });
                     point_shadow_pass.set_pipeline(&self.point_shadow_pipeline);
                     let uniform_offset = (slot as u64 * POINT_SHADOW_STRIDE) as u32;
@@ -8875,6 +8917,7 @@ impl WgpuSurface {
                         &mut gpu_pass_names,
                     ),
                     occlusion_query_set: None,
+                    multiview_mask: None,
                 });
                 pass.set_pipeline(&self.depth_prepass_pipeline);
                 pass.set_bind_group(0, &self.camera_bind_group, &[]);
@@ -8922,6 +8965,7 @@ impl WgpuSurface {
                     Some(wgpu::RenderPassColorAttachment {
                         view: &self.post_process.ssr_normal_view,
                         resolve_target: None,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                             store: wgpu::StoreOp::Store,
@@ -8932,6 +8976,7 @@ impl WgpuSurface {
                     Some(wgpu::RenderPassColorAttachment {
                         view: &self.post_process.ssr_velocity_view,
                         resolve_target: None,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(crate::post_process::VELOCITY_NONE),
                             store: wgpu::StoreOp::Store,
@@ -8948,6 +8993,7 @@ impl WgpuSurface {
                 }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(&self.ssr_normal_pipeline);
             pass.set_bind_group(0, &self.camera_bind_group, &[]);
@@ -8989,6 +9035,7 @@ impl WgpuSurface {
                         Some(wgpu::RenderPassColorAttachment {
                             view: &self.decals.view,
                             resolve_target: None,
+                            depth_slice: None,
                             ops: wgpu::Operations {
                                 // Nothing projected yet means all of the base
                                 // albedo survives, which is alpha 1.
@@ -9004,6 +9051,7 @@ impl WgpuSurface {
                         Some(wgpu::RenderPassColorAttachment {
                             view: &self.decals.normal_view,
                             resolve_target: None,
+                            depth_slice: None,
                             ops: wgpu::Operations {
                                 // Same reading: alpha 1 means the surface keeps
                                 // all of the normal it already had.
@@ -9027,6 +9075,7 @@ impl WgpuSurface {
                         &mut gpu_pass_names,
                     ),
                     occlusion_query_set: None,
+                    multiview_mask: None,
                 });
                 self.decals
                     .draw(&mut pass, &self.camera_bind_group, decal_count);
@@ -9115,6 +9164,7 @@ impl WgpuSurface {
                     Some(wgpu::RenderPassColorAttachment {
                         view: scene_color,
                         resolve_target: scene_resolve,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color {
                                 r: 0.08,
@@ -9131,6 +9181,7 @@ impl WgpuSurface {
                     Some(wgpu::RenderPassColorAttachment {
                         view: scene_normal,
                         resolve_target: normal_resolve,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                             store: wgpu::StoreOp::Store,
@@ -9144,6 +9195,7 @@ impl WgpuSurface {
                     Some(wgpu::RenderPassColorAttachment {
                         view: scene_velocity,
                         resolve_target: velocity_resolve,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(crate::post_process::VELOCITY_NONE),
                             store: wgpu::StoreOp::Store,
@@ -9155,6 +9207,7 @@ impl WgpuSurface {
                     Some(wgpu::RenderPassColorAttachment {
                         view: scene_gi_indirect,
                         resolve_target: gi_indirect_resolve,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                             store: wgpu::StoreOp::Store,
@@ -9163,6 +9216,7 @@ impl WgpuSurface {
                     Some(wgpu::RenderPassColorAttachment {
                         view: scene_gi_albedo,
                         resolve_target: gi_albedo_resolve,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                             store: wgpu::StoreOp::Store,
@@ -9183,6 +9237,7 @@ impl WgpuSurface {
                     &mut gpu_pass_names,
                 ),
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
 
             pass.set_bind_group(0, &self.camera_bind_group, &[]);
@@ -9313,6 +9368,7 @@ impl WgpuSurface {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: scene_color,
                     resolve_target: scene_resolve,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
@@ -9332,6 +9388,7 @@ impl WgpuSurface {
                     &mut gpu_pass_names,
                 ),
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             sky_pass.set_pipeline(
                 sky.pipeline_msaa
@@ -9355,6 +9412,7 @@ impl WgpuSurface {
                     Some(wgpu::RenderPassColorAttachment {
                         view: scene_color,
                         resolve_target: scene_resolve,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             // Load, not Clear, on every attachment. Clearing
                             // colour would wipe the scene this pass is meant to
@@ -9375,6 +9433,7 @@ impl WgpuSurface {
                     Some(wgpu::RenderPassColorAttachment {
                         view: scene_normal,
                         resolve_target: None,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Load,
                             store: wgpu::StoreOp::Store,
@@ -9385,6 +9444,7 @@ impl WgpuSurface {
                     Some(wgpu::RenderPassColorAttachment {
                         view: scene_velocity,
                         resolve_target: None,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Load,
                             store: wgpu::StoreOp::Store,
@@ -9394,6 +9454,7 @@ impl WgpuSurface {
                     Some(wgpu::RenderPassColorAttachment {
                         view: scene_gi_indirect,
                         resolve_target: None,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Load,
                             store: wgpu::StoreOp::Store,
@@ -9402,6 +9463,7 @@ impl WgpuSurface {
                     Some(wgpu::RenderPassColorAttachment {
                         view: scene_gi_albedo,
                         resolve_target: None,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Load,
                             store: wgpu::StoreOp::Store,
@@ -9422,6 +9484,7 @@ impl WgpuSurface {
                     &mut gpu_pass_names,
                 ),
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_bind_group(0, &self.camera_bind_group, &[]);
             pass.set_bind_group(2, &self.light_bind_group, &[]);
@@ -9490,6 +9553,7 @@ impl WgpuSurface {
                 }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(&self.depth_resolve.pipeline);
             pass.set_bind_group(0, &t.depth_resolve_bg, &[]);
@@ -9603,16 +9667,22 @@ impl WgpuSurface {
                     });
                 }
             }
+            // egui reads the modifiers from its events now, not a field.
+            egui_events.insert(0, egui::Event::ModifiersChanged(modifiers));
             let raw_input = egui::RawInput {
                 screen_rect: Some(screen_rect),
                 events: egui_events,
-                modifiers,
                 time: Some(self.start_time.elapsed().as_secs_f64()),
                 ..Default::default()
             };
 
             let mut new_text_values = ui_state.text_values.clone();
-            let full_output = self.egui_ctx.run(raw_input, |ctx| {
+            let mut full_output = self.egui_ctx.run_ui(raw_input, |root_ui| {
+                // Panels and the dock take the frame's root `Ui` now; what
+                // else draws (HUD, windows, areas) still goes through the
+                // context, as before.
+                let ctx_handle = root_ui.ctx().clone();
+                let ctx = &ctx_handle;
                 // HUD texts — text-only overlay anchored to the game
                 // viewport's top-left (the whole window's top-left in
                 // non-editor mode, since hud_offset falls back to (8, 8)
@@ -9871,7 +9941,7 @@ impl WgpuSurface {
                                     .unwrap_or_else(crate::panels::default_dock_state)
                             });
 
-                            egui::TopBottomPanel::top("bse_editor_toolbar").show(ctx, |ui| {
+                            egui::Panel::top("bse_editor_toolbar").show(root_ui, |ui| {
                                 ui.horizontal(|ui| {
                                     ui.horizontal(|ui| {
                                         if ui
@@ -10031,7 +10101,8 @@ impl WgpuSurface {
                                 panels: &mut panels_guard,
                                 type_registry: type_registry_guard.as_deref(),
                             };
-                            let mut dock_style = egui_dock::Style::from_egui(ctx.style().as_ref());
+                            let mut dock_style =
+                                egui_dock::Style::from_egui(ctx.global_style().as_ref());
                             // `Style::from_egui` derives the tab-bar's "focused"/"hovered"/
                             // "*_with_kb_focus" text colors from `Visuals::strong_text_color()`,
                             // which resolves to `widgets.active.fg_stroke` — this theme
@@ -10047,7 +10118,7 @@ impl WgpuSurface {
                             dock_style.tab.inactive_with_kb_focus.text_color = crate::theme::TEXT;
                             egui_dock::DockArea::new(&mut dock_state)
                                 .style(dock_style)
-                                .show(ctx, &mut tab_viewer);
+                                .show_inside(root_ui, &mut tab_viewer);
                             drop(panels_guard);
 
                             let layout_json =
@@ -10068,9 +10139,9 @@ impl WgpuSurface {
                         let current_sel = insp.selected_id;
                         let mut new_sel = insp.selected_id;
 
-                        egui::SidePanel::left("bse_insp_entities")
-                            .default_width(200.0)
-                            .show(ctx, |ui| {
+                        egui::Panel::left("bse_insp_entities")
+                            .default_size(200.0)
+                            .show(root_ui, |ui| {
                                 ui.heading("Entities");
                                 ui.separator();
                                 egui::ScrollArea::vertical().show(ui, |ui| {
@@ -10108,9 +10179,9 @@ impl WgpuSurface {
                             let mut to_apply: Vec<(String, Box<dyn bevy_reflect::Reflect>)> =
                                 Vec::new();
 
-                            egui::SidePanel::right("bse_insp_props")
-                                .default_width(220.0)
-                                .show(ctx, |ui| {
+                            egui::Panel::right("bse_insp_props")
+                                .default_size(220.0)
+                                .show(root_ui, |ui| {
                                     ui.heading(&entity_name);
                                     ui.separator();
                                     for (type_path, value) in
@@ -10162,9 +10233,12 @@ impl WgpuSurface {
                 pixels_per_point: full_output.pixels_per_point,
             };
 
-            for (id, image_delta) in &full_output.textures_delta.set {
-                self.egui_renderer
-                    .update_texture(&self.device, &self.queue, *id, image_delta);
+            // A texture can get several deltas in one frame now, in order.
+            for (id, image_deltas) in &full_output.textures_delta.set {
+                for image_delta in image_deltas {
+                    self.egui_renderer
+                        .update_texture(&self.device, &self.queue, *id, image_delta);
+                }
             }
             self.egui_renderer.update_buffers(
                 &self.device,
@@ -10182,6 +10256,7 @@ impl WgpuSurface {
                             // see `crate::hdr_output`.
                             view: self.ui_layer.as_ref().map_or(&view, |l| l.view()),
                             resolve_target: None,
+                            depth_slice: None,
                             ops: wgpu::Operations {
                                 load: if self.ui_layer.is_some() {
                                     wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
@@ -10209,6 +10284,9 @@ impl WgpuSurface {
             for id in &full_output.textures_delta.free {
                 self.egui_renderer.free_texture(id);
             }
+            // Applied, so emptied: egui 0.36 asserts (in debug builds) that a
+            // frame's texture changes were handled before they are dropped.
+            full_output.textures_delta.clear();
             let _ = new_text_values;
         }
 
@@ -10253,7 +10331,7 @@ impl WgpuSurface {
         let gpu_pass_times_ms = self.latest_gpu_pass_times.clone();
 
         if let Some(frame) = presentable {
-            frame.present();
+            self.queue.present(frame);
         } else {
             // Offscreen mode (headless E2E replays, MCP test sessions) has no
             // swapchain to present to, so nothing else provides the
@@ -10445,7 +10523,7 @@ impl WgpuSurface {
             );
             return Err(e);
         }
-        self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let shader = self
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -10484,13 +10562,13 @@ impl WgpuSurface {
             layout: Some(&self.pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
-                buffers: &[vbl],
+                entry_point: Some("vs_main"),
+                buffers: &[Some(vbl)],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 targets: &[
                     Some(wgpu::ColorTargetState {
                         format: crate::post_process::HDR_FORMAT,
@@ -10543,13 +10621,13 @@ impl WgpuSurface {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: DEPTH_FORMAT,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         };
         let pipeline = self.device.create_render_pipeline(&pipeline_desc);
@@ -10566,7 +10644,7 @@ impl WgpuSurface {
         {
             let verdict = std::sync::Arc::new(std::sync::OnceLock::new());
             let sink = verdict.clone();
-            let scope = self.device.pop_error_scope();
+            let scope = error_scope.pop();
             wasm_bindgen_futures::spawn_local(async move {
                 let _ = sink.set(scope.await.map(|e| e.to_string()));
             });
@@ -10586,7 +10664,7 @@ impl WgpuSurface {
         // error sink and hands back a ready future), so this neither blocks nor
         // needs the device polled.
         #[cfg(not(target_arch = "wasm32"))]
-        if let Some(err) = pollster::block_on(self.device.pop_error_scope()) {
+        if let Some(err) = pollster::block_on(error_scope.pop()) {
             let msg = err.to_string();
             tracing::warn!(
                 "[custom_shader] the GPU device rejected '{path}'; keeping the previously compiled pipeline: {msg}"
@@ -10710,7 +10788,7 @@ pub fn wait_for_gpu(device: &wgpu::Device, queue: &wgpu::Queue) {
         let flag = Arc::clone(&done);
         queue.on_submitted_work_done(move || flag.store(true, Ordering::Release));
         loop {
-            device.poll(wgpu::Maintain::Poll);
+            let _ = device.poll(wgpu::PollType::Poll);
             if done.load(Ordering::Acquire) {
                 break;
             }
@@ -10720,7 +10798,7 @@ pub fn wait_for_gpu(device: &wgpu::Device, queue: &wgpu::Queue) {
     #[cfg(target_arch = "wasm32")]
     {
         let _ = queue;
-        device.poll(wgpu::Maintain::Wait);
+        let _ = device.poll(wgpu::PollType::wait_indefinitely());
     }
 }
 
@@ -11235,8 +11313,9 @@ mod tests {
             err.contains("assets/broken.wgsl:3:36"),
             "the error must locate the mistake by path, line and column; got: {err}"
         );
+        // naga quotes the token in backticks since 0.2x (it was `')'`).
         assert!(
-            err.contains("expected ')'"),
+            err.contains("expected `)`"),
             "the error must say what was expected where; got: {err}"
         );
     }
@@ -11253,9 +11332,13 @@ mod tests {
     return vec4<f32>(0.0, 0.0, 0.0, 1.0);
 }
 "#;
+        // A vector of the wrong scalar type: naga's front-end now rejects a
+        // bare `1.0` itself (it cannot convert an abstract float to a
+        // vector), which would make this a parse error and not a test of
+        // the validator; `vec4<i32>` still parses and fails validation.
         let wrong_return_type = r#"
 @fragment fn fs_main() -> @location(0) vec4<f32> {
-    return 1.0;
+    return vec4<i32>(1);
 }
 "#;
         let conflicting_bindings = r#"
@@ -11267,10 +11350,7 @@ mod tests {
 "#;
         for (src, expected_fragment) in [
             (vertex_without_position, "@builtin(position)"),
-            (
-                wrong_return_type,
-                "does not match the function return value",
-            ),
+            (wrong_return_type, "does not match the declared return type"),
             (conflicting_bindings, "conflict with other resource"),
         ] {
             assert!(
@@ -11299,22 +11379,22 @@ mod tests {
     fn a_validation_error_scope_captures_a_device_rejection_instead_of_panicking() {
         let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
 
-        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let error_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let _module = WgpuSurface::compile_shader(
             &device,
             "@fragment fn fs_main() -> @location(0) vec4<f32> { return vec4<f32>(0.0 1.0); }",
         );
-        let err = pollster::block_on(device.pop_error_scope());
+        let err = pollster::block_on(error_scope.pop());
         assert!(
             err.is_some(),
             "a broken shader must surface as a captured error; None means the \
              rejection went to the uncaptured handler, which panics"
         );
 
-        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let error_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let _module = WgpuSurface::compile_shader(&device, VALID_CUSTOM_WGSL);
         assert!(
-            pollster::block_on(device.pop_error_scope()).is_none(),
+            pollster::block_on(error_scope.pop()).is_none(),
             "a valid shader must leave the scope empty; otherwise every reload \
              would be treated as a failure and no pipeline would ever update"
         );
@@ -11813,7 +11893,7 @@ mod tests {
             });
             let mut encoder = device.create_command_encoder(&Default::default());
             encoder.copy_texture_to_buffer(
-                wgpu::ImageCopyTexture {
+                wgpu::TexelCopyTextureInfo {
                     texture: &self.surface.reflection_cubes,
                     mip_level: 0,
                     origin: wgpu::Origin3d {
@@ -11823,9 +11903,9 @@ mod tests {
                     },
                     aspect: wgpu::TextureAspect::All,
                 },
-                wgpu::ImageCopyBuffer {
+                wgpu::TexelCopyBufferInfo {
                     buffer: &buffer,
-                    layout: wgpu::ImageDataLayout {
+                    layout: wgpu::TexelCopyBufferLayout {
                         offset: 0,
                         bytes_per_row: Some(padded),
                         rows_per_image: Some(REFLECTION_FACE_SIZE),
@@ -11840,8 +11920,8 @@ mod tests {
             self.surface.queue.submit(std::iter::once(encoder.finish()));
             let slice = buffer.slice(..);
             slice.map_async(wgpu::MapMode::Read, |r| r.expect("map reflection slot"));
-            device.poll(wgpu::Maintain::Wait);
-            let mapped = slice.get_mapped_range();
+            let _ = device.poll(wgpu::PollType::wait_indefinitely());
+            let mapped = slice.get_mapped_range().expect("a mapped buffer");
             let half = |t: &[u8], i: usize| f16_bits_to_f32(u16::from_le_bytes([t[i], t[i + 1]]));
             let faces = (0..6u64)
                 .map(|face| {

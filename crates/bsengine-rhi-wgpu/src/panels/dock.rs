@@ -1,7 +1,7 @@
 use bsengine_core::{
     EditorPanel, EditorPanelContext, EditorPanelRegistry, InspectorEntityInfo, InspectorState,
 };
-use egui_dock::{DockState, Node, NodeIndex, Split, SurfaceIndex};
+use egui_dock::{DockState, Node, NodeIndex, NodePath, Split, SurfaceIndex};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::MutexGuard;
@@ -21,25 +21,25 @@ pub fn default_dock_state() -> DockState<String> {
     let mut state = DockState::new(vec!["hierarchy".to_string()]);
     let surface = SurfaceIndex::main();
     let [_hierarchy, rest] = state.split(
-        (surface, NodeIndex::root()),
+        NodePath::new(surface, NodeIndex::root()),
         Split::Right,
         0.2,
         Node::leaf("viewport".to_string()),
     );
     let [_viewport, inspector] = state.split(
-        (surface, rest),
+        NodePath::new(surface, rest),
         Split::Right,
         0.75,
         Node::leaf("inspector".to_string()),
     );
     let [_inspector, _profiler] = state.split(
-        (surface, inspector),
+        NodePath::new(surface, inspector),
         Split::Below,
         0.6,
         Node::leaf("profiler".to_string()),
     );
     let [_top, _assets] = state.split(
-        (surface, NodeIndex::root()),
+        NodePath::new(surface, NodeIndex::root()),
         Split::Below,
         0.7,
         Node::leaf("assets".to_string()),
@@ -124,9 +124,9 @@ pub fn focus_panel_for_open_request(dock_state: &mut DockState<String>, insp: &I
     };
     let id = id.to_string();
     match dock_state.find_tab(&id) {
-        Some((surface, node, tab)) => {
-            dock_state.set_active_tab((surface, node, tab));
-            dock_state.set_focused_node_and_surface((surface, node));
+        Some(path) => {
+            let _ = dock_state.set_active_tab(path);
+            dock_state.set_focused_node_and_surface(path.node_path());
         }
         None => dock_state.push_to_focused_leaf(id),
     }
@@ -178,6 +178,11 @@ pub struct BseTabViewer<'a> {
 
 impl egui_dock::TabViewer for BseTabViewer<'_> {
     type Tab = String;
+
+    /// A tab is its panel's id, which no two tabs share.
+    fn id(&mut self, tab: &mut String) -> egui::Id {
+        egui::Id::new(tab.as_str())
+    }
 
     fn title(&mut self, tab: &mut String) -> egui::WidgetText {
         match self.panels.get(tab.as_str()) {
@@ -311,11 +316,12 @@ mod tests {
         // request is still there for the panel to take.
         insp.request_open_asset("assets/scripts/bob.scriptgraph.ron");
         focus_panel_for_open_request(&mut state, &insp);
-        let (surface, node, tab) = state
+        let path = state
             .find_tab(&"scriptgraph".to_string())
             .expect("the Script Graph tab must be docked");
+        let (surface, node, tab) = (path.surface, path.node, path.tab);
         let active = match &state[surface][node] {
-            Node::Leaf { active, .. } => *active,
+            Node::Leaf(leaf) => leaf.active,
             other => panic!("a tab lives in a leaf, got {other:?}"),
         };
         assert_eq!(active, tab, "and it is the tab in front");
@@ -324,12 +330,13 @@ mod tests {
         // Another tab pushed onto the same leaf takes the front; the next
         // request brings the Script Graph back without docking it twice.
         state.push_to_focused_leaf("references".to_string());
-        let (_, node2, tab2) = state.find_tab(&"references".to_string()).unwrap();
+        let references = state.find_tab(&"references".to_string()).unwrap();
+        let (node2, tab2) = (references.node, references.tab);
         assert_eq!(node2, node, "premise: pushed onto the same leaf");
         assert_ne!(tab2, tab);
         focus_panel_for_open_request(&mut state, &insp);
         let active = match &state[surface][node] {
-            Node::Leaf { active, .. } => *active,
+            Node::Leaf(leaf) => leaf.active,
             other => panic!("{other:?}"),
         };
         assert_eq!(active, tab, "brought back to the front");
@@ -358,12 +365,12 @@ mod tests {
         let finite = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
         for node in state.main_surface_mut().iter_mut() {
             match node {
-                Node::Leaf { rect, viewport, .. } => {
-                    *rect = finite;
-                    *viewport = finite;
+                Node::Leaf(leaf) => {
+                    leaf.rect = finite;
+                    leaf.viewport = finite;
                 }
-                Node::Vertical { rect, .. } | Node::Horizontal { rect, .. } => {
-                    *rect = finite;
+                Node::Vertical(split) | Node::Horizontal(split) => {
+                    split.rect = finite;
                 }
                 Node::Empty => {}
             }

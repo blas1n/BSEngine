@@ -99,10 +99,7 @@ fn address<T>(object: &T) -> usize {
 fn options_key(options: &wgpu::PipelineCompilationOptions) -> String {
     let mut constants: Vec<_> = options.constants.iter().collect();
     constants.sort_by(|a, b| a.0.cmp(b.0));
-    format!(
-        "{constants:?}|{}|{}",
-        options.zero_initialize_workgroup_memory, options.vertex_pulling_transform
-    )
+    format!("{constants:?}|{}", options.zero_initialize_workgroup_memory)
 }
 
 /// Runs `f` with `device`'s cache, or returns `None` for an unregistered one.
@@ -209,17 +206,15 @@ impl CachedCreate for wgpu::Device {
         &self,
         desc: &wgpu::PipelineLayoutDescriptor,
     ) -> Arc<wgpu::PipelineLayout> {
-        let layouts: Vec<usize> = desc
+        // A slot left empty (`None`) is part of the layout too.
+        let layouts: Vec<Option<usize>> = desc
             .bind_group_layouts
             .iter()
-            .map(|l| address(*l))
+            .map(|l| l.map(address))
             .collect();
-        let key = format!(
-            "{:?}|{layouts:?}|{:?}",
-            desc.label, desc.push_constant_ranges
-        );
+        let key = format!("{:?}|{layouts:?}|{}", desc.label, desc.immediate_size);
         with_cache(self, |c| {
-            if !layouts.iter().all(|l| c.owned.contains(l)) {
+            if !layouts.iter().flatten().all(|l| c.owned.contains(l)) {
                 c.stats.uncached += 1;
                 return Arc::new(c.device.create_pipeline_layout(desc));
             }
@@ -243,7 +238,7 @@ impl CachedCreate for wgpu::Device {
         refers_to.extend(desc.fragment.as_ref().map(|f| address(f.module)));
         let fragment = desc.fragment.as_ref().map(|f| {
             format!(
-                "{}|{}|{}|{:?}",
+                "{}|{:?}|{}|{:?}",
                 address(f.module),
                 f.entry_point,
                 options_key(&f.compilation_options),
@@ -251,7 +246,7 @@ impl CachedCreate for wgpu::Device {
             )
         });
         let key = format!(
-            "{:?}|{:?}|{}|{}|{}|{:?}|{:?}|{:?}|{:?}|{fragment:?}|{:?}",
+            "{:?}|{:?}|{}|{:?}|{}|{:?}|{:?}|{:?}|{:?}|{fragment:?}|{:?}",
             desc.label,
             desc.layout.map(address),
             address(desc.vertex.module),
@@ -261,7 +256,7 @@ impl CachedCreate for wgpu::Device {
             desc.primitive,
             desc.depth_stencil,
             desc.multisample,
-            desc.multiview,
+            desc.multiview_mask,
         );
         with_cache(self, |c| {
             if desc.cache.is_some() || !refers_to.iter().all(|r| c.owned.contains(r)) {
@@ -286,7 +281,7 @@ impl CachedCreate for wgpu::Device {
         let mut refers_to = vec![address(desc.module)];
         refers_to.extend(desc.layout.map(address));
         let key = format!(
-            "{:?}|{:?}|{}|{}|{}",
+            "{:?}|{:?}|{}|{:?}|{}",
             desc.label,
             desc.layout.map(address),
             address(desc.module),

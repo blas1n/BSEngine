@@ -469,13 +469,16 @@ mod tests {
         ctx.set_fonts(egui::FontDefinitions::empty()); // skip font loading, saves CPU time
         let mut add_contents = Some(add_contents);
         let mut result = None;
-        let _ = ctx.run(egui::RawInput::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(egui::RawInput::default(), |root_ui| {
+            let ctx_handle = root_ui.ctx().clone();
+            let ctx = &ctx_handle;
+            egui::CentralPanel::default().show(root_ui, |ui| {
                 if let Some(f) = add_contents.take() {
                     result = Some(f(ctx, ui));
                 }
             });
-        });
+        })
+        .drop_without_applying_deltas();
         result.expect("add_contents must run exactly once per test frame")
     }
 
@@ -522,7 +525,7 @@ mod tests {
             let changed = draw_reflect_ui(ui, &mut speed, &empty_ctx());
             let after = ui.next_auto_id();
             let is_focusable = top_level_response_exists_at(ctx, before)
-                .map(|r| r.sense.focusable)
+                .map(|r| r.sense.is_focusable())
                 .unwrap_or(false);
             (changed, after, is_focusable)
         });
@@ -592,7 +595,7 @@ mod tests {
             let changed = draw_reflect_ui(ui, &mut angle, &empty_ctx());
             let after = ui.next_auto_id();
             let is_focusable = top_level_response_exists_at(ctx, before)
-                .map(|r| r.sense.focusable)
+                .map(|r| r.sense.is_focusable())
                 .unwrap_or(false);
             (changed, after, is_focusable)
         });
@@ -626,7 +629,7 @@ mod tests {
             let changed = draw_reflect_ui(ui, &mut color, &empty_ctx());
             let after = ui.next_auto_id();
             let is_focusable = top_level_response_exists_at(ctx, before)
-                .map(|r| r.sense.focusable)
+                .map(|r| r.sense.is_focusable())
                 .unwrap_or(false);
             (changed, after, is_focusable)
         });
@@ -769,19 +772,21 @@ mod tests {
         // was verified by temporarily reverting to `read_response` with
         // this same decoy in place).
         let mut append_top = egui::Pos2::ZERO;
-        let _ = egui_ctx.run(
-            egui::RawInput {
-                screen_rect: Some(screen_rect),
-                ..Default::default()
-            },
-            |egui_ctx| {
-                egui::CentralPanel::default().show(egui_ctx, |ui| {
-                    append_top = ui.next_widget_position();
-                    draw_reflect_ui(ui, &mut tags, &ctx);
-                    let _ = ui.button("decoy");
-                });
-            },
-        );
+        egui_ctx
+            .run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen_rect),
+                    ..Default::default()
+                },
+                |root_ui| {
+                    egui::CentralPanel::default().show(root_ui, |ui| {
+                        append_top = ui.next_widget_position();
+                        draw_reflect_ui(ui, &mut tags, &ctx);
+                        let _ = ui.button("decoy");
+                    });
+                },
+            )
+            .drop_without_applying_deltas();
 
         // A click safely inside the "+" `small_button`'s row (top-left of
         // the append row's own `ui.horizontal`, nudged in from its corner).
@@ -801,19 +806,21 @@ mod tests {
                 modifiers: egui::Modifiers::default(),
             },
         ];
-        let _ = egui_ctx.run(
-            egui::RawInput {
-                screen_rect: Some(screen_rect),
-                events: click_events,
-                ..Default::default()
-            },
-            |egui_ctx| {
-                egui::CentralPanel::default().show(egui_ctx, |ui| {
-                    draw_reflect_ui(ui, &mut tags, &ctx);
-                    let _ = ui.button("decoy");
-                });
-            },
-        );
+        egui_ctx
+            .run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen_rect),
+                    events: click_events,
+                    ..Default::default()
+                },
+                |root_ui| {
+                    egui::CentralPanel::default().show(root_ui, |ui| {
+                        draw_reflect_ui(ui, &mut tags, &ctx);
+                        let _ = ui.button("decoy");
+                    });
+                },
+            )
+            .drop_without_applying_deltas();
 
         assert_eq!(
             tags,
@@ -848,18 +855,20 @@ mod tests {
 
         let run_frame =
             |egui_ctx: &egui::Context, events: Vec<egui::Event>, value: &mut SampleEnum| {
-                let _ = egui_ctx.run(
-                    egui::RawInput {
-                        screen_rect: Some(screen_rect),
-                        events,
-                        ..Default::default()
-                    },
-                    |egui_ctx| {
-                        egui::CentralPanel::default().show(egui_ctx, |ui| {
-                            draw_reflect_ui(ui, value, &ctx);
-                        });
-                    },
-                );
+                egui_ctx
+                    .run_ui(
+                        egui::RawInput {
+                            screen_rect: Some(screen_rect),
+                            events,
+                            ..Default::default()
+                        },
+                        |root_ui| {
+                            egui::CentralPanel::default().show(root_ui, |ui| {
+                                draw_reflect_ui(ui, value, &ctx);
+                            });
+                        },
+                    )
+                    .drop_without_applying_deltas();
             };
         let click_events = |pos: egui::Pos2| {
             vec![
@@ -888,19 +897,21 @@ mod tests {
         // tracks the actual layout cursor instead).
         let mut combo_top = egui::Pos2::ZERO;
         let mut combo_bottom = egui::Pos2::ZERO;
-        let _ = egui_ctx.run(
-            egui::RawInput {
-                screen_rect: Some(screen_rect),
-                ..Default::default()
-            },
-            |egui_ctx| {
-                egui::CentralPanel::default().show(egui_ctx, |ui| {
-                    combo_top = ui.next_widget_position();
-                    draw_reflect_ui(ui, &mut value, &ctx);
-                    combo_bottom = ui.next_widget_position();
-                });
-            },
-        );
+        egui_ctx
+            .run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen_rect),
+                    ..Default::default()
+                },
+                |root_ui| {
+                    egui::CentralPanel::default().show(root_ui, |ui| {
+                        combo_top = ui.next_widget_position();
+                        draw_reflect_ui(ui, &mut value, &ctx);
+                        combo_bottom = ui.next_widget_position();
+                    });
+                },
+            )
+            .drop_without_applying_deltas();
 
         // Frame 2: click the combo box (safely inside its row) to open the popup.
         let open_pos = egui::Pos2::new(combo_top.x + 20.0, combo_top.y + 8.0);
@@ -999,17 +1010,19 @@ mod tests {
         let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
 
         let run_frame = |events: Vec<egui::Event>, value: &mut SampleTwoEnumFields| {
-            let _ = egui_ctx.run(
-                egui::RawInput {
-                    screen_rect: Some(screen_rect),
-                    events,
-                    ..Default::default()
-                },
-                |egui_ctx| {
-                    egui::CentralPanel::default()
-                        .show(egui_ctx, |ui| draw_reflect_ui(ui, value, &ctx));
-                },
-            );
+            egui_ctx
+                .run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(screen_rect),
+                        events,
+                        ..Default::default()
+                    },
+                    |root_ui| {
+                        egui::CentralPanel::default()
+                            .show(root_ui, |ui| draw_reflect_ui(ui, value, &ctx));
+                    },
+                )
+                .drop_without_applying_deltas();
         };
         let click_events = |pos: egui::Pos2| {
             vec![
@@ -1082,7 +1095,7 @@ mod tests {
             let changed = draw_reflect_ui(ui, &mut value, &empty_ctx());
             let after = ui.next_auto_id();
             let is_focusable = top_level_response_exists_at(ctx, before)
-                .map(|r| r.sense.focusable)
+                .map(|r| r.sense.is_focusable())
                 .unwrap_or(false);
             (changed, after, is_focusable)
         });
@@ -1180,49 +1193,53 @@ mod tests {
         // Frame 1: Tab with nothing focused yet. egui grants focus, within
         // this very same frame, to the first widget that registers interest
         // in it -- whichever DragValue draw_leaf_ui's loop creates first.
-        let _ = egui_ctx.run(
-            egui::RawInput {
-                screen_rect: Some(screen_rect),
-                events: vec![egui::Event::Key {
-                    key: egui::Key::Tab,
-                    physical_key: None,
-                    pressed: true,
-                    repeat: false,
-                    modifiers: egui::Modifiers::default(),
-                }],
-                ..Default::default()
-            },
-            |egui_ctx| {
-                egui::CentralPanel::default()
-                    .show(egui_ctx, |ui| draw_reflect_ui(ui, &mut rot, &empty_ctx()));
-            },
-        );
+        egui_ctx
+            .run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen_rect),
+                    events: vec![egui::Event::Key {
+                        key: egui::Key::Tab,
+                        physical_key: None,
+                        pressed: true,
+                        repeat: false,
+                        modifiers: egui::Modifiers::default(),
+                    }],
+                    ..Default::default()
+                },
+                |root_ui| {
+                    egui::CentralPanel::default()
+                        .show(root_ui, |ui| draw_reflect_ui(ui, &mut rot, &empty_ctx()));
+                },
+            )
+            .drop_without_applying_deltas();
 
         // Frame 2: 3x ArrowUp while that first DragValue still holds
         // keyboard focus. DragValue consumes these directly and bumps its
         // bound value by `speed` per press.
         let mut changed = false;
-        let _ = egui_ctx.run(
-            egui::RawInput {
-                screen_rect: Some(screen_rect),
-                events: vec![
-                    egui::Event::Key {
-                        key: egui::Key::ArrowUp,
-                        physical_key: None,
-                        pressed: true,
-                        repeat: false,
-                        modifiers: egui::Modifiers::default(),
-                    };
-                    3
-                ],
-                ..Default::default()
-            },
-            |egui_ctx| {
-                egui::CentralPanel::default().show(egui_ctx, |ui| {
-                    changed = draw_reflect_ui(ui, &mut rot, &empty_ctx());
-                });
-            },
-        );
+        egui_ctx
+            .run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen_rect),
+                    events: vec![
+                        egui::Event::Key {
+                            key: egui::Key::ArrowUp,
+                            physical_key: None,
+                            pressed: true,
+                            repeat: false,
+                            modifiers: egui::Modifiers::default(),
+                        };
+                        3
+                    ],
+                    ..Default::default()
+                },
+                |root_ui| {
+                    egui::CentralPanel::default().show(root_ui, |ui| {
+                        changed = draw_reflect_ui(ui, &mut rot, &empty_ctx());
+                    });
+                },
+            )
+            .drop_without_applying_deltas();
 
         assert!(
             changed,
@@ -1269,23 +1286,25 @@ mod tests {
         // Frame 1: draw with no target set yet -- establishes the field's
         // drop-zone rect and confirms the "(none)" placeholder shows.
         let mut field_rect = egui::Rect::NOTHING;
-        let _ = egui_ctx.run(
-            egui::RawInput {
-                screen_rect: Some(screen_rect),
-                ..Default::default()
-            },
-            |egui_ctx| {
-                egui::CentralPanel::default().show(egui_ctx, |ui| {
-                    let before = ui.next_auto_id();
-                    draw_reflect_ui(ui, &mut target, &ctx);
-                    field_rect = ui
-                        .ctx()
-                        .read_response(before)
-                        .map(|r| r.rect)
-                        .unwrap_or(egui::Rect::NOTHING);
-                });
-            },
-        );
+        egui_ctx
+            .run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen_rect),
+                    ..Default::default()
+                },
+                |root_ui| {
+                    egui::CentralPanel::default().show(root_ui, |ui| {
+                        let before = ui.next_auto_id();
+                        draw_reflect_ui(ui, &mut target, &ctx);
+                        field_rect = ui
+                            .ctx()
+                            .read_response(before)
+                            .map(|r| r.rect)
+                            .unwrap_or(egui::Rect::NOTHING);
+                    });
+                },
+            )
+            .drop_without_applying_deltas();
 
         // Frame 2: set a drag payload directly -- the same call
         // `Response::dnd_set_drag_payload` makes internally on
@@ -1303,26 +1322,28 @@ mod tests {
         // pushes a `PointerEvent::Released`).
         egui::DragAndDrop::set_payload(&egui_ctx, 2u64);
         let drop_pos = field_rect.center();
-        let _ = egui_ctx.run(
-            egui::RawInput {
-                screen_rect: Some(screen_rect),
-                events: vec![
-                    egui::Event::PointerMoved(drop_pos),
-                    egui::Event::PointerButton {
-                        pos: drop_pos,
-                        button: egui::PointerButton::Primary,
-                        pressed: false,
-                        modifiers: egui::Modifiers::default(),
-                    },
-                ],
-                ..Default::default()
-            },
-            |egui_ctx| {
-                egui::CentralPanel::default().show(egui_ctx, |ui| {
-                    draw_reflect_ui(ui, &mut target, &ctx);
-                });
-            },
-        );
+        egui_ctx
+            .run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen_rect),
+                    events: vec![
+                        egui::Event::PointerMoved(drop_pos),
+                        egui::Event::PointerButton {
+                            pos: drop_pos,
+                            button: egui::PointerButton::Primary,
+                            pressed: false,
+                            modifiers: egui::Modifiers::default(),
+                        },
+                    ],
+                    ..Default::default()
+                },
+                |root_ui| {
+                    egui::CentralPanel::default().show(root_ui, |ui| {
+                        draw_reflect_ui(ui, &mut target, &ctx);
+                    });
+                },
+            )
+            .drop_without_applying_deltas();
 
         assert_eq!(
             target.index(),
@@ -1414,16 +1435,19 @@ mod tests {
             let egui_ctx = egui::Context::default();
             egui_ctx.set_fonts(egui::FontDefinitions::empty());
             let run = |events: Vec<egui::Event>, v: &mut SampleTwoEntityFields| {
-                let _ = egui_ctx.run(
-                    egui::RawInput {
-                        screen_rect: Some(screen_rect),
-                        events,
-                        ..Default::default()
-                    },
-                    |c| {
-                        egui::CentralPanel::default().show(c, |ui| draw_reflect_ui(ui, v, &ctx));
-                    },
-                );
+                egui_ctx
+                    .run_ui(
+                        egui::RawInput {
+                            screen_rect: Some(screen_rect),
+                            events,
+                            ..Default::default()
+                        },
+                        |root_ui| {
+                            egui::CentralPanel::default()
+                                .show(root_ui, |ui| draw_reflect_ui(ui, v, &ctx));
+                        },
+                    )
+                    .drop_without_applying_deltas();
             };
             run(vec![], &mut value); // frame 1: establish prior-frame widget rects
             run(click_events(egui::Pos2::new(180.0, 15.0)), &mut value); // frame 2: open `first`'s combo
@@ -1454,16 +1478,19 @@ mod tests {
             let egui_ctx = egui::Context::default();
             egui_ctx.set_fonts(egui::FontDefinitions::empty());
             let run = |events: Vec<egui::Event>, v: &mut SampleTwoEntityFields| {
-                let _ = egui_ctx.run(
-                    egui::RawInput {
-                        screen_rect: Some(screen_rect),
-                        events,
-                        ..Default::default()
-                    },
-                    |c| {
-                        egui::CentralPanel::default().show(c, |ui| draw_reflect_ui(ui, v, &ctx));
-                    },
-                );
+                egui_ctx
+                    .run_ui(
+                        egui::RawInput {
+                            screen_rect: Some(screen_rect),
+                            events,
+                            ..Default::default()
+                        },
+                        |root_ui| {
+                            egui::CentralPanel::default()
+                                .show(root_ui, |ui| draw_reflect_ui(ui, v, &ctx));
+                        },
+                    )
+                    .drop_without_applying_deltas();
             };
             run(vec![], &mut value); // frame 1: establish prior-frame widget rects
             run(click_events(egui::Pos2::new(180.0, 40.0)), &mut value); // frame 2: open `second`'s combo

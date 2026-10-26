@@ -231,21 +231,21 @@ fn face_pass_pipeline(
     });
     let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some(label),
-        bind_group_layouts: &[bgl],
-        push_constant_ranges: &[],
+        bind_group_layouts: &[Some(bgl)],
+        immediate_size: 0,
     });
     device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(label),
         layout: Some(&layout),
         vertex: wgpu::VertexState {
             module: &shader,
-            entry_point: "vs_fullscreen",
+            entry_point: Some("vs_fullscreen"),
             buffers: &[],
             compilation_options: Default::default(),
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
-            entry_point: fragment_entry,
+            entry_point: Some(fragment_entry),
             targets: &[Some(wgpu::ColorTargetState {
                 format,
                 blend: Some(wgpu::BlendState::REPLACE),
@@ -256,7 +256,7 @@ fn face_pass_pipeline(
         primitive: wgpu::PrimitiveState::default(),
         depth_stencil: None,
         multisample: wgpu::MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     })
 }
@@ -276,6 +276,7 @@ fn draw_face_pass(
         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
             view: target,
             resolve_target: None,
+            depth_slice: None,
             ops: wgpu::Operations {
                 load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                 store: wgpu::StoreOp::Store,
@@ -511,20 +512,20 @@ pub fn generate_brdf_lut(
     let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("ibl brdf lut pll"),
         bind_group_layouts: &[],
-        push_constant_ranges: &[],
+        immediate_size: 0,
     });
     let pipeline = device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("ibl brdf lut pipeline"),
         layout: Some(&layout),
         vertex: wgpu::VertexState {
             module: &shader,
-            entry_point: "vs_fullscreen",
+            entry_point: Some("vs_fullscreen"),
             buffers: &[],
             compilation_options: Default::default(),
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
-            entry_point: "fs_brdf_lut",
+            entry_point: Some("fs_brdf_lut"),
             targets: &[Some(wgpu::ColorTargetState {
                 format: BRDF_LUT_FORMAT,
                 blend: Some(wgpu::BlendState::REPLACE),
@@ -535,7 +536,7 @@ pub fn generate_brdf_lut(
         primitive: wgpu::PrimitiveState::default(),
         depth_stencil: None,
         multisample: wgpu::MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     });
 
@@ -548,6 +549,7 @@ pub fn generate_brdf_lut(
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &view,
                 resolve_target: None,
+                depth_slice: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                     store: wgpu::StoreOp::Store,
@@ -1204,7 +1206,7 @@ mod tests {
     #[test]
     fn cubemap_views_are_valid_for_the_gpu() {
         let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
-        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let error_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
 
         let cube = create_cubemap(
             &device,
@@ -1229,9 +1231,9 @@ mod tests {
             }
         }
 
-        device.poll(wgpu::Maintain::Wait);
+        let _ = device.poll(wgpu::PollType::wait_indefinitely());
         assert!(
-            pollster::block_on(device.pop_error_scope()).is_none(),
+            pollster::block_on(error_scope.pop()).is_none(),
             "creating the cube and face views must not raise a validation error"
         );
     }
@@ -1279,7 +1281,7 @@ mod tests {
             label: Some("ibl face readback encoder"),
         });
         encoder.copy_texture_to_buffer(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture,
                 mip_level: mip,
                 // The layer selector: for a 2D array, `origin.z` is the layer.
@@ -1290,9 +1292,9 @@ mod tests {
                 },
                 aspect: wgpu::TextureAspect::All,
             },
-            wgpu::ImageCopyBuffer {
+            wgpu::TexelCopyBufferInfo {
                 buffer: &buffer,
-                layout: wgpu::ImageDataLayout {
+                layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(padded_bytes_per_row),
                     rows_per_image: Some(height),
@@ -1311,12 +1313,12 @@ mod tests {
         slice.map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
         });
-        device.poll(wgpu::Maintain::Wait);
+        let _ = device.poll(wgpu::PollType::wait_indefinitely());
         rx.recv()
             .expect("map_async never reported a result")
             .expect("mapping the readback buffer failed");
 
-        let mapped = slice.get_mapped_range();
+        let mapped = slice.get_mapped_range().expect("a mapped buffer");
         let mut texels = Vec::with_capacity((width * height) as usize);
         for row in 0..height {
             let start = (row * padded_bytes_per_row) as usize;
@@ -1439,7 +1441,7 @@ mod tests {
         queue.write_texture(
             texture.as_image_copy(),
             pixels,
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(4 * TEST_EQUIRECT_W),
                 rows_per_image: Some(TEST_EQUIRECT_H),
@@ -1599,21 +1601,21 @@ fn fs_probe(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("ibl probe pll"),
-            bind_group_layouts: &[&bgl],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bgl)],
+            immediate_size: 0,
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("ibl probe pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_probe",
+                entry_point: Some("vs_probe"),
                 buffers: &[],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_probe",
+                entry_point: Some("fs_probe"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: ENV_CUBE_FORMAT,
                     blend: Some(wgpu::BlendState::REPLACE),
@@ -1624,7 +1626,7 @@ fn fs_probe(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -1637,6 +1639,7 @@ fn fs_probe(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &target_view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,
@@ -1660,7 +1663,7 @@ fn fs_probe(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     #[test]
     fn equirect_to_cubemap_puts_each_direction_on_the_right_face() {
         let (device, queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
-        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let error_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
 
         let (_src, src_view, src_sampler) = upload_direction_encoded_equirect(&device, &queue);
         let (cube, cube_v) = equirect_to_cubemap(&device, &queue, &src_view, &src_sampler);
@@ -1755,9 +1758,9 @@ fn fs_probe(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
             );
         }
 
-        device.poll(wgpu::Maintain::Wait);
+        let _ = device.poll(wgpu::PollType::wait_indefinitely());
         assert!(
-            pollster::block_on(device.pop_error_scope()).is_none(),
+            pollster::block_on(error_scope.pop()).is_none(),
             "the conversion must not raise a validation error"
         );
     }
@@ -1769,7 +1772,7 @@ fn fs_probe(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     #[test]
     fn irradiance_of_a_uniform_environment_is_that_same_colour() {
         let (device, queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
-        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let error_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
 
         // 51, 153 and 102 over 255 are exactly 0.2, 0.6 and 0.4 -- three
         // different values on purpose, so a swapped channel or a collapse to
@@ -1854,9 +1857,9 @@ fn fs_probe(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
              edge of it; worst relative error was {worst}"
         );
 
-        device.poll(wgpu::Maintain::Wait);
+        let _ = device.poll(wgpu::PollType::wait_indefinitely());
         assert!(
-            pollster::block_on(device.pop_error_scope()).is_none(),
+            pollster::block_on(error_scope.pop()).is_none(),
             "the irradiance convolution must not raise a validation error"
         );
     }
@@ -1889,7 +1892,7 @@ fn fs_probe(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     #[test]
     fn prefilter_mip_zero_is_sharp_and_the_last_mip_is_blurred() {
         let (device, queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
-        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let error_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
 
         // A dim environment with one bright spot straight down +Z, which is the
         // direction the centre of cube face 4 looks along. A smooth environment
@@ -1981,9 +1984,9 @@ fn fs_probe(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
              it: mip 0 mean {sharp_mean} vs last mip mean {blurred_mean}"
         );
 
-        device.poll(wgpu::Maintain::Wait);
+        let _ = device.poll(wgpu::PollType::wait_indefinitely());
         assert!(
-            pollster::block_on(device.pop_error_scope()).is_none(),
+            pollster::block_on(error_scope.pop()).is_none(),
             "the specular prefilter must not raise a validation error"
         );
     }

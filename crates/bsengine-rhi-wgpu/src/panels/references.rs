@@ -215,24 +215,28 @@ mod tests {
 
         fn frame(&mut self, events: Vec<egui::Event>) -> egui::FullOutput {
             let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 500.0));
-            self.egui_ctx.run(
-                egui::RawInput {
-                    screen_rect: Some(screen_rect),
-                    events,
-                    ..Default::default()
-                },
-                |egui_ctx| {
-                    egui::CentralPanel::default().show(egui_ctx, |ui| {
-                        let mut ctx = EditorPanelContext {
-                            insp: &mut self.insp,
-                            entities_snapshot: &[],
-                            cursor_pos: (0.0, 0.0),
-                            type_registry: None,
-                        };
-                        self.panel.ui(ui, &mut ctx);
-                    });
-                },
-            )
+            {
+                let mut output = self.egui_ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(screen_rect),
+                        events,
+                        ..Default::default()
+                    },
+                    |root_ui| {
+                        egui::CentralPanel::default().show(root_ui, |ui| {
+                            let mut ctx = EditorPanelContext {
+                                insp: &mut self.insp,
+                                entities_snapshot: &[],
+                                cursor_pos: (0.0, 0.0),
+                                type_registry: None,
+                            };
+                            self.panel.ui(ui, &mut ctx);
+                        });
+                    },
+                );
+                output.textures_delta.clear();
+                output
+            }
         }
 
         fn draw(&mut self) -> egui::FullOutput {
@@ -269,9 +273,7 @@ mod tests {
     fn walk(shape: &egui::Shape, texts: &mut Vec<(String, egui::Pos2)>, edges: &mut usize) {
         match shape {
             egui::Shape::Text(t) => texts.push((t.galley.text().to_string(), t.pos)),
-            egui::Shape::LineSegment { stroke, .. } if matches!(stroke.color, egui::epaint::ColorMode::Solid(c) if c == EDGE) => {
-                *edges += 1
-            }
+            egui::Shape::LineSegment { stroke, .. } if stroke.color == EDGE => *edges += 1,
             egui::Shape::Vec(inner) => inner.iter().for_each(|s| walk(s, texts, edges)),
             _ => {}
         }

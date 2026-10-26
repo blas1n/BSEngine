@@ -10,7 +10,7 @@
 //! Ignored because it takes over a minute by construction. Run it on Windows
 //! with `cargo test -p bsengine-rhi-wgpu --test long_gpu_wait -- --ignored`.
 //! It passes with `wait_for_gpu` as it is. With `wait_for_gpu` turned back
-//! into `device.poll(wgpu::Maintain::Wait)`, the process exits with 2173
+//! into `device.poll(wgpu::PollType::wait_indefinitely())`, the process exits with 2173
 //! (shown as 125 in a POSIX shell) 60 s in. In CI the realtime GI tests stand
 //! guard instead: on Windows CI their first dispatch is the minute-long job.
 
@@ -23,21 +23,22 @@ const SPIN_MILLIONS: u32 = 8000;
 #[ignore]
 fn a_gpu_job_past_a_minute_is_waited_for_not_freed() {
     use wgpu::util::DeviceExt;
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::DX12,
+    let instance = wgpu::Instance::new({
+        let mut d = wgpu::InstanceDescriptor::new_without_display_handle();
+        d.backends = wgpu::Backends::DX12;
         // The debug layer is what ends the process on the misuse; without
         // it the bug corrupts silently.
-        flags: wgpu::InstanceFlags::debugging(),
-        ..Default::default()
+        d.flags = wgpu::InstanceFlags::debugging();
+        d
     });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::None,
         compatible_surface: None,
         force_fallback_adapter: true,
+        apply_limit_buckets: false,
     }))
     .expect("WARP is on every Windows; a skip would look like a pass");
-    let (device, queue) =
-        pollster::block_on(adapter.request_device(&Default::default(), None)).unwrap();
+    let (device, queue) = pollster::block_on(adapter.request_device(&Default::default())).unwrap();
 
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("spin"),
@@ -59,7 +60,7 @@ fn a_gpu_job_past_a_minute_is_waited_for_not_freed() {
         label: Some("spin"),
         layout: None,
         module: &module,
-        entry_point: "main",
+        entry_point: Some("main"),
         compilation_options: Default::default(),
         cache: None,
     });

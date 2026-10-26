@@ -619,7 +619,7 @@ impl EditorPanel for ShaderGraphPanel {
                 egui::Button::new(format!("{} Add Node", egui_phosphor::regular::PLUS)),
             );
             if response.clicked() {
-                ui.memory_mut(|m| m.toggle_popup(add_menu_id()));
+                egui::Popup::toggle_id(ui.ctx(), add_menu_id());
             }
             add_button = Some(response);
 
@@ -686,21 +686,21 @@ impl EditorPanel for ShaderGraphPanel {
         }
 
         if let Some(button) = &add_button {
-            egui::popup::popup_below_widget(
-                ui,
-                add_menu_id(),
-                button,
-                egui::popup::PopupCloseBehavior::CloseOnClickOutside,
-                |ui| {
+            egui::Popup::from_response(button)
+                .id(add_menu_id())
+                .open_memory(None)
+                .align(egui::RectAlign::BOTTOM_START)
+                .align_alternatives(&[])
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                .show(|ui| {
                     ui.set_min_width(160.0);
                     for kind in addable_kinds() {
                         if ui.button(node_title(&kind)).clicked() {
                             add_kind = Some(kind);
-                            ui.memory_mut(|m| m.close_popup());
+                            egui::Popup::close_all(ui.ctx());
                         }
                     }
-                },
-            );
+                });
         }
         ui.separator();
 
@@ -792,7 +792,7 @@ impl EditorPanel for ShaderGraphPanel {
 
         let painter = ui.painter_at(canvas);
         let visuals = ui.visuals().clone();
-        painter.rect_filled(canvas, egui::Rounding::same(0.0), visuals.extreme_bg_color);
+        painter.rect_filled(canvas, egui::CornerRadius::ZERO, visuals.extreme_bg_color);
 
         let label_font = egui::FontId::proportional(12.0);
         let title_font = egui::FontId::proportional(13.0);
@@ -838,7 +838,7 @@ impl EditorPanel for ShaderGraphPanel {
             let Some(&rect) = node_rects.get(&node.id) else {
                 continue;
             };
-            let rounding = egui::Rounding::same(4.0);
+            let rounding = egui::CornerRadius::same(4);
             painter.rect_filled(rect, rounding, visuals.widgets.inactive.bg_fill);
             let header = egui::Rect::from_min_size(
                 rect.min,
@@ -852,7 +852,7 @@ impl EditorPanel for ShaderGraphPanel {
             } else {
                 visuals.widgets.inactive.fg_stroke
             };
-            painter.rect_stroke(rect, rounding, outline);
+            painter.rect_stroke(rect, rounding, outline, egui::StrokeKind::Middle);
             painter.text(
                 header.left_center() + egui::vec2(8.0, 0.0),
                 egui::Align2::LEFT_CENTER,
@@ -1028,24 +1028,28 @@ mod tests {
 
         /// Runs one frame with `events` delivered to it.
         fn frame(&mut self, events: Vec<egui::Event>) -> egui::FullOutput {
-            self.egui_ctx.run(
-                egui::RawInput {
-                    screen_rect: Some(self.screen_rect),
-                    events,
-                    ..Default::default()
-                },
-                |egui_ctx| {
-                    egui::CentralPanel::default().show(egui_ctx, |ui| {
-                        let mut panel_ctx = EditorPanelContext {
-                            insp: &mut self.insp,
-                            entities_snapshot: &self.entities_snapshot,
-                            cursor_pos: (0.0, 0.0),
-                            type_registry: None,
-                        };
-                        self.panel.ui(ui, &mut panel_ctx);
-                    });
-                },
-            )
+            {
+                let mut output = self.egui_ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(self.screen_rect),
+                        events,
+                        ..Default::default()
+                    },
+                    |root_ui| {
+                        egui::CentralPanel::default().show(root_ui, |ui| {
+                            let mut panel_ctx = EditorPanelContext {
+                                insp: &mut self.insp,
+                                entities_snapshot: &self.entities_snapshot,
+                                cursor_pos: (0.0, 0.0),
+                                type_registry: None,
+                            };
+                            self.panel.ui(ui, &mut panel_ctx);
+                        });
+                    },
+                );
+                output.textures_delta.clear();
+                output
+            }
         }
 
         /// Runs one frame with no input.

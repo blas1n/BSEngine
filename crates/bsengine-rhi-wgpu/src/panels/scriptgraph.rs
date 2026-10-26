@@ -844,7 +844,7 @@ impl EditorPanel for ScriptGraphPanel {
                 egui::Button::new(format!("{} Add Node", egui_phosphor::regular::PLUS)),
             );
             if response.clicked() {
-                ui.memory_mut(|m| m.toggle_popup(add_menu_id()));
+                egui::Popup::toggle_id(ui.ctx(), add_menu_id());
             }
             add_button = Some(response);
 
@@ -1024,28 +1024,34 @@ impl EditorPanel for ScriptGraphPanel {
 
         if let Some(button) = &add_button {
             let groups = addable_kinds(self);
-            egui::popup::popup_below_widget(
-                ui,
-                add_menu_id(),
-                button,
-                egui::popup::PopupCloseBehavior::CloseOnClickOutside,
-                |ui| {
+            egui::Popup::from_response(button)
+                .id(add_menu_id())
+                .open_memory(None)
+                .align(egui::RectAlign::BOTTOM_START)
+                .align_alternatives(&[])
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                .show(|ui| {
                     ui.set_min_width(180.0);
                     egui::ScrollArea::vertical()
                         .max_height(360.0)
+                        // Not shrunk to its rows' width: a scroll area that
+                        // shrinks around its content took the press on a row
+                        // as the start of a drag-scroll in egui 0.36, and the
+                        // menu's buttons never saw the click. The menu is
+                        // already at least 180 wide (above).
+                        .auto_shrink([false, true])
                         .show(ui, |ui| {
                             for (group, kinds) in groups {
                                 ui.label(egui::RichText::new(group).strong());
                                 for kind in kinds {
                                     if ui.button(menu_label(&kind)).clicked() {
                                         add_kind = Some(kind);
-                                        ui.memory_mut(|m| m.close_popup());
+                                        egui::Popup::close_all(ui.ctx());
                                     }
                                 }
                             }
                         });
-                },
-            );
+                });
         }
         ui.separator();
 
@@ -1083,7 +1089,7 @@ impl EditorPanel for ScriptGraphPanel {
                 let wheel = if plain {
                     1.0
                 } else {
-                    (i.raw_scroll_delta.y * 0.003).exp()
+                    (raw_wheel_y(i) * 0.003).exp()
                 };
                 (i.zoom_delta() * wheel, i.pointer.hover_pos())
             });
@@ -1146,7 +1152,7 @@ impl EditorPanel for ScriptGraphPanel {
 
         let painter = ui.painter_at(canvas);
         let visuals = ui.visuals().clone();
-        painter.rect_filled(canvas, egui::Rounding::same(0.0), visuals.extreme_bg_color);
+        painter.rect_filled(canvas, egui::CornerRadius::ZERO, visuals.extreme_bg_color);
         let zoom = self.view.zoom;
         let label_font = egui::FontId::proportional(12.0 * zoom);
         let title_font = egui::FontId::proportional(13.0 * zoom);
@@ -1195,7 +1201,7 @@ impl EditorPanel for ScriptGraphPanel {
             let Some(&rect) = node_rects.get(&node.id) else {
                 continue;
             };
-            let rounding = egui::Rounding::same(4.0 * zoom);
+            let rounding = egui::CornerRadius::from(4.0 * zoom);
             painter.rect_filled(rect, rounding, visuals.widgets.inactive.bg_fill);
             let header = egui::Rect::from_min_size(
                 rect.min,
@@ -1207,7 +1213,7 @@ impl EditorPanel for ScriptGraphPanel {
             } else {
                 visuals.widgets.inactive.fg_stroke
             };
-            painter.rect_stroke(rect, rounding, outline);
+            painter.rect_stroke(rect, rounding, outline, egui::StrokeKind::Middle);
             painter.text(
                 header.left_center() + egui::vec2(8.0 * zoom, 0.0),
                 egui::Align2::LEFT_CENTER,
@@ -1268,6 +1274,23 @@ impl EditorPanel for ScriptGraphPanel {
             );
         }
     }
+}
+
+/// This frame's mouse-wheel motion, unsmoothed, in points: egui 0.29's
+/// `raw_scroll_delta`, which 0.36 no longer keeps. Lines and pages are
+/// turned into points as egui's own scrolling turns them.
+fn raw_wheel_y(i: &egui::InputState) -> f32 {
+    i.events
+        .iter()
+        .map(|e| match e {
+            egui::Event::MouseWheel { unit, delta, .. } => match unit {
+                egui::MouseWheelUnit::Point => delta.y,
+                egui::MouseWheelUnit::Line => delta.y * 50.0,
+                egui::MouseWheelUnit::Page => delta.y * i.content_rect().height(),
+            },
+            _ => 0.0,
+        })
+        .sum()
 }
 
 #[cfg(test)]
@@ -1382,24 +1405,28 @@ mod tests {
         }
 
         fn frame(&mut self, events: Vec<egui::Event>) -> egui::FullOutput {
-            self.egui_ctx.run(
-                egui::RawInput {
-                    screen_rect: Some(self.screen_rect),
-                    events,
-                    ..Default::default()
-                },
-                |egui_ctx| {
-                    egui::CentralPanel::default().show(egui_ctx, |ui| {
-                        let mut panel_ctx = EditorPanelContext {
-                            insp: &mut self.insp,
-                            entities_snapshot: &self.entities_snapshot,
-                            cursor_pos: (0.0, 0.0),
-                            type_registry: None,
-                        };
-                        self.panel.ui(ui, &mut panel_ctx);
-                    });
-                },
-            )
+            {
+                let mut output = self.egui_ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(self.screen_rect),
+                        events,
+                        ..Default::default()
+                    },
+                    |root_ui| {
+                        egui::CentralPanel::default().show(root_ui, |ui| {
+                            let mut panel_ctx = EditorPanelContext {
+                                insp: &mut self.insp,
+                                entities_snapshot: &self.entities_snapshot,
+                                cursor_pos: (0.0, 0.0),
+                                type_registry: None,
+                            };
+                            self.panel.ui(ui, &mut panel_ctx);
+                        });
+                    },
+                );
+                output.textures_delta.clear();
+                output
+            }
         }
 
         fn draw(&mut self) -> egui::FullOutput {
@@ -1408,6 +1435,18 @@ mod tests {
 
         fn settle(&mut self) -> egui::FullOutput {
             self.draw();
+            self.draw()
+        }
+
+        /// Frames until something just opened has finished opening: since
+        /// egui 0.3x a collapsing header animates open, and a popup spends
+        /// its first frame sizing itself, invisibly. With no clock in the
+        /// input each frame advances egui's time by one predicted frame
+        /// (1/60 s), so a twelfth of a second of animation is five or six.
+        fn draw_opened(&mut self) -> egui::FullOutput {
+            for _ in 0..10 {
+                self.draw();
+            }
             self.draw()
         }
 
@@ -1474,6 +1513,7 @@ mod tests {
                 egui::Event::MouseWheel {
                     unit: egui::MouseWheelUnit::Point,
                     delta: egui::vec2(0.0, dy),
+                    phase: egui::TouchPhase::Move,
                     modifiers: egui::Modifiers::default(),
                 },
             ])
@@ -2030,7 +2070,7 @@ mod tests {
         let add_button =
             text_pos(&closed, |t| t.contains("Add Node")).expect("the Add Node button must render");
         h.click(add_button);
-        let open = h.draw();
+        let open = h.draw_opened();
         // "Sequence" is a kind the demo graph does not contain, so the only
         // "Sequence" on screen is the menu row.
         let row = text_pos(&open, |t| t == "Sequence").expect("the menu must offer every kind");
@@ -2354,7 +2394,7 @@ mod tests {
         let header = text_pos(&drawn, |t| t.starts_with("Variables ("))
             .expect("the variables header must render");
         h.click(header);
-        let open = h.draw();
+        let open = h.draw_opened();
         let add =
             text_pos(&open, |t| t == "Add Variable").expect("the button must render once open");
         h.click(add);

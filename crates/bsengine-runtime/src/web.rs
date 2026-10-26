@@ -24,7 +24,6 @@ pub fn start() {
     // The console, which is where a browser build's log goes; `new_app()`
     // calls it again later, which is a no-op.
     bsengine_core::logging::init_logging();
-    drop_removed_webgpu_limits();
     resume_audio_on_first_input();
     wasm_bindgen_futures::spawn_local(async {
         if let Err(e) = run().await {
@@ -46,34 +45,6 @@ async fn run() -> Result<(), String> {
     report_frames(&mut app);
     app.run();
     Ok(())
-}
-
-/// Makes the browser's `requestDevice` ignore the device limits WebGPU has
-/// since removed from the specification.
-///
-/// wgpu 22 sends every limit it knows, `maxInterStageShaderComponents`
-/// included, and current browsers reject a request naming a limit they do not
-/// recognise ("The limit ... is not recognized"), so no device is ever made.
-/// The limit is gone from the spec (folded into `maxInterStageShaderVariables`)
-/// and newer wgpu no longer sends it; until the engine moves to one, the
-/// request is passed on without it. A browser that still knows the limit
-/// would only have been told the default anyway.
-fn drop_removed_webgpu_limits() {
-    let _ = js_sys::eval(
-        r#"(() => {
-            if (typeof GPUAdapter === 'undefined' || GPUAdapter.prototype.__bsePatched) return;
-            const request = GPUAdapter.prototype.requestDevice;
-            GPUAdapter.prototype.requestDevice = function (descriptor) {
-                if (descriptor && descriptor.requiredLimits) {
-                    const limits = Object.assign({}, descriptor.requiredLimits);
-                    delete limits.maxInterStageShaderComponents;
-                    descriptor = Object.assign({}, descriptor, { requiredLimits: limits });
-                }
-                return request.call(this, descriptor);
-            };
-            GPUAdapter.prototype.__bsePatched = true;
-        })()"#,
-    );
 }
 
 /// Starts the game's sound at the player's first click, touch or key press.

@@ -561,7 +561,7 @@ impl Harness {
         self.surface.ssgi_trace_size()
     }
 
-    #[allow(dead_code)] // only the SSGI benchmark resizes
+    #[allow(dead_code)] // only the SSGI benchmark and pixels_hdr.rs resize
     pub fn resize(&mut self, width: u32, height: u32) {
         self.surface.resize(width, height);
     }

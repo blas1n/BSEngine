@@ -394,23 +394,45 @@ fn hdr10_shows_no_ui_on_a_frame_without_one() {
     );
 }
 
-/// A resize makes the frame texture anew, and the output pass must read the
-/// new one: its bind group holds the frame's view, and one left over from
-/// before keeps the old texture alive -- the pass would go on sending the
-/// last frame drawn before the resize, whatever came after.
+/// A resize makes the HDR10 frame anew at the new size, and the output pass
+/// must read the new one: its bind group holds the frame's view, and one left
+/// over from before keeps the old texture alive. Resized to a different size
+/// -- at the same size a stale frame is still the one the chain writes, and
+/// nothing shows -- the HDR10 frame must be the scRGB one resized alike.
 #[test]
 fn hdr10_follows_the_frame_through_a_resize() {
-    let mut h = hdr_harness(HdrOutputFormat::Hdr10);
-    let dim = glowing(&mut h, 0.05);
-    h.render(&dim);
-    let before = hdr_centre(&h);
-    h.recreate_targets();
-    let bright = glowing(&mut h, 8.0);
-    h.render(&bright);
-    let after = hdr_centre(&h);
+    let (w, h) = (300u32, 225u32);
+    let frame = |format| {
+        let mut harness = hdr_harness(format);
+        let s = glowing(&mut harness, 0.5);
+        harness.render(&s);
+        harness.resize(w, h);
+        let s = glowing(&mut harness, 0.5);
+        harness.render(&s);
+        harness.last_hdr()
+    };
+    let scrgb = frame(HdrOutputFormat::Scrgb);
+    let hdr10 = frame(HdrOutputFormat::Hdr10);
+    assert_eq!(
+        (scrgb.len(), hdr10.len()),
+        ((w * h * 4) as usize, (w * h * 4) as usize),
+        "premise: both frames are the new size"
+    );
+    let centre = ((h / 2 * w + w / 2) * 4) as usize;
     assert!(
-        after > before * 4.0,
-        "after a resize the frame drawn since should be sent: {after} (before it, {before})"
+        scrgb[centre] > SCALE * 0.1,
+        "premise: the cube is at the resized frame's centre ({})",
+        scrgb[centre]
+    );
+    let differ = (0..scrgb.len())
+        .step_by(4)
+        .filter(|&i| (scrgb[i] - hdr10[i]).abs() > 0.02 + scrgb[i] * 0.05)
+        .count();
+    assert!(
+        differ * 100 <= (w * h) as usize,
+        "after a resize the HDR10 frame should be the scRGB one: {differ} of {} \
+         pixels differ",
+        w * h
     );
 }
 

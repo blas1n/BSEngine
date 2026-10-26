@@ -6935,7 +6935,7 @@ impl WgpuSurface {
     /// the device makes one fail for real.
     #[doc(hidden)]
     pub fn fail_gpu_pass_readbacks_for_testing(&mut self) -> usize {
-        wait_for_gpu(&self.device, &self.queue);
+        wait_for_gpu(&self.device);
         self.collect_gpu_pass_times();
         let mut marked = 0;
         for readback in &self.timestamp_readbacks {
@@ -7269,7 +7269,7 @@ impl WgpuSurface {
         slice.map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
         });
-        wait_for_gpu(&self.device, &self.queue);
+        wait_for_gpu(&self.device);
         rx.recv()
             .expect("map_async never reported a result")
             .expect("mapping the probe capture readback buffer failed");
@@ -7795,7 +7795,7 @@ impl WgpuSurface {
         slice.map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
         });
-        wait_for_gpu(&self.device, &self.queue);
+        wait_for_gpu(&self.device);
         rx.recv()
             .expect("map_async never reported a result")
             .expect("mapping the probe grid readback buffer failed");
@@ -10584,7 +10584,7 @@ impl WgpuSurface {
             // runs past a minute (WARP's first dispatch of the realtime GI
             // update) would otherwise be freed under the GPU -- see
             // `wait_for_gpu`.
-            wait_for_gpu(&self.device, &self.queue);
+            wait_for_gpu(&self.device);
         }
 
         let frame_stats = crate::profiler::FrameStats {
@@ -10985,53 +10985,34 @@ impl Drop for WgpuSurface {
         // on the offscreen branch (see there) is what actually covers those
         // -- this Drop impl alone was tried first and confirmed
         // insufficient: CI failed identically with only this in place.
-        wait_for_gpu(&self.device, &self.queue);
+        wait_for_gpu(&self.device);
     }
 }
 
-/// Blocks until the GPU has finished everything submitted so far -- by
-/// polling, never by `Maintain::Wait`.
+/// Blocks until the GPU has finished everything submitted so far, any
+/// `map_async` callback for that work included.
 ///
-/// `Maintain::Wait` waits on the fence for at most wgpu-core's
-/// `CLEANUP_WAIT_MS`, 60 s, and wgpu-core 22 ignores the timeout
-/// (`Device::maintain` drops `wait`'s `false`): it then triages the
-/// submission as finished, resets its command allocators and frees its
-/// staging buffers while the GPU is still running it, and the D3D12 debug
-/// layer ends the process ("CORRUPTION: ... (wgpu internal) Staging", exit
-/// 2173). One job that long is ordinary on Windows CI's software adapter:
-/// WARP compiles a compute shader on its first dispatch, and the realtime GI
-/// update's first dispatch ran past a minute there (8 s locally on two
-/// cores). Reproduced locally with a 74 s busy-loop dispatch on WARP:
-/// `Maintain::Wait` died at 60 s with that exit code; this loop waited the
-/// 74 s and carried on.
+/// A plain indefinite wait since wgpu 30. Under wgpu 22 this was a loop of
+/// non-blocking polls, because `Maintain::Wait` waited on the fence for at
+/// most wgpu-core's `CLEANUP_WAIT_MS`, 60 s, and then -- ignoring that the
+/// wait had timed out -- triaged the submission as finished, reset its
+/// command allocators and freed its staging buffers while the GPU was still
+/// running it; the D3D12 debug layer ended the process ("CORRUPTION: ...
+/// (wgpu internal) Staging", exit 2173). One job that long is ordinary on
+/// Windows CI's software adapter: WARP compiles a compute shader on its first
+/// dispatch, and the realtime GI update's first dispatch ran past a minute
+/// there.
 ///
-/// `Maintain::Poll` reads the fence's real value and never waits, so the
-/// loop cannot time out; `on_submitted_work_done` fires from the poll that
-/// sees everything done, and any `map_async` callback for that work fires in
-/// the same poll. A browser has no blocking wait to replace.
+/// wgpu 30 fixed both halves: `PollType::Wait` with no timeout waits without
+/// limit (the D3D12 HAL turns `None` into `Duration::MAX`), and after any wait
+/// `Device::maintain` reads the fence's real value and retires only the
+/// submissions it has passed. `tests/long_gpu_wait.rs` -- a 74 s dispatch on
+/// WARP, which killed wgpu 22's wait at 60 s -- passes through this.
 ///
-/// Public only for `tests/long_gpu_wait.rs`, which is that reproduction.
+/// Public only for `tests/long_gpu_wait.rs`.
 #[doc(hidden)]
-pub fn wait_for_gpu(device: &wgpu::Device, queue: &wgpu::Queue) {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        use std::sync::atomic::{AtomicBool, Ordering};
-        let done = Arc::new(AtomicBool::new(false));
-        let flag = Arc::clone(&done);
-        queue.on_submitted_work_done(move || flag.store(true, Ordering::Release));
-        loop {
-            let _ = device.poll(wgpu::PollType::Poll);
-            if done.load(Ordering::Acquire) {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(1));
-        }
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        let _ = queue;
-        let _ = device.poll(wgpu::PollType::wait_indefinitely());
-    }
+pub fn wait_for_gpu(device: &wgpu::Device) {
+    let _ = device.poll(wgpu::PollType::wait_indefinitely());
 }
 
 /// The text of every text shape in `shapes`, nested groups included, in

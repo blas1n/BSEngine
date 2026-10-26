@@ -2396,7 +2396,7 @@ pub(crate) fn probe_cells(
     staging.slice(..).map_async(wgpu::MapMode::Read, move |r| {
         let _ = tx.send(r);
     });
-    crate::surface::wait_for_gpu(device, queue);
+    crate::surface::wait_for_gpu(device);
     rx.recv()
         .expect("map_async reported")
         .expect("mapping the probe cells failed");

@@ -9,10 +9,13 @@
 //!
 //! Ignored because it takes over a minute by construction. Run it on Windows
 //! with `cargo test -p bsengine-rhi-wgpu --test long_gpu_wait -- --ignored`.
-//! It passes with `wait_for_gpu` as it is. With `wait_for_gpu` turned back
-//! into `device.poll(wgpu::PollType::wait_indefinitely())`, the process exits with 2173
-//! (shown as 125 in a POSIX shell) 60 s in. In CI the realtime GI tests stand
-//! guard instead: on Windows CI their first dispatch is the minute-long job.
+//! Under wgpu 22 a plain `device.poll(wgpu::PollType::wait_indefinitely())`
+//! made the process exit with 2173 (shown as 125 in a POSIX shell) 60 s in,
+//! and `wait_for_gpu` was a loop of non-blocking polls to get past it. Under
+//! wgpu 30 `wait_for_gpu` is that plain wait again, and this passes: the
+//! wait has no limit, and a wait that did time out would no longer retire
+//! work the fence has not passed. In CI the realtime GI tests stand guard
+//! instead: on Windows CI their first dispatch is the minute-long job.
 
 /// The spin's iteration count, in millions. 8000 is about 74 s on WARP on a
 /// desktop CPU: past the 60 s limit with room to spare, short enough to run.
@@ -103,7 +106,7 @@ fn a_gpu_job_past_a_minute_is_waited_for_not_freed() {
     queue.submit(Some(encoder.finish()));
 
     let started = std::time::Instant::now();
-    bsengine_rhi_wgpu::surface::wait_for_gpu(&device, &queue);
+    bsengine_rhi_wgpu::surface::wait_for_gpu(&device);
     let waited = started.elapsed();
     // The premise: the job ran past the limit the bug lives behind. A faster
     // machine that finishes sooner proves nothing; raise SPIN_MILLIONS.
@@ -114,5 +117,5 @@ fn a_gpu_job_past_a_minute_is_waited_for_not_freed() {
     // And the device is still usable: the next frame's work goes through.
     queue.write_buffer(&out, 128, &[2u8; 64]);
     queue.submit(None);
-    bsengine_rhi_wgpu::surface::wait_for_gpu(&device, &queue);
+    bsengine_rhi_wgpu::surface::wait_for_gpu(&device);
 }

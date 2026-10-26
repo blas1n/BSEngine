@@ -362,7 +362,12 @@ jobs:
             project="$(dirname "$(dirname "$(dirname "$log")")")"
             local safe_name
             safe_name="$(echo "$log" | tr '/\\' '__')"
-            if "$bin" --test "$project" --replay "$log" > "$workdir/$safe_name.log" 2>&1; then
+            # 1280x720 / 8. A recording asserts on transforms and HUD text,
+            # never on a frame, and on Windows a frame is WARP: since wgpu 30
+            # every sampler read goes through D3D12's sampler heap, which
+            # WARP runs ~11x slower, and this step went from 14 to 68 minutes
+            # (#2015; see test_mode::SIMULATION_FRAME_DIVISOR).
+            if "$bin" --test "$project" --replay "$log" --frame-divisor 8 > "$workdir/$safe_name.log" 2>&1; then
               echo "PASS" > "$workdir/$safe_name.status"
             else
               echo "FAIL" > "$workdir/$safe_name.status"

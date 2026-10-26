@@ -88,6 +88,7 @@ pub mod theme;
 // `--package` (which ships DXC's libraries): the runtime takes the bake crate
 // only off the web, and `--package` is compiled for the web too.
 pub use bsengine_bake::shader_compiler;
+pub use hdr_output::{resolve_hdr_levels, HdrLevels};
 pub use lightmap::LightmapParams;
 pub use mesh::{
     capsule_vertices, cube_vertices, cylinder_vertices, plane_vertices, sphere_vertices,

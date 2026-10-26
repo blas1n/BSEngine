@@ -229,20 +229,14 @@ pub struct RenderSection {
     /// `"scrgb"` (`bsengine_core::HdrOutputFormat`).
     #[serde(default)]
     pub hdr_output_format: bsengine_core::HdrOutputFormat,
-    /// How bright SDR white shows under HDR output, in nits.
-    #[serde(default = "default_hdr_paper_white_nits")]
-    pub hdr_paper_white_nits: f32,
-    /// The display's peak under HDR output, in nits.
-    #[serde(default = "default_hdr_max_nits")]
-    pub hdr_max_nits: f32,
-}
-
-fn default_hdr_paper_white_nits() -> f32 {
-    bsengine_core::hdr_output::DEFAULT_PAPER_WHITE_NITS
-}
-
-fn default_hdr_max_nits() -> f32 {
-    bsengine_core::hdr_output::DEFAULT_MAX_NITS
+    /// How bright SDR white shows under HDR output, in nits; left out, the
+    /// display's own (`HdrOutputSettings::paper_white_nits`).
+    #[serde(default)]
+    pub hdr_paper_white_nits: Option<f32>,
+    /// The display's peak under HDR output, in nits; left out, what the
+    /// display reports (`HdrOutputSettings::max_nits`).
+    #[serde(default)]
+    pub hdr_max_nits: Option<f32>,
 }
 
 fn default_gi_rays_per_frame() -> u32 {
@@ -295,8 +289,8 @@ impl Default for RenderSection {
             gi_rays_per_frame: default_gi_rays_per_frame(),
             hdr_output: false,
             hdr_output_format: bsengine_core::HdrOutputFormat::default(),
-            hdr_paper_white_nits: default_hdr_paper_white_nits(),
-            hdr_max_nits: default_hdr_max_nits(),
+            hdr_paper_white_nits: None,
+            hdr_max_nits: None,
         }
     }
 }
@@ -1171,8 +1165,13 @@ mod tests {
             m.render.hdr_output_format,
             bsengine_core::HdrOutputFormat::Scrgb
         );
-        assert_eq!(m.render.hdr_paper_white_nits, 250.0);
-        assert_eq!(m.render.hdr_max_nits, 1600.0);
+        assert_eq!(m.render.hdr_paper_white_nits, Some(250.0));
+        assert_eq!(m.render.hdr_max_nits, Some(1600.0));
+        assert_eq!(
+            (d.paper_white_nits, d.max_nits),
+            (None, None),
+            "premise: left out, both levels come from the display"
+        );
         assert!(
             m.render.hdr_output != d.enabled
                 && m.render.hdr_output_format != d.format

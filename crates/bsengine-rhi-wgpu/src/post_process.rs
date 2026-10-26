@@ -2787,21 +2787,21 @@ fn make_composite_config_bg(
 pub struct HdrOutputGpu {
     /// Nonzero for an scRGB float target.
     pub enabled: u32,
-    /// SDR white in scRGB: paper white nits / 80.
+    /// SDR white in scRGB (`HdrLevels::white`).
     pub scale: f32,
-    /// The display's peak in units of SDR white: max nits / paper white nits.
+    /// The display's peak in units of SDR white (`HdrLevels::peak`).
     pub peak: f32,
     _pad: f32,
 }
 
 impl HdrOutputGpu {
-    /// The uniform for `settings`, or off.
-    pub fn from_settings(settings: Option<bsengine_core::HdrOutputSettings>) -> Self {
-        match settings {
-            Some(s) => Self {
+    /// The uniform for `levels`, or off.
+    pub fn from_levels(levels: Option<crate::hdr_output::HdrLevels>) -> Self {
+        match levels {
+            Some(l) => Self {
                 enabled: 1,
-                scale: s.paper_white_nits / 80.0,
-                peak: (s.max_nits / s.paper_white_nits).max(1.0),
+                scale: l.white,
+                peak: l.peak,
                 _pad: 0.0,
             },
             None => Self::default(),

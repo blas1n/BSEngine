@@ -18,6 +18,77 @@ use crate::profiler::TrackedTexture;
 /// The format the UI is drawn in under HDR output: what it would be in SDR.
 pub(crate) const UI_LAYER_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
+/// Where HDR output puts SDR white and the display's peak, settled from the
+/// project's settings and the display's own ([`resolve_hdr_levels`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HdrLevels {
+    /// SDR white as an scRGB value: what the frame writes for it, and the UI's
+    /// white. Paper white nits / 80 where the signal is in absolute units.
+    pub white: f32,
+    /// The display's peak as a multiple of SDR white, 1 at least: where the
+    /// highlights roll off to.
+    pub peak: f32,
+}
+
+/// [`HdrLevels`] for `settings` on the display `display` describes, sending
+/// `signal`. A level the project sets wins; one it leaves out is the display's,
+/// and where the display says nothing, the defaults
+/// (`bsengine_core::hdr_output::DEFAULT_PAPER_WHITE_NITS` / `DEFAULT_MAX_NITS`).
+///
+/// The display's levels come in two kinds, which is what this settles:
+///
+/// - **Absolute nits** (Windows, through DXGI): paper white is the luminance
+///   the OS shows SDR white at -- the "SDR content brightness" slider -- and the
+///   peak the display's own. scRGB is absolute there (1.0 = 80 nits) and so is
+///   HDR10's PQ, so SDR white is paper white / 80 under both.
+/// - **EDR headroom** (macOS): a multiple of the system's current SDR white,
+///   and no nits at all. scRGB on Apple's EDR is relative -- 1.0 *is* the
+///   system's SDR white -- so SDR white is 1.0 there whatever paper white is,
+///   and the peak is the headroom: the 2.5 that 200 nits / 80 gives would put
+///   the UI and every mid-tone two and a half times above the desktop's white,
+///   and clip them where the headroom is smaller. HDR10 stays absolute on
+///   macOS too, so it takes paper white in nits as elsewhere.
+pub fn resolve_hdr_levels(
+    settings: &bsengine_core::HdrOutputSettings,
+    display: &wgpu::DisplayHdrInfo,
+    signal: crate::surface::HdrSignal,
+) -> HdrLevels {
+    use bsengine_core::hdr_output::{DEFAULT_MAX_NITS, DEFAULT_PAPER_WHITE_NITS};
+    // A level the OS reports as 0 or less is no level (DXGI can say 0).
+    let positive = |v: f32| v > 0.0;
+    let luminance = display.luminance.unwrap_or_default();
+    let paper = settings
+        .paper_white_nits
+        .or(luminance.sdr_white_nits.filter(|&v| positive(v)))
+        .filter(|&v| positive(v))
+        .unwrap_or(DEFAULT_PAPER_WHITE_NITS);
+    if let (crate::surface::HdrSignal::Scrgb, Some(headroom)) = (signal, display.headroom) {
+        // The headroom there is now, ahead of the most there could be: it is
+        // what the display shows at this brightness, and Apple's EDR clips
+        // above it. A project's own peak is in nits, so as a multiple of its
+        // paper white.
+        let peak = settings
+            .max_nits
+            .map(|max| max / paper)
+            .or(headroom.current.filter(|&v| positive(v)))
+            .or(headroom.potential.filter(|&v| positive(v)))
+            .unwrap_or(DEFAULT_MAX_NITS / DEFAULT_PAPER_WHITE_NITS);
+        return HdrLevels {
+            white: 1.0,
+            peak: peak.max(1.0),
+        };
+    }
+    let max = settings
+        .max_nits
+        .or(luminance.max_nits.filter(|&v| positive(v)))
+        .filter(|&v| positive(v))
+        .unwrap_or(DEFAULT_MAX_NITS);
+    HdrLevels {
+        white: paper / 80.0,
+        peak: (max / paper).max(1.0),
+    }
+}
+
 const UI_COMPOSITE_WGSL: &str = r#"
 struct Ui {
     // SDR white in the target: paper white nits / 80.
@@ -214,6 +285,15 @@ impl UiLayer {
     /// Where egui draws, cleared to transparent each frame.
     pub(crate) fn view(&self) -> &wgpu::TextureView {
         &self.view
+    }
+
+    /// Puts the UI's white at `white` (scRGB) from the next frame.
+    pub(crate) fn set_white(&self, queue: &wgpu::Queue, white: f32) {
+        queue.write_buffer(
+            &self.uniform,
+            0,
+            bytemuck::cast_slice(&[white, 0.0, 0.0, 0.0]),
+        );
     }
 
     /// Lays the layer over `target` at paper white.
@@ -501,6 +581,15 @@ impl PqOutput {
         &self.frame_view
     }
 
+    /// Puts the UI's white at `white` (scRGB) from the next frame.
+    pub(crate) fn set_white(&self, queue: &wgpu::Queue, white: f32) {
+        queue.write_buffer(
+            &self.uniform,
+            0,
+            bytemuck::cast_slice(&[white, 0.0, 0.0, 0.0]),
+        );
+    }
+
     /// Encodes the frame into `target`, the swapchain, with the UI layer laid
     /// over it when `with_ui` -- that is, when egui drew into the layer this
     /// frame; otherwise the layer still holds the last frame that had a UI.
@@ -531,5 +620,124 @@ impl PqOutput {
         });
         pass.set_bind_group(0, &self.bind_group, &[]);
         pass.draw(0..3, 0..1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::surface::HdrSignal;
+    use bsengine_core::HdrOutputSettings;
+
+    fn on(paper: Option<f32>, max: Option<f32>) -> HdrOutputSettings {
+        HdrOutputSettings {
+            enabled: true,
+            paper_white_nits: paper,
+            max_nits: max,
+            ..Default::default()
+        }
+    }
+
+    /// A Windows display: SDR white at 280 nits by the brightness slider, a
+    /// 1500-nit panel.
+    fn windows() -> wgpu::DisplayHdrInfo {
+        wgpu::DisplayHdrInfo {
+            luminance: Some(wgpu::DisplayLuminance {
+                max_nits: Some(1500.0),
+                sdr_white_nits: Some(280.0),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    /// A Mac in EDR with 3.5x headroom now, 16x at best.
+    fn mac() -> wgpu::DisplayHdrInfo {
+        wgpu::DisplayHdrInfo {
+            headroom: Some(wgpu::DisplayHeadroom {
+                current: Some(3.5),
+                potential: Some(16.0),
+                reference: None,
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn close(a: HdrLevels, white: f32, peak: f32) -> bool {
+        (a.white - white).abs() < 1e-4 && (a.peak - peak).abs() < 1e-4
+    }
+
+    /// The display's own levels where the project leaves them out, on both
+    /// signals, which are absolute on Windows: SDR white 280 / 80 = 3.5 in
+    /// scRGB, peak 1500 / 280.
+    #[test]
+    fn a_windows_display_gives_its_sdr_white_and_peak() {
+        for signal in [HdrSignal::Scrgb, HdrSignal::Hdr10] {
+            let l = resolve_hdr_levels(&on(None, None), &windows(), signal);
+            assert!(close(l, 3.5, 1500.0 / 280.0), "{signal:?}: {l:?}");
+        }
+    }
+
+    /// The project's own levels win over the display's, each on its own: a
+    /// paper white set alone still takes the display's peak, and the other way
+    /// about.
+    #[test]
+    fn the_projects_levels_win_over_the_displays() {
+        let s = HdrSignal::Hdr10;
+        let both = resolve_hdr_levels(&on(Some(160.0), Some(800.0)), &windows(), s);
+        assert!(close(both, 2.0, 5.0), "{both:?}");
+        let paper = resolve_hdr_levels(&on(Some(160.0), None), &windows(), s);
+        assert!(close(paper, 2.0, 1500.0 / 160.0), "{paper:?}");
+        let max = resolve_hdr_levels(&on(None, Some(800.0)), &windows(), s);
+        assert!(close(max, 3.5, 800.0 / 280.0), "{max:?}");
+    }
+
+    /// A display that reports nothing (Linux, a browser) gets the defaults --
+    /// 200 nits, 1000 -- and so does one that reports a level of 0, which DXGI
+    /// can; a peak at or under paper white is still 1x, never less.
+    #[test]
+    fn nothing_reported_is_the_defaults() {
+        let s = HdrSignal::Scrgb;
+        let none = resolve_hdr_levels(&on(None, None), &wgpu::DisplayHdrInfo::default(), s);
+        assert!(close(none, 2.5, 5.0), "{none:?}");
+        let zeros = wgpu::DisplayHdrInfo {
+            luminance: Some(wgpu::DisplayLuminance {
+                max_nits: Some(0.0),
+                sdr_white_nits: Some(0.0),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let z = resolve_hdr_levels(&on(None, None), &zeros, s);
+        assert!(close(z, 2.5, 5.0), "{z:?}");
+        let dim = resolve_hdr_levels(&on(Some(300.0), Some(250.0)), &zeros, s);
+        assert!(close(dim, 3.75, 1.0), "{dim:?}");
+    }
+
+    /// On a Mac's EDR, scRGB 1.0 is the system's SDR white, so that is where
+    /// SDR white goes -- not at 200 nits / 80, two and a half times above the
+    /// desktop -- and the peak is the headroom there is now, not the most
+    /// there could be. HDR10 is absolute on a Mac too: paper white in nits,
+    /// as anywhere else.
+    #[test]
+    fn a_mac_puts_sdr_white_at_edr_white_and_peaks_at_its_headroom() {
+        let l = resolve_hdr_levels(&on(None, None), &mac(), HdrSignal::Scrgb);
+        assert!(close(l, 1.0, 3.5), "scRGB on EDR: {l:?}");
+        let pq = resolve_hdr_levels(&on(None, None), &mac(), HdrSignal::Hdr10);
+        assert!(close(pq, 2.5, 5.0), "HDR10 on a Mac is absolute: {pq:?}");
+        // A project's own peak is in nits: as a multiple of its paper white.
+        let set = resolve_hdr_levels(&on(Some(250.0), Some(1000.0)), &mac(), HdrSignal::Scrgb);
+        assert!(close(set, 1.0, 4.0), "{set:?}");
+        // No headroom now reported: the most there could be.
+        let potential_only = wgpu::DisplayHdrInfo {
+            headroom: Some(wgpu::DisplayHeadroom {
+                current: None,
+                potential: Some(16.0),
+                reference: None,
+            }),
+            ..Default::default()
+        };
+        let p = resolve_hdr_levels(&on(None, None), &potential_only, HdrSignal::Scrgb);
+        assert!(close(p, 1.0, 16.0), "{p:?}");
     }
 }

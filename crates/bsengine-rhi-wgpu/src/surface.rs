@@ -3747,6 +3747,12 @@ pub struct WgpuSurface {
     /// the pass that encodes it into the PQ swapchain (`crate::hdr_output`);
     /// `None` under scRGB output, whose swapchain is that frame, and in SDR.
     pq_output: Option<crate::hdr_output::PqOutput>,
+    /// Under HDR output, where SDR white and the peak are -- the project's
+    /// settings filled in from the display (`crate::hdr_output::resolve_hdr_levels`).
+    hdr_levels: Option<crate::hdr_output::HdrLevels>,
+    /// The adapter a windowed HDR renderer asks the display's levels through
+    /// on a resize (`Self::refresh_hdr_levels`); `None` otherwise.
+    display_adapter: Option<wgpu::Adapter>,
     /// The sample count the geometry passes draw with: 1 (off) or
     /// [`crate::msaa::MSAA_SAMPLES`]. Set by [`Self::set_msaa`].
     msaa_samples: u32,
@@ -3830,7 +3836,10 @@ impl WgpuSurface {
 
         let size = window.inner_size();
         let caps = surface.get_capabilities(&adapter);
-        let hdr_swapchain = choose_hdr_swapchain(&caps.format_capabilities, hdr);
+        // Here, on the thread that runs `Startup`'s exclusive systems -- the
+        // main one, which Metal needs for this (see `refresh_hdr_levels`).
+        let display = surface.display_hdr_info(&adapter);
+        let hdr_swapchain = choose_hdr_swapchain(&caps.format_capabilities, hdr, &display);
         let (format, color_space) = hdr_swapchain.unwrap_or_else(|| {
             let sdr = caps
                 .formats
@@ -3874,7 +3883,8 @@ impl WgpuSurface {
             msaa_supported,
         )?;
         if hdr_swapchain.is_some() {
-            this.apply_hdr_output(hdr);
+            this.apply_hdr_output(hdr, &display);
+            this.display_adapter = Some(adapter);
         }
         Ok(this)
     }
@@ -3883,9 +3893,30 @@ impl WgpuSurface {
     /// output: the composite writes scRGB, FXAA and SMAA normalise luma by
     /// paper white, and the UI is drawn into a layer of its own and laid over
     /// the frame at paper white (`crate::hdr_output`). Under HDR10 the frame
-    /// is a texture of its own, encoded into the swapchain last.
-    fn apply_hdr_output(&mut self, hdr: bsengine_core::HdrOutputSettings) {
-        let gpu = crate::post_process::HdrOutputGpu::from_settings(Some(hdr));
+    /// is a texture of its own, encoded into the swapchain last. Paper white
+    /// and the peak are `hdr`'s where it sets them and `display`'s where it
+    /// does not (`crate::hdr_output::resolve_hdr_levels`).
+    fn apply_hdr_output(
+        &mut self,
+        hdr: bsengine_core::HdrOutputSettings,
+        display: &wgpu::DisplayHdrInfo,
+    ) {
+        let signal = if self.output.is_pq() {
+            HdrSignal::Hdr10
+        } else {
+            HdrSignal::Scrgb
+        };
+        let levels = crate::hdr_output::resolve_hdr_levels(&hdr, display, signal);
+        // Not `display` in the macro: tracing's macros bring a `display`
+        // function into scope, and it wins over this one.
+        let reported = display;
+        tracing::info!(
+            "[render] HDR output: {signal:?}, SDR white at scRGB {:.3}, peak {:.2}x white \
+             (display reports {reported:?})",
+            levels.white,
+            levels.peak
+        );
+        let gpu = crate::post_process::HdrOutputGpu::from_levels(Some(levels));
         self.post_process.set_hdr_output(&self.queue, gpu);
         self.egui_renderer = egui_wgpu::Renderer::new(
             &self.device,
@@ -3912,11 +3943,84 @@ impl WgpuSurface {
         });
         self.ui_layer = Some(ui_layer);
         self.hdr_output = Some(hdr);
+        self.hdr_levels = Some(levels);
+    }
+
+    /// Re-reads the display's HDR levels and applies them where they changed:
+    /// a window dragged to another display, or the OS's SDR brightness moved.
+    /// Called on every resize, which is when wgpu says to re-query.
+    ///
+    /// A query that comes back knowing nothing is ignored, not applied: Metal
+    /// answers only on the main thread, and a resize is handled by an ordinary
+    /// system, which may run on any; an empty answer there would put a Mac
+    /// back on the defaults mid-game. Platforms that report nothing at all
+    /// had the defaults from the start, so they lose nothing by it.
+    fn refresh_hdr_levels(&mut self) {
+        let Some(adapter) = &self.display_adapter else {
+            return;
+        };
+        let crate::output::Output::Window { surface, .. } = &self.output else {
+            return;
+        };
+        let display = surface.display_hdr_info(adapter);
+        self.apply_display(&display);
+    }
+
+    /// The levels `display` gives this renderer's settings and signal, applied
+    /// where they differ from the current ones; nothing for an empty
+    /// `display` (see [`Self::refresh_hdr_levels`]) or an SDR renderer.
+    fn apply_display(&mut self, display: &wgpu::DisplayHdrInfo) {
+        let (Some(hdr), Some(signal)) = (self.hdr_output, self.hdr_signal()) else {
+            return;
+        };
+        if display == &wgpu::DisplayHdrInfo::default() {
+            return;
+        }
+        let levels = crate::hdr_output::resolve_hdr_levels(&hdr, display, signal);
+        if Some(levels) != self.hdr_levels {
+            self.set_hdr_levels(levels);
+        }
+    }
+
+    /// Puts SDR white and the peak at `levels` from the next frame: the
+    /// composite's tonemap, and the UI's white in the UI layer's pass or the
+    /// HDR10 output pass.
+    fn set_hdr_levels(&mut self, levels: crate::hdr_output::HdrLevels) {
+        tracing::info!(
+            "[render] HDR output levels now: SDR white at scRGB {:.3}, peak {:.2}x white",
+            levels.white,
+            levels.peak
+        );
+        self.post_process.set_hdr_output(
+            &self.queue,
+            crate::post_process::HdrOutputGpu::from_levels(Some(levels)),
+        );
+        if let Some(layer) = &self.ui_layer {
+            layer.set_white(&self.queue, levels.white);
+        }
+        if let Some(pq) = &self.pq_output {
+            pq.set_white(&self.queue, levels.white);
+        }
+        self.hdr_levels = Some(levels);
+    }
+
+    /// For tests: what [`Self::refresh_hdr_levels`] does with the display it
+    /// read, done with `display` -- a stand-in for a window moved to another
+    /// screen, which a test has none of.
+    #[doc(hidden)]
+    pub fn apply_display_for_testing(&mut self, display: &wgpu::DisplayHdrInfo) {
+        self.apply_display(display);
     }
 
     /// Whether this renderer outputs HDR, and with what settings.
     pub fn hdr_output(&self) -> Option<bsengine_core::HdrOutputSettings> {
         self.hdr_output
+    }
+
+    /// Where this renderer puts SDR white and the peak under HDR output;
+    /// `None` in SDR.
+    pub fn hdr_levels(&self) -> Option<crate::hdr_output::HdrLevels> {
+        self.hdr_levels
     }
 
     /// The HDR signal this renderer's output carries; `None` in SDR.
@@ -3992,10 +4096,10 @@ impl WgpuSurface {
                 height,
                 ..
             } => {
-                if let Some(hdr) = self.hdr_output {
+                if let Some(levels) = self.hdr_levels {
                     // An HDR frame as an SDR screen would show it: SDR white
                     // at paper white, everything brighter clipped, encoded.
-                    let scale = hdr.paper_white_nits / 80.0;
+                    let scale = levels.white;
                     return Ok(self
                         .read_pixels_hdr()?
                         .chunks_exact(4)
@@ -4572,12 +4676,26 @@ impl WgpuSurface {
     /// `hdr.format` prefers: scRGB in an `Rgba16Float` target, or HDR10 in an
     /// `Rgb10a2Unorm` one (`Auto` too, as a display offering both gets).
     /// Either reads with [`Self::read_pixels_hdr`]; HDR10's raw code values
-    /// with [`Self::read_pixels_hdr10`].
+    /// with [`Self::read_pixels_hdr10`]. The display reports nothing, as a
+    /// Linux one does: levels `hdr` leaves out are the defaults.
     #[doc(hidden)]
     pub fn offscreen_hdr_for_testing(
         width: u32,
         height: u32,
         hdr: bsengine_core::HdrOutputSettings,
+    ) -> Result<Self, String> {
+        Self::offscreen_hdr_for_testing_on(width, height, hdr, &wgpu::DisplayHdrInfo::default())
+    }
+
+    /// [`Self::offscreen_hdr_for_testing`] on a display that reports
+    /// `display`: what a window's renderer reads from its screen when it is
+    /// made.
+    #[doc(hidden)]
+    pub fn offscreen_hdr_for_testing_on(
+        width: u32,
+        height: u32,
+        hdr: bsengine_core::HdrOutputSettings,
+        display: &wgpu::DisplayHdrInfo,
     ) -> Result<Self, String> {
         let (device, queue, timestamp_supported, instancing_supported, msaa_supported) =
             Self::shared_test_device().clone();
@@ -4605,7 +4723,7 @@ impl WgpuSurface {
             instancing_supported,
             msaa_supported,
         )?;
-        this.apply_hdr_output(hdr);
+        this.apply_hdr_output(hdr, display);
         Ok(this)
     }
 
@@ -6235,6 +6353,8 @@ impl WgpuSurface {
             hdr_output: None,
             ui_layer: None,
             pq_output: None,
+            hdr_levels: None,
+            display_adapter: None,
             msaa_samples: 1,
             msaa_targets: None,
             depth_resolve,
@@ -10526,6 +10646,9 @@ impl WgpuSurface {
                 pq.resize(&self.device, width, height, layer.view());
             }
         }
+        // A resize is when wgpu says to ask the display again: the window may
+        // be on another one now, at other levels.
+        self.refresh_hdr_levels();
         // Screen-sized, and its view is bound in group 2 -- so the light bind
         // group has to be rebuilt after it, or the mesh shader reads a view
         // into the texture that just went away.
@@ -10973,27 +11096,32 @@ mod tests {
         let both = [sdr, hdr10, scrgb];
         let pq = Some((F::Rgb10a2Unorm, S::Bt2100Pq));
         let linear = Some((F::Rgba16Float, S::ExtendedSrgbLinear));
+        // A display that says nothing of its mode, as most Vulkan ones do.
+        let unknown = wgpu::DisplayHdrInfo::default();
+        let pick = |caps: &[wgpu::SurfaceFormatCapabilities], hdr| {
+            choose_hdr_swapchain(caps, hdr, &unknown)
+        };
 
-        assert_eq!(choose_hdr_swapchain(&both, on(H::Auto)), pq, "auto: HDR10");
-        assert_eq!(choose_hdr_swapchain(&both, on(H::Hdr10)), pq);
-        assert_eq!(choose_hdr_swapchain(&both, on(H::Scrgb)), linear);
+        assert_eq!(pick(&both, on(H::Auto)), pq, "auto: HDR10");
+        assert_eq!(pick(&both, on(H::Hdr10)), pq);
+        assert_eq!(pick(&both, on(H::Scrgb)), linear);
         assert_eq!(
-            choose_hdr_swapchain(&[sdr, scrgb], on(H::Hdr10)),
+            pick(&[sdr, scrgb], on(H::Hdr10)),
             linear,
             "HDR10 asked for and not offered: scRGB stands in"
         );
         assert_eq!(
-            choose_hdr_swapchain(&[sdr, hdr10], on(H::Scrgb)),
+            pick(&[sdr, hdr10], on(H::Scrgb)),
             pq,
             "scRGB asked for and not offered: HDR10 stands in"
         );
         assert_eq!(
-            choose_hdr_swapchain(&both, bsengine_core::HdrOutputSettings::default()),
+            pick(&both, bsengine_core::HdrOutputSettings::default()),
             None,
             "off unless asked for"
         );
         assert_eq!(
-            choose_hdr_swapchain(
+            pick(
                 &[
                     sdr,
                     cap(F::Rgba16Float, Spaces::SRGB),
@@ -11003,6 +11131,41 @@ mod tests {
             ),
             None,
             "the HDR formats without their HDR colour spaces are SDR ones"
+        );
+    }
+
+    /// A display the OS is not running in HDR gets SDR, though its swapchain
+    /// could be configured HDR -- DXGI offers PQ on a plain SDR monitor (this
+    /// is what one reported: `high_dynamic_range: Some(false)`, 270 nits) --
+    /// as Unity, Unreal and Godot do; one in HDR, or one that does not say,
+    /// gets HDR as before.
+    #[test]
+    fn a_display_not_in_hdr_mode_renders_sdr() {
+        use wgpu::SurfaceColorSpaces as Spaces;
+        use wgpu::TextureFormat as F;
+        let caps = [wgpu::SurfaceFormatCapabilities {
+            format: F::Rgb10a2Unorm,
+            color_spaces: Spaces::SRGB | Spaces::BT2100_PQ,
+        }];
+        let on = bsengine_core::HdrOutputSettings {
+            enabled: true,
+            ..Default::default()
+        };
+        let mode = |hdr: Option<bool>| wgpu::DisplayHdrInfo {
+            coarse: Some(wgpu::DisplayCoarseRange {
+                high_dynamic_range: hdr,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(choose_hdr_swapchain(&caps, on, &mode(Some(false))), None);
+        let pq = Some((F::Rgb10a2Unorm, wgpu::SurfaceColorSpace::Bt2100Pq));
+        assert_eq!(choose_hdr_swapchain(&caps, on, &mode(Some(true))), pq);
+        assert_eq!(choose_hdr_swapchain(&caps, on, &mode(None)), pq);
+        assert_eq!(
+            choose_hdr_swapchain(&caps, on, &wgpu::DisplayHdrInfo::default()),
+            pq,
+            "a display that reports nothing may still be HDR"
         );
     }
 
@@ -12816,6 +12979,7 @@ struct TimestampReadback {
 fn choose_hdr_swapchain(
     caps: &[wgpu::SurfaceFormatCapabilities],
     hdr: bsengine_core::HdrOutputSettings,
+    display: &wgpu::DisplayHdrInfo,
 ) -> Option<(wgpu::TextureFormat, wgpu::SurfaceColorSpace)> {
     if !hdr.enabled {
         return None;
@@ -12824,6 +12988,19 @@ fn choose_hdr_swapchain(
     // `SurfaceColorSpace` docs): HDR output there is a later piece of work.
     if cfg!(target_arch = "wasm32") {
         tracing::warn!("[render] hdr_output asked for, but a browser build renders SDR");
+        return None;
+    }
+    // A display the OS is not running in HDR is an SDR one, whatever the
+    // swapchain could be configured as: DXGI offers PQ and scRGB on a plain
+    // SDR monitor (wgpu: capabilities do not reflect the display's mode), and
+    // the compositor squeezes what is sent back into SDR. Unity's HDR output,
+    // Unreal's and Godot's all render SDR there too. Only an explicit "no":
+    // a display that reports nothing (most Vulkan ones) may still be HDR.
+    if display.coarse.and_then(|c| c.high_dynamic_range) == Some(false) {
+        tracing::info!(
+            "[render] hdr_output asked for, but the display is not in HDR mode; \
+             rendering SDR (turn on HDR in the OS and restart to get it)"
+        );
         return None;
     }
     // By the colour spaces each format can be configured with, not by the

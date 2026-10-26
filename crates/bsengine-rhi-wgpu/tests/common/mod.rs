@@ -516,7 +516,16 @@ impl Harness {
     /// the float values.
     #[allow(dead_code)] // only pixels_hdr.rs builds one
     pub fn new_hdr(hdr: bsengine_core::HdrOutputSettings) -> Self {
-        let surface = WgpuSurface::offscreen_hdr_for_testing(WIDTH, HEIGHT, hdr)
+        Self::new_hdr_on(hdr, &wgpu::DisplayHdrInfo::default())
+    }
+
+    /// [`Self::new_hdr`] on a display that reports `display`.
+    #[allow(dead_code)] // only pixels_hdr.rs builds one
+    pub fn new_hdr_on(
+        hdr: bsengine_core::HdrOutputSettings,
+        display: &wgpu::DisplayHdrInfo,
+    ) -> Self {
+        let surface = WgpuSurface::offscreen_hdr_for_testing_on(WIDTH, HEIGHT, hdr, display)
             .expect("these tests need an adapter; a skip would look like a pass");
         let registry = GpuMeshRegistry::new(surface.device_arc());
         let textures = GpuTextureRegistry::new(surface.device_arc(), surface.queue_arc());
@@ -545,6 +554,12 @@ impl Harness {
     #[allow(dead_code)] // only pixels_hdr.rs asks
     pub fn surface(&self) -> &WgpuSurface {
         &self.surface
+    }
+
+    /// As if the window had been moved to a screen reporting `display`.
+    #[allow(dead_code)] // only pixels_hdr.rs moves one
+    pub fn move_to_display(&mut self, display: &wgpu::DisplayHdrInfo) {
+        self.surface.apply_display_for_testing(display);
     }
 
     /// Resizes the renderer to the size it already has: every screen-sized

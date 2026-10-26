@@ -534,6 +534,19 @@ impl Harness {
         self.surface.read_pixels_hdr().expect("an HDR harness")
     }
 
+    /// The last frame of an HDR10 harness as the signal itself: ten-bit PQ
+    /// code values over BT.2020, and two-bit alpha, a pixel, top row first.
+    #[allow(dead_code)] // only pixels_hdr.rs reads one
+    pub fn last_hdr10(&self) -> Vec<[u16; 4]> {
+        self.surface.read_pixels_hdr10().expect("an HDR10 harness")
+    }
+
+    /// The renderer under test.
+    #[allow(dead_code)] // only pixels_hdr.rs asks
+    pub fn surface(&self) -> &WgpuSurface {
+        &self.surface
+    }
+
     /// Resizes the renderer to the size it already has: every screen-sized
     /// target is made anew, at a size a test can still read back. Anything
     /// that kept a view into the old targets would go on reading them.

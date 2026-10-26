@@ -203,7 +203,7 @@ pub use follow::{Follow, LookAt};
 pub use fxaa::Fxaa;
 pub use gi_config::GiSettings;
 pub use global_transform::GlobalTransform;
-pub use hdr_output::HdrOutputSettings;
+pub use hdr_output::{HdrOutputFormat, HdrOutputSettings};
 pub use hud_texts::HudTexts;
 pub use import_settings::ImportSettings;
 pub use inspector::{

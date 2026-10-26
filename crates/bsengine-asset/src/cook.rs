@@ -518,7 +518,6 @@ pub fn package(
         runtime_exe,
         out_dir,
         None,
-        &[],
     )
 }
 
@@ -528,18 +527,13 @@ pub fn package(
 /// texture. What the reference engines all do: Unity builds compressed data
 /// into its bundles, Unreal cooks it into the pak, Godot imports to `.ctex`.
 ///
-/// `runtime_libraries` are files the runtime loads from beside itself, copied
-/// there in the two modes that ship it as an ordinary file: on Windows, the
-/// DXC shader compiler's `dxcompiler.dll` and `dxil.dll`
-/// (`bsengine_bake::shader_compiler`). A single-file build ships none -- one
-/// file cannot carry others beside it -- and runs without them (on Windows,
-/// that is FXC); a web build has no executable to put them beside.
+/// The executable is the whole runtime: D3D12's shader compiler is linked
+/// into it (`bsengine_bake::shader_compiler`), so no mode ships a library
+/// beside it.
 ///
 /// # Errors
 ///
-/// As [`package`], and when a texture the cook reached or a runtime library
-/// cannot be read.
-#[allow(clippy::too_many_arguments)] // two callers; a struct would only rename the eight values
+/// As [`package`], and when a texture the cook reached cannot be read.
 pub fn package_with_precook(
     project_dir: impl AsRef<Path>,
     entry_scene: &str,
@@ -548,7 +542,6 @@ pub fn package_with_precook(
     runtime_exe: &Path,
     out_dir: &Path,
     precook: Option<PrecookTexture<'_>>,
-    runtime_libraries: &[std::path::PathBuf],
 ) -> io::Result<CookedProject> {
     let project_dir = project_dir.as_ref();
 
@@ -590,19 +583,8 @@ pub fn package_with_precook(
         copy(&project_dir.join(MANIFEST), &out_dir.join(MANIFEST))?;
     }
 
-    let ship_runtime = |out_dir: &Path| -> io::Result<()> {
-        copy(runtime_exe, &out_dir.join(exe_name))?;
-        for library in runtime_libraries {
-            let name = library.file_name().ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "a runtime library has no file name",
-                )
-            })?;
-            copy(library, &out_dir.join(name))?;
-        }
-        Ok(())
-    };
+    let ship_runtime =
+        |out_dir: &Path| -> io::Result<()> { copy(runtime_exe, &out_dir.join(exe_name)) };
     match mode {
         PackageMode::Loose => {
             ship_runtime(out_dir)?;
@@ -1618,7 +1600,6 @@ mod tests {
                 &exe,
                 &out,
                 Some(&precook),
-                &[],
             )
             .expect("package");
 
@@ -1647,69 +1628,6 @@ mod tests {
                 !out.join(format!("{PRECOOKED_MIP_DIR}/B.mips")).exists(),
                 "{mode:?}: the uncompressed texture ships no cache file"
             );
-        }
-    }
-
-    /// The runtime's libraries (on Windows, DXC's two) ship beside it in the
-    /// two modes that ship it as a file of its own, byte for byte, and in
-    /// neither of the others: a single-file build is one file, and a web build
-    /// has no executable.
-    #[test]
-    fn the_runtimes_libraries_ship_beside_it_where_it_is_a_file_of_its_own() {
-        for mode in [
-            PackageMode::Loose,
-            PackageMode::Pak,
-            PackageMode::Single,
-            PackageMode::Web,
-        ] {
-            let probe = Probe::create();
-            probe.write(
-                "project.toml",
-                "[project]\nname = \"P\"\nentry_scene = \"assets/scenes/main.ron\"\n",
-            );
-            probe.write("assets/scenes/main.ron", "(entities: [])");
-            probe.write("libs/dxcompiler.dll", "compiler");
-            probe.write("libs/dxil.dll", "validator");
-            let libraries = [
-                probe.0.join("libs/dxcompiler.dll"),
-                probe.0.join("libs/dxil.dll"),
-            ];
-            let exe = probe.fake_runtime();
-            let out = probe.0.join("dist");
-
-            let cooked = package_with_precook(
-                &probe.0,
-                "assets/scenes/main.ron",
-                &[],
-                mode,
-                &exe,
-                &out,
-                None,
-                &libraries,
-            )
-            .expect("package");
-            assert!(cooked.is_ok(), "{mode:?}: {:?}", cooked.missing);
-
-            let shipped = |name: &str| std::fs::read_to_string(out.join(name)).ok();
-            if matches!(mode, PackageMode::Loose | PackageMode::Pak) {
-                assert_eq!(
-                    shipped("dxcompiler.dll").as_deref(),
-                    Some("compiler"),
-                    "{mode:?}"
-                );
-                assert_eq!(
-                    shipped("dxil.dll").as_deref(),
-                    Some("validator"),
-                    "{mode:?}"
-                );
-            } else {
-                assert!(
-                    out.read_dir().expect("the build").count() > 0,
-                    "{mode:?}: premise: the build was written"
-                );
-                assert_eq!(shipped("dxcompiler.dll"), None, "{mode:?}");
-                assert_eq!(shipped("dxil.dll"), None, "{mode:?}");
-            }
         }
     }
 

@@ -1,15 +1,18 @@
-//! D3D12 compiles this engine's shaders with DXC where its libraries are
-//! found (`bsengine_bake::shader_compiler`).
+//! D3D12 compiles this engine's shaders with the DXC linked into it
+//! (`bsengine_bake::shader_compiler`).
 //!
 //! What a device shows of its compiler is the shader model it offers: wgpu
 //! caps a D3D12 adapter at shader model 5.1 under FXC, and offers 6.x -- and
 //! with it `SUBGROUP` and `SHADER_INT64`, where the hardware has them --
-//! only when DXC loaded. Asking for DXC is not enough to get it: wgpu falls
-//! back to FXC, with a log line and nothing else, when it cannot load either
-//! library -- which is exactly the failure this file exists to catch.
+//! only under DXC.
+//!
+//! No skip where DXC is missing, as there was while DXC was two libraries a
+//! machine might not have: wherever [`STATIC_DXC`] holds it is in the
+//! executable, so a device without it is the failure. That is also what a
+//! packaged build -- the same executable, single-file included -- runs.
 #![cfg(windows)]
 
-use bsengine_bake::shader_compiler::{instance_descriptor, locate};
+use bsengine_bake::shader_compiler::{instance_descriptor, STATIC_DXC};
 
 /// The features only shader model 6 brings, of the adapter `descriptor` (on
 /// D3D12 alone) gives.
@@ -21,20 +24,12 @@ fn shader_model_6_features(mut descriptor: wgpu::InstanceDescriptor) -> wgpu::Fe
     adapter.features() & (wgpu::Features::SUBGROUP | wgpu::Features::SHADER_INT64)
 }
 
-/// The engine's devices are made with DXC when its libraries are on the
-/// machine. Where they are not, the test says so and passes -- a developer's
-/// machine without a Windows SDK is an ordinary one -- unless
-/// `BSENGINE_REQUIRE_DXC` is set, as Windows CI sets it: there a missing DXC
-/// would mean every other test on that runner quietly measured FXC.
+/// The engine's devices are made with DXC, and the premise that the features
+/// read are DXC's: the same adapter under FXC has none of them.
 #[test]
-fn d3d12_compiles_with_dxc_where_its_libraries_are() {
-    if locate().is_none() {
-        assert!(
-            std::env::var_os("BSENGINE_REQUIRE_DXC").is_none(),
-            "BSENGINE_REQUIRE_DXC is set, and no dxcompiler.dll and dxil.dll were found \
-             (BSENGINE_DXC_DIR, beside the executable, or a Windows SDK)"
-        );
-        eprintln!("no DXC on this machine: nothing to check");
+fn d3d12_compiles_with_the_dxc_linked_in() {
+    if !STATIC_DXC {
+        eprintln!("this build has no DXC linked in (ARM64 or not MSVC): devices use FXC");
         return;
     }
     let fxc = shader_model_6_features({
@@ -46,7 +41,15 @@ fn d3d12_compiles_with_dxc_where_its_libraries_are() {
         fxc.is_empty(),
         "premise: under FXC the adapter stops at shader model 5.1: {fxc:?}"
     );
-    let engine = shader_model_6_features(instance_descriptor());
+    let descriptor = instance_descriptor();
+    assert!(
+        matches!(
+            descriptor.backend_options.dx12.shader_compiler,
+            wgpu::Dx12Compiler::StaticDxc
+        ),
+        "the engine's descriptor should ask for the DXC linked in"
+    );
+    let engine = shader_model_6_features(descriptor);
     assert!(
         !engine.is_empty(),
         "the engine's devices should compile with DXC, and offer shader model 6 \
@@ -60,12 +63,8 @@ fn d3d12_compiles_with_dxc_where_its_libraries_are() {
 /// hand it Vulkan, where the question does not arise).
 #[test]
 fn a_renderer_on_d3d12_is_made_with_dxc() {
-    if locate().is_none() {
-        assert!(
-            std::env::var_os("BSENGINE_REQUIRE_DXC").is_none(),
-            "BSENGINE_REQUIRE_DXC is set, and no DXC was found"
-        );
-        eprintln!("no DXC on this machine: nothing to check");
+    if !STATIC_DXC {
+        eprintln!("this build has no DXC linked in (ARM64 or not MSVC): devices use FXC");
         return;
     }
     // Rust 2021: not `unsafe` yet. The other test here sets its backends

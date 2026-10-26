@@ -3836,7 +3836,10 @@ impl WgpuSurface {
 
         let size = window.inner_size();
         let caps = surface.get_capabilities(&adapter);
-        let hdr_swapchain = choose_hdr_swapchain(&caps.format_capabilities, hdr);
+        // Here, on the thread that runs `Startup`'s exclusive systems -- the
+        // main one, which Metal needs for this (see `refresh_hdr_levels`).
+        let display = surface.display_hdr_info(&adapter);
+        let hdr_swapchain = choose_hdr_swapchain(&caps.format_capabilities, hdr, &display);
         let (format, color_space) = hdr_swapchain.unwrap_or_else(|| {
             let sdr = caps
                 .formats
@@ -3865,9 +3868,6 @@ impl WgpuSurface {
             desired_maximum_frame_latency: 2,
         };
         surface.configure(&device, &config);
-        // Here, on the thread that runs `Startup`'s exclusive systems -- the
-        // main one, which Metal needs for this (see `refresh_hdr_levels`).
-        let display = hdr_swapchain.map(|_| surface.display_hdr_info(&adapter));
 
         let mut this = Self::build(
             device,
@@ -3882,7 +3882,7 @@ impl WgpuSurface {
             instancing_supported,
             msaa_supported,
         )?;
-        if let Some(display) = display {
+        if hdr_swapchain.is_some() {
             this.apply_hdr_output(hdr, &display);
             this.display_adapter = Some(adapter);
         }
@@ -11096,27 +11096,32 @@ mod tests {
         let both = [sdr, hdr10, scrgb];
         let pq = Some((F::Rgb10a2Unorm, S::Bt2100Pq));
         let linear = Some((F::Rgba16Float, S::ExtendedSrgbLinear));
+        // A display that says nothing of its mode, as most Vulkan ones do.
+        let unknown = wgpu::DisplayHdrInfo::default();
+        let pick = |caps: &[wgpu::SurfaceFormatCapabilities], hdr| {
+            choose_hdr_swapchain(caps, hdr, &unknown)
+        };
 
-        assert_eq!(choose_hdr_swapchain(&both, on(H::Auto)), pq, "auto: HDR10");
-        assert_eq!(choose_hdr_swapchain(&both, on(H::Hdr10)), pq);
-        assert_eq!(choose_hdr_swapchain(&both, on(H::Scrgb)), linear);
+        assert_eq!(pick(&both, on(H::Auto)), pq, "auto: HDR10");
+        assert_eq!(pick(&both, on(H::Hdr10)), pq);
+        assert_eq!(pick(&both, on(H::Scrgb)), linear);
         assert_eq!(
-            choose_hdr_swapchain(&[sdr, scrgb], on(H::Hdr10)),
+            pick(&[sdr, scrgb], on(H::Hdr10)),
             linear,
             "HDR10 asked for and not offered: scRGB stands in"
         );
         assert_eq!(
-            choose_hdr_swapchain(&[sdr, hdr10], on(H::Scrgb)),
+            pick(&[sdr, hdr10], on(H::Scrgb)),
             pq,
             "scRGB asked for and not offered: HDR10 stands in"
         );
         assert_eq!(
-            choose_hdr_swapchain(&both, bsengine_core::HdrOutputSettings::default()),
+            pick(&both, bsengine_core::HdrOutputSettings::default()),
             None,
             "off unless asked for"
         );
         assert_eq!(
-            choose_hdr_swapchain(
+            pick(
                 &[
                     sdr,
                     cap(F::Rgba16Float, Spaces::SRGB),
@@ -11126,6 +11131,41 @@ mod tests {
             ),
             None,
             "the HDR formats without their HDR colour spaces are SDR ones"
+        );
+    }
+
+    /// A display the OS is not running in HDR gets SDR, though its swapchain
+    /// could be configured HDR -- DXGI offers PQ on a plain SDR monitor (this
+    /// is what one reported: `high_dynamic_range: Some(false)`, 270 nits) --
+    /// as Unity, Unreal and Godot do; one in HDR, or one that does not say,
+    /// gets HDR as before.
+    #[test]
+    fn a_display_not_in_hdr_mode_renders_sdr() {
+        use wgpu::SurfaceColorSpaces as Spaces;
+        use wgpu::TextureFormat as F;
+        let caps = [wgpu::SurfaceFormatCapabilities {
+            format: F::Rgb10a2Unorm,
+            color_spaces: Spaces::SRGB | Spaces::BT2100_PQ,
+        }];
+        let on = bsengine_core::HdrOutputSettings {
+            enabled: true,
+            ..Default::default()
+        };
+        let mode = |hdr: Option<bool>| wgpu::DisplayHdrInfo {
+            coarse: Some(wgpu::DisplayCoarseRange {
+                high_dynamic_range: hdr,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(choose_hdr_swapchain(&caps, on, &mode(Some(false))), None);
+        let pq = Some((F::Rgb10a2Unorm, wgpu::SurfaceColorSpace::Bt2100Pq));
+        assert_eq!(choose_hdr_swapchain(&caps, on, &mode(Some(true))), pq);
+        assert_eq!(choose_hdr_swapchain(&caps, on, &mode(None)), pq);
+        assert_eq!(
+            choose_hdr_swapchain(&caps, on, &wgpu::DisplayHdrInfo::default()),
+            pq,
+            "a display that reports nothing may still be HDR"
         );
     }
 
@@ -12939,6 +12979,7 @@ struct TimestampReadback {
 fn choose_hdr_swapchain(
     caps: &[wgpu::SurfaceFormatCapabilities],
     hdr: bsengine_core::HdrOutputSettings,
+    display: &wgpu::DisplayHdrInfo,
 ) -> Option<(wgpu::TextureFormat, wgpu::SurfaceColorSpace)> {
     if !hdr.enabled {
         return None;
@@ -12947,6 +12988,19 @@ fn choose_hdr_swapchain(
     // `SurfaceColorSpace` docs): HDR output there is a later piece of work.
     if cfg!(target_arch = "wasm32") {
         tracing::warn!("[render] hdr_output asked for, but a browser build renders SDR");
+        return None;
+    }
+    // A display the OS is not running in HDR is an SDR one, whatever the
+    // swapchain could be configured as: DXGI offers PQ and scRGB on a plain
+    // SDR monitor (wgpu: capabilities do not reflect the display's mode), and
+    // the compositor squeezes what is sent back into SDR. Unity's HDR output,
+    // Unreal's and Godot's all render SDR there too. Only an explicit "no":
+    // a display that reports nothing (most Vulkan ones) may still be HDR.
+    if display.coarse.and_then(|c| c.high_dynamic_range) == Some(false) {
+        tracing::info!(
+            "[render] hdr_output asked for, but the display is not in HDR mode; \
+             rendering SDR (turn on HDR in the OS and restart to get it)"
+        );
         return None;
     }
     // By the colour spaces each format can be configured with, not by the

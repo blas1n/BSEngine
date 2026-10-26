@@ -260,50 +260,6 @@ fn a_single_file_build_replays_its_recording_from_the_executable() {
     );
 }
 
-/// On Windows a loose or pak build carries DXC's two libraries beside its
-/// executable, from where the runtime finds them (`BSENGINE_DXC_DIR` first),
-/// so a player's D3D12 compiles with DXC rather than FXC. Stand-ins here,
-/// whose bytes say which copy shipped; a single-file build ships neither,
-/// as the test above has it.
-#[cfg(windows)]
-#[test]
-fn a_windows_build_ships_dxc_beside_its_executable() {
-    let libs = Output::new();
-    std::fs::create_dir_all(&libs.0).expect("a directory of stand-ins");
-    std::fs::write(libs.0.join("dxcompiler.dll"), "the compiler").expect("a stand-in");
-    std::fs::write(libs.0.join("dxil.dll"), "the validator").expect("a stand-in");
-    for mode in ["loose", "pak"] {
-        let output = Output::new();
-        let status = Command::new(env!("CARGO_BIN_EXE_bsengine-runtime"))
-            .env("BSENGINE_DXC_DIR", &libs.0)
-            .arg("--package")
-            .arg(repo_root().join("games/mini-arena"))
-            .arg("--out")
-            .arg(&output.0)
-            .arg("--mode")
-            .arg(mode)
-            .status()
-            .expect("run --package");
-        assert!(status.success(), "packaging as {mode} failed: {status}");
-        assert!(
-            output.0.join(runtime_file_name()).is_file(),
-            "{mode}: premise: the executable shipped"
-        );
-        for (library, contents) in [
-            ("dxcompiler.dll", "the compiler"),
-            ("dxil.dll", "the validator"),
-        ] {
-            assert_eq!(
-                std::fs::read_to_string(output.0.join(library))
-                    .ok()
-                    .as_deref(),
-                Some(contents),
-                "{mode}: {library} beside the executable, the copy BSENGINE_DXC_DIR names"
-            );
-        }
-    }
-}
-
 /// The scene shim, which no `AssetReader` covers.
 ///
 /// `tilt-run` is the only game that calls `Bsengine.loadScene`, and clearing

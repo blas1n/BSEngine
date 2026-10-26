@@ -3776,19 +3776,25 @@ pub(crate) fn new_instance() -> wgpu::Instance {
     let descriptor = bsengine_bake::shader_compiler::instance_descriptor();
     if cfg!(windows) {
         LOGGED.call_once(|| match &descriptor.backend_options.dx12.shader_compiler {
-            wgpu::Dx12Compiler::DynamicDxc { dxc_path } => {
-                tracing::info!("D3D12 shaders compile with DXC from {dxc_path}")
+            wgpu::Dx12Compiler::StaticDxc => {
+                tracing::info!("D3D12 shaders compile with DXC, linked into this executable")
             }
-            wgpu::Dx12Compiler::StaticDxc | wgpu::Dx12Compiler::Auto => {
+            wgpu::Dx12Compiler::DynamicDxc { dxc_path } => {
                 tracing::info!(
-                    "D3D12 shaders compile with DXC, linked in or from the DLL search path"
+                    "D3D12 shaders compile with DXC from {dxc_path} (WGPU_DX12_COMPILER)"
                 )
             }
+            wgpu::Dx12Compiler::Auto => {
+                tracing::info!("D3D12 shaders compile with whichever compiler wgpu finds")
+            }
             wgpu::Dx12Compiler::Fxc => tracing::warn!(
-                "D3D12 shaders compile with FXC: no {} found beside the executable, in {} \
-                 or in a Windows SDK -- pipelines take several times longer to build",
-                bsengine_bake::shader_compiler::DXC_LIBRARIES.join(" and "),
-                bsengine_bake::shader_compiler::DXC_DIR_ENV
+                "D3D12 shaders compile with FXC: {} -- pipelines take several times longer \
+                 to build",
+                if bsengine_bake::shader_compiler::STATIC_DXC {
+                    "WGPU_DX12_COMPILER asked for it"
+                } else {
+                    "this build has no DXC linked in (Windows on ARM64, or not MSVC)"
+                }
             ),
         });
     }

@@ -75,7 +75,11 @@ bevy_tasks        = { version = "0.14", default-features = false }
 tracing           = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 winit             = "0.30"
-wgpu              = "30"
+# `static-dxc`: D3D12 compiles shaders with DXC linked into the executable, so
+# no build ships or looks for `dxcompiler.dll` (`bsengine_bake::shader_compiler`).
+# Only Windows on x86_64 MSVC gets it -- wgpu-hal's own condition -- and the
+# feature is inert everywhere else.
+wgpu              = { version = "30", features = ["static-dxc"] }
 pollster          = "0.3"
 bytemuck          = { version = "1", features = ["derive"] }
 glam              = "0.29"

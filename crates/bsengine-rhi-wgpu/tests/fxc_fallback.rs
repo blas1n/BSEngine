@@ -1,11 +1,11 @@
 //! Every renderer pipeline still compiles under FXC.
 //!
-//! The engine's devices compile D3D12 shaders with DXC where its libraries are
-//! found (`bsengine_bake::shader_compiler`), and everything else in this crate
-//! is tested that way on Windows CI. FXC is still what a machine without them
-//! runs -- a single-file build always, since one file cannot carry two
-//! libraries beside it -- and FXC rejects things DXC takes (an
-//! array-returning function, X3017, was one). So one renderer is built here
+//! The engine's devices compile D3D12 shaders with the DXC linked into it
+//! (`bsengine_bake::shader_compiler`), and everything else in this crate is
+//! tested that way on Windows CI. FXC is still what a build without DXC runs
+//! -- Windows on ARM64, or not MSVC -- and what `WGPU_DX12_COMPILER=fxc` asks
+//! for, and FXC rejects things DXC takes (an array-returning function, X3017,
+//! was one). So one renderer is built here
 //! under FXC, on D3D12, with every pipeline it makes; a pipeline FXC rejects
 //! is a validation error, and wgpu panics on one nobody catches.
 //!

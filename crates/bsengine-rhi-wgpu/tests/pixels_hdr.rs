@@ -26,8 +26,8 @@ const fn hdr(format: HdrOutputFormat) -> HdrOutputSettings {
     HdrOutputSettings {
         enabled: true,
         format,
-        paper_white_nits: 200.0,
-        max_nits: 1000.0,
+        paper_white_nits: Some(200.0),
+        max_nits: Some(1000.0),
     }
 }
 const SCALE: f32 = 200.0 / 80.0;
@@ -443,4 +443,155 @@ fn hdr10_follows_the_frame_through_a_resize() {
 fn hdr_output_auto_sends_hdr10() {
     let h = Harness::new_hdr(hdr(HdrOutputFormat::Auto));
     assert_eq!(h.surface().hdr_signal(), Some(HdrSignal::Hdr10));
+}
+
+/// HDR output on `format` with both levels left to the display.
+const fn from_display(format: HdrOutputFormat) -> HdrOutputSettings {
+    HdrOutputSettings {
+        enabled: true,
+        format,
+        paper_white_nits: None,
+        max_nits: None,
+    }
+}
+
+/// A Windows display: SDR white at `sdr` nits, a `max`-nit panel.
+fn windows_display(sdr: f32, max: f32) -> wgpu::DisplayHdrInfo {
+    wgpu::DisplayHdrInfo {
+        luminance: Some(wgpu::DisplayLuminance {
+            max_nits: Some(max),
+            sdr_white_nits: Some(sdr),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+/// With paper white left to the display, the UI's white is the display's SDR
+/// white -- 280 nits here, the OS's brightness slider, so 3.5 in scRGB and PQ
+/// code 629 -- not the 200-nit default.
+#[test]
+fn hdr_output_takes_paper_white_from_the_display() {
+    let display = windows_display(280.0, 1500.0);
+    for (signal, format) in SIGNALS {
+        let mut h = Harness::new_hdr_on(from_display(format), &display);
+        draw_ui_image(&mut h, [255, 255, 255, 255]);
+        let f = h.last_hdr();
+        let px = [f[UI_AT], f[UI_AT + 1], f[UI_AT + 2]];
+        assert!(
+            px.iter().all(|&v| (v - 3.5).abs() < 0.06),
+            "{signal}: the UI's white should be the display's SDR white (3.5): {px:?}"
+        );
+    }
+    let mut h = Harness::new_hdr_on(from_display(HdrOutputFormat::Hdr10), &display);
+    draw_ui_image(&mut h, [255, 255, 255, 255]);
+    let code = h.last_hdr10()[UI_AT / 4][0];
+    assert!(
+        code.abs_diff(pq_code(280.0)) <= 1,
+        "HDR10: 280 nits is code {}: {code}",
+        pq_code(280.0)
+    );
+}
+
+/// With the peak left to the display, highlights run up to the display's
+/// own: a 4000-nit panel at 200-nit white has 20x white of headroom, four
+/// times the 1000-nit default's, and a blinding surface uses it.
+#[test]
+fn hdr_output_takes_the_peak_from_the_display() {
+    for (signal, format) in SIGNALS {
+        let mut h = Harness::new_hdr_on(from_display(format), &windows_display(200.0, 4000.0));
+        let s = glowing(&mut h, 1000.0);
+        h.render(&s);
+        let blinding = hdr_centre(&h) / SCALE;
+        assert!(
+            blinding > PEAK * 2.0 && blinding <= 20.0 * 1.01,
+            "{signal}: a blinding surface should reach toward the display's 20x \
+             white, past the default's {PEAK}x: {blinding:.2}"
+        );
+    }
+}
+
+/// On a Mac's EDR, scRGB 1.0 is the system's own SDR white, so the UI's white
+/// is 1.0 there -- at 200 nits / 80 it would be two and a half times the
+/// desktop's white -- and highlights stop at the headroom there is now.
+#[test]
+fn hdr_output_on_edr_puts_sdr_white_at_edr_white() {
+    let mac = wgpu::DisplayHdrInfo {
+        headroom: Some(wgpu::DisplayHeadroom {
+            current: Some(3.0),
+            potential: Some(16.0),
+            reference: None,
+        }),
+        ..Default::default()
+    };
+    let mut h = Harness::new_hdr_on(from_display(HdrOutputFormat::Scrgb), &mac);
+    draw_ui_image(&mut h, [255, 255, 255, 255]);
+    let f = h.last_hdr();
+    assert!(
+        (f[UI_AT] - 1.0).abs() < 0.02,
+        "the UI's white should be EDR white, 1.0: {}",
+        f[UI_AT]
+    );
+    let s = glowing(&mut h, 1000.0);
+    h.render(&s);
+    let blinding = hdr_centre(&h);
+    assert!(
+        blinding > 2.0 && blinding <= 3.0 * 1.001,
+        "highlights should stop at the 3x headroom: {blinding:.3}"
+    );
+}
+
+/// A window moved to another display is told that display's levels from
+/// the next frame -- in the composite, the UI layer's pass and the HDR10
+/// output pass alike -- and an answer that knows nothing (Metal off the main
+/// thread) changes nothing back.
+#[test]
+fn hdr_output_follows_the_window_to_another_display() {
+    for (signal, format) in SIGNALS {
+        let mut h = Harness::new_hdr_on(from_display(format), &windows_display(200.0, 1000.0));
+        draw_ui_image(&mut h, [255, 255, 255, 255]);
+        let before = h.last_hdr()[UI_AT];
+        assert!(
+            (before - 2.5).abs() < 0.05,
+            "{signal}: premise: 200 nits first ({before})"
+        );
+        h.move_to_display(&windows_display(320.0, 1000.0));
+        let scene = draw_ui_image(&mut h, [255, 255, 255, 255]);
+        let after = h.last_hdr()[UI_AT];
+        assert!(
+            (after - 4.0).abs() < 0.07,
+            "{signal}: on the 320-nit display the UI's white should be 4.0: {after}"
+        );
+        h.move_to_display(&wgpu::DisplayHdrInfo::default());
+        h.render(&scene);
+        let kept = h.last_hdr()[UI_AT];
+        assert!(
+            (kept - after).abs() < 0.02,
+            "{signal}: an empty answer should leave the levels as they were: {kept} \
+             (was {after})"
+        );
+    }
+}
+
+/// The scene follows the new display too, not only the UI: a mid-tone surface
+/// is the same share of SDR white on either display, so it comes out 320 / 200
+/// times as bright in scRGB after the move -- the composite was told.
+#[test]
+fn hdr_output_scene_follows_the_window_to_another_display() {
+    for (signal, format) in SIGNALS {
+        let mut h = Harness::new_hdr_on(from_display(format), &windows_display(200.0, 1000.0));
+        let s = glowing(&mut h, 0.3);
+        h.render(&s);
+        let before = hdr_centre(&h);
+        h.move_to_display(&windows_display(320.0, 1000.0));
+        let s = glowing(&mut h, 0.3);
+        h.render(&s);
+        let after = hdr_centre(&h);
+        let ratio = after / before;
+        assert!(
+            (ratio - 1.6).abs() < 0.06,
+            "{signal}: the scene's mid-tone should brighten by 320/200 with the \
+             display's white: {before:.4} -> {after:.4} ({ratio:.3}x)"
+        );
+    }
 }

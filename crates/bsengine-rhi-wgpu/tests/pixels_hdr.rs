@@ -1,28 +1,58 @@
-//! HDR display output (`bsengine_core::HdrOutputSettings`): the frame in
-//! linear scRGB -- 1.0 = 80 nits -- with mid-tones as SDR shows them and
-//! highlights kept up to the display's peak.
+//! HDR display output (`bsengine_core::HdrOutputSettings`): the frame with
+//! mid-tones as SDR shows them and highlights kept up to the display's peak,
+//! sent as scRGB (linear BT.709 floats, 1.0 = 80 nits) or as HDR10 (ten-bit
+//! PQ over BT.2020).
 //!
 //! An HDR display is not something a test machine has, so this reads the
-//! float target the swapchain would present, and compares it against the SDR
+//! target the swapchain would present, and compares it against the SDR
 //! renderer drawing the same scene: what must match, matches; what must
 //! differ -- only the highlights -- differs, by the amounts the settings say.
+//! Every such check runs on both signals, HDR10's decoded back into scRGB
+//! (`read_pixels_hdr`); the HDR10 tests at the end read its code values
+//! themselves, against ST 2084 and BT.2087 worked out here, so an encoder and
+//! decoder wrong the same way cannot pass for right.
 
 mod common;
 
 use std::collections::HashMap;
 
-use bsengine_core::{HdrOutputSettings, UiAnchor, UiState, UiWidget};
+use bsengine_core::{HdrOutputFormat, HdrOutputSettings, UiAnchor, UiState, UiWidget};
+use bsengine_rhi_wgpu::surface::HdrSignal;
 use common::{Draw, Harness, Light, Scene, HEIGHT, WIDTH};
 use glam::Vec3;
 
 /// Paper white 200 nits (SDR white = 2.5 in scRGB), peak 1000 (5x white).
-const HDR: HdrOutputSettings = HdrOutputSettings {
-    enabled: true,
-    paper_white_nits: 200.0,
-    max_nits: 1000.0,
-};
+const fn hdr(format: HdrOutputFormat) -> HdrOutputSettings {
+    HdrOutputSettings {
+        enabled: true,
+        format,
+        paper_white_nits: 200.0,
+        max_nits: 1000.0,
+    }
+}
 const SCALE: f32 = 200.0 / 80.0;
 const PEAK: f32 = 1000.0 / 200.0;
+
+/// The two signals, as the checks below name them.
+const SIGNALS: [(&str, HdrOutputFormat); 2] = [
+    ("scRGB", HdrOutputFormat::Scrgb),
+    ("HDR10", HdrOutputFormat::Hdr10),
+];
+
+/// An HDR harness on `format`, and the premise that it carries that signal.
+fn hdr_harness(format: HdrOutputFormat) -> Harness {
+    let h = Harness::new_hdr(hdr(format));
+    let want = match format {
+        HdrOutputFormat::Scrgb => HdrSignal::Scrgb,
+        HdrOutputFormat::Auto | HdrOutputFormat::Hdr10 => HdrSignal::Hdr10,
+    };
+    assert_eq!(
+        h.surface().hdr_signal(),
+        Some(want),
+        "premise: the harness outputs {format:?}"
+    );
+    h
+}
 
 fn srgb_to_linear(c: u8) -> f32 {
     let c = c as f32 / 255.0;
@@ -56,17 +86,19 @@ fn glowing(h: &mut Harness, e: f32) -> Scene {
 #[test]
 fn hdr_output_keeps_the_mid_tones_of_sdr() {
     let mut sdr = Harness::new();
-    let mut hdr = Harness::new_hdr(HDR);
-    for e in [0.05f32, 0.2, 0.5] {
-        let s = glowing(&mut sdr, e);
-        let want = srgb_to_linear(sdr.render(&s).centre()[0]);
-        let s = glowing(&mut hdr, e);
-        hdr.render(&s);
-        let got = hdr_centre(&hdr) / SCALE;
-        assert!(
-            (got - want).abs() <= 0.01 + want * 0.03,
-            "emissive {e}: SDR shows {want:.4} of white, HDR {got:.4}"
-        );
+    for (signal, format) in SIGNALS {
+        let mut hdr = hdr_harness(format);
+        for e in [0.05f32, 0.2, 0.5] {
+            let s = glowing(&mut sdr, e);
+            let want = srgb_to_linear(sdr.render(&s).centre()[0]);
+            let s = glowing(&mut hdr, e);
+            hdr.render(&s);
+            let got = hdr_centre(&hdr) / SCALE;
+            assert!(
+                (got - want).abs() <= 0.01 + want * 0.03,
+                "{signal}, emissive {e}: SDR shows {want:.4} of white, HDR {got:.4}"
+            );
+        }
     }
 }
 
@@ -76,42 +108,42 @@ fn hdr_output_keeps_the_mid_tones_of_sdr() {
 #[test]
 fn hdr_output_keeps_highlights_up_to_the_peak() {
     let mut sdr = Harness::new();
-    let mut hdr = Harness::new_hdr(HDR);
     let s = glowing(&mut sdr, 8.0);
     assert_eq!(
         sdr.render(&s).centre()[0],
         255,
         "premise: SDR shows this surface as plain white"
     );
-    let s = glowing(&mut hdr, 8.0);
-    hdr.render(&s);
-    let bright = hdr_centre(&hdr) / SCALE;
-    assert!(
-        bright > 1.5 && bright <= PEAK,
-        "a surface SDR clips to white should come out between 1.5x white and \
-         the peak ({PEAK}x): {bright:.3}"
-    );
-    let s = glowing(&mut hdr, 1000.0);
-    hdr.render(&s);
-    let blinding = hdr_centre(&hdr) / SCALE;
-    assert!(
-        blinding <= PEAK * 1.001 && blinding > bright,
-        "brighter still, and never past the peak ({PEAK}x): {blinding:.3}"
-    );
+    for (signal, format) in SIGNALS {
+        let mut hdr = hdr_harness(format);
+        let s = glowing(&mut hdr, 8.0);
+        hdr.render(&s);
+        let bright = hdr_centre(&hdr) / SCALE;
+        assert!(
+            bright > 1.5 && bright <= PEAK * 1.01,
+            "{signal}: a surface SDR clips to white should come out between 1.5x \
+             white and the peak ({PEAK}x): {bright:.3}"
+        );
+        let s = glowing(&mut hdr, 1000.0);
+        hdr.render(&s);
+        let blinding = hdr_centre(&hdr) / SCALE;
+        // HDR10's ten bits put a code step about 1% apart up here.
+        assert!(
+            blinding <= PEAK * 1.01 && blinding > bright,
+            "{signal}: brighter still, and never past the peak ({PEAK}x): {blinding:.3}"
+        );
+    }
 }
 
-/// The UI under HDR output shows its white at paper white -- what SDR white
-/// is everywhere else -- not at scRGB 1.0, 80 nits, a third of it. egui drawn
-/// straight into the float target lands there, and too bright in its
-/// mid-tones besides (it writes gamma-encoded values to a non-sRGB target).
-#[test]
-fn hdr_output_draws_the_ui_at_paper_white() {
-    let mut h = Harness::new_hdr(HDR);
-    let white = h.two_colour_texture([255, 255, 255, 255], [255, 255, 255, 255]);
+/// A UI whose only widget is a `width` x `height` image of `colour` at
+/// (40, 30): drawn until egui stops fading it in, then the frame's pixel at
+/// (80, 60), inside it.
+fn draw_ui_image(h: &mut Harness, colour: [u8; 4]) -> Scene {
+    let tex = h.two_colour_texture(colour, colour);
     let mut ui = UiState::default();
     ui.set_widget(UiWidget::Image {
-        id: "white".into(),
-        texture_path: "ui/white.png".into(),
+        id: "swatch".into(),
+        texture_path: "ui/swatch.png".into(),
         x: 40.0,
         y: 30.0,
         width: 80.0,
@@ -120,28 +152,43 @@ fn hdr_output_draws_the_ui_at_paper_white() {
     });
     let scene = Scene {
         ui,
-        ui_textures: HashMap::from([("ui/white.png".to_string(), white)]),
+        ui_textures: HashMap::from([("ui/swatch.png".to_string(), tex)]),
         ..Scene::default()
     };
     // egui draws nothing the first frame it sees a widget, and then fades
     // the area in by the clock: drawn until it stops changing.
-    let at = ((60 * WIDTH + 80) * 4) as usize;
     let mut last = -1.0f32;
-    let mut px = [0.0f32; 3];
     for _ in 0..120 {
         h.render(&scene);
-        let f = h.last_hdr();
-        px = [f[at], f[at + 1], f[at + 2]];
-        if px[0] > 0.5 && (px[0] - last).abs() < 1e-3 {
+        let now = h.last_hdr()[UI_AT];
+        if now > 0.5 && (now - last).abs() < 1e-3 {
             break;
         }
-        last = px[0];
+        last = now;
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
-    assert!(
-        px.iter().all(|&v| (v - SCALE).abs() < 0.05),
-        "the UI's white should be paper white ({SCALE} in scRGB): {px:?}"
-    );
+    scene
+}
+
+/// Where [`draw_ui_image`]'s image is read: (80, 60), red channel first.
+const UI_AT: usize = ((60 * WIDTH + 80) * 4) as usize;
+
+/// The UI under HDR output shows its white at paper white -- what SDR white
+/// is everywhere else -- not at scRGB 1.0, 80 nits, a third of it. egui drawn
+/// straight into the float target lands there, and too bright in its
+/// mid-tones besides (it writes gamma-encoded values to a non-sRGB target).
+#[test]
+fn hdr_output_draws_the_ui_at_paper_white() {
+    for (signal, format) in SIGNALS {
+        let mut h = hdr_harness(format);
+        draw_ui_image(&mut h, [255, 255, 255, 255]);
+        let f = h.last_hdr();
+        let px = [f[UI_AT], f[UI_AT + 1], f[UI_AT + 2]];
+        assert!(
+            px.iter().all(|&v| (v - SCALE).abs() < 0.05),
+            "{signal}: the UI's white should be paper white ({SCALE} in scRGB): {px:?}"
+        );
+    }
 }
 
 /// A rotated cube's edges against a black backdrop, glowing `e` and lit by nothing else
@@ -186,37 +233,40 @@ fn edges(h: &mut Harness, e: f32, fxaa: bool, smaa: bool) -> common::Pixels {
 #[test]
 fn hdr_output_antialiases_as_sdr_does() {
     let mut sdr = Harness::new();
-    let mut hdr = Harness::new_hdr(HDR);
-    for (name, fxaa, smaa, e) in [
-        ("FXAA, bright", true, false, 0.6),
-        ("FXAA, dim", true, false, 0.03),
-        ("SMAA, bright", false, true, 0.6),
-        ("SMAA, dim", false, true, 0.03),
-    ] {
-        let plain = edges(&mut sdr, e, false, false);
-        let want = edges(&mut sdr, e, fxaa, smaa);
-        let off_by = |a: &common::Pixels, b: &common::Pixels| {
-            (0..a.data.len())
-                .filter(|&i| (a.data[i] as i32 - b.data[i] as i32).abs() > 3)
-                .count()
-        };
-        // Premise: the pass did something to this frame.
-        let changed = off_by(&want, &plain);
-        assert!(
-            changed > 100,
-            "premise: {name} changes the edges in SDR ({changed})"
-        );
-        let got = edges(&mut hdr, e, fxaa, smaa);
-        // Counted, not the worst pixel: SDR decides on 8-bit values and HDR on
-        // half floats, so a pixel right at a threshold can go either way (6 of
-        // FXAA's 510 here). With the luma left in linear light, every pixel
-        // the dim edge's pass changed came out different.
-        let different = off_by(&want, &got);
-        assert!(
-            different * 20 <= changed,
-            "{name} should treat the HDR frame as it does the SDR one: {different} \
-             of the {changed} pixels it changes come out otherwise"
-        );
+    for (signal, format) in SIGNALS {
+        let mut hdr = hdr_harness(format);
+        for (name, fxaa, smaa, e) in [
+            ("FXAA, bright", true, false, 0.6),
+            ("FXAA, dim", true, false, 0.03),
+            ("SMAA, bright", false, true, 0.6),
+            ("SMAA, dim", false, true, 0.03),
+        ] {
+            let plain = edges(&mut sdr, e, false, false);
+            let want = edges(&mut sdr, e, fxaa, smaa);
+            let off_by = |a: &common::Pixels, b: &common::Pixels| {
+                (0..a.data.len())
+                    .filter(|&i| (a.data[i] as i32 - b.data[i] as i32).abs() > 3)
+                    .count()
+            };
+            // Premise: the pass did something to this frame.
+            let changed = off_by(&want, &plain);
+            assert!(
+                changed > 100,
+                "premise: {name} changes the edges in SDR ({changed})"
+            );
+            let got = edges(&mut hdr, e, fxaa, smaa);
+            // Counted, not the worst pixel: SDR decides on 8-bit values and
+            // HDR on half floats, so a pixel right at a threshold can go
+            // either way (6 of FXAA's 510 here). With the luma left in linear
+            // light, every pixel the dim edge's pass changed came out
+            // different.
+            let different = off_by(&want, &got);
+            assert!(
+                different * 20 <= changed,
+                "{signal}, {name}: the HDR frame should be treated as the SDR one is: \
+                 {different} of the {changed} pixels it changes come out otherwise"
+            );
+        }
     }
 }
 
@@ -225,7 +275,6 @@ fn hdr_output_antialiases_as_sdr_does() {
 #[test]
 fn hdr_output_grades_what_sdr_would() {
     let mut sdr = Harness::new();
-    let mut hdr = Harness::new_hdr(HDR);
     let scene = |h: &mut Harness| {
         let cube = h.cube();
         Scene {
@@ -255,12 +304,143 @@ fn hdr_output_grades_what_sdr_would() {
         want, ungraded,
         "premise: the grade changes the colour in SDR"
     );
-    let s = scene(&mut hdr);
-    let got = hdr.render(&s).centre();
-    for c in 0..3 {
+    for (signal, format) in SIGNALS {
+        let mut hdr = hdr_harness(format);
+        let s = scene(&mut hdr);
+        let got = hdr.render(&s).centre();
+        for c in 0..3 {
+            assert!(
+                (want[c] as i32 - got[c] as i32).abs() <= 2,
+                "{signal}: the HDR frame should be graded as the SDR one: {got:?} \
+                 against {want:?}"
+            );
+        }
+    }
+}
+
+/// SMPTE ST 2084's inverse EOTF, on the CPU and apart from the shader's:
+/// absolute nits to the ten-bit PQ code value.
+fn pq_code(nits: f64) -> u16 {
+    let (m1, m2) = (2610.0 / 16384.0, 2523.0 / 4096.0 * 128.0);
+    let (c1, c2, c3) = (
+        3424.0 / 4096.0,
+        2413.0 / 4096.0 * 32.0,
+        2392.0 / 4096.0 * 32.0,
+    );
+    let y = (nits / 10_000.0).powf(m1);
+    (((c1 + c2 * y) / (1.0 + c3 * y)).powf(m2) * 1023.0).round() as u16
+}
+
+/// The HDR10 signal's white is paper white in absolute nits: UI white at 200
+/// nits is code 592 in every channel, the standard's value and nothing
+/// relative to it -- a frame left in scRGB's units, or put at 80 nits, or
+/// gamma-encoded instead of PQ, all land elsewhere.
+#[test]
+fn hdr10_sends_paper_white_as_its_pq_code() {
+    assert_eq!(pq_code(200.0), 592, "premise: ST 2084's code for 200 nits");
+    let mut h = hdr_harness(HdrOutputFormat::Hdr10);
+    draw_ui_image(&mut h, [255, 255, 255, 255]);
+    let px = h.last_hdr10()[UI_AT / 4];
+    for (c, &code) in px[..3].iter().enumerate() {
         assert!(
-            (want[c] as i32 - got[c] as i32).abs() <= 2,
-            "the HDR frame should be graded as the SDR one: {got:?} against {want:?}"
+            code.abs_diff(592) <= 1,
+            "channel {c}: paper white should be PQ code 592: {px:?}"
         );
     }
+    assert_eq!(px[3], 3, "the signal is opaque");
+}
+
+/// HDR10's primaries are BT.2020's: BT.709 red, sent at paper white, is
+/// mostly red with some green and a little blue there (ITU-R BT.2087: 0.6274,
+/// 0.0691, 0.0164 of it). Only the matrix moves energy into green and blue;
+/// a signal that kept BT.709's primaries would send red alone.
+#[test]
+fn hdr10_sends_bt709_colours_in_bt2020_primaries() {
+    let want = [0.627_404, 0.069_097, 0.016_392].map(|share| pq_code(share * 200.0));
+    assert_eq!(
+        want,
+        [543, 333, 224],
+        "premise: worked out from the standards"
+    );
+    let mut h = hdr_harness(HdrOutputFormat::Hdr10);
+    draw_ui_image(&mut h, [255, 0, 0, 255]);
+    let px = h.last_hdr10()[UI_AT / 4];
+    for c in 0..3 {
+        assert!(
+            px[c].abs_diff(want[c]) <= 1,
+            "BT.709 red at paper white should be BT.2020 {want:?}: {px:?}"
+        );
+    }
+}
+
+/// Under HDR10 the UI is laid over the frame in the output pass, from a layer
+/// egui only draws into on frames that have a UI. A frame without one must not
+/// show the layer's last contents: here the swatch goes away, and what was
+/// white under it comes back to the backdrop.
+#[test]
+fn hdr10_shows_no_ui_on_a_frame_without_one() {
+    let mut h = hdr_harness(HdrOutputFormat::Hdr10);
+    draw_ui_image(&mut h, [255, 255, 255, 255]);
+    let with_ui = h.last_hdr()[UI_AT];
+    assert!(
+        (with_ui - SCALE).abs() < 0.05,
+        "premise: the swatch showed ({with_ui})"
+    );
+    h.render(&Scene::default());
+    let without = h.last_hdr()[UI_AT];
+    assert!(
+        without < SCALE * 0.5,
+        "with the UI gone the swatch should be gone too: {without} (it was {with_ui})"
+    );
+}
+
+/// A resize makes the HDR10 frame anew at the new size, and the output pass
+/// must read the new one: its bind group holds the frame's view, and one left
+/// over from before keeps the old texture alive. Resized to a different size
+/// -- at the same size a stale frame is still the one the chain writes, and
+/// nothing shows -- the HDR10 frame must be the scRGB one resized alike.
+#[test]
+fn hdr10_follows_the_frame_through_a_resize() {
+    let (w, h) = (300u32, 225u32);
+    let frame = |format| {
+        let mut harness = hdr_harness(format);
+        let s = glowing(&mut harness, 0.5);
+        harness.render(&s);
+        harness.resize(w, h);
+        let s = glowing(&mut harness, 0.5);
+        harness.render(&s);
+        harness.last_hdr()
+    };
+    let scrgb = frame(HdrOutputFormat::Scrgb);
+    let hdr10 = frame(HdrOutputFormat::Hdr10);
+    assert_eq!(
+        (scrgb.len(), hdr10.len()),
+        ((w * h * 4) as usize, (w * h * 4) as usize),
+        "premise: both frames are the new size"
+    );
+    let centre = ((h / 2 * w + w / 2) * 4) as usize;
+    assert!(
+        scrgb[centre] > SCALE * 0.1,
+        "premise: the cube is at the resized frame's centre ({})",
+        scrgb[centre]
+    );
+    let differ = (0..scrgb.len())
+        .step_by(4)
+        .filter(|&i| (scrgb[i] - hdr10[i]).abs() > 0.02 + scrgb[i] * 0.05)
+        .count();
+    assert!(
+        differ * 100 <= (w * h) as usize,
+        "after a resize the HDR10 frame should be the scRGB one: {differ} of {} \
+         pixels differ",
+        w * h
+    );
+}
+
+/// `Auto` -- the default -- sends HDR10 where the display offers it, as
+/// Unreal and Unity HDRP do; the offscreen target stands in for a display
+/// that offers both.
+#[test]
+fn hdr_output_auto_sends_hdr10() {
+    let h = Harness::new_hdr(hdr(HdrOutputFormat::Auto));
+    assert_eq!(h.surface().hdr_signal(), Some(HdrSignal::Hdr10));
 }

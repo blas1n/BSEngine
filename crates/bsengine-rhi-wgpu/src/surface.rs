@@ -3743,6 +3743,10 @@ pub struct WgpuSurface {
     /// Under HDR output, the layer the UI is drawn into and laid over the
     /// frame at paper white (`crate::hdr_output`).
     ui_layer: Option<crate::hdr_output::UiLayer>,
+    /// Under HDR10 output, the scRGB frame the post-process chain writes and
+    /// the pass that encodes it into the PQ swapchain (`crate::hdr_output`);
+    /// `None` under scRGB output, whose swapchain is that frame, and in SDR.
+    pq_output: Option<crate::hdr_output::PqOutput>,
     /// The sample count the geometry passes draw with: 1 (off) or
     /// [`crate::msaa::MSAA_SAMPLES`]. Set by [`Self::set_msaa`].
     msaa_samples: u32,
@@ -3809,7 +3813,7 @@ impl WgpuSurface {
     }
 
     /// [`Self::new`], with HDR display output when `hdr` asks for it and the
-    /// surface offers a float swapchain (`Rgba16Float`, which wgpu presents as
+    /// surface offers a signal for it (`choose_hdr_swapchain`: HDR10 or
     /// scRGB). Otherwise SDR, as `new` -- logged when HDR was asked for.
     pub async fn new_with_hdr(
         window: Arc<winit::window::Window>,
@@ -3826,15 +3830,18 @@ impl WgpuSurface {
 
         let size = window.inner_size();
         let caps = surface.get_capabilities(&adapter);
-        let hdr_format = choose_hdr_format(&caps.formats, hdr);
-        let format = hdr_format.unwrap_or_else(|| {
-            caps.formats
+        let hdr_swapchain = choose_hdr_swapchain(&caps.format_capabilities, hdr);
+        let (format, color_space) = hdr_swapchain.unwrap_or_else(|| {
+            let sdr = caps
+                .formats
                 .iter()
                 .copied()
                 .find(|f| f.is_srgb())
-                .unwrap_or(caps.formats[0])
+                .unwrap_or(caps.formats[0]);
+            // As before wgpu had the choice: sRGB for an SDR format.
+            (sdr, wgpu::SurfaceColorSpace::Auto)
         });
-        let view_formats = if hdr_format.is_some() {
+        let view_formats = if hdr_swapchain.is_some() {
             Vec::new()
         } else {
             srgb_view_of(format).into_iter().collect()
@@ -3848,9 +3855,7 @@ impl WgpuSurface {
             present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: caps.alpha_modes[0],
             view_formats,
-            // The format decides, as before wgpu had the choice: scRGB for
-            // a float swapchain, sRGB otherwise.
-            color_space: wgpu::SurfaceColorSpace::Auto,
+            color_space,
             desired_maximum_frame_latency: 2,
         };
         surface.configure(&device, &config);
@@ -3868,16 +3873,17 @@ impl WgpuSurface {
             instancing_supported,
             msaa_supported,
         )?;
-        if hdr_format.is_some() {
+        if hdr_swapchain.is_some() {
             this.apply_hdr_output(hdr);
         }
         Ok(this)
     }
 
-    /// Switches this renderer, whose output is a float target, to HDR
+    /// Switches this renderer, whose output carries an HDR signal, to HDR
     /// output: the composite writes scRGB, FXAA and SMAA normalise luma by
     /// paper white, and the UI is drawn into a layer of its own and laid over
-    /// the frame at paper white (`crate::hdr_output`).
+    /// the frame at paper white (`crate::hdr_output`). Under HDR10 the frame
+    /// is a texture of its own, encoded into the swapchain last.
     fn apply_hdr_output(&mut self, hdr: bsengine_core::HdrOutputSettings) {
         let gpu = crate::post_process::HdrOutputGpu::from_settings(Some(hdr));
         self.post_process.set_hdr_output(&self.queue, gpu);
@@ -3886,20 +3892,42 @@ impl WgpuSurface {
             crate::hdr_output::UI_LAYER_FORMAT,
             egui_renderer_options(),
         );
-        self.ui_layer = Some(crate::hdr_output::UiLayer::new(
+        let ui_layer = crate::hdr_output::UiLayer::new(
             &self.device,
             &self.queue,
             self.output.width(),
             self.output.height(),
-            self.output.format(),
+            self.output.frame_format(),
             gpu.scale,
-        ));
+        );
+        self.pq_output = self.output.is_pq().then(|| {
+            crate::hdr_output::PqOutput::new(
+                &self.device,
+                &self.queue,
+                self.output.width(),
+                self.output.height(),
+                ui_layer.view(),
+                gpu.scale,
+            )
+        });
+        self.ui_layer = Some(ui_layer);
         self.hdr_output = Some(hdr);
     }
 
-    /// Whether this renderer outputs HDR (scRGB), and with what settings.
+    /// Whether this renderer outputs HDR, and with what settings.
     pub fn hdr_output(&self) -> Option<bsengine_core::HdrOutputSettings> {
         self.hdr_output
+    }
+
+    /// The HDR signal this renderer's output carries; `None` in SDR.
+    pub fn hdr_signal(&self) -> Option<HdrSignal> {
+        self.hdr_output.map(|_| {
+            if self.output.is_pq() {
+                HdrSignal::Hdr10
+            } else {
+                HdrSignal::Scrgb
+            }
+        })
     }
 
     /// Creates a renderer with no window at all.
@@ -4005,10 +4033,21 @@ impl WgpuSurface {
         }
     }
 
-    /// The last frame of an HDR-output renderer as it went to the display:
-    /// linear scRGB (1.0 = 80 nits), four floats a pixel, top row first.
-    /// `Err` for an SDR renderer or a window.
+    /// The last frame of an HDR-output renderer as it went to the display, as
+    /// linear scRGB (1.0 = 80 nits), four floats a pixel, top row first --
+    /// under HDR10 decoded from the PQ signal back into scRGB, so the same
+    /// checks read either signal. `Err` for an SDR renderer or a window.
     pub fn read_pixels_hdr(&self) -> Result<Vec<f32>, String> {
+        if self.hdr_signal() == Some(HdrSignal::Hdr10) {
+            return Ok(self
+                .read_pixels_hdr10()?
+                .into_iter()
+                .flat_map(|[r, g, b, a]| {
+                    let rgb = hdr10_to_scrgb([r, g, b]);
+                    [rgb[0], rgb[1], rgb[2], a as f32 / 3.0]
+                })
+                .collect());
+        }
         match &self.output {
             crate::output::Output::Offscreen {
                 texture,
@@ -4027,6 +4066,41 @@ impl WgpuSurface {
             .map(|h| f16_to_f32(u16::from_le_bytes([h[0], h[1]])))
             .collect()),
             _ => Err("read_pixels_hdr needs an offscreen HDR-output renderer".to_string()),
+        }
+    }
+
+    /// The last frame of an HDR10-output renderer as the signal itself: each
+    /// pixel's ten-bit PQ code values for red, green and blue (0..=1023, over
+    /// BT.2020 primaries) and its two-bit alpha, top row first. `Err` for any
+    /// other renderer.
+    pub fn read_pixels_hdr10(&self) -> Result<Vec<[u16; 4]>, String> {
+        match &self.output {
+            crate::output::Output::Offscreen {
+                texture,
+                width,
+                height,
+                format: crate::hdr_output::PQ_SWAPCHAIN_FORMAT,
+            } => Ok(crate::output::read_texels(
+                &self.device,
+                &self.queue,
+                texture,
+                *width,
+                *height,
+                4,
+            )
+            .chunks_exact(4)
+            .map(|t| {
+                // Red in the low ten bits, then green, blue and alpha.
+                let v = u32::from_le_bytes([t[0], t[1], t[2], t[3]]);
+                [
+                    (v & 0x3ff) as u16,
+                    ((v >> 10) & 0x3ff) as u16,
+                    ((v >> 20) & 0x3ff) as u16,
+                    (v >> 30) as u16,
+                ]
+            })
+            .collect()),
+            _ => Err("read_pixels_hdr10 needs an offscreen HDR10-output renderer".to_string()),
         }
     }
 
@@ -4494,8 +4568,11 @@ impl WgpuSurface {
         )
     }
 
-    /// [`Self::offscreen_for_testing`] with HDR display output: the target is
-    /// `Rgba16Float` and holds scRGB, read with [`Self::read_pixels_hdr`].
+    /// [`Self::offscreen_for_testing`] with HDR display output, in the signal
+    /// `hdr.format` prefers: scRGB in an `Rgba16Float` target, or HDR10 in an
+    /// `Rgb10a2Unorm` one (`Auto` too, as a display offering both gets).
+    /// Either reads with [`Self::read_pixels_hdr`]; HDR10's raw code values
+    /// with [`Self::read_pixels_hdr10`].
     #[doc(hidden)]
     pub fn offscreen_hdr_for_testing(
         width: u32,
@@ -4504,7 +4581,14 @@ impl WgpuSurface {
     ) -> Result<Self, String> {
         let (device, queue, timestamp_supported, instancing_supported, msaa_supported) =
             Self::shared_test_device().clone();
-        let format = wgpu::TextureFormat::Rgba16Float;
+        // The target the swapchain `hdr.format` prefers would be: a float
+        // scRGB one, or HDR10's ten-bit PQ one (`Output::is_pq`).
+        let format = match hdr.format {
+            bsengine_core::HdrOutputFormat::Scrgb => wgpu::TextureFormat::Rgba16Float,
+            bsengine_core::HdrOutputFormat::Auto | bsengine_core::HdrOutputFormat::Hdr10 => {
+                crate::hdr_output::PQ_SWAPCHAIN_FORMAT
+            }
+        };
         let texture =
             crate::output::create_offscreen_texture_with_format(&device, width, height, format);
         let mut this = Self::build(
@@ -4540,7 +4624,9 @@ impl WgpuSurface {
         instancing_supported: bool,
         msaa_supported: bool,
     ) -> Result<Self, String> {
-        let format = output.format();
+        // What every pipeline that writes the frame targets: under HDR10 the
+        // scRGB frame, not the PQ swapchain (`Output::frame_format`).
+        let format = output.frame_format();
         let width = output.width();
         let height = output.height();
 
@@ -6148,6 +6234,7 @@ impl WgpuSurface {
             msaa_supported,
             hdr_output: None,
             ui_layer: None,
+            pq_output: None,
             msaa_samples: 1,
             msaa_targets: None,
             depth_resolve,
@@ -9578,9 +9665,12 @@ impl WgpuSurface {
             .filter(|i| i.editor_mode)
             .map(|i| (i.viewport_pos[0] + 8.0, i.viewport_pos[1] + 8.0))
             .unwrap_or((8.0, 8.0));
+        // Under HDR10 the chain writes the scRGB frame, which `PqOutput`
+        // encodes into `view` once the UI is drawn (below).
+        let frame_view = self.pq_output.as_ref().map_or(&view, |pq| pq.frame_view());
         let (pp_draw_calls, pp_triangles) =
             self.post_process
-                .apply(&mut encoder, &view, self.fast_render);
+                .apply(&mut encoder, frame_view, self.fast_render);
         frame_draw_calls += pp_draw_calls;
         frame_objects_drawn += pp_draw_calls;
         frame_triangles += pp_triangles;
@@ -10284,7 +10374,9 @@ impl WgpuSurface {
                 self.egui_renderer
                     .render(&mut egui_pass, &clipped_primitives, &screen_descriptor);
             }
-            if let Some(layer) = &self.ui_layer {
+            // Under scRGB output the layer is blended onto the swapchain
+            // here; under HDR10 the output pass below lays it over the frame.
+            if let (Some(layer), None) = (&self.ui_layer, &self.pq_output) {
                 layer.composite(&mut encoder, &view);
             }
             for id in &full_output.textures_delta.free {
@@ -10294,6 +10386,13 @@ impl WgpuSurface {
             // frame's texture changes were handled before they are dropped.
             full_output.textures_delta.clear();
             let _ = new_text_values;
+        }
+
+        // HDR10: the frame, with this frame's UI over it when one was drawn,
+        // encoded into the swapchain. Every frame, UI or not -- the swapchain
+        // holds nothing until this writes it.
+        if let Some(pq) = &self.pq_output {
+            pq.encode(&mut encoder, &view, has_ui);
         }
 
         // Resolve this frame's GPU timestamps into a buffer the CPU can map.
@@ -10422,6 +10521,10 @@ impl WgpuSurface {
             .resize_targets(&self.device, &self.depth_view, width, height);
         if let Some(layer) = &mut self.ui_layer {
             layer.resize(&self.device, width, height);
+            // After the layer: its output pass binds the layer's new view.
+            if let Some(pq) = &mut self.pq_output {
+                pq.resize(&self.device, width, height, layer.view());
+            }
         }
         // Screen-sized, and its view is bound in group 2 -- so the light bind
         // group has to be rebuilt after it, or the mesh shader reads a view
@@ -10845,27 +10948,87 @@ fn srgb_view_of(format: wgpu::TextureFormat) -> Option<wgpu::TextureFormat> {
 mod tests {
     use super::*;
 
-    /// The swapchain format under HDR output: the float one when it is asked
-    /// for and offered, SDR otherwise -- off, or a surface with no float
-    /// format (an older display path, or a browser) -- never an error.
+    /// The swapchain under HDR output: HDR10 first unless scRGB is asked for,
+    /// the other signal where the preferred one is not offered, SDR where
+    /// neither is or HDR is off -- never an error. Offered is by colour space:
+    /// a float format the surface configures only as plain sRGB is SDR.
     #[test]
-    fn hdr_output_takes_the_float_swapchain_only_when_asked_and_offered() {
+    fn hdr_output_takes_the_signal_asked_for_where_it_is_offered() {
+        use bsengine_core::HdrOutputFormat as H;
+        use wgpu::SurfaceColorSpace as S;
+        use wgpu::SurfaceColorSpaces as Spaces;
         use wgpu::TextureFormat as F;
-        let on = bsengine_core::HdrOutputSettings {
+        let cap = |format, color_spaces| wgpu::SurfaceFormatCapabilities {
+            format,
+            color_spaces,
+        };
+        let on = |format| bsengine_core::HdrOutputSettings {
             enabled: true,
+            format,
             ..Default::default()
         };
-        let offered = [F::Bgra8UnormSrgb, F::Rgba16Float];
-        assert_eq!(choose_hdr_format(&offered, on), Some(F::Rgba16Float));
+        let sdr = cap(F::Bgra8UnormSrgb, Spaces::SRGB);
+        let hdr10 = cap(F::Rgb10a2Unorm, Spaces::SRGB | Spaces::BT2100_PQ);
+        let scrgb = cap(F::Rgba16Float, Spaces::SRGB | Spaces::EXTENDED_SRGB_LINEAR);
+        let both = [sdr, hdr10, scrgb];
+        let pq = Some((F::Rgb10a2Unorm, S::Bt2100Pq));
+        let linear = Some((F::Rgba16Float, S::ExtendedSrgbLinear));
+
+        assert_eq!(choose_hdr_swapchain(&both, on(H::Auto)), pq, "auto: HDR10");
+        assert_eq!(choose_hdr_swapchain(&both, on(H::Hdr10)), pq);
+        assert_eq!(choose_hdr_swapchain(&both, on(H::Scrgb)), linear);
         assert_eq!(
-            choose_hdr_format(&offered, bsengine_core::HdrOutputSettings::default()),
+            choose_hdr_swapchain(&[sdr, scrgb], on(H::Hdr10)),
+            linear,
+            "HDR10 asked for and not offered: scRGB stands in"
+        );
+        assert_eq!(
+            choose_hdr_swapchain(&[sdr, hdr10], on(H::Scrgb)),
+            pq,
+            "scRGB asked for and not offered: HDR10 stands in"
+        );
+        assert_eq!(
+            choose_hdr_swapchain(&both, bsengine_core::HdrOutputSettings::default()),
             None,
             "off unless asked for"
         );
         assert_eq!(
-            choose_hdr_format(&[F::Bgra8UnormSrgb, F::Bgra8Unorm], on),
+            choose_hdr_swapchain(
+                &[
+                    sdr,
+                    cap(F::Rgba16Float, Spaces::SRGB),
+                    cap(F::Rgb10a2Unorm, Spaces::SRGB)
+                ],
+                on(H::Auto)
+            ),
             None,
-            "SDR when the surface has no float swapchain"
+            "the HDR formats without their HDR colour spaces are SDR ones"
+        );
+    }
+
+    /// The CPU decode of the HDR10 signal against values worked out from the
+    /// standards by hand, so a test reading frames through it is reading the
+    /// right numbers: PQ code 1023 is 10,000 nits, 0 is black, and the code
+    /// for 200 nits of BT.2020 white -- 0.579133 of full scale, ST 2084, so
+    /// code 592 -- is 2.5 in scRGB. Pure BT.2020 green is outside BT.709:
+    /// negative red and blue, which only the matrix (not a plain rescale)
+    /// gives.
+    #[test]
+    fn the_hdr10_decode_inverts_the_standards() {
+        let white_200 = (0.579_133_f32 * 1023.0).round() as u16;
+        assert_eq!(white_200, 592);
+        let w = hdr10_to_scrgb([white_200; 3]);
+        assert!(
+            w.iter().all(|&v| (v - 2.5).abs() < 0.03),
+            "200 nits of white is scRGB 2.5: {w:?}"
+        );
+        assert_eq!(hdr10_to_scrgb([0; 3]), [0.0; 3]);
+        let peak = hdr10_to_scrgb([1023; 3]);
+        assert!(peak.iter().all(|&v| (v - 125.0).abs() < 0.1), "{peak:?}");
+        let green = hdr10_to_scrgb([0, white_200, 0]);
+        assert!(
+            green[0] < 0.0 && green[2] < 0.0 && green[1] > 2.5,
+            "BT.2020 green is outside BT.709: {green:?}"
         );
     }
 
@@ -12643,25 +12806,108 @@ struct TimestampReadback {
     frame: u64,
 }
 
-/// The swapchain format for HDR output: `Rgba16Float` when `hdr` asks for it
-/// and the surface offers it, which wgpu presents as scRGB (Vulkan's extended
-/// sRGB, Metal's EDR, DXGI's FP16). `None` -- SDR -- otherwise, logged when HDR
-/// was asked for and could not be had, so a project that set it is not left
-/// wondering. A browser renders SDR: WebGPU's HDR canvas is not something this
-/// wgpu configures.
-fn choose_hdr_format(
-    formats: &[wgpu::TextureFormat],
+/// The swapchain format and colour space for HDR output, when `hdr` asks for
+/// it: HDR10 -- `Rgb10a2Unorm` under BT.2100 PQ (DXGI's G2084/P2020, Vulkan's
+/// HDR10_ST2084, Metal's PQ) -- or scRGB -- `Rgba16Float` under extended linear
+/// sRGB (DXGI's FP16, Vulkan's extended sRGB, Metal's EDR) -- in the order
+/// `hdr.format` prefers, whichever the surface offers. `None` -- SDR --
+/// otherwise, logged when HDR was asked for and could not be had, so a
+/// project that set it is not left wondering.
+fn choose_hdr_swapchain(
+    caps: &[wgpu::SurfaceFormatCapabilities],
     hdr: bsengine_core::HdrOutputSettings,
-) -> Option<wgpu::TextureFormat> {
+) -> Option<(wgpu::TextureFormat, wgpu::SurfaceColorSpace)> {
     if !hdr.enabled {
         return None;
     }
-    if !cfg!(target_arch = "wasm32") && formats.contains(&wgpu::TextureFormat::Rgba16Float) {
-        return Some(wgpu::TextureFormat::Rgba16Float);
+    // A browser's canvas has no PQ, and no linear scRGB either (wgpu's
+    // `SurfaceColorSpace` docs): HDR output there is a later piece of work.
+    if cfg!(target_arch = "wasm32") {
+        tracing::warn!("[render] hdr_output asked for, but a browser build renders SDR");
+        return None;
     }
-    tracing::warn!(
-        "[render] hdr_output asked for, but this surface has no float swapchain \
-         (it offers {formats:?}); rendering SDR"
-    );
-    None
+    // By the colour spaces each format can be configured with, not by the
+    // format alone: a float swapchain configured as plain sRGB is an SDR one.
+    let offers = |format, space| {
+        caps.iter()
+            .any(|c| c.format == format && c.color_spaces.contains(space))
+    };
+    let hdr10 = offers(
+        crate::hdr_output::PQ_SWAPCHAIN_FORMAT,
+        wgpu::SurfaceColorSpaces::BT2100_PQ,
+    )
+    .then_some((
+        crate::hdr_output::PQ_SWAPCHAIN_FORMAT,
+        wgpu::SurfaceColorSpace::Bt2100Pq,
+    ));
+    let scrgb = offers(
+        wgpu::TextureFormat::Rgba16Float,
+        wgpu::SurfaceColorSpaces::EXTENDED_SRGB_LINEAR,
+    )
+    .then_some((
+        wgpu::TextureFormat::Rgba16Float,
+        wgpu::SurfaceColorSpace::ExtendedSrgbLinear,
+    ));
+    // `Auto` prefers HDR10, as an explicit `hdr10` does; the difference is
+    // only whether standing in with the other signal is worth a warning.
+    let (preferred, other) = match hdr.format {
+        bsengine_core::HdrOutputFormat::Auto | bsengine_core::HdrOutputFormat::Hdr10 => {
+            (hdr10, scrgb)
+        }
+        bsengine_core::HdrOutputFormat::Scrgb => (scrgb, hdr10),
+    };
+    match (preferred, other) {
+        (Some(chosen), _) => Some(chosen),
+        (None, Some(chosen)) => {
+            if hdr.format != bsengine_core::HdrOutputFormat::Auto {
+                tracing::warn!(
+                    "[render] hdr_output_format = {:?} is not offered here; using {:?}",
+                    hdr.format,
+                    chosen.1
+                );
+            }
+            Some(chosen)
+        }
+        (None, None) => {
+            let offered: Vec<_> = caps.iter().map(|c| (c.format, c.color_spaces)).collect();
+            tracing::warn!(
+                "[render] hdr_output asked for, but this surface offers neither HDR10 \
+                 (Rgb10a2Unorm, BT.2100 PQ) nor scRGB (Rgba16Float, extended linear \
+                 sRGB) -- it offers {offered:?}; rendering SDR"
+            );
+            None
+        }
+    }
+}
+
+/// Ten-bit HDR10 code values (PQ over BT.2020, as [`WgpuSurface::read_pixels_hdr10`]
+/// returns them) back to linear scRGB -- BT.709, 1.0 = 80 nits: the exact
+/// inverse of `hdr_output`'s encode, written out apart from it on the CPU.
+pub fn hdr10_to_scrgb(codes: [u16; 3]) -> [f32; 3] {
+    // SMPTE ST 2084's EOTF: the signal to absolute nits.
+    let (m1, m2) = (0.159_301_757_812_5_f64, 78.843_75_f64);
+    let (c1, c2, c3) = (0.835_937_5_f64, 18.851_562_5_f64, 18.6875_f64);
+    let nits = codes.map(|code| {
+        let e = (code as f64 / 1023.0).powf(1.0 / m2);
+        ((e - c1).max(0.0) / (c2 - c3 * e)).powf(1.0 / m1) * 10_000.0
+    });
+    // BT.2020 to BT.709 primaries: the inverse of ITU-R BT.2087's matrix.
+    let m = [
+        [1.660_491, -0.587_641, -0.072_850],
+        [-0.124_550, 1.132_900, -0.008_349],
+        [-0.018_151, -0.100_579, 1.118_730],
+    ];
+    std::array::from_fn(|row| {
+        ((m[row][0] * nits[0] + m[row][1] * nits[1] + m[row][2] * nits[2]) / 80.0) as f32
+    })
+}
+
+/// The HDR signal a renderer's output carries (`bsengine_core::HdrOutputFormat`
+/// chooses it, the display decides what is on offer).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HdrSignal {
+    /// PQ over BT.2020 primaries, ten bits a channel.
+    Hdr10,
+    /// Linear BT.709 in half floats, 1.0 = 80 nits.
+    Scrgb,
 }

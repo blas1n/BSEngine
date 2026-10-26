@@ -225,6 +225,10 @@ pub struct RenderSection {
     /// asked for.
     #[serde(default)]
     pub hdr_output: bool,
+    /// Which HDR signal: `"auto"` (HDR10 where offered), `"hdr10"` or
+    /// `"scrgb"` (`bsengine_core::HdrOutputFormat`).
+    #[serde(default)]
+    pub hdr_output_format: bsengine_core::HdrOutputFormat,
     /// How bright SDR white shows under HDR output, in nits.
     #[serde(default = "default_hdr_paper_white_nits")]
     pub hdr_paper_white_nits: f32,
@@ -290,6 +294,7 @@ impl Default for RenderSection {
             msaa: default_msaa(),
             gi_rays_per_frame: default_gi_rays_per_frame(),
             hdr_output: false,
+            hdr_output_format: bsengine_core::HdrOutputFormat::default(),
             hdr_paper_white_nits: default_hdr_paper_white_nits(),
             hdr_max_nits: default_hdr_max_nits(),
         }
@@ -1148,26 +1153,45 @@ mod tests {
         assert_eq!(
             (
                 absent.render.hdr_output,
+                absent.render.hdr_output_format,
                 absent.render.hdr_paper_white_nits,
                 absent.render.hdr_max_nits
             ),
-            (d.enabled, d.paper_white_nits, d.max_nits),
+            (d.enabled, d.format, d.paper_white_nits, d.max_nits),
             "left out, HDR output is off with HdrOutputSettings' defaults"
         );
         let m: super::ProjectManifest = toml::from_str(
             "[project]\nname = \"t\"\nentry_scene = \"s.ron\"\n[render]\n\
-             hdr_output = true\nhdr_paper_white_nits = 250.0\nhdr_max_nits = 1600.0\n",
+             hdr_output = true\nhdr_output_format = \"scrgb\"\n\
+             hdr_paper_white_nits = 250.0\nhdr_max_nits = 1600.0\n",
         )
         .unwrap();
         assert!(m.render.hdr_output);
+        assert_eq!(
+            m.render.hdr_output_format,
+            bsengine_core::HdrOutputFormat::Scrgb
+        );
         assert_eq!(m.render.hdr_paper_white_nits, 250.0);
         assert_eq!(m.render.hdr_max_nits, 1600.0);
         assert!(
             m.render.hdr_output != d.enabled
+                && m.render.hdr_output_format != d.format
                 && m.render.hdr_paper_white_nits != d.paper_white_nits
                 && m.render.hdr_max_nits != d.max_nits,
             "the fixture must differ from the defaults in every field"
         );
+        // The other two spellings, and the default's own.
+        for (text, want) in [
+            ("hdr10", bsengine_core::HdrOutputFormat::Hdr10),
+            ("auto", bsengine_core::HdrOutputFormat::Auto),
+        ] {
+            let m: super::ProjectManifest = toml::from_str(&format!(
+                "[project]\nname = \"t\"\nentry_scene = \"s.ron\"\n[render]\n\
+                 hdr_output_format = \"{text}\"\n"
+            ))
+            .unwrap();
+            assert_eq!(m.render.hdr_output_format, want, "{text}");
+        }
     }
 
     #[test]

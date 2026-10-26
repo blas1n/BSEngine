@@ -671,6 +671,7 @@ pub(crate) fn build_player_app(
     // swapchain: the output format is chosen once, there.
     app.insert_resource(bsengine_core::HdrOutputSettings {
         enabled: manifest.render.hdr_output,
+        format: manifest.render.hdr_output_format,
         paper_white_nits: manifest.render.hdr_paper_white_nits,
         max_nits: manifest.render.hdr_max_nits,
     });

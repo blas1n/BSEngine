@@ -33,13 +33,38 @@ pub(crate) enum Output {
         texture: crate::profiler::TrackedTexture,
         width: u32,
         height: u32,
-        /// [`OFFSCREEN_FORMAT`], or `Rgba16Float` for an HDR-output test.
+        /// [`OFFSCREEN_FORMAT`]; `Rgba16Float` for an scRGB-output test, or
+        /// `Rgb10a2Unorm` -- [`crate::hdr_output::PQ_SWAPCHAIN_FORMAT`] -- for an
+        /// HDR10 one.
         format: wgpu::TextureFormat,
     },
 }
 
 impl Output {
-    /// The format the final composite writes in.
+    /// Whether this target carries the HDR10 signal (PQ, BT.2020): a swapchain
+    /// configured with that colour space, or the offscreen target an HDR10
+    /// test reads -- the one offscreen target in that format.
+    pub(crate) fn is_pq(&self) -> bool {
+        match self {
+            Output::Window { config, .. } => {
+                config.color_space == wgpu::SurfaceColorSpace::Bt2100Pq
+            }
+            Output::Offscreen { format, .. } => *format == crate::hdr_output::PQ_SWAPCHAIN_FORMAT,
+        }
+    }
+
+    /// The format the post-process chain writes the frame in: the target's
+    /// own, except under HDR10, where the frame is scRGB in a texture of its
+    /// own and only `hdr_output::PqOutput` writes the target.
+    pub(crate) fn frame_format(&self) -> wgpu::TextureFormat {
+        if self.is_pq() {
+            crate::hdr_output::PQ_FRAME_FORMAT
+        } else {
+            self.format()
+        }
+    }
+
+    /// The format of the target itself.
     pub(crate) fn format(&self) -> wgpu::TextureFormat {
         match self {
             // The sRGB view, where the surface was given one (a WebGPU canvas:

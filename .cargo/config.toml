@@ -1,9 +1,21 @@
-[build]
-# Local Windows workaround: place target dir on C:\ so that deno_core/V8's
-# build script symlink works when the cargo registry (C:\) and source (F:\)
-# are on different drives (requires same-drive for symlink without admin rights).
-# CI overrides this via CARGO_TARGET_DIR env var in the workflow.
-target-dir = "C:\\BSEngine-target"
+# Every dependency builds from `vendor/`, in this repository, not from a
+# registry cache outside it: what the engine is built from is committed, shows
+# in a diff and builds offline -- as Godot keeps `thirdparty/` and Unreal
+# `ThirdParty/` in their trees. After any change to Cargo.lock, run
+# `cargo vendor --locked vendor` and commit what it changes; CI checks that
+# the two agree.
+#
+# And the build output goes where Cargo puts it by default, `target/` beside
+# the workspace -- one per worktree, removed with it. It used to be pinned to
+# C:\ because v8's build script needs its source and its output on the same
+# drive (creating its `gn_root` symlink across drives needs a privilege a
+# normal Windows account lacks). With v8's source in `vendor/`, the two are in
+# the same tree on every machine, so nothing needs pinning.
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
 
 [target.x86_64-pc-windows-msvc]
 # wgpu Vulkan layer enumeration exceeds Windows' default 1MB main-thread stack

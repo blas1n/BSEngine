@@ -12,29 +12,34 @@ command is right.
 
 ## Build and test
 
-`.cargo/config.toml` already sets `RUST_MIN_STACK` and a Windows-local
-`target-dir`. **The target dir must be on the same drive letter as the cargo
-registry** (`$CARGO_HOME/registry`): `v8`'s build script creates a `gn_root`
-symlink only when the two differ, and creating it needs a privilege a normal
-Windows account lacks, so every crate behind `deno_core` fails with
+**Everything is inside the tree.** Dependencies build from `vendor/` (every
+crate, as crates.io serves it; `.cargo/config.toml` replaces the registry with
+it) and the output goes to Cargo's default `target/` — one per worktree, and
+`git worktree remove` takes it with the worktree. No `CARGO_TARGET_DIR`, no
+registry cache. `.cargo/config.toml` also sets `RUST_MIN_STACK`.
 
-```
-symlink_dir failed: Os { code: 1314, ... }   →   failed to run custom build command for `v8`
-```
-
-The checked-in `target-dir` assumes the registry is on `C:`. If `CARGO_HOME`
-points elsewhere (on the machine this was written on it is `F:\.cargo`, set
-as a user environment variable), override per command:
+**After any change to `Cargo.lock`, re-vendor and commit the result:**
 
 ```bash
-CARGO_TARGET_DIR='F:\BSEngine-target' cargo ...
+cargo vendor --locked vendor   # ignores the source replacement: fetches from crates.io
+git add vendor Cargo.lock
 ```
 
-This is a *drive* condition, not a permissions one — Developer Mode or an
-elevated shell would also work, but the override is what CI's own
-`CARGO_TARGET_DIR` env var already does. Check `echo $CARGO_HOME` before the
-first build of a session; the failure costs a full dependency compile to
-reach.
+CI's first Ubuntu step fails if `vendor/` is not exactly what `Cargo.lock`
+names. Two rules keep the vendored bytes exact, and both are needed: the last
+line of `.gitattributes` (`vendor/** -text` — 793 vendored files have CRLF,
+which `*.rs text eol=lf` or autocrlf would rewrite) and the last line of
+`.gitignore` (`!/vendor/**` — `target/`, `build/` and `*.out` patterns above it
+matched 196 vendored files). A file either rule touched fails the build on its
+crate's `.cargo-checksum.json`.
+
+Why the output used to live outside: `v8`'s build script makes a `gn_root`
+symlink when its source and its output are on different drives, which a
+normal Windows account may not do (`symlink_dir failed: Os { code: 1314 }`).
+With the source in `vendor/`, both are in this tree on every machine. Two
+build scripts still download at build time (into `target/`, never
+committed): `v8`'s prebuilt library (`RUSTY_V8_ARCHIVE` points it at a local
+copy) and `mach-dxcompiler-rs`'s static DXC.
 
 ```bash
 cargo build --all

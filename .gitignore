@@ -521,3 +521,7 @@ crates/*/bsengine-status-probe-*
 # writes <project_dir>/dist-web the same way.
 dist/
 dist-web/
+
+# Vendored crates are byte-for-byte what crates.io serves (cargo checks each
+# file against .cargo-checksum.json): no pattern above may drop one of them.
+!/vendor/**

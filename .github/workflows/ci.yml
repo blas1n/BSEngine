@@ -25,7 +25,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  # Override .cargo/config.toml's Windows-specific target-dir
+  # Cargo's own default, spelled out: the E2E and packaging steps below build
+  # paths to the runtime binary from it.
   CARGO_TARGET_DIR: ${{ github.workspace }}/target
 
 jobs:
@@ -47,6 +48,24 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+
+      # Every build reads its dependencies from `vendor/` (.cargo/config.toml),
+      # so a Cargo.lock change committed without `cargo vendor --locked vendor`
+      # would build against the old sources -- or fail on a checksum -- with no
+      # sign of why. `cargo vendor` ignores the source replacement by default,
+      # so this re-fetches from crates.io exactly what the lockfile names, and
+      # the committed tree must be that, file for file. One OS is enough: the
+      # vendored set is the same for every target.
+      - name: vendor/ matches Cargo.lock
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          cargo vendor --locked vendor > /dev/null
+          if [ -n "$(git status --porcelain -- vendor)" ]; then
+            git status --short -- vendor | head -20
+            echo "vendor/ is not what Cargo.lock names: run 'cargo vendor --locked vendor' and commit it"
+            exit 1
+          fi
 
       - uses: Swatinem/rust-cache@v2
         with:

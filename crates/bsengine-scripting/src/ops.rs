@@ -2267,7 +2267,11 @@ fn unknown_input_context(context: &str) -> String {
 #[string]
 pub fn bsengine_get_action_bindings(#[string] action: String, #[string] context: String) -> String {
     INPUT_CONTEXTS_SNAPSHOT.with(|c| {
-        match c.borrow().get(&context).and_then(|ctx| ctx.actions.get(&action)) {
+        match c
+            .borrow()
+            .get(&context)
+            .and_then(|ctx| ctx.actions.get(&action))
+        {
             Some(list) => serde_json::to_string(list).unwrap_or_else(|_| "[]".to_string()),
             None => "null".to_string(),
         }
@@ -2305,9 +2309,7 @@ pub fn bsengine_set_action_bindings(
     });
     match mapped {
         None => return unknown_input_context(&context),
-        Some(false) => {
-            return format!("input context {context:?} does not map action {action:?}")
-        }
+        Some(false) => return format!("input context {context:?} does not map action {action:?}"),
         Some(true) => {}
     }
     let errors: Vec<String> = texts
@@ -6166,10 +6168,17 @@ mod tests {
                 })
             };
             let r = eval(&mut rt, &catch(r#"Bsengine.enableInputContext("hud")"#));
-            assert!(r.contains("unknown input context \"hud\"") && r.contains("default, menu"), "{r}");
+            assert!(
+                r.contains("unknown input context \"hud\"") && r.contains("default, menu"),
+                "{r}"
+            );
             let r = eval(&mut rt, &catch(r#"Bsengine.isInputContextEnabled("hud")"#));
             assert!(r.contains("unknown input context \"hud\""), "{r}");
-            assert_eq!(queued("SetInputContextEnabled"), 0, "a refused switch queues nothing");
+            assert_eq!(
+                queued("SetInputContextEnabled"),
+                0,
+                "a refused switch queues nothing"
+            );
 
             let r = eval(
                 &mut rt,

@@ -7702,7 +7702,11 @@ mod tests {
                 text: None,
             });
         app.update();
-        assert_eq!(read(&app), (0.0, 1.0), "Escape is the menu's now, not pause's");
+        assert_eq!(
+            read(&app),
+            (0.0, 1.0),
+            "Escape is the menu's now, not pause's"
+        );
 
         // Seeing `back`, the script rebinds it *in the menu context* to
         // Backspace, so the menu no longer maps Escape and the still-held
@@ -7719,8 +7723,16 @@ mod tests {
             .iter()
             .map(ToString::to_string)
             .collect();
-        assert_eq!(back, ["Backspace"], "the rebinding reached the menu context");
-        assert_eq!(read(&app), (1.0, 0.0), "Escape, still held, is pause's again");
+        assert_eq!(
+            back,
+            ["Backspace"],
+            "the rebinding reached the menu context"
+        );
+        assert_eq!(
+            read(&app),
+            (1.0, 0.0),
+            "Escape, still held, is pause's again"
+        );
     }
 
     /// `Bsengine.onAnimationEvent` through the real plugins: the animation

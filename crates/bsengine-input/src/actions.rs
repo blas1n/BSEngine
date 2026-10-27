@@ -1039,7 +1039,10 @@ mod tests {
         ContextConfig {
             priority,
             enabled,
-            actions: actions.into_iter().map(|(n, m)| (n.to_string(), m)).collect(),
+            actions: actions
+                .into_iter()
+                .map(|(n, m)| (n.to_string(), m))
+                .collect(),
             unknown_keys: Vec::new(),
         }
     }
@@ -1049,8 +1052,14 @@ mod tests {
         contexts: Vec<(&str, ContextConfig)>,
     ) -> Result<InputActions, String> {
         InputActions::from_contexts(
-            &default.into_iter().map(|(n, m)| (n.to_string(), m)).collect(),
-            &contexts.into_iter().map(|(n, c)| (n.to_string(), c)).collect(),
+            &default
+                .into_iter()
+                .map(|(n, m)| (n.to_string(), m))
+                .collect(),
+            &contexts
+                .into_iter()
+                .map(|(n, c)| (n.to_string(), c))
+                .collect(),
             DEFAULT_DEADZONE,
         )
     }
@@ -1089,10 +1098,24 @@ mod tests {
                 ("ok", mapping(&["Space"], Some("hold"), Some(0.5))),
             ],
             vec![
-                ("menu", context(10, true, vec![("back", mapping(&["Escape"], Some("tap"), Some(0.0)))])),
+                (
+                    "menu",
+                    context(
+                        10,
+                        true,
+                        vec![("back", mapping(&["Escape"], Some("tap"), Some(0.0)))],
+                    ),
+                ),
                 ("default", context(0, true, vec![])),
                 ("odd", bad_context),
-                ("also", context(0, true, vec![("ok", mapping(&["O"], Some("tap"), Some(0.2)))])),
+                (
+                    "also",
+                    context(
+                        0,
+                        true,
+                        vec![("ok", mapping(&["O"], Some("tap"), Some(0.2)))],
+                    ),
+                ),
             ],
         )
         .expect_err("several problems");
@@ -1106,13 +1129,27 @@ mod tests {
         ] {
             assert!(err.contains(says), "missing {says:?} in:\n{err}");
         }
-        assert_eq!(err.lines().count(), 6, "one line each, nothing else:\n{err}");
+        assert_eq!(
+            err.lines().count(),
+            6,
+            "one line each, nothing else:\n{err}"
+        );
 
         let fine = actions_from(
             vec![("ok", mapping(&["Space"], Some("hold"), Some(0.5)))],
-            vec![("menu", context(1, true, vec![("ok", mapping(&["O"], Some("tap"), Some(0.2)))]))],
+            vec![(
+                "menu",
+                context(
+                    1,
+                    true,
+                    vec![("ok", mapping(&["O"], Some("tap"), Some(0.2)))],
+                ),
+            )],
         );
-        assert!(fine.is_ok(), "different priorities may both have one: {fine:?}");
+        assert!(
+            fine.is_ok(),
+            "different priorities may both have one: {fine:?}"
+        );
     }
 
     /// An action only a disabled context maps is still an action; rebinding
@@ -1121,7 +1158,10 @@ mod tests {
     fn contexts_keep_their_names_and_refuse_unknown_ones() {
         let mut actions = actions_from(
             vec![("jump", mapping(&["Space"], None, None))],
-            vec![("menu", context(10, false, vec![("back", mapping(&["Escape"], None, None))]))],
+            vec![(
+                "menu",
+                context(10, false, vec![("back", mapping(&["Escape"], None, None))]),
+            )],
         )
         .unwrap();
         assert_eq!(actions.names().collect::<Vec<_>>(), ["back", "jump"]);
@@ -1131,13 +1171,20 @@ mod tests {
             Some(&[Binding::Key(KeyCode::Escape)][..])
         );
 
-        let err = actions.set_context_enabled("hud", true).expect_err("no hud");
-        assert!(err.contains("\"hud\"") && err.contains("default, menu"), "{err}");
+        let err = actions
+            .set_context_enabled("hud", true)
+            .expect_err("no hud");
+        assert!(
+            err.contains("\"hud\"") && err.contains("default, menu"),
+            "{err}"
+        );
         let err = actions
             .set_bindings_in("menu", "jump", vec![])
             .expect_err("menu does not map jump");
         assert!(err.contains("does not map action \"jump\""), "{err}");
-        let err = actions.set_bindings_in("menu", "jmup", vec![]).expect_err("no jmup");
+        let err = actions
+            .set_bindings_in("menu", "jmup", vec![])
+            .expect_err("no jmup");
         assert!(err.contains("unknown action \"jmup\""), "{err}");
 
         actions.set_context_enabled("menu", true).unwrap();
@@ -1179,7 +1226,10 @@ mod tests {
     fn a_higher_context_consumes_its_inputs_until_it_is_disabled() {
         let actions = actions_from(
             vec![("pause", mapping(&["Escape", "P"], None, None))],
-            vec![("menu", context(10, true, vec![("back", mapping(&["Escape"], None, None))]))],
+            vec![(
+                "menu",
+                context(10, true, vec![("back", mapping(&["Escape"], None, None))]),
+            )],
         )
         .unwrap();
         let mut app = timed_app(actions, true);
@@ -1190,7 +1240,10 @@ mod tests {
 
         key(&mut app, KeyCode::P, ElementState::Pressed);
         app.update();
-        assert!(value(&app, "pause").pressed, "P is not the menu's, so it still reaches pause");
+        assert!(
+            value(&app, "pause").pressed,
+            "P is not the menu's, so it still reaches pause"
+        );
 
         key(&mut app, KeyCode::P, ElementState::Released);
         app.world_mut()
@@ -1198,7 +1251,10 @@ mod tests {
             .set_context_enabled("menu", false)
             .unwrap();
         app.update();
-        assert!(!value(&app, "back").pressed, "a disabled context reads nothing");
+        assert!(
+            !value(&app, "back").pressed,
+            "a disabled context reads nothing"
+        );
         assert!(value(&app, "pause").pressed, "Escape is gameplay's again");
     }
 
@@ -1207,7 +1263,10 @@ mod tests {
     fn contexts_of_equal_priority_both_see_a_shared_input() {
         let actions = actions_from(
             vec![("pause", mapping(&["Escape"], None, None))],
-            vec![("hud", context(0, true, vec![("close", mapping(&["Escape"], None, None))]))],
+            vec![(
+                "hud",
+                context(0, true, vec![("close", mapping(&["Escape"], None, None))]),
+            )],
         )
         .unwrap();
         let mut app = timed_app(actions, true);
@@ -1224,7 +1283,11 @@ mod tests {
             vec![],
             vec![(
                 "combat",
-                context(5, true, vec![("charge", mapping(&["Space"], Some("hold"), Some(0.5)))]),
+                context(
+                    5,
+                    true,
+                    vec![("charge", mapping(&["Space"], Some("hold"), Some(0.5)))],
+                ),
             )],
         )
         .unwrap();
@@ -1233,7 +1296,10 @@ mod tests {
         app.update();
         app.update();
         let v = value(&app, "charge");
-        assert!(v.ongoing && approx(v.held_time, 0.1), "premise: holding: {v:?}");
+        assert!(
+            v.ongoing && approx(v.held_time, 0.1),
+            "premise: holding: {v:?}"
+        );
         app.world_mut()
             .resource_mut::<InputActions>()
             .set_context_enabled("combat", false)
@@ -1257,7 +1323,12 @@ mod tests {
             )
             .unwrap()
         };
-        let fired = |app: &bevy_app::App| (value(app, "dodge").triggered, value(app, "sprint").triggered);
+        let fired = |app: &bevy_app::App| {
+            (
+                value(app, "dodge").triggered,
+                value(app, "sprint").triggered,
+            )
+        };
 
         let mut app = timed_app(both(), true);
         key(&mut app, KeyCode::ShiftLeft, ElementState::Pressed);
@@ -1276,9 +1347,18 @@ mod tests {
         }
         assert_eq!(
             frames,
-            [(false, false), (false, false), (false, true), (false, false), (false, false)],
+            [
+                (false, false),
+                (false, false),
+                (false, true),
+                (false, false),
+                (false, false)
+            ],
             "sprint fires once at 0.2 s; dodge never"
         );
-        assert!(value(&app, "dodge").held_time > 0.2, "premise: held past the tap");
+        assert!(
+            value(&app, "dodge").held_time > 0.2,
+            "premise: held past the tap"
+        );
     }
 }

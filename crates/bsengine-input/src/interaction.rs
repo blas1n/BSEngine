@@ -46,7 +46,9 @@ impl Interaction {
         let Some(name) = name else {
             return match time {
                 None => Ok(None),
-                Some(_) => Err("\"time\" without an \"interaction\" has nothing to time".to_string()),
+                Some(_) => {
+                    Err("\"time\" without an \"interaction\" has nothing to time".to_string())
+                }
             };
         };
         let make: fn(f32) -> Interaction = match name {
@@ -224,17 +226,27 @@ mod tests {
     /// released, then `after` idle frames.
     fn press(held: usize, after: usize) -> Vec<(bool, bool)> {
         let mut frames = vec![(true, true)];
-        frames.extend(std::iter::repeat((true, false)).take(held));
-        frames.extend(std::iter::repeat((false, false)).take(after + 1));
+        frames.extend(std::iter::repeat_n((true, false), held));
+        frames.extend(std::iter::repeat_n((false, false), after + 1));
         frames
     }
 
     fn fired(steps: &[Step]) -> Vec<usize> {
-        steps.iter().enumerate().filter(|(_, s)| s.triggered).map(|(i, _)| i).collect()
+        steps
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.triggered)
+            .map(|(i, _)| i)
+            .collect()
     }
 
     fn canceled(steps: &[Step]) -> Vec<usize> {
-        steps.iter().enumerate().filter(|(_, s)| s.canceled).map(|(i, _)| i).collect()
+        steps
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.canceled)
+            .map(|(i, _)| i)
+            .collect()
     }
 
     fn approx(a: f32, b: f32) -> bool {
@@ -253,8 +265,14 @@ mod tests {
             steps[3].held_time
         );
         assert_eq!(fired(&steps), vec![3], "{steps:?}");
-        assert!(canceled(&steps).is_empty(), "a hold that fired is not canceled on release");
-        assert!(steps[..3].iter().all(|s| s.ongoing), "ongoing until it fires");
+        assert!(
+            canceled(&steps).is_empty(),
+            "a hold that fired is not canceled on release"
+        );
+        assert!(
+            steps[..3].iter().all(|s| s.ongoing),
+            "ongoing until it fires"
+        );
         assert!(steps[3..].iter().all(|s| !s.ongoing), "and not after");
     }
 
@@ -272,7 +290,10 @@ mod tests {
     #[test]
     fn a_tap_released_within_its_time_fires_on_the_release() {
         let steps = run(Some(Interaction::Tap { time: 0.2 }), &press(1, 1));
-        assert!(approx(steps[1].held_time, 0.1), "premise: last seen held at 0.1 s");
+        assert!(
+            approx(steps[1].held_time, 0.1),
+            "premise: last seen held at 0.1 s"
+        );
         assert_eq!(fired(&steps), vec![2], "{steps:?}");
         assert!(canceled(&steps).is_empty());
         assert!(steps[0].ongoing && steps[1].ongoing && !steps[2].ongoing);
@@ -283,8 +304,15 @@ mod tests {
     #[test]
     fn a_tap_held_too_long_is_canceled_while_held_and_silent_on_release() {
         let steps = run(Some(Interaction::Tap { time: 0.2 }), &press(5, 2));
-        assert_eq!(canceled(&steps), vec![3], "the first frame past 0.2 s: {steps:?}");
-        assert!(approx(steps[3].held_time, 0.3), "premise: frame 3 is at 0.3 s");
+        assert_eq!(
+            canceled(&steps),
+            vec![3],
+            "the first frame past 0.2 s: {steps:?}"
+        );
+        assert!(
+            approx(steps[3].held_time, 0.3),
+            "premise: frame 3 is at 0.3 s"
+        );
         assert!(fired(&steps).is_empty(), "the release does not fire it");
     }
 
@@ -296,9 +324,15 @@ mod tests {
         let tap = run(Some(Interaction::Tap { time: 0.2 }), &frames);
         assert_eq!(fired(&tap), vec![1], "{tap:?}");
         let hold = run(Some(Interaction::Hold { time: 0.2 }), &frames);
-        assert!(fired(&hold).is_empty() && canceled(&hold) == vec![1], "{hold:?}");
+        assert!(
+            fired(&hold).is_empty() && canceled(&hold) == vec![1],
+            "{hold:?}"
+        );
         let slow = run(Some(Interaction::HoldAndRelease { time: 0.2 }), &frames);
-        assert!(fired(&slow).is_empty() && canceled(&slow) == vec![1], "{slow:?}");
+        assert!(
+            fired(&slow).is_empty() && canceled(&slow) == vec![1],
+            "{slow:?}"
+        );
         let none = run(None, &frames);
         assert_eq!(fired(&none), vec![1], "no interaction: the press edge");
     }
@@ -308,17 +342,32 @@ mod tests {
     /// it does not stop at the threshold as a hold does.
     #[test]
     fn hold_and_release_fires_on_releasing_a_long_enough_press() {
-        let long = run(Some(Interaction::HoldAndRelease { time: 0.3 }), &press(2, 1));
-        assert!(approx(long[2].held_time, 0.2), "premise: 0.2 s seen, released at 0.3");
+        let long = run(
+            Some(Interaction::HoldAndRelease { time: 0.3 }),
+            &press(2, 1),
+        );
+        assert!(
+            approx(long[2].held_time, 0.2),
+            "premise: 0.2 s seen, released at 0.3"
+        );
         assert_eq!(fired(&long), vec![3], "{long:?}");
         assert!(long[..3].iter().all(|s| s.ongoing));
 
-        let short = run(Some(Interaction::HoldAndRelease { time: 0.3 }), &press(1, 1));
+        let short = run(
+            Some(Interaction::HoldAndRelease { time: 0.3 }),
+            &press(1, 1),
+        );
         assert!(fired(&short).is_empty(), "{short:?}");
         assert_eq!(canceled(&short), vec![2]);
 
-        let held_on = run(Some(Interaction::HoldAndRelease { time: 0.3 }), &press(8, 0));
-        assert!(held_on[..9].iter().all(|s| s.ongoing && !s.triggered), "{held_on:?}");
+        let held_on = run(
+            Some(Interaction::HoldAndRelease { time: 0.3 }),
+            &press(8, 0),
+        );
+        assert!(
+            held_on[..9].iter().all(|s| s.ongoing && !s.triggered),
+            "{held_on:?}"
+        );
     }
 
     /// No interaction: `triggered` is the press edge, nothing is ongoing or

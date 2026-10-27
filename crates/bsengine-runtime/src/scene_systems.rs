@@ -1211,7 +1211,11 @@ mod tests {
             actions.bindings("jump"),
             Some(&[bsengine_input::Binding::Key(bsengine_input::KeyCode::Space)][..])
         );
-        let dodge = actions.context("default").unwrap().mapping("dodge").unwrap();
+        let dodge = actions
+            .context("default")
+            .unwrap()
+            .mapping("dodge")
+            .unwrap();
         assert_eq!(
             dodge.interaction,
             Some(bsengine_input::Interaction::Tap { time: 0.25 })
@@ -1219,7 +1223,10 @@ mod tests {
         let menu = actions.context("menu").unwrap();
         assert_eq!((menu.priority, menu.enabled), (10, false));
         assert!(menu.mapping("back").is_some());
-        assert_eq!(actions.names().collect::<Vec<_>>(), ["back", "dodge", "jump"]);
+        assert_eq!(
+            actions.names().collect::<Vec<_>>(),
+            ["back", "dodge", "jump"]
+        );
 
         let none = input_of("").actions().unwrap();
         let empty = input_of("[input]\n").actions().unwrap();
@@ -1244,8 +1251,14 @@ mod tests {
         .expect_err("three problems");
         assert!(err.contains("unknown key \"intercation\""), "{err}");
         assert!(err.contains("\"time\" without an \"interaction\""), "{err}");
-        assert!(err.contains("action \"jump\": unknown key in binding \"space\""), "{err}");
-        assert!(err.contains("context \"menu\": unknown key \"priorty\""), "{err}");
+        assert!(
+            err.contains("action \"jump\": unknown key in binding \"space\""),
+            "{err}"
+        );
+        assert!(
+            err.contains("context \"menu\": unknown key \"priorty\""),
+            "{err}"
+        );
     }
 
     /// Both streaming fields are read from the file, with values distinct

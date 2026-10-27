@@ -1,0 +1,160 @@
+// Take a look at the license at the top of the repository in the LICENSE file.
+
+use std::ptr;
+
+use glib::translate::*;
+
+#[cfg(feature = "v1_18")]
+#[cfg_attr(docsrs, doc(cfg(feature = "v1_18")))]
+use crate::Tracer;
+
+// import only functions which do not have their own module as namespace
+#[cfg(feature = "v1_28")]
+pub use crate::auto::functions::call_async;
+pub use crate::auto::functions::{
+    main_executable_path, util_get_timestamp as get_timestamp, version, version_string,
+};
+use crate::ffi;
+
+#[doc(alias = "gst_calculate_linear_regression")]
+pub fn calculate_linear_regression(
+    xy: &[(u64, u64)],
+    temp: Option<&mut [(u64, u64)]>,
+) -> Option<(u64, u64, u64, u64, f64)> {
+    skip_assert_initialized!();
+    use std::mem;
+
+    unsafe {
+        assert_eq!(mem::size_of::<u64>() * 2, mem::size_of::<(u64, u64)>());
+        assert_eq!(mem::align_of::<u64>(), mem::align_of::<(u64, u64)>());
+        assert!(
+            temp.as_ref()
+                .map(|temp| temp.len())
+                .unwrap_or_else(|| xy.len())
+                >= xy.len()
+        );
+
+        let mut m_num = mem::MaybeUninit::uninit();
+        let mut m_denom = mem::MaybeUninit::uninit();
+        let mut b = mem::MaybeUninit::uninit();
+        let mut xbase = mem::MaybeUninit::uninit();
+        let mut r_squared = mem::MaybeUninit::uninit();
+
+        let res = from_glib(ffi::gst_calculate_linear_regression(
+            xy.as_ptr() as *const u64,
+            temp.map(|temp| temp.as_mut_ptr() as *mut u64)
+                .unwrap_or(ptr::null_mut()),
+            xy.len() as u32,
+            m_num.as_mut_ptr(),
+            m_denom.as_mut_ptr(),
+            b.as_mut_ptr(),
+            xbase.as_mut_ptr(),
+            r_squared.as_mut_ptr(),
+        ));
+        if res {
+            Some((
+                m_num.assume_init(),
+                m_denom.assume_init(),
+                b.assume_init(),
+                xbase.assume_init(),
+                r_squared.assume_init(),
+            ))
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(feature = "v1_18")]
+#[cfg_attr(docsrs, doc(cfg(feature = "v1_18")))]
+#[doc(alias = "gst_tracing_get_active_tracers")]
+pub fn active_tracers() -> glib::List<Tracer> {
+    assert_initialized_main_thread!();
+    unsafe { FromGlibPtrContainer::from_glib_full(ffi::gst_tracing_get_active_tracers()) }
+}
+
+#[cfg(feature = "v1_24")]
+#[cfg_attr(docsrs, doc(cfg(feature = "v1_24")))]
+#[doc(alias = "gst_util_filename_compare")]
+pub fn filename_compare(a: &std::path::Path, b: &std::path::Path) -> std::cmp::Ordering {
+    skip_assert_initialized!();
+    unsafe {
+        from_glib(ffi::gst_util_filename_compare(
+            a.to_glib_none().0,
+            b.to_glib_none().0,
+        ))
+    }
+}
+
+#[doc(alias = "gst_segtrap_is_enabled")]
+pub fn segtrap_is_enabled() -> bool {
+    skip_assert_initialized!();
+    unsafe { from_glib(ffi::gst_segtrap_is_enabled()) }
+}
+
+#[doc(alias = "gst_segtrap_set_enabled")]
+pub fn segtrap_set_enabled(enabled: bool) {
+    skip_assert_initialized!();
+
+    // Ensure this is called before GStreamer is initialized
+    if unsafe { ffi::gst_is_initialized() } == glib::ffi::GTRUE {
+        panic!("segtrap_set_enabled() must be called before gst::init()");
+    }
+
+    unsafe {
+        ffi::gst_segtrap_set_enabled(enabled.into_glib());
+    }
+}
+
+#[doc(alias = "gst_check_version")]
+pub fn check_version(major: u32, minor: u32, micro: u32) -> bool {
+    skip_assert_initialized!();
+
+    #[cfg(feature = "v1_28")]
+    {
+        crate::auto::functions::check_version(major, minor, micro)
+    }
+    #[cfg(not(feature = "v1_28"))]
+    {
+        let v = crate::auto::functions::version();
+        if v.0 != major {
+            return false;
+        }
+        if v.1 < minor {
+            return false;
+        }
+        if v.1 > minor {
+            return true;
+        }
+        if v.2 < micro {
+            return false;
+        }
+        true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_calculate_linear_regression() {
+        crate::init().unwrap();
+
+        let values = [(0, 0), (1, 1), (2, 2), (3, 3)];
+
+        let (m_num, m_denom, b, xbase, _) = calculate_linear_regression(&values, None).unwrap();
+        assert_eq!((m_num, m_denom, b, xbase), (10, 10, 3, 3));
+
+        let mut temp = [(0, 0); 4];
+        let (m_num, m_denom, b, xbase, _) =
+            calculate_linear_regression(&values, Some(&mut temp)).unwrap();
+        assert_eq!((m_num, m_denom, b, xbase), (10, 10, 3, 3));
+    }
+
+    #[test]
+    fn test_segtrap_is_enabled() {
+        // Default should be enabled
+        assert!(segtrap_is_enabled());
+    }
+}

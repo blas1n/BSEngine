@@ -1,0 +1,9 @@
+{
+  "tasks": {
+    "wasmbuild": "deno run -A jsr:@deno/wasmbuild@0.19.3 --project sys_traits_wasm_test --out tests/wasm_test/lib",
+    "test": {
+      "command": "deno run -A tests/wasm_test/run.js",
+      "dependencies": ["wasmbuild"]
+    }
+  }
+}

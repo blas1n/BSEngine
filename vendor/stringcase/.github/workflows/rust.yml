@@ -1,0 +1,38 @@
+name: Rust CI
+
+on:
+  push:
+    branches: [ '*', '*/*' ]
+
+jobs:
+  test:
+    name: Test for Rust ${{ matrix.rustver }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        rustver: ['1.56.1', '1.60.0', '1.70.0', '1.80.0', stable]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.rustver }}
+      - run: cargo test
+
+  cover:
+    name: Coverage for Rust ${{ matrix.rustver }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        rustver: [stable]
+        os: [ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.rustver }}
+          components: llvm-tools-preview
+      - run: cargo install cargo-llvm-cov
+      - run: cargo llvm-cov

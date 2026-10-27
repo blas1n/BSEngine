@@ -1,0 +1,446 @@
+[options]
+girs_directories = ["../gir-files", "../gst-gir-files"]
+library = "GstBase"
+version = "1.0"
+min_cfg_version = "1.14"
+work_mode = "normal"
+concurrency = "send+sync"
+generate_safety_asserts = true
+single_version_file = true
+generate_display_trait = false
+trust_return_value_nullability = true
+
+external_libraries = [
+    "GLib",
+    "GObject",
+    "Gst",
+]
+
+generate = [
+    "GstBase.AggregatorStartTimeSelection",
+    "GstBase.PushSrc",
+]
+
+manual = [
+    "GLib.Bytes",
+    "GObject.Object",
+    "Gst.AllocationParams",
+    "Gst.Allocator",
+    "Gst.BufferFlags",
+    "Gst.BufferPool",
+    "Gst.ClockTimeDiff",
+    "Gst.Element",
+    "Gst.Event",
+    "Gst.EventType",
+    "Gst.Format",
+    "Gst.Memory",
+    "Gst.Object",
+    "Gst.Pad",
+    "Gst.Segment",
+    "Gst.State",
+    "Gst.StateChangeReturn",
+    "Gst.TagMergeMode",
+    "Gst.TypeFindProbability",
+    "GstBase.BaseParseFrame",
+]
+
+[[object]]
+name = "Gst.Buffer"
+status = "manual"
+ref_mode = "ref"
+
+[[object]]
+name = "Gst.BufferList"
+status = "manual"
+ref_mode = "ref"
+
+[[object]]
+name = "Gst.Caps"
+status = "manual"
+ref_mode = "ref"
+
+[[object]]
+name = "Gst.ClockReturn"
+status = "manual"
+must_use = true
+    [object.conversion_type]
+    variant = "Result"
+    ok_type = "gst::ClockSuccess"
+    err_type = "gst::ClockError"
+
+[[object]]
+name = "Gst.ClockTime"
+status = "manual"
+conversion_type = "Option"
+
+[[object]]
+name = "Gst.FlowReturn"
+status = "manual"
+must_use = true
+    [object.conversion_type]
+    variant = "Result"
+    ok_type = "gst::FlowSuccess"
+    err_type = "gst::FlowError"
+
+[[object]]
+name = "Gst.Sample"
+status = "manual"
+ref_mode = "ref"
+
+[[object]]
+name = "Gst.Structure"
+status = "manual"
+ref_mode = "ref"
+
+[[object]]
+name = "Gst.TagList"
+status = "manual"
+ref_mode = "ref"
+
+[[object]]
+name = "GstBase.*"
+status = "generate"
+    # We'll opt-in for constants at a later time
+    [[object.constant]]
+    pattern = ".+"
+    ignore = true
+
+    [[object.function]]
+    name = "type_find_helper_for_data"
+    # broken return value
+    manual = true
+
+    [[object.function]]
+    name = "type_find_helper_for_data_with_extension"
+    # broken return value
+    manual = true
+
+    [[object.function]]
+    name = "type_find_helper_for_buffer"
+    # broken return value
+    manual = true
+
+    [[object.function]]
+    name = "type_find_helper_for_buffer_with_extension"
+    # broken return value
+    manual = true
+
+    [[object.function]]
+    name = "type_find_helper_for_buffer_with_caps"
+    # broken return value
+    manual = true
+
+    [[object.function]]
+    name = "type_find_helper_for_data_with_caps"
+    # broken return value
+    manual = true
+
+    [[object.function]]
+    name = "type_find_list_factories_for_caps"
+    # broken return value
+    manual = true
+
+    [[object.function]]
+    name = "type_find_helper"
+        [object.function.return]
+        nullable_return_is_error = "Could not find type"
+
+    [[object.function]]
+    name = "type_find_helper_for_extension"
+        [object.function.return]
+        nullable_return_is_error = "Could not find type"
+
+[[object]]
+name = "GstBase.Adapter"
+status = "generate"
+final_type = true
+concurrency = "none"
+    [[object.function]]
+    name = "map"
+    # Unsafe, implemented on `UniqueAdapter`
+    ignore = true
+
+    [[object.function]]
+    name = "unmap"
+    # Unsafe
+    ignore = true
+
+    [[object.function]]
+    pattern = "copy.*"
+    # Unsafe
+    manual = true
+
+    [[object.function]]
+    name = "push"
+    # Move Buffer
+    manual = true
+
+    [[object.function]]
+    pattern = "take.*"
+    # Unsafe
+    ignore = true
+
+    [[object.function]]
+    pattern = "get.*"
+    # Unsafe
+    ignore = true
+
+    [[object.function]]
+    pattern = "masked.*"
+    # Unsafe
+    ignore = true
+
+    [[object.function]]
+    name = "flush"
+    # Unsafe Buffer
+    manual = true
+
+[[object]]
+name = "GstBase.Aggregator"
+status = "generate"
+manual_traits = ["AggregatorExtManual"]
+
+    [[object.function]]
+    name = "update_segment"
+    # Takes FormattedValue as argument
+    manual = true
+
+    [[object.function]]
+    name = "get_allocator"
+    manual = true
+
+    [[object.function]]
+    name = "set_allocator"
+    # Use Result
+    manual = true
+
+    [[object.function]]
+    name = "selected_samples"
+    # Info parameter
+    manual = true
+
+    [[object.function]]
+    name = "set_latency"
+        [[object.function.parameter]]
+        name = "min_latency"
+        mandatory = true
+
+    [[object.property]]
+    name = "start-time-selection"
+    version = "1.18"
+
+    [[object.property]]
+    name = "min-upstream-latency"
+    # clock time instead of u64
+    manual = true
+
+    [[object.signal]]
+    name = "samples-selected"
+    # StructureRef instead of Structure
+    manual = true
+
+[[object]]
+name = "GstBase.AggregatorPad"
+status = "generate"
+manual_traits = ["AggregatorPadExtManual"]
+    [[object.property]]
+    name = "current-level-time"
+    # ClockTime
+    manual = true
+
+[[object]]
+name = "GstBase.BaseParse"
+status = "generate"
+manual_traits = ["BaseParseExtManual"]
+    [[object.function]]
+    name = "add_index_entry"
+        [[object.function.parameter]]
+        name = "ts"
+        mandatory = true
+
+    [[object.function]]
+    name = "finish_frame"
+    manual = true
+
+    [[object.function]]
+    name = "set_duration"
+    manual = true
+
+    [[object.function]]
+    name = "set_latency"
+        [[object.function.parameter]]
+        name = "min_latency"
+        mandatory = true
+
+    [[object.function]]
+    name = "convert_default"
+    manual = true
+
+    [[object.function]]
+    name = "set_frame_rate"
+    manual = true
+
+    # Didn't bind gst_base_parse_frame_{new,init} so not needed
+    [[object.function]]
+    name = "push_frame"
+    ignore = true
+
+[[object]]
+name = "GstBase.BaseParseFrameFlags"
+status = "generate"
+    [[object.member]]
+    name = "none"
+    ignore = true
+
+[[object]]
+name = "GstBase.BaseSink"
+status = "generate"
+manual_traits = ["BaseSinkExtManual"]
+
+    [[object.function]]
+    name = "get_latency"
+        [object.function.return]
+        mandatory = true
+
+    [[object.function]]
+    name = "get_processing_deadline"
+        [object.function.return]
+        mandatory = true
+
+    [[object.function]]
+    name = "get_render_delay"
+        [object.function.return]
+        mandatory = true
+
+    [[object.function]]
+    name = "query_latency"
+    # Use Result
+    manual = true
+
+    [[object.function]]
+    name = "is_qos_enabled"
+    # Same as the qos property
+    ignore = true
+
+    [[object.function]]
+    name = "set_qos_enabled"
+    # Same as the qos property
+    ignore = true
+
+    [[object.function]]
+    name = "is_async_enabled"
+    # Same as the async property
+    ignore = true
+
+    [[object.function]]
+    name = "set_async_enabled"
+    # Same as the async property
+    ignore = true
+
+    [[object.function]]
+    name = "is_last_sample_enabled"
+    # Same as the enable-last-sample property
+    ignore = true
+
+    [[object.function]]
+    name = "set_last_sample_enabled"
+    # Same as the enable-last-sample property
+    ignore = true
+
+    [[object.function]]
+    name = "get_drop_out_of_segment"
+    rename = "drops_out_of_segment"
+
+    [[object.function]]
+    name = "set_processing_deadline"
+        [[object.function.parameter]]
+        name = "processing_deadline"
+        mandatory = true
+
+    [[object.function]]
+    name = "set_render_delay"
+        [[object.function.parameter]]
+        name = "delay"
+        mandatory = true
+
+    [[object.function]]
+    name = "wait_clock"
+        [[object.function.parameter]]
+        name = "time"
+        mandatory = true
+
+[[object]]
+name = "GstBase.BaseSrc"
+status = "generate"
+manual_traits = ["BaseSrcExtManual"]
+
+    [[object.function]]
+    name = "get_allocator"
+    manual = true
+
+    [[object.function]]
+    name = "set_caps"
+        [object.function.return]
+        bool_return_is_error = "Failed to set caps"
+
+    [[object.function]]
+    name = "submit_buffer_list"
+    # Pass by value, to be added manually
+    ignore = true
+
+    [[object.function]]
+    name = "query_latency"
+    # Use Result
+    manual = true
+
+    [[object.function]]
+    name = "new_segment"
+        [object.function.return]
+        bool_return_is_error = "Failed to update segment"
+
+    [[object.function]]
+    name = "set_allocator"
+    # Use Result
+    manual = true
+
+[[object]]
+name = "GstBase.BaseTransform"
+status = "generate"
+manual_traits = ["BaseTransformExtManual"]
+
+    [[object.function]]
+    name = "get_allocator"
+    manual = true
+
+    [[object.function]]
+    name = "update_qos"
+        [[object.function.parameter]]
+        name = "timestamp"
+        mandatory = true
+
+    [[object.function]]
+    name = "update_src_caps"
+        [object.function.return]
+        bool_return_is_error = "Failed to update src caps"
+
+    [[object.function]]
+    name = "is_qos_enabled"
+    # Same as the qos property
+    ignore = true
+
+    [[object.function]]
+    name = "set_allocator"
+    # Use Result
+    manual = true
+
+    [[object.function]]
+    name = "set_qos_enabled"
+    # Same as the qos property
+    ignore = true
+
+[[object]]
+name = "GstBase.FlowCombiner"
+# Manual because ref/unref functions were added much later
+status = "manual"
+final_type = true
+concurrency = "none"

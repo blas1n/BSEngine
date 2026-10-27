@@ -1,0 +1,41 @@
+[package]
+name = "fearless_simd"
+version = "0.4.1"
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+authors = ["Raph Levien <raph.levien@gmail.com>"]
+keywords = ["simd"]
+categories = ["hardware-support"]
+description = "Safer and easier SIMD"
+readme = "README.md"
+
+[package.metadata.docs.rs]
+all-features = true
+# TODO: Get the right set of targets here. x86 linux, x86-64 linux, arm-macos, wasm
+# default-target = "x86_64-unknown-linux-gnu"
+# targets = []
+
+
+[features]
+default = ["std"]
+# Get floating point functions from the standard library (likely using your targets libc).
+# Also allows using `Level::new` on all platforms, to detect which target features are enabled
+std = []
+# Use floating point implementations from libm
+libm = ["dep:libm"]
+
+# Include safe wrappers for (some) target feature specific intrinsics,
+# beyond the basic SIMD operations abstracted on all platforms
+safe_wrappers = []
+
+# Force the "fallback" SIMD level to be supported
+# This is primarily used for tests
+force_support_fallback = []
+
+[lints]
+workspace = true
+
+[dependencies]
+libm = { version = "0.2.15", optional = true }

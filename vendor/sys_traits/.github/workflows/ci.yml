@@ -1,0 +1,75 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    tags:
+      - "*"
+  workflow_dispatch:
+
+jobs:
+  rust:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    env:
+      CARGO_INCREMENTAL: 0
+      GH_ACTIONS: 1
+      RUST_BACKTRACE: full
+      RUSTFLAGS: -D warnings
+
+    strategy:
+      matrix:
+        os: [macOS-latest, ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v4
+
+      - uses: dsherret/rust-toolchain-file@v1
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Format
+        if: contains(matrix.os, 'ubuntu')
+        uses: dprint/check@v2.2
+
+      - name: Lint
+        if: contains(matrix.os, 'ubuntu')
+        run: cargo clippy --all-targets --features real,memory,getrandom,strip_unc,winapi,libc
+
+      - name: Build configurations
+        run: |
+          cargo build --no-default-features
+          cargo build --features real
+          cargo build --features real,libc,winapi
+          cargo build --features memory
+          cargo build --features real,getrandom
+          cargo build --features getrandom
+          cargo build --features getrandom,memory
+          cargo build --features strip_unc
+          rustup target add wasm32-unknown-unknown
+          # builds wasm without wasm feature
+          cargo build --target wasm32-unknown-unknown
+
+      - name: Build android linux
+        if: contains(matrix.os, 'ubuntu')
+        run: |
+          rustup target add aarch64-linux-android
+          cargo build --features real,libc,winapi --target aarch64-linux-android
+
+      - name: Test
+        run: cargo test --all-targets --features real,memory,getrandom,strip_unc,winapi,libc
+
+      - name: Test (Deno Wasm)
+        run: deno task test
+
+      - name: Test (Node.js Wasm)
+        run: node --experimental-wasm-modules tests/wasm_test/run.js

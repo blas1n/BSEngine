@@ -1,0 +1,64 @@
+name: 'Test All Test Groups'
+description: 'Tests all test groups'
+inputs:
+  rust-version:  
+    description: 'Which Rust version to use for test'
+    required: true
+  additional-arguments:
+    description: "Additional arguments to pass to cargo test"
+    required: false
+  minimal-versions:
+    description: "Whether cargo.lock should be set to minimal versions before running the tests"
+    required: true
+        
+runs:
+  using: "composite"
+  steps: 
+    - run: echo "::group::Check Arguments"
+      shell: bash
+    - run: ${{(inputs.rust-version != '')}}
+      shell: bash
+    - run: echo "::group::Setup Rust Environment"
+      shell: bash
+    - shell: bash
+      run: |
+        # Install dependencies of 'macrotest'
+        rustup toolchain install nightly
+        cargo install --locked cargo-expand
+        # Set the rust version to use for this build
+        rustup default ${{ inputs.rust-version }}
+    - if: inputs.minimal-versions == 'true'
+      # We use cargo check only to set the cargo.lock file
+      # since we have to use nightly for -Z
+      run: cargo +nightly -Z minimal-versions check
+      shell: bash
+    - run: echo "::group::Test no_features"
+      shell: bash
+    - run: "cargo test ${{ inputs.additional-arguments }} --no-default-features"
+      shell: bash
+    - run: echo "::group::Test module_disambiguation"
+      shell: bash
+    - run: "cargo test --no-default-features --features module_disambiguation ${{ inputs.additional-arguments }}"
+      shell: bash
+    - run: echo "::group::Test pretty_errors"
+      shell: bash
+    - run: "cargo test --no-default-features --features pretty_errors  ${{ inputs.additional-arguments }}"
+      shell: bash
+    - run: echo "::group::Test Default Features"
+      shell: bash
+    - run: "cargo test default_features:: ${{ inputs.additional-arguments }}"
+      shell: bash
+    - run: echo "::group::Test All Features"
+      shell: bash
+    - run: "cargo test --no-default-features --features pretty_errors,module_disambiguation ${{ inputs.additional-arguments }}"
+      shell: bash
+    - run: echo "::group::Test Documentation Code"
+      shell: bash
+    - run: "cargo test --doc --all-features ${{ inputs.additional-arguments }}"
+      shell: bash
+    - run: echo "::group::Build Documentation"
+      shell: bash
+    - run: cargo doc
+      shell: bash
+    
+    

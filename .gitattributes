@@ -34,3 +34,10 @@
 *.jpeg binary
 *.ktx2 binary
 *.dds binary
+
+# Vendored crates, last so it wins over every rule above: byte for byte what
+# crates.io serves. Cargo checks each file against the crate's
+# .cargo-checksum.json, and 793 of them have CRLF line endings -- `*.rs text
+# eol=lf` above, or a Windows checkout's autocrlf, would rewrite those and
+# every build would fail its checksum.
+vendor/** -text

@@ -1,0 +1,28 @@
+workflow:
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master" && $CI_PROJECT_NAMESPACE == "redox-os"'
+    - if: '$CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "master"'
+
+build:linux:
+  image: "rust:slim"
+  before_script:
+    - apt-get update
+    - apt-get install cmake libsdl2-dev build-essential --no-install-recommends -y
+  script:
+    - cargo build --all-features
+    - cargo test --all-features
+    - cargo build --examples
+
+build:redox:
+  image: "redoxos/redoxer"
+  script:
+    - redoxer build --no-default-features
+    - redoxer build
+    - redoxer build --all-features
+
+build:no_std:
+  image: "rust:slim"
+  before_script:
+    - rustup target add thumbv6m-none-eabi
+  script:
+    - cargo build --no-default-features --target thumbv6m-none-eabi

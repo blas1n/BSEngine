@@ -1,0 +1,23 @@
+[package]
+name = "guillotiere"
+version = "0.7.0"
+authors = ["Nicolas Silva <nical@fastmail.com>"]
+edition = "2018"
+license = "MIT/Apache-2.0"
+description = "A dynamic 2D texture atlas allocator with fast deallocation."
+repository = "https://github.com/nical/guillotiere"
+documentation = "https://docs.rs/guillotiere/"
+keywords = ["2d", "graphics"]
+
+[features]
+std = ["svg_fmt"]
+checks = []
+serialization = ["serde", "euclid/serde"]
+
+[dependencies]
+euclid = { version = "0.22.14", default-features = false }
+serde = { version = "1.0.119", optional = true, default-features = false, features = ["alloc", "serde_derive"] }
+svg_fmt = { version = "0.4.5", optional = true }
+
+[workspace]
+members = ["cli", "ffi"]

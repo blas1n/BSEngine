@@ -1,0 +1,110 @@
+[options]
+girs_directories = ["../../gir-files", "../../gst-gir-files"]
+library = "GstAudio"
+version = "1.0"
+min_cfg_version = "1.14"
+work_mode = "sys"
+single_version_file = true
+
+extra_versions = [
+    "1.30",
+    "1.28",
+    "1.26",
+    "1.24",
+    "1.22",
+    "1.20",
+    "1.18",
+    "1.16",
+]
+
+external_libraries = [
+    "GLib",
+    "GObject",
+]
+
+ignore = [
+    "GstAudio.AUDIO_FORMATS_ALL",
+]
+
+[external_libraries]
+gstreamer="Gst"
+gstreamer_base="GstBase"
+
+[[object]]
+name = "GstAudio.AudioBuffer"
+status = "generate"
+    [[object.function]]
+    name = "clip"
+    version = "1.0"
+    [[object.function]]
+    name = "reorder_channels"
+    version = "1.0"
+
+[[object]]
+name = "GstAudio.AudioFormat"
+status = "generate"
+    [[object.member]]
+    name = "f32"
+    ignore = true
+    [[object.member]]
+    name = "f64"
+    ignore = true
+    [[object.member]]
+    name = "s16"
+    ignore = true
+    [[object.member]]
+    name = "s18"
+    ignore = true
+    [[object.member]]
+    name = "s20"
+    ignore = true
+    [[object.member]]
+    name = "s24"
+    ignore = true
+    [[object.member]]
+    name = "s24_32"
+    ignore = true
+    [[object.member]]
+    name = "s32"
+    ignore = true
+    [[object.member]]
+    name = "u16"
+    ignore = true
+    [[object.member]]
+    name = "u18"
+    ignore = true
+    [[object.member]]
+    name = "u20"
+    ignore = true
+    [[object.member]]
+    name = "u24"
+    ignore = true
+    [[object.member]]
+    name = "u24_32"
+    ignore = true
+    [[object.member]]
+    name = "u32"
+    ignore = true
+    [[object.member]]
+    name = "u20_32"
+    ignore = true
+    [[object.member]]
+    name = "s20_32"
+    ignore = true
+
+[[object]]
+name = "GstAudio.DsdFormat"
+status = "generate"
+    [[object.member]]
+    name = "dsd_format_u16"
+    ignore = true
+    [[object.member]]
+    name = "dsd_format_u32"
+    ignore = true
+
+[[object]]
+name = "GstAudio.*"
+status = "generate"
+    [[object.function]]
+    name = "audio_meta_api_get_type"
+    version = "1.16"

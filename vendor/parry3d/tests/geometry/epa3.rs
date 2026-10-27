@@ -1,0 +1,59 @@
+use parry3d::math::{Pose, Vector};
+use parry3d::query;
+use parry3d::query::gjk::VoronoiSimplex;
+use parry3d::shape::{Cuboid, Triangle};
+
+#[test]
+#[allow(non_snake_case)]
+fn cuboid_cuboid_EPA() {
+    let c = Cuboid::new(Vector::new(2.0, 1.0, 1.0));
+    let m1 = Pose::translation(3.5, 0.0, 0.0);
+    let m2 = Pose::identity();
+
+    let res = query::details::contact_support_map_support_map(&m1.inv_mul(&m2), &c, &c, 10.0)
+        .expect("Penetration not found.");
+    assert_eq!(res.dist, -0.5);
+    assert_eq!(res.normal1, -Vector::X);
+
+    let m1 = Pose::translation(0.0, 0.2, 0.0);
+    let res = query::details::contact_support_map_support_map(&m1.inv_mul(&m2), &c, &c, 10.0)
+        .expect("Penetration not found.");
+    assert_eq!(res.dist, -1.8);
+    assert_eq!(res.normal1, -Vector::Y);
+}
+
+#[test]
+fn triangle_vertex_touches_triangle_edge_epa() {
+    // Related issues:
+    // https://github.com/dimforge/parry/issues/253
+    // https://github.com/dimforge/parry/issues/246
+
+    let mesh1 = Triangle::new(
+        Vector::new(-13.174434, 1.0, 8.736801),
+        Vector::new(3.5251038, 1.0, 12.1),
+        Vector::new(3.2048466, 1.0, 12.218325),
+    );
+    let mesh2 = Triangle::new(
+        Vector::new(-1.63, 0.0, 11.19),
+        Vector::new(-2.349647, 0.0, 11.037681),
+        Vector::new(-2.349647, 1.0, 11.037681),
+    );
+
+    let gjk_result = query::details::contact_support_map_support_map_with_params(
+        &Pose::identity(),
+        &mesh1,
+        &mesh2,
+        0.00999999977,
+        &mut VoronoiSimplex::new(),
+        None,
+    );
+
+    let query::gjk::GJKResult::ClosestPoints(a, _b, _normal) = &gjk_result else {
+        panic!("PARTIAL SUCCESS: contact_support_map_support_map_with_params did not crash but did not produce the desired result");
+    };
+
+    // The upper triangle (mesh1) lines on plane where y = 1
+    assert_abs_diff_eq!(a.y, 1.0, epsilon = 0.001);
+    // The bottom triangle touches the upper triangle in one point where x = -2.349647.
+    assert_abs_diff_eq!(a.x, -2.349647, epsilon = 0.001);
+}

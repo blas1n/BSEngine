@@ -1,0 +1,83 @@
+[options]
+girs_directories = ["../../gir-files", "../../gst-gir-files"]
+library = "GstVideo"
+version = "1.0"
+min_cfg_version = "1.14"
+work_mode = "sys"
+single_version_file = true
+
+extra_versions = [
+    "1.30",
+    "1.28",
+    "1.26",
+    "1.24",
+    "1.22",
+    "1.20",
+    "1.18",
+    "1.16",
+]
+
+external_libraries = [
+    "GLib",
+    "GObject",
+]
+
+ignore = [
+    "GstVideo.VIDEO_FORMATS_ALL",
+    "GstVideo.VIDEO_FORMATS_ALL_STR",
+    "GstVideo.VIDEO_FORMATS_ANY",
+    "GstVideo.VIDEO_FORMATS_ANY_STR",
+    "GstVideo.VIDEO_DMA_DRM_CAPS_MAKE",
+]
+
+[external_libraries]
+gstreamer="Gst"
+gstreamer_base="GstBase"
+
+[[object]]
+name = "GstVideo.VideoOverlayFormatFlags"
+status = "generate"
+    [[object.function]]
+    name = "get_type"
+    version = "1.16"
+
+[[object]]
+name = "GstVideo.VideoTimeCodeFlags"
+status = "generate"
+    [[object.function]]
+    name = "get_type"
+    version = "1.18"
+
+[[object]]
+name = "GstVideo.VideoCodecFrameFlags"
+status = "generate"
+    [[object.function]]
+    name = "get_type"
+    version = "1.20"
+
+[[object]]
+name = "GstVideo.VideoGLTextureType"
+status = "generate"
+    [[object.function]]
+    name = "get_type"
+    version = "1.20"
+
+[[object]]
+name = "GstVideo.VideoGLTextureOrientation"
+status = "generate"
+    [[object.function]]
+    name = "get_type"
+    version = "1.20"
+
+[[object]]
+name = "GstVideo.*"
+status = "generate"
+    [[object.function]]
+    name = "video_caption_meta_api_get_type"
+    version = "1.16"
+    [[object.function]]
+    name = "video_afd_meta_api_get_type"
+    version = "1.18"
+    [[object.function]]
+    name = "video_bar_meta_api_get_type"
+    version = "1.18"

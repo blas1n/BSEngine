@@ -1,0 +1,23 @@
+[package]
+name = "gzip-header"
+version = "1.1.0"
+license = "MIT/Apache-2.0"
+authors = ["oyvindln <oyvindln@users.noreply.github.com>"]
+readme = "README.md"
+keywords = ["gzip", "compression"]
+repository = "https://github.com/oyvindln/gzip-header"
+homepage = "https://github.com/oyvindln/gzip-header"
+documentation = "https://docs.rs/gzip-header/"
+description = """
+A crate for decoding and encoding the header part of gzip files based on the gzip header
+ implementation in the flate2 crate.
+"""
+categories = ["compression"]
+edition = "2018"
+
+[dependencies]
+crc32fast = "1.5"
+
+[features]
+default = ["std"]
+std = []

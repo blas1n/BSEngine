@@ -1,0 +1,819 @@
+[options]
+girs_directories = ["../gir-files", "../gst-gir-files"]
+library = "GstVideo"
+version = "1.0"
+min_cfg_version = "1.14"
+work_mode = "normal"
+concurrency = "send+sync"
+generate_safety_asserts = true
+single_version_file = true
+generate_display_trait = false
+trust_return_value_nullability = true
+
+external_libraries = [
+    "GLib",
+    "GObject",
+    "Gst",
+]
+
+generate = [
+    "GstVideo.AncillaryMetaField",
+    "GstVideo.ColorBalance",
+    "GstVideo.ColorBalanceChannel",
+    "GstVideo.ColorBalanceType",
+    "GstVideo.NavigationMessageType",
+    "GstVideo.NavigationQueryType",
+    "GstVideo.VideoAFDSpec",
+    "GstVideo.VideoAFDValue",
+    "GstVideo.VideoAggregatorParallelConvertPad",
+    "GstVideo.VideoAlphaMode",
+    "GstVideo.VideoAncillaryDID",
+    "GstVideo.VideoAncillaryDID16",
+    "GstVideo.VideoBufferPool",
+    "GstVideo.VideoChromaMode",
+    "GstVideo.VideoDecoderRequestSyncPointFlags",
+    "GstVideo.VideoDitherMethod",
+    "GstVideo.VideoFormatFlags",
+    "GstVideo.VideoGammaMode",
+    "GstVideo.VideoHDRFormat",
+    "GstVideo.VideoMatrixMode",
+    "GstVideo.VideoMultiviewFramePacking",
+    "GstVideo.VideoMultiviewMode",
+    "GstVideo.VideoOrientationMethod",
+    "GstVideo.VideoPrimariesMode",
+    "GstVideo.VideoResamplerMethod",
+    "GstVideo.VideoTileMode",
+]
+
+manual = [
+    "GLib.DateTime",
+    "GObject.Object",
+    "GObject.Value",
+    "Gst.AllocationParams",
+    "Gst.Allocator",
+    "Gst.Buffer",
+    "Gst.BufferPool",
+    "Gst.BufferPoolAcquireParams",
+    "Gst.ClockTimeDiff",
+    "Gst.Element",
+    "Gst.Format",
+    "Gst.Memory",
+    "Gst.Message",
+    "Gst.Object",
+    "Gst.Pad",
+    "Gst.Pipeline",
+    "Gst.State",
+    "Gst.TagList",
+    "Gst.TagMergeMode",
+    "GstBase.Aggregator",
+    "GstBase.AggregatorPad",
+    "GstBase.BaseSink",
+    "GstBase.BaseTransform",
+    "GstVideo.VideoAncillary",
+    "GstVideo.VideoCodecFrame",
+    "GstVideo.VideoCodecState",
+    "GstVideo.VideoColorimetry",
+    "GstVideo.VideoColorRange",
+    "GstVideo.VideoFormatInfo",
+    "GstVideo.VideoInfo",
+    "GstVideo.VideoInfoDmaDrm",
+    "GstVideo.VideoMeta",
+    "GstVideo.VideoTimeCode",
+    "GstVideo.VideoTimeCodeInterval",
+    "GstVideo.VideoVBIEncoder",
+    "GstVideo.VideoVBIParser",
+]
+
+[external_libraries]
+GstBase = { min_version = "1.14" }
+
+[[object]]
+name = "Gst.Caps"
+status = "manual"
+ref_mode = "ref"
+
+[[object]]
+name = "Gst.ClockTime"
+status = "manual"
+conversion_type = "Option"
+
+[[object]]
+name = "Gst.Event"
+status = "manual"
+ref_mode = "ref"
+
+[[object]]
+name = "Gst.FlowReturn"
+status = "manual"
+must_use = true
+    [object.conversion_type]
+    variant = "Result"
+    ok_type = "gst::FlowSuccess"
+    err_type = "gst::FlowError"
+
+[[object]]
+name = "Gst.Query"
+status = "manual"
+ref_mode = "ref"
+
+[[object]]
+name = "Gst.Structure"
+status = "manual"
+ref_mode = "ref"
+
+[[object]]
+name = "GstVideo.Navigation"
+status = "generate"
+    [[object.function]]
+    name = "event_parse_key_event"
+    manual = true
+
+    [[object.function]]
+    name = "event_parse_mouse_button_event"
+    manual = true
+
+    [[object.function]]
+    name = "event_parse_mouse_move_event"
+    manual = true
+
+    [[object.function]]
+    name = "event_parse_command"
+    manual = true
+
+    [[object.function]]
+    name = "event_parse_touch_event"
+    manual = true
+
+    [[object.function]]
+    name = "event_parse_touch_up_event"
+    manual = true
+
+    [[object.function]]
+    name = "event_parse_mouse_scroll_event"
+    manual = true
+
+    [[object.function]]
+    name = "event_parse_modifier_state"
+    manual = true
+
+    [[object.function]]
+    name = "event_get_type"
+    manual = true
+
+    [[object.function]]
+    name = "event_new_command"
+    manual = true
+
+    [[object.function]]
+    name = "event_new_key_press"
+    manual = true
+
+    [[object.function]]
+    name = "event_new_key_release"
+    manual = true
+
+    [[object.function]]
+    name = "event_new_mouse_button_press"
+    manual = true
+
+    [[object.function]]
+    name = "event_new_mouse_button_release"
+    manual = true
+
+    [[object.function]]
+    name = "event_new_mouse_move"
+    manual = true
+
+    [[object.function]]
+    name = "event_new_mouse_scroll"
+    manual = true
+
+    [[object.function]]
+    name = "event_new_touch_down"
+    manual = true
+
+    [[object.function]]
+    name = "event_new_touch_motion"
+    manual = true
+
+    [[object.function]]
+    name = "event_new_touch_up"
+    manual = true
+
+    [[object.function]]
+    name = "event_new_touch_frame"
+    manual = true
+
+    [[object.function]]
+    name = "event_new_mouse_double_click"
+    manual = true
+
+    [[object.function]]
+    name = "event_new_touch_cancel"
+    manual = true
+
+    [[object.function]]
+    name = "event_get_coordinates"
+    manual = true
+
+    [[object.function]]
+    name = "event_set_coordinates"
+    manual = true
+
+    [[object.function]]
+    name = "send_event"
+        [[object.function.parameter]]
+        name = "structure"
+        move = true
+
+    [[object.function]]
+    name = "send_key_event"
+
+    [[object.function]]
+    name = "send_mouse_event"
+
+    [[object.function]]
+    name = "send_mouse_scroll_event"
+
+    [[object.function]]
+    name = "send_command"
+
+
+    [[object.function]]
+    name = "message_parse_event"
+    manual = true
+
+    [[object.function]]
+    name = "message_get_type"
+    manual = true
+
+    [[object.function]]
+    name = "message_new_event"
+    manual = true
+
+
+    [[object.function]]
+    name = "message_new_commands_changed"
+    ignore = true
+
+    [[object.function]]
+    name = "message_parse_angles_changed"
+    ignore = true
+
+    [[object.function]]
+    name = "message_new_mouse_over"
+    ignore = true
+
+    [[object.function]]
+    name = "message_parse_mouse_over"
+    ignore = true
+
+    [[object.function]]
+    name = "message_new_angles_changed"
+    ignore = true
+
+    [[object.function]]
+    name = "query_get_type"
+    ignore = true
+
+    [[object.function]]
+    name = "query_new_angles"
+    ignore = true
+
+    [[object.function]]
+    name = "query_new_commands"
+    ignore = true
+
+    [[object.function]]
+    name = "query_parse_angles"
+    ignore = true
+
+    [[object.function]]
+    name = "query_parse_commands_length"
+    ignore = true
+
+    [[object.function]]
+    name = "query_parse_commands_nth"
+    ignore = true
+
+    [[object.function]]
+    name = "query_set_angles"
+    ignore = true
+
+[[object]]
+name = "GstVideo.NavigationCommand"
+status = "generate"
+    [[object.derive]]
+    name = "serde::Serialize, serde::Deserialize"
+    cfg_condition = "feature = \"serde\""
+    [[object.derive]]
+    name = "Debug, Eq, PartialEq, Ord, PartialOrd, Hash"
+
+[[object]]
+name = "GstVideo.NavigationEventType"
+status = "generate"
+    [[object.member]]
+    name = "mouse_scroll"
+    version = "1.18"
+    [[object.member]]
+    name = "touch_down"
+    version = "1.22"
+    [[object.member]]
+    name = "touch_motion"
+    version = "1.22"
+    [[object.member]]
+    name = "touch_up"
+    version = "1.22"
+    [[object.member]]
+    name = "touch_frame"
+    version = "1.22"
+    [[object.member]]
+    name = "touch_cancel"
+    version = "1.22"
+
+[[object]]
+name = "GstVideo.NavigationModifierType"
+status = "generate"
+    [[object.member]]
+    name = "none"
+    ignore = true
+    [[object.member]]
+    name = "mask"
+    ignore = true
+
+[[object]]
+name = "GstVideo.VideoAggregator"
+status = "generate"
+manual_traits = ["VideoAggregatorExtManual"]
+
+    [[object.property]]
+    name = "force-live"
+    # getter/setter exists in base class
+    ignore = true
+
+[[object]]
+name = "GstVideo.VideoAggregatorConvertPad"
+status = "generate"
+manual_traits = ["VideoAggregatorConvertPadExtManual"]
+    [[object.property]]
+    name = "converter-config"
+    # wrong type
+    manual = true
+
+[[object]]
+name = "GstVideo.VideoAggregatorPad"
+status = "generate"
+manual_traits = ["VideoAggregatorPadExtManual"]
+    [[object.function]]
+    name = "get_current_buffer"
+    # needs special considerations
+    manual = true
+    [[object.function]]
+    name = "get_prepared_frame"
+    # needs special considerations
+    manual = true
+    [[object.function]]
+    name = "has_current_buffer"
+    # needs special considerations
+    manual = true
+
+[[object]]
+name = "GstVideo.VideoBufferFlags"
+status = "generate"
+    [[object.member]]
+    name = "top_field"
+    version = "1.16"
+    [[object.member]]
+    name = "bottom_field"
+    version = "1.16"
+    [[object.member]]
+    name = "marker"
+    version = "1.18"
+    [[object.member]]
+    name = "last"
+    ignore = true
+
+[[object]]
+name = "GstVideo.VideoCaptionType"
+status = "generate"
+    [[object.function]]
+    name = "from_caps"
+    # Use &CapsRef
+    manual = true
+
+[[object]]
+name = "GstVideo.VideoChromaSite"
+status = "generate"
+    [[object.member]]
+    name = "unknown"
+    ignore = true
+
+    [[object.function]]
+    name = "to_string"
+    # Manual function for < v1_20:
+    manual = true
+    # Always generate the trait, without version constraint:
+    version = "1.8"
+        [object.function.return]
+        nullable = false
+
+[[object]]
+name = "GstVideo.VideoCodecFrameFlags"
+status = "generate"
+    [[object.function]]
+    name = "get_type"
+    version = "1.20"
+
+[[object]]
+name = "GstVideo.VideoColorMatrix"
+status = "generate"
+    [[object.function]]
+    name = "get_Kr_Kb"
+    # Function and parameter name capitalization is wrong
+    ignore = true
+
+[[object]]
+name = "GstVideo.VideoColorPrimaries"
+status = "generate"
+    [[object.member]]
+    name = "smptest428"
+    version = "1.16"
+    [[object.member]]
+    name = "smpterp431"
+    version = "1.16"
+    [[object.member]]
+    name = "smpteeg432"
+    version = "1.16"
+    [[object.member]]
+    name = "ebu3213"
+    version = "1.16"
+
+[[object]]
+name = "GstVideo.VideoDecoder"
+status = "generate"
+manual_traits = ["VideoDecoderExtManual"]
+
+    [[object.function]]
+    name = "allocate_output_frame"
+    manual = true
+
+    [[object.function]]
+    name = "allocate_output_frame_with_params"
+    ignore = true
+
+    [[object.function]]
+    name = "get_processed_subframe_index"
+    manual = true
+
+    [[object.function]]
+    name = "get_input_subframe_index"
+    manual = true
+
+    [[object.function]]
+    name = "set_latency"
+    manual = true
+
+    [[object.function]]
+    name = "get_latency"
+    manual = true
+
+    [[object.function]]
+    name = "get_frame"
+    manual = true
+
+    [[object.function]]
+    name = "get_frames"
+    manual = true
+
+    [[object.function]]
+    name = "get_oldest_frame"
+    manual = true
+
+    [[object.function]]
+    name = "get_output_state"
+    manual = true
+
+    [[object.function]]
+    name = "set_output_state"
+    manual = true
+
+    [[object.function]]
+    name = "set_interlaced_output_state"
+    manual = true
+
+    [[object.function]]
+    name = "negotiate"
+    manual = true
+
+    [[object.function]]
+    name = "get_allocator"
+    manual = true
+
+    [[object.function]]
+    name = "allocate_output_buffer"
+        [object.function.return]
+        nullable_return_is_error = "Failed to allocate output buffer"
+
+[[object]]
+name = "GstVideo.VideoDmabufPool"
+status = "generate"
+cfg_condition = "target_os = \"linux\""
+
+[[object]]
+name = "GstVideo.VideoEncoder"
+status = "generate"
+manual_traits = ["VideoEncoderExtManual"]
+
+    [[object.function]]
+    name = "allocate_output_frame"
+    manual = true
+
+    [[object.function]]
+    name = "allocate_output_frame_with_params"
+    ignore = true
+
+    [[object.function]]
+    name = "finish_subframe"
+    manual = true
+
+    [[object.function]]
+    name = "set_latency"
+    manual = true
+
+    [[object.function]]
+    name = "get_latency"
+    manual = true
+
+    [[object.function]]
+    name = "get_frame"
+    manual = true
+
+    [[object.function]]
+    name = "get_frames"
+    manual = true
+
+    [[object.function]]
+    name = "get_oldest_frame"
+    manual = true
+
+    [[object.function]]
+    name = "get_output_state"
+    manual = true
+
+    [[object.function]]
+    name = "set_output_state"
+    manual = true
+
+    [[object.function]]
+    name = "negotiate"
+    manual = true
+
+    [[object.function]]
+    name = "get_allocator"
+    manual = true
+
+    [[object.function]]
+    name = "set_headers"
+    manual = true
+
+[[object]]
+name = "GstVideo.VideoFieldOrder"
+status = "generate"
+
+    [[object.function]]
+    name = "to_string"
+    # This has an Unknown field that may return NULL or "UNKNOWN"
+    manual = true
+
+[[object]]
+name = "GstVideo.VideoFilter"
+status = "generate"
+manual_traits = ["VideoFilterExtManual"]
+
+[[object]]
+name = "GstVideo.VideoFlags"
+status = "generate"
+    [[object.member]]
+    name = "none"
+    ignore = true
+
+[[object]]
+name = "GstVideo.VideoFormat"
+status = "generate"
+
+    [[object.derive]]
+    name = "Debug, Eq, PartialEq, Hash"
+
+    [[object.member]]
+    name = "nv12_10le40"
+    version = "1.16"
+
+    [[object.member]]
+    name = "y210"
+    version = "1.16"
+
+    [[object.member]]
+    name = "y410"
+    version = "1.16"
+
+    [[object.member]]
+    name = "vuya"
+    version = "1.16"
+
+    [[object.member]]
+    name = "bgr10a2_le"
+    version = "1.16"
+
+    [[object.member]]
+    name = "rgb10a2_le"
+    version = "1.18"
+
+    [[object.member]]
+    name = "y444_16be"
+    version = "1.18"
+
+    [[object.member]]
+    name = "y444_16le"
+    version = "1.18"
+
+    [[object.member]]
+    name = "p016_be"
+    version = "1.18"
+
+    [[object.member]]
+    name = "p016_le"
+    version = "1.18"
+
+    [[object.member]]
+    name = "p012_be"
+    version = "1.18"
+
+    [[object.member]]
+    name = "p012_le"
+    version = "1.18"
+
+    [[object.member]]
+    name = "y212_be"
+    version = "1.18"
+
+    [[object.member]]
+    name = "y212_le"
+    version = "1.18"
+
+    [[object.member]]
+    name = "y412_be"
+    version = "1.18"
+
+    [[object.member]]
+    name = "y412_le"
+    version = "1.18"
+
+    [[object.member]]
+    name = "last"
+    ignore = true
+
+    [[object.function]]
+    name = "to_string"
+    # This has an Unknown field that may return NULL or "UNKNOWN"
+    manual = true
+
+    [[object.function]]
+    name = "get_info"
+    # Result is not nullable, function does effectively the same
+    # as VideoFormatInfo::from_format()
+    ignore = true
+
+    [[object.function]]
+    name = "from_masks"
+    # Use custom VideoEndianness enum
+    manual = true
+
+[[object]]
+name = "GstVideo.VideoFrame"
+status = "manual"
+
+    [[object.function]]
+    name = "map"
+    # Readable and writable variant dealing with mutability
+    rename = "from_buffer_readable"
+
+[[object]]
+name = "GstVideo.VideoFrameFlags"
+status = "generate"
+    [[object.member]]
+    name = "top_field"
+    version = "1.16"
+    [[object.member]]
+    name = "bottom_field"
+    version = "1.16"
+    [[object.member]]
+    name = "none"
+    ignore = true
+
+[[object]]
+name = "GstVideo.VideoInterlaceMode"
+status = "generate"
+    [[object.member]]
+    name = "alternate"
+    version = "1.16"
+
+[[object]]
+name = "GstVideo.VideoMultiviewFlags"
+status = "generate"
+    [[object.member]]
+    name = "none"
+    ignore = true
+
+[[object]]
+name = "GstVideo.VideoOrientation"
+status = "generate"
+    [[object.function]]
+    name = "set_hcenter"
+        [object.function.return]
+        bool_return_is_error = "Failed to set horizontal centering"
+    [[object.function]]
+    name = "set_hflip"
+        [object.function.return]
+        bool_return_is_error = "Failed to set horizontal flipping"
+    [[object.function]]
+    name = "set_vcenter"
+        [object.function.return]
+        bool_return_is_error = "Failed to set vertical centering"
+    [[object.function]]
+    name = "set_vflip"
+        [object.function.return]
+        bool_return_is_error = "Failed to set vertical flipping"
+
+    [[object.function]]
+    name = "from_tag"
+    # Use &TagListRef and move to the enum
+    manual = true
+
+[[object]]
+name = "GstVideo.VideoOverlay"
+status = "generate"
+manual_traits = ["VideoOverlayExtManual"]
+
+    [[object.function]]
+    name = "set_property"
+    # Only for implementors of GstVideoOverlay
+    ignore = true
+
+    [[object.function]]
+    name = "set_window_handle"
+    # Pointer argument
+    manual = true
+
+    [[object.function]]
+    name = "set_render_rectangle"
+        [object.function.return]
+        bool_return_is_error = "Failed to set render rectangle"
+
+[[object]]
+name = "GstVideo.VideoOverlayFormatFlags"
+status = "generate"
+    [[object.function]]
+    name = "get_type"
+    version = "1.16"
+    [[object.member]]
+    name = "none"
+    ignore = true
+
+[[object]]
+name = "GstVideo.VideoPackFlags"
+status = "generate"
+    [[object.member]]
+    name = "none"
+    ignore = true
+
+[[object]]
+name = "GstVideo.VideoSink"
+status = "generate"
+
+    [[object.function]]
+    name = "center_rect"
+    # Implemented in video_rectangle
+    manual = true
+
+[[object]]
+name = "GstVideo.VideoTimeCodeFlags"
+status = "generate"
+    [[object.function]]
+    name = "get_type"
+    version = "1.18"
+    [[object.member]]
+    name = "none"
+    ignore = true
+
+[[object]]
+name = "GstVideo.VideoTransferFunction"
+status = "generate"
+    [[object.member]]
+    name = "bt2020_10"
+    version = "1.18"
+    [[object.member]]
+    name = "smpte2084"
+    version = "1.18"
+    [[object.member]]
+    name = "arib_std_b67"
+    version = "1.18"

@@ -1,0 +1,19 @@
+
+
+####### 50 characters ###########################
+## Prefix examples:
+#
+# new: a new feature
+# fix: a bug fix
+# update: a slight change
+# merge: merge pull request
+# style: only code style changes
+# comment: only comment changes
+# refactor: code changes that do not affect the behavior
+# perf: a code change that improves performance
+# deps: bump deps used on compiling or runtime
+# test: update test files
+# cicd: update CI/CD configuration files.
+# doc: documentation only changes
+# wip: work in progress
+# chore: bump test deps, modify build files, etc

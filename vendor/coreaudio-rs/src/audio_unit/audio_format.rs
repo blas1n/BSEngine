@@ -1,0 +1,515 @@
+//! Typification of the various AudioFormat codes and flags offered by the Core Audio API.
+//!
+//! See the Core Audio Data Types Reference
+//! [here](https://developer.apple.com/library/mac/documentation/MusicAudio/Reference/CoreAudioDataTypesRef/#//apple_ref/doc/constant_group/Audio_Data_Format_Identifiers) for more info.
+
+use objc2_core_audio_types::{
+    kAppleLosslessFormatFlag_16BitSourceData, kAppleLosslessFormatFlag_20BitSourceData,
+    kAppleLosslessFormatFlag_24BitSourceData, kAppleLosslessFormatFlag_32BitSourceData,
+    kAudioFormat60958AC3, kAudioFormatAC3, kAudioFormatAES3, kAudioFormatALaw, kAudioFormatAMR,
+    kAudioFormatAMR_WB, kAudioFormatAppleIMA4, kAudioFormatAppleLossless, kAudioFormatAudible,
+    kAudioFormatDVIIntelIMA, kAudioFormatFlagIsAlignedHigh, kAudioFormatFlagIsBigEndian,
+    kAudioFormatFlagIsFloat, kAudioFormatFlagIsNonInterleaved, kAudioFormatFlagIsNonMixable,
+    kAudioFormatFlagIsPacked, kAudioFormatFlagIsSignedInteger, kAudioFormatLinearPCM,
+    kAudioFormatMACE3, kAudioFormatMACE6, kAudioFormatMIDIStream, kAudioFormatMPEG4AAC,
+    kAudioFormatMPEG4AAC_ELD, kAudioFormatMPEG4AAC_ELD_SBR, kAudioFormatMPEG4AAC_ELD_V2,
+    kAudioFormatMPEG4AAC_HE, kAudioFormatMPEG4AAC_HE_V2, kAudioFormatMPEG4AAC_LD,
+    kAudioFormatMPEG4AAC_Spatial, kAudioFormatMPEG4CELP, kAudioFormatMPEG4HVXC,
+    kAudioFormatMPEG4TwinVQ, kAudioFormatMPEGLayer1, kAudioFormatMPEGLayer2,
+    kAudioFormatMPEGLayer3, kAudioFormatMicrosoftGSM, kAudioFormatParameterValueStream,
+    kAudioFormatQDesign, kAudioFormatQDesign2, kAudioFormatQUALCOMM, kAudioFormatTimeCode,
+    kAudioFormatULaw, kAudioFormatiLBC, kLinearPCMFormatFlagsSampleFractionMask,
+    kLinearPCMFormatFlagsSampleFractionShift, AudioTimeStampFlags as Objc2AudioTimeStampFlags,
+    MPEG4ObjectID as Objc2MPEG4ObjectID,
+};
+use std::os::raw::c_uint;
+
+/// A type-safe representation of both the `AudioFormatId` and their associated flags.
+#[derive(Copy, Clone, Debug)]
+#[allow(non_camel_case_types)]
+pub enum AudioFormat {
+    /// Linear PCM; a non-compressed audio data format with one frame per packet.
+    ///
+    /// **Available** in OS X v10.0 and later.
+    LinearPCM(LinearPcmFlags),
+    /// An AC-3 codec.
+    ///
+    /// **Available** in OS X v10.2 and later.
+    AC3,
+    /// AC-3 codec that provides data packaged for transport over an IEC 60958 compliant digital
+    /// audio interface.
+    ///
+    /// **Available** in OS X v10.2 and later.
+    F60958AC3(StandardFlags),
+    /// Apple's implementation of the IMA 4:1 ADPCM codec.
+    ///
+    /// **Available** in OS X v10.2 and later.
+    AppleIMA4,
+    /// MPEG-4 AAC codec.
+    ///
+    /// **Available** in OS X v10.2 and later.
+    MPEG4AAC(Mpeg4ObjectId),
+    /// MPEG-4 CELP codec.
+    ///
+    /// **Available** in OS X v10.2 and later.
+    MPEG4CELP(Mpeg4ObjectId),
+    /// MPEG-4 HVXC codec.
+    ///
+    /// **Available** in OS X v10.2 and later.
+    MPEG4HVXC(Mpeg4ObjectId),
+    /// MPEG-4 TwinVQ codec.
+    ///
+    /// **Available** in OS X v10.2 and later.
+    MPEG4TwinVQ(Mpeg4ObjectId),
+    /// MACE 3:1.
+    ///
+    /// **Available** in OS X v10.3 and later.
+    MACE3,
+    /// MACE 6:1.
+    ///
+    /// **Available** in OS X v10.3 and later.
+    MACE6,
+    /// μLaw 2:1.
+    ///
+    /// **Available** in OS X v10.3 and later.
+    ULaw,
+    /// aLaw 2:1.
+    ///
+    /// **Available** in OS X v10.3 and later.
+    ALaw,
+    /// QDesign Music.
+    ///
+    /// **Available** in OS X v10.3 and later.
+    QDesign,
+    /// QDesign2 Music.
+    ///
+    /// **Available** in OS X v10.3 and later.
+    QDesign2,
+    /// QUALCOMM PureVoice.
+    ///
+    /// **Available** in OS X v10.3 and later.
+    QUALCOMM,
+    /// MPEG-1/2, Layer 1 audio.
+    ///
+    /// **Available** in OS X v10.3 and later.
+    MPEGLayer1,
+    /// MPEG-1/2, Layer 2 audio.
+    ///
+    /// **Available** in OS X v10.3 and later.
+    MPEGLayer2,
+    /// MPEG-1/2, Layer 3 audio.
+    ///
+    /// **Available** in OS X v10.3 and later.
+    MPEGLayer3,
+    /// A stream of IOAudioTimeStamp structures.
+    ///
+    /// **Available** in OS X v10.2 and later.
+    TimeCode(AudioTimeStampFlags),
+    /// A stream of MIDIPacketList structures where the time stamps in the MIDIPacket structures
+    /// are sample offsets in the stream. The `sample_rate` field in the **StreamFormat** structure
+    /// is used to describe how time is passed in this kind of stream.
+    ///
+    /// An audio unit that receives or generates this stream can use this sample rate together with
+    /// the number of frames it is rendering.
+    ///
+    /// The sample offsets within the MIDIPacketList can be used to define the time for any MIDI
+    /// event within the list.
+    ///
+    /// **Available** in OS X v10.2 and later.
+    ///
+    /// TODO: Review whether or not this audio format should indicate some fundamental change
+    /// within the **StreamFormat**.
+    MIDIStream,
+    /// A "side-chain" of f32 data that can be fed or generated by an audio unit and that is used
+    /// to send a high density of parameter value control information.
+    ///
+    /// An audio unit typically runs a parameter value stream at either the sample rate of the
+    /// audio unit's audio data, or some integer quotient of this (i.e. a half or a third of the
+    /// sample rate of the audio).
+    ///
+    /// The `sample_rate` field in the **StreamFormat** type describes this relationship.
+    ///
+    /// **Available** in OS X v10.2 and later.
+    ParameterValueStream,
+    /// Apple Lossless format.
+    ///
+    /// **Available** in OS X v10.3 and later.
+    AppleLossless(AppleLosslessFlags),
+    /// MPEG-4 High Efficiency AAC audio object.
+    ///
+    /// **Available** in OS X v10.5 and later.
+    MPEG4AAC_HE,
+    /// MPEG-4 AAC Low Delay audio object.
+    ///
+    /// **Available** in OS X v10.5 and later.
+    MPEG4AAC_LD,
+    /// MPEG-4 AAC Enhanced Low Delay audio object.
+    ///
+    /// **Available** in OS X v10.7 and later.
+    MPEG4AAC_ELD,
+    /// MPEG-4 AAC Enhanced Low Delay audio object with SBR (spectral band replication) extension
+    /// layer.
+    ///
+    /// **Available** in OS X v10.7 and later.
+    MPEG4AAC_ELD_SBR,
+    MPEG4AAC_ELD_V2,
+    /// MPEG-4 High Efficiency AAC Version 2 audio object.
+    ///
+    /// **Available** in OS X v10.5 and later.
+    MPEG4AAC_HE_V2,
+    /// MPEG-4 Apatial Audio audio object.
+    ///
+    /// **Available** in OS X v10.5 and later.
+    MPEG4AAC_Spatial,
+    /// The AMR (adaptive Multi-Rate) narrow band speech codec.
+    ///
+    /// **Available** in OS X v10.5 and later.
+    AMR,
+    AMR_WB,
+    /// The codec used for Audible, Inc. audio books.
+    ///
+    /// **Available** in OS X v10.6 and later.
+    Audible,
+    /// The iLBC (internet Low Bitrate Codec) narrow band cpeech codec.
+    ///
+    /// **Available** in OS X v10.6 and later.
+    iLBC,
+    /// DVI/Intel IMA ADPCM - ACM code 17.
+    ///
+    /// **Available** in OS X v10.6 and later.
+    DVIIntelIMA,
+    /// Microsoft GSM 6.10 - ACM code 49.
+    ///
+    /// **Available** in OS X v10.6 and later.
+    MicrosoftGSM,
+    /// The format defined by the AES3-2003 standard.
+    ///
+    /// Adopted into MXF and MPEG-2 containers and SDTI transport streams with SMPTE specs
+    /// 203M-2002 and 331M-2000.
+    AES3,
+}
+
+impl AudioFormat {
+    /// Convert from the FFI C format and flags to a typesafe Rust enum representation.
+    pub fn from_format_and_flag(format: c_uint, flag: Option<u32>) -> Option<AudioFormat> {
+        match (format, flag) {
+            (_, Some(i)) if format == kAudioFormatLinearPCM => Some(AudioFormat::LinearPCM(
+                LinearPcmFlags::from_bits_truncate(i),
+            )),
+            (_, _) if format == kAudioFormatAC3 => Some(AudioFormat::AC3),
+            (_, Some(i)) if format == kAudioFormat60958AC3 => {
+                Some(AudioFormat::F60958AC3(StandardFlags::from_bits_truncate(i)))
+            }
+            (_, _) if format == kAudioFormatAppleIMA4 => Some(AudioFormat::AppleIMA4),
+            (_, Some(i)) if format == kAudioFormatMPEG4AAC => Some(AudioFormat::MPEG4AAC(
+                Mpeg4ObjectId::from_u32(i).expect("Unknown Mpeg4ObjectId"),
+            )),
+            (_, Some(i)) if format == kAudioFormatMPEG4CELP => Some(AudioFormat::MPEG4CELP(
+                Mpeg4ObjectId::from_u32(i).expect("Unknown Mpeg4ObjectId"),
+            )),
+            (_, Some(i)) if format == kAudioFormatMPEG4HVXC => Some(AudioFormat::MPEG4HVXC(
+                Mpeg4ObjectId::from_u32(i).expect("Unknown Mpeg4ObjectId"),
+            )),
+            (_, Some(i)) if format == kAudioFormatMPEG4TwinVQ => Some(AudioFormat::MPEG4TwinVQ(
+                Mpeg4ObjectId::from_u32(i).expect("Unknown Mpeg4ObjectId"),
+            )),
+            (_, _) if format == kAudioFormatMACE3 => Some(AudioFormat::MACE3),
+            (_, _) if format == kAudioFormatMACE6 => Some(AudioFormat::MACE6),
+            (_, _) if format == kAudioFormatULaw => Some(AudioFormat::ULaw),
+            (_, _) if format == kAudioFormatALaw => Some(AudioFormat::ALaw),
+            (_, _) if format == kAudioFormatQDesign => Some(AudioFormat::QDesign),
+            (_, _) if format == kAudioFormatQDesign2 => Some(AudioFormat::QDesign2),
+            (_, _) if format == kAudioFormatQUALCOMM => Some(AudioFormat::QUALCOMM),
+            (_, _) if format == kAudioFormatMPEGLayer1 => Some(AudioFormat::MPEGLayer1),
+            (_, _) if format == kAudioFormatMPEGLayer2 => Some(AudioFormat::MPEGLayer2),
+            (_, _) if format == kAudioFormatMPEGLayer3 => Some(AudioFormat::MPEGLayer3),
+            (_, Some(i)) if format == kAudioFormatTimeCode => Some(AudioFormat::TimeCode(
+                AudioTimeStampFlags::from_bits_truncate(i),
+            )),
+            (_, _) if format == kAudioFormatMIDIStream => Some(AudioFormat::MIDIStream),
+            (_, _) if format == kAudioFormatParameterValueStream => {
+                Some(AudioFormat::ParameterValueStream)
+            }
+            (_, Some(i)) if format == kAudioFormatAppleLossless => Some(
+                AudioFormat::AppleLossless(AppleLosslessFlags::from_bits_truncate(i)),
+            ),
+            (_, _) if format == kAudioFormatMPEG4AAC_HE => Some(AudioFormat::MPEG4AAC_HE),
+            (_, _) if format == kAudioFormatMPEG4AAC_LD => Some(AudioFormat::MPEG4AAC_LD),
+            (_, _) if format == kAudioFormatMPEG4AAC_ELD => Some(AudioFormat::MPEG4AAC_ELD),
+            (_, _) if format == kAudioFormatMPEG4AAC_ELD_SBR => Some(AudioFormat::MPEG4AAC_ELD_SBR),
+            (_, _) if format == kAudioFormatMPEG4AAC_ELD_V2 => Some(AudioFormat::MPEG4AAC_ELD_V2),
+            (_, _) if format == kAudioFormatMPEG4AAC_HE_V2 => Some(AudioFormat::MPEG4AAC_HE_V2),
+            (_, _) if format == kAudioFormatMPEG4AAC_Spatial => Some(AudioFormat::MPEG4AAC_Spatial),
+            (_, _) if format == kAudioFormatAMR => Some(AudioFormat::AMR),
+            (_, _) if format == kAudioFormatAMR_WB => Some(AudioFormat::AMR_WB),
+            (_, _) if format == kAudioFormatAudible => Some(AudioFormat::Audible),
+            (_, _) if format == kAudioFormatiLBC => Some(AudioFormat::iLBC),
+            (_, _) if format == kAudioFormatDVIIntelIMA => Some(AudioFormat::DVIIntelIMA),
+            (_, _) if format == kAudioFormatMicrosoftGSM => Some(AudioFormat::MicrosoftGSM),
+            (_, _) if format == kAudioFormatAES3 => Some(AudioFormat::AES3),
+            _ => None,
+        }
+    }
+
+    /// Convert from the Rust enum to the C format and flag.
+    pub fn as_format_and_flag(&self) -> (c_uint, Option<u32>) {
+        match *self {
+            AudioFormat::LinearPCM(flag) => (kAudioFormatLinearPCM, Some(flag.bits())),
+            AudioFormat::AC3 => (kAudioFormatAC3, None),
+            AudioFormat::F60958AC3(flag) => (kAudioFormat60958AC3, Some(flag.bits())),
+            AudioFormat::AppleIMA4 => (kAudioFormatAppleIMA4, None),
+            AudioFormat::MPEG4AAC(flag) => (kAudioFormatMPEG4AAC, Some(flag as u32)),
+            AudioFormat::MPEG4CELP(flag) => (kAudioFormatMPEG4CELP, Some(flag as u32)),
+            AudioFormat::MPEG4HVXC(flag) => (kAudioFormatMPEG4HVXC, Some(flag as u32)),
+            AudioFormat::MPEG4TwinVQ(flag) => (kAudioFormatMPEG4TwinVQ, Some(flag as u32)),
+            AudioFormat::MACE3 => (kAudioFormatMACE3, None),
+            AudioFormat::MACE6 => (kAudioFormatMACE6, None),
+            AudioFormat::ULaw => (kAudioFormatULaw, None),
+            AudioFormat::ALaw => (kAudioFormatALaw, None),
+            AudioFormat::QDesign => (kAudioFormatQDesign, None),
+            AudioFormat::QDesign2 => (kAudioFormatQDesign2, None),
+            AudioFormat::QUALCOMM => (kAudioFormatQUALCOMM, None),
+            AudioFormat::MPEGLayer1 => (kAudioFormatMPEGLayer1, None),
+            AudioFormat::MPEGLayer2 => (kAudioFormatMPEGLayer2, None),
+            AudioFormat::MPEGLayer3 => (kAudioFormatMPEGLayer3, None),
+            AudioFormat::TimeCode(flag) => (kAudioFormatTimeCode, Some(flag.bits())),
+            AudioFormat::MIDIStream => (kAudioFormatMIDIStream, None),
+            AudioFormat::ParameterValueStream => (kAudioFormatParameterValueStream, None),
+            AudioFormat::AppleLossless(flag) => (kAudioFormatAppleLossless, Some(flag.bits())),
+            AudioFormat::MPEG4AAC_HE => (kAudioFormatMPEG4AAC_HE, None),
+            AudioFormat::MPEG4AAC_LD => (kAudioFormatMPEG4AAC_LD, None),
+            AudioFormat::MPEG4AAC_ELD => (kAudioFormatMPEG4AAC_ELD, None),
+            AudioFormat::MPEG4AAC_ELD_SBR => (kAudioFormatMPEG4AAC_ELD_SBR, None),
+            AudioFormat::MPEG4AAC_ELD_V2 => (kAudioFormatMPEG4AAC_ELD_V2, None),
+            AudioFormat::MPEG4AAC_HE_V2 => (kAudioFormatMPEG4AAC_HE_V2, None),
+            AudioFormat::MPEG4AAC_Spatial => (kAudioFormatMPEG4AAC_Spatial, None),
+            AudioFormat::AMR => (kAudioFormatAMR, None),
+            AudioFormat::AMR_WB => (kAudioFormatAMR_WB, None),
+            AudioFormat::Audible => (kAudioFormatAudible, None),
+            AudioFormat::iLBC => (kAudioFormatiLBC, None),
+            AudioFormat::DVIIntelIMA => (kAudioFormatDVIIntelIMA, None),
+            AudioFormat::MicrosoftGSM => (kAudioFormatMicrosoftGSM, None),
+            AudioFormat::AES3 => (kAudioFormatAES3, None),
+        }
+    }
+}
+
+bitflags! {
+    /// Standard flags for use in the **F60958AC3** **AudioFormat** variant.
+    ///
+    /// Note: In the original Core Audio API these are consolidated with what we have named the
+    /// **StandardFlags** and **AppleLosslessFlags** types under the `AudioFormatFlag` type. We
+    /// have chosen to separate these for greater type safety and clearer compatibility with
+    /// the **AudioFormat** type.
+    ///
+    /// Original documentation [here](https://developer.apple.com/library/mac/documentation/MusicAudio/Reference/CoreAudioDataTypesRef/#//apple_ref/doc/constant_group/AudioStreamBasicDescription_Flags).
+    #[derive(Copy, Clone, Debug)]
+    pub struct StandardFlags: u32 {
+        /// Set for floating point, clear for integer.
+        ///
+        /// **Available** in OS X v10.2 and later.
+        const IS_FLOAT = kAudioFormatFlagIsFloat;
+        /// Set for big endian, clear for little endian.
+        ///
+        /// **Available** in OS X v10.2 and later.
+        const IS_BIG_ENDIAN = kAudioFormatFlagIsBigEndian;
+        /// Set for signed integer, clear for unsigned integer.
+        ///
+        /// Note: This is only valid if `IS_FLOAT` is clear.
+        ///
+        /// **Available** in OS X v10.2 and later.
+        const IS_SIGNED_INTEGER = kAudioFormatFlagIsSignedInteger;
+        /// Set if the sample bits occupy the entire available bits for the channel, clear if they
+        /// are high- or low-aligned within the channel.
+        ///
+        /// **Available** in OS X v10.2 and later.
+        const IS_PACKED = kAudioFormatFlagIsPacked;
+        /// Set if the sample bits are placed into the high bits of the channel, clear for low bit
+        /// placement.
+        ///
+        /// Note: This is only valid if `IS_PACKED` is clear.
+        ///
+        /// **Available** in OS X v10.2 and later.
+        const IS_ALIGNED_HIGH = kAudioFormatFlagIsAlignedHigh;
+        /// Set if the sample for each channel are located contiguously and the channels are laid
+        /// out end to end.
+        ///
+        /// Clear if the samples for each frame are laid out contiguously and the frames laid out
+        /// end to end.
+        ///
+        /// **Available** in OS X v10.2 and later.
+        const IS_NON_INTERLEAVED = kAudioFormatFlagIsNonInterleaved;
+        /// Set to indicate when a format is nonmixable.
+        ///
+        /// Note: that this flag is only used when interacting with the HAL's stream format
+        /// information. It is **not** valid for any other use.
+        ///
+        /// **Available** in OS X v10.3 and later.
+        const IS_NON_MIXABLE = kAudioFormatFlagIsNonMixable;
+    }
+}
+
+bitflags! {
+    /// Flags for use within the **LinearPCM** **AudioFormat**.
+    ///
+    /// Note: In the original Core Audio API these are consolidated with what we have named the
+    /// **StandardFlags** and **AppleLosslessFlags** types under the `AudioFormatFlag` type. We
+    /// have chosen to separate these for greater type safety and clearer compatibility with
+    /// the **AudioFormat** type.
+    ///
+    /// Original documentation [here](https://developer.apple.com/library/mac/documentation/MusicAudio/Reference/CoreAudioDataTypesRef/#//apple_ref/doc/constant_group/AudioStreamBasicDescription_Flags).
+    #[derive(Copy, Clone, Debug)]
+    pub struct LinearPcmFlags: u32 {
+        /// Synonym for the **IS_FLOAT** **StandardFlags**.
+        ///
+        /// **Available** in OS X v10.0 and later.
+        const IS_FLOAT = kAudioFormatFlagIsFloat;
+        /// Synonym for the **IS_BIG_ENDIAN** **StandardFlags**.
+        ///
+        /// **Available** in OS X v10.0 and later.
+        const IS_BIG_ENDIAN = kAudioFormatFlagIsBigEndian;
+        /// Synonym for the **IS_SIGNED_INTEGER** **StandardFlags**.
+        ///
+        /// **Available** in OS X v10.0 and later.
+        const IS_SIGNED_INTEGER = kAudioFormatFlagIsSignedInteger;
+        /// Synonym for the **IS_PACKED** **StandardFlags**.
+        ///
+        /// **Available** in OS X v10.0 and later.
+        const IS_PACKED = kAudioFormatFlagIsPacked;
+        /// Synonym for the **IS_ALIGNED_HIGH** **StandardFlags**.
+        ///
+        /// **Available** in OS X v10.0 and later.
+        const IS_ALIGNED_HIGH = kAudioFormatFlagIsAlignedHigh;
+        /// Synonym for the **IS_NON_INTERLEAVED** **StandardFlags**.
+        ///
+        /// **Available** in OS X v10.2 and later.
+        const IS_NON_INTERLEAVED = kAudioFormatFlagIsNonInterleaved;
+        /// Synonym for the **IS_NON_MIXABLE** **StandardFlags**.
+        ///
+        /// **Available** in OS X v10.3 and later.
+        const IS_NON_MIXABLE = kAudioFormatFlagIsNonMixable;
+        /// The linear PCM flags contain a 6-bit bitfield indicating that an integer format is to
+        /// be interpreted as fixed point.
+        ///
+        /// The value indicates the number of bits are used to represent the fractional portion of
+        /// each sample value.
+        ///
+        /// This constant indicates the bit position (counting from the right) of the bitfield in
+        /// `mFormatFlags` field.
+        ///
+        /// TODO: Review whether or not this flag indicates that we need to treat LinearPCM format
+        /// uniquely in some way.
+        ///
+        /// **Available** in OS X v10.6 and later.
+        const FLAGS_SAMPLE_FRACTION_SHIFT = kLinearPCMFormatFlagsSampleFractionShift;
+        /// The number of fractional bits.
+        ///
+        /// `== (<other_flags> & FLAGS_SAMPLE_FRACTION_MASK) >> FLAGS_SAMPLE_FRACTION_SHIFT`
+        ///
+        /// **Available** in OS X v10.6 and later.
+        const FLAGS_SAMPLE_FRACTION_MASK = kLinearPCMFormatFlagsSampleFractionMask;
+    }
+}
+
+bitflags! {
+    /// Flags set for Apple Lossless data.
+    ///
+    /// **Available** in OS X v10.3 and later.
+    ///
+    /// Note: In the original Core Audio API these are consolidated with what we have named the
+    /// **StandardFlags** and **AppleLosslessFlags** types under the `AudioFormatFlag` type. We
+    /// have chosen to separate these for greater type safety and clearer compatibility with
+    /// the **AudioFormat** type.
+    ///
+    /// Original documentation [here](https://developer.apple.com/library/mac/documentation/MusicAudio/Reference/CoreAudioDataTypesRef/#//apple_ref/doc/constant_group/AudioStreamBasicDescription_Flags).
+    #[derive(Copy, Clone, Debug)]
+    pub struct AppleLosslessFlags: u32 {
+        /// Sourced from 16 bit native endian signed integer data.
+        const BIT_16_SOURCE_DATA = kAppleLosslessFormatFlag_16BitSourceData;
+        /// Sourced from 20 bit native endian signed integer data aligned high in 24 bits.
+        const BIT_20_SOURCE_DATA = kAppleLosslessFormatFlag_20BitSourceData;
+        /// Sourced from 24 bit native endian signed integer data.
+        const BIT_24_SOURCE_DATA = kAppleLosslessFormatFlag_24BitSourceData;
+        /// Sourced from 32 bit native endian signed integer data.
+        const BIT_32_SOURCE_DATA = kAppleLosslessFormatFlag_32BitSourceData;
+    }
+}
+
+/// "Used in the `mFormatFlags` field of an `AudioStreamBasicDescription` structure that
+/// describes an MPEG-4 audio stream to specify the type of MPEG-4 audio data.
+///
+/// **Available** in OS X v10.3 and later.
+///
+/// **Deprecated** in OS X v10.5.
+///
+/// Note: This type was originally represented using a bitflag field in the original API, however
+/// there is only ever one flag set at a time. Thus, we use an enum as a more accurate,
+/// user-friendly, type-safe representation.
+///
+/// Original documenation
+/// [here](https://developer.apple.com/library/mac/documentation/MusicAudio/Reference/CoreAudioDataTypesRef/#//apple_ref/doc/constant_group/MPEG_4_Audio_Object_Type_Constants).
+#[derive(Copy, Clone, Debug, PartialEq)]
+#[allow(non_camel_case_types)]
+pub enum Mpeg4ObjectId {
+    /// Advanced audio coding; the baisc MPEG-4 technology.
+    AAC_Main = Objc2MPEG4ObjectID::AAC_Main.0 as isize,
+    /// Lossless coding; provides compression with no loss of quality.
+    AAC_LC = Objc2MPEG4ObjectID::AAC_LC.0 as isize,
+    /// Scalable sampling rate; provides different sampling frequencies for different targets.
+    AAC_SSR = Objc2MPEG4ObjectID::AAC_SSR.0 as isize,
+    /// Long term prediction; reduces redundancy in a coded signal.
+    AAC_LTP = Objc2MPEG4ObjectID::AAC_LTP.0 as isize,
+    /// Spectral band replication; reconstructs high-frequency content from lower frequencies
+    /// and side information.
+    AAC_SBR = Objc2MPEG4ObjectID::AAC_SBR.0 as isize,
+    /// Scalable lossless coding.
+    AAC_Scalable = Objc2MPEG4ObjectID::AAC_Scalable.0 as isize,
+    /// Transform-domain weighted interleaved vector quantization; an audio codec optimised for
+    /// audio coding at ultra low bit rates around 8kbit/s.
+    TwinVQ = Objc2MPEG4ObjectID::TwinVQ.0 as isize,
+    /// Code Excited Linear Prediction; a narrow-band/wide-band speech codec.
+    CELP = Objc2MPEG4ObjectID::CELP.0 as isize,
+    /// Harmonic Vector Excitation Coding; a very-low bit-rate parametric speech codec.
+    HVXC = Objc2MPEG4ObjectID::HVXC.0 as isize,
+}
+
+impl Mpeg4ObjectId {
+    /// Create an Mpeg4ObjectId from a u32.
+    pub fn from_u32(u: u32) -> Option<Mpeg4ObjectId> {
+        match u {
+            _ if u == Objc2MPEG4ObjectID::AAC_Main.0 as u32 => Some(Mpeg4ObjectId::AAC_Main),
+            _ if u == Objc2MPEG4ObjectID::AAC_LC.0 as u32 => Some(Mpeg4ObjectId::AAC_LC),
+            _ if u == Objc2MPEG4ObjectID::AAC_SSR.0 as u32 => Some(Mpeg4ObjectId::AAC_SSR),
+            _ if u == Objc2MPEG4ObjectID::AAC_LTP.0 as u32 => Some(Mpeg4ObjectId::AAC_LTP),
+            _ if u == Objc2MPEG4ObjectID::AAC_SBR.0 as u32 => Some(Mpeg4ObjectId::AAC_SBR),
+            _ if u == Objc2MPEG4ObjectID::AAC_Scalable.0 as u32 => {
+                Some(Mpeg4ObjectId::AAC_Scalable)
+            }
+            _ if u == Objc2MPEG4ObjectID::TwinVQ.0 as u32 => Some(Mpeg4ObjectId::TwinVQ),
+            _ if u == Objc2MPEG4ObjectID::CELP.0 as u32 => Some(Mpeg4ObjectId::CELP),
+            _ if u == Objc2MPEG4ObjectID::HVXC.0 as u32 => Some(Mpeg4ObjectId::HVXC),
+            _ => None,
+        }
+    }
+}
+
+bitflags! {
+    /// "These flags indicate the valuid fields in an AudioTimeStamp structure."
+    ///
+    /// **Available** in OS X v10.0 and later.
+    ///
+    /// Original Documentation [here](https://developer.apple.com/library/mac/documentation/MusicAudio/Reference/CoreAudioDataTypesRef/#//apple_ref/doc/constant_group/Audio_Time_Stamp_Flags).
+    #[derive(Copy, Clone, Debug)]
+    pub struct AudioTimeStampFlags: u32 {
+        /// The sample frame time is valid.
+        const SAMPLE_TIME_VALID = Objc2AudioTimeStampFlags::SampleTimeValid.0;
+        /// The host time is valid.
+        const HOST_TIME_VALID = Objc2AudioTimeStampFlags::HostTimeValid.0;
+        /// The rate scalar is valid.
+        const RATE_SCALAR_VALID = Objc2AudioTimeStampFlags::RateScalarValid.0;
+        /// The world clock time is valid.
+        const WORLD_CLOCK_TIME_VALID = Objc2AudioTimeStampFlags::WordClockTimeValid.0;
+        /// The SMPTE time is valid.
+        const SMPTE_TIME_VALID = Objc2AudioTimeStampFlags::SMPTETimeValid.0;
+    }
+}

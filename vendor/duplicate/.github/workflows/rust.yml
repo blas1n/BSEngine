@@ -1,0 +1,104 @@
+name: Rust
+
+on:
+  push: 
+    branches: '**'
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+      - '[0-9]+.[0-9]+.[0-9]+-**'
+  pull_request:
+  schedule:
+    # Run every monday at 5:45 AM
+    - cron: '45 5 * * MON'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test (${{matrix.rust-version}})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rust-version: ['1.65.0', stable, nightly]
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run Test Groups
+        uses: ./.github/actions/run-test-groups
+        with:
+          rust-version: ${{ matrix.rust-version }}
+          minimal-versions: ${{ matrix.rust-version == '1.65.0' }}
+  
+  deny-warnings:
+    name: Deny Warnings
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run Test Groups
+        uses: ./.github/actions/run-test-groups
+        with:
+          rust-version: stable
+          additional-arguments: --features=fail-on-warnings
+          
+  rustfmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    env:
+      RUSTV: nightly-2024-04-16
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install
+        run: |
+          rustup toolchain install $RUSTV
+          rustup component add --toolchain $RUSTV rustfmt
+      - name: Check
+        run: cargo +$RUSTV fmt -- --check
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: [test, rustfmt, deny-warnings]
+    if: github.event_name == 'push' && contains(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v2
+      - name: Get Version
+        run: echo GIT_VERSION=$(git describe --tags) >> $GITHUB_ENV
+      - name: Prepare Git
+        run: |
+          git config user.email "github@github.com"
+          git config user.name "Github Actions"
+          git checkout -b master
+          # Use throw-away branch so we don't push the changes to origin
+          git checkout -b deploy_branch
+      - name: Prepare Crate
+        run: |
+          # Update cargo version, 
+          sed -i "s/version = \"0.0.0\"/version = \"$GIT_VERSION\"/" Cargo.toml
+          git add Cargo.toml
+          # Insert changes to cargo readme
+          sed -n "/^## \[Unreleased]/,/^## \[[0-9]/p;/^## \[[0-9]/q" CHANGELOG.md | head -n -1 | tail -n +2 > CHANGES.txt
+          sed -e '/\[changelog_body]/{' -e 'r CHANGES.txt' -e 'd' -e '}' -i cargo-readme.md
+          git add cargo-readme.md
+          rm CHANGES.txt
+          # Commit changes so cargo doesn't complain about dirty repo
+          git commit -m "Deploy changes."
+          # Package crate to ensure it works without issue
+          cargo package
+      - name: Cargo Login
+        env:
+          CRATES_IO_DEPLOY_TOKEN: ${{ secrets.CRATES_IO_DEPLOY_TOKEN }}
+        run: cargo login "$CRATES_IO_DEPLOY_TOKEN"
+      - name: Publish
+        run: cargo publish
+      - name: Update Changelog
+        run: |
+          # Back to master to clean the changes made during packaging.
+          git checkout master
+          # Update changelog
+          DATE=$(date +%Y-%m-%d)
+          sed -i "s/## \[Unreleased]/## \[Unreleased]\n\n## \[$GIT_VERSION] - $DATE/" CHANGELOG.md
+          git add CHANGELOG.md
+          git commit -m "Reset CHANGELOG after v$GIT_VERSION."
+          # Push changes to repo
+          git push origin master

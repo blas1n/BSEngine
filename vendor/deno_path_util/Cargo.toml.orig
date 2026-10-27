@@ -1,0 +1,33 @@
+[package]
+name = "deno_path_util"
+description = "Path utilities used in Deno"
+version = "0.6.4"
+edition = "2024"
+authors = ["the Deno authors"]
+license = "MIT"
+repository = "https://github.com/denoland/deno_path_util"
+
+[features]
+
+[dependencies]
+percent-encoding = "2.3.0"
+thiserror = "2"
+sys_traits.workspace = true
+deno_error = { version = "0.7.0", features = ["url"] }
+url = "2.5.1"
+
+[dev-dependencies]
+pretty_assertions = "1.4.0"
+sys_traits = { workspace = true, features = ["getrandom", "memory", "real"] }
+tempfile = "3.4.0"
+divan = "0.1.21"
+
+[workspace]
+members = ["."]
+
+[workspace.dependencies]
+sys_traits = "0.1.17"
+
+[[bench]]
+name = "bench"
+harness = false

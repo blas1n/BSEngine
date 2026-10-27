@@ -1,0 +1,44 @@
+[package]
+name = "lhash"
+version = "1.1.0"
+authors = ["Douman <douman@gmx.se>"]
+edition = "2018"
+repository = "https://github.com/DoumanAsh/lhash"
+license = "BSL-1.0"
+description = "Minimal hashing library"
+keywords = ["md5", "sha1", "const", "sha256", "sha512"]
+categories = ["cryptography", "no-std::no-alloc"]
+include = [
+    "**/*.rs",
+    "Cargo.toml",
+    "README.md"
+]
+
+[features]
+md5 = []
+sha1 = []
+sha256 = []
+sha512 = []
+
+[package.metadata.docs.rs]
+features = ["sha1", "md5", "sha256", "sha512"]
+
+[[test]]
+name = "md5"
+path = "tests/md5.rs"
+required-features = ["md5"]
+
+[[test]]
+name = "sha1"
+path = "tests/sha1.rs"
+required-features = ["sha1"]
+
+[[test]]
+name = "sha256"
+path = "tests/sha256.rs"
+required-features = ["sha256"]
+
+[[test]]
+name = "sha512"
+path = "tests/sha512.rs"
+required-features = ["sha512"]

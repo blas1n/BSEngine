@@ -1,0 +1,78 @@
+[package]
+name = "coreaudio-rs"
+version = "0.14.2"
+authors = [
+    "mitchmindtree <mitchell.nordine@gmail.com>",
+    "yupferris <jake@fusetools.com>",
+]
+description = "A friendly rust interface for Apple's CoreAudio API."
+keywords = ["core", "audio", "unit", "osx", "ios"]
+readme = "README.md"
+license = "MIT/Apache-2.0"
+edition = '2018'
+repository = "https://github.com/RustAudio/coreaudio-rs.git"
+homepage = "https://github.com/RustAudio/coreaudio-rs"
+
+[lib]
+name = "coreaudio"
+
+[features]
+default = ["audio_toolbox", "core_audio"]
+audio_toolbox = [
+    "dep:objc2-audio-toolbox",
+    "dep:objc2-core-foundation",
+    "dep:objc2-core-audio",
+    "dep:objc2-core-audio-types",
+]
+core_audio = ["dep:objc2-core-audio", "dep:objc2-core-audio-types"]
+core_midi = []
+
+# Deprecated
+audio_unit = ["audio_toolbox"]
+
+# Unsupported
+open_al = []
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
+[dependencies]
+bitflags = "2.10"
+objc2-core-foundation = { version = "0.3", optional = true, default-features = false, features = [
+    "std",
+    "CFString",
+] }
+objc2-audio-toolbox = { version = "0.3", optional = true, default-features = false, features = [
+    "std",
+    "bitflags",
+    "libc",
+    "objc2-core-foundation",
+    "objc2-core-audio",
+    "objc2-core-audio-types",
+    "AUComponent",
+    "AudioCodec",
+    "AudioComponent",
+    "AudioFormat",
+    "AudioOutputUnit",
+    "AudioUnitProperties",
+    "AudioServices",
+    "AudioSession",
+] }
+objc2-core-audio = { version = "0.3", optional = true, default-features = false, features = [
+    "std",
+    "objc2-core-audio-types",
+    "AudioHardware",
+    "AudioHardwareDeprecated",
+] }
+objc2-core-audio-types = { version = "0.3", optional = true, default-features = false, features = [
+    "std",
+    "bitflags",
+    "CoreAudioBaseTypes",
+] }
+[dev-dependencies]
+[target.'cfg(any(target_os = "ios", target_os = "tvos", target_os = "visionos"))'.dev-dependencies]
+objc2-avf-audio = "0.3.2"
+
+[package.metadata.docs.rs]
+all-features = true
+default-target = "aarch64-apple-darwin"
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-apple-ios"]

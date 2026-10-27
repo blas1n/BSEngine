@@ -1,0 +1,22 @@
+[package]
+name = "robust"
+version = "1.2.0"
+description = "Robust adaptive floating-point predicates for computational geometry"
+authors = [
+    "The Spade Developers",
+    "The GeoRust Developers",
+]
+homepage = "https://github.com/georust/robust"
+repository = "https://github.com/georust/robust"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+keywords = ["geometry", "robustness", "stability"]
+categories = ["algorithms", "graphics", "science::geo"]
+
+[features]
+no_std = []
+
+[dev-dependencies]
+png = "0.16.8"
+float_extras = "0.1.6"

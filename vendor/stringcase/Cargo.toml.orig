@@ -1,0 +1,17 @@
+[package]
+name = "stringcase"
+version = "0.4.0"
+authors = ["Takayuki Sato <sttk.xslet@gmail.com>"]
+edition = "2021"
+rust-version = "1.56.1"
+description = "Converts string cases between camelCase, COBOL-CASE, kebab-case, and so on."
+documentation = "https://docs.rs/stringcase"
+readme = "README.md"
+repository = "https://github.com/sttk/stringcase-rust"
+license = "MIT"
+keywords = ["case", "camel", "kebab", "pascal", "snake"]
+categories = ["text-processing"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]

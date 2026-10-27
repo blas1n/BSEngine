@@ -1,0 +1,68 @@
+name: ci
+
+on: [push, pull_request]
+
+jobs:
+  rust:
+    name: deno_path_util-${{ matrix.os }}
+    if: |
+      (github.event_name == 'push' || !startsWith(github.event.pull_request.head.label, 'denoland:'))
+      && github.ref_name != 'deno_path_util'
+      && !startsWith(github.ref, 'refs/tags/deno/')
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        os: [macOS-latest, ubuntu-latest, windows-latest]
+
+    env:
+      CARGO_INCREMENTAL: 0
+      GH_ACTIONS: 1
+      RUST_BACKTRACE: full
+      RUSTFLAGS: -D warnings
+
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dsherret/rust-toolchain-file@v1
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Format
+        if: contains(matrix.os, 'ubuntu')
+        run: |
+          cargo fmt -- --check
+
+      - name: Check builds Wasm
+        if: contains(matrix.os, 'ubuntu')
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo check --all-features --target wasm32-unknown-unknown
+
+      # Some tests mutate the current working directory while some others rely
+      # on it; we run them sequentially to avoid flakiness.
+      - name: Cargo test
+        run: cargo test --locked --release --all-features --bins --tests --examples -- --test-threads=1
+
+      - name: Lint
+        if: contains(matrix.os, 'ubuntu')
+        run: |
+          cargo clippy --locked --all-features --all-targets -- -D clippy::all
+
+      - name: Cargo publish
+        if: |
+          contains(matrix.os, 'ubuntu') &&
+          github.repository == 'denoland/deno_path_util' &&
+          startsWith(github.ref, 'refs/tags/')
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish
+
+      - name: Get tag version
+        if: contains(matrix.os, 'ubuntu') && startsWith(github.ref, 'refs/tags/')
+        id: get_tag_version
+        run: echo TAG_VERSION=${GITHUB_REF/refs\/tags\//} >> "$GITHUB_OUTPUT"

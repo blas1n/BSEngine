@@ -1,0 +1,30 @@
+error[E0277]: the trait bound `OwnedIsolate: v8::scope::NewEscapableHandleScope<'_>` is not satisfied
+ --> tests/compile_fail/handle_scope_escape_to_nowhere.rs:5:50
+  |
+5 |   let mut _scope = v8::EscapableHandleScope::new(&mut isolate);
+  |                    ----------------------------- ^^^^^^^^^^^^ the trait `v8::scope::NewEscapableHandleScope<'_>` is not implemented for `OwnedIsolate`
+  |                    |
+  |                    required by a bound introduced by this call
+  |
+  = help: the following other types implement trait `v8::scope::NewEscapableHandleScope<'s>`:
+            `ContextScope<'_, 'obj, HandleScope<'_, C>>` implements `v8::scope::NewEscapableHandleScope<'borrow>`
+            `Isolate` implements `v8::scope::NewEscapableHandleScope<'s>`
+            `PinnedRef<'_, EscapableHandleScope<'s, 'esc, C>>` implements `v8::scope::NewEscapableHandleScope<'borrow>`
+            `PinnedRef<'obj, HandleScope<'_, C>>` implements `v8::scope::NewEscapableHandleScope<'s>`
+note: required by a bound in `EscapableHandleScope::<'s, 'esc>::new`
+ --> src/scope.rs
+  |
+  |   pub fn new<P: NewEscapableHandleScope<'s>>(
+  |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `EscapableHandleScope::<'s, 'esc>::new`
+
+error[E0277]: the trait bound `OwnedIsolate: v8::scope::NewEscapableHandleScope<'_>` is not satisfied
+ --> tests/compile_fail/handle_scope_escape_to_nowhere.rs:5:20
+  |
+5 |   let mut _scope = v8::EscapableHandleScope::new(&mut isolate);
+  |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `v8::scope::NewEscapableHandleScope<'_>` is not implemented for `OwnedIsolate`
+  |
+  = help: the following other types implement trait `v8::scope::NewEscapableHandleScope<'s>`:
+            `ContextScope<'_, 'obj, HandleScope<'_, C>>` implements `v8::scope::NewEscapableHandleScope<'borrow>`
+            `Isolate` implements `v8::scope::NewEscapableHandleScope<'s>`
+            `PinnedRef<'_, EscapableHandleScope<'s, 'esc, C>>` implements `v8::scope::NewEscapableHandleScope<'borrow>`
+            `PinnedRef<'obj, HandleScope<'_, C>>` implements `v8::scope::NewEscapableHandleScope<'s>`

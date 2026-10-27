@@ -1,0 +1,30 @@
+[package]
+name = "mach-dxcompiler-rs"
+description = """
+Prebuilt, statically-linked DXC.
+"""
+version = "0.1.6+2026.09.16-48d5a66.1"
+edition = "2021"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/DouglasDwyer/mach-dxcompiler-rs"
+
+[build-dependencies]
+bindgen = { version = "0.71.1", optional = true, default-features = false, features = [ "runtime" ] }
+lhash = { version = "1.1.0", default-features = false, features = ["sha256"] }
+
+[target.'cfg(target_env = "msvc")'.build-dependencies]
+cc = { version = "1.2.3", optional = true }
+
+[features]
+default = ["msvc_version_validation"]
+cbindings = ["dep:bindgen"]
+msvc_version_validation = ["dep:cc"]
+# Maintainer-only: makes build.rs regenerate targets.rs from the latest immutable
+# GitHub release instead of building. See update_targets.rs for usage.
+internal_update_targets = []
+
+
+[package.metadata."docs.rs"]
+# Not all-features: internal_update_targets would make build.rs fail instead of documenting.
+features = ["cbindings"]

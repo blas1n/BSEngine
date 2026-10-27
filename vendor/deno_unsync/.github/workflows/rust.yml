@@ -1,0 +1,48 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "main" ]
+    tags:
+    - '*'
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dsherret/rust-toolchain-file@v1
+    - name: Build
+      run: cargo build
+    - name: Build (no default features)
+      run: cargo build --no-default-features
+    - name: Format
+      run: cargo fmt -- --check
+    - name: Lint
+      run: cargo clippy --all-targets --all-features -- -D warnings
+    - name: Test
+      run: cargo test
+    - name: Cargo publish
+      if: |
+        github.repository == 'denoland/deno_unsync' &&
+        startsWith(github.ref, 'refs/tags/')
+      env:
+        CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      run: cargo publish
+
+  miri:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - run: rustup install nightly
+    - run: rustup component add --toolchain nightly-x86_64-unknown-linux-gnu miri
+    - name: Tests (miri)
+      # opt into only specific tests because this takes a while to run
+      run: cargo +nightly miri test future::test

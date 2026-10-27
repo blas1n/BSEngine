@@ -1,0 +1,17 @@
+[package]
+name = "process-reader"
+version = "0.1.0"
+description = "Utilities for reading process memory on Linux"
+repository.workspace = true
+homepage.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+readme = "README.md"
+
+[features]
+serde = ["dep:serde"]
+
+[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
+libc = { workspace = true, default-features = false }
+serde = { version = "1.0.228", default-features = false, features = ["derive"], optional = true }

@@ -1,0 +1,6 @@
+Verbose syntax does not accept semicolons between substitutions.
+       Example:
+           [
+               name    [sub1] // No semicolon
+               ty      [u32] // No semicolon
+           ]

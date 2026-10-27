@@ -276,11 +276,37 @@ var Bsengine = {
         if (len > 1) { x /= len; y /= len; }
         return { x, y };
     },
+    // Interactions (project.toml `interaction = "hold" | "tap" |
+    // "hold_and_release"`): Triggered is the frame the action fires -- the
+    // press edge when it has no interaction -- Ongoing while a hold or tap
+    // is being timed, Canceled the frame one ends without firing.
+    isActionTriggered: (action) => _actionValue(action)[4] === 1,
+    isActionOngoing:   (action) => _actionValue(action)[5] === 1,
+    isActionCanceled:  (action) => _actionValue(action)[6] === 1,
+    getActionHoldTime: (action) => _actionValue(action)[7],
     getActionNames:    ()       => Array.from(_actionNames()),
-    getActionBindings: (action) => JSON.parse(Deno.core.ops.bsengine_get_action_bindings(_action(action))),
-    setActionBindings: (action, bindings) => {
-        const err = Deno.core.ops.bsengine_set_action_bindings(_action(action), JSON.stringify(bindings));
+    // `context` defaults to "default", the [input.actions] table.
+    getActionBindings: (action, context = "default") => JSON.parse(
+        Deno.core.ops.bsengine_get_action_bindings(_action(action), context)),
+    setActionBindings: (action, bindings, context = "default") => {
+        const err = Deno.core.ops.bsengine_set_action_bindings(
+            _action(action), JSON.stringify(bindings), context);
         if (err) throw new Error(err);
+    },
+    // Mapping contexts ([input.contexts.<name>]): an enabled context takes
+    // the inputs it maps from every context of lower priority.
+    enableInputContext:  (context) => {
+        const err = Deno.core.ops.bsengine_set_input_context_enabled(context, true);
+        if (err) throw new Error(err);
+    },
+    disableInputContext: (context) => {
+        const err = Deno.core.ops.bsengine_set_input_context_enabled(context, false);
+        if (err) throw new Error(err);
+    },
+    isInputContextEnabled: (context) => {
+        const state = Deno.core.ops.bsengine_input_context_enabled(context);
+        if (state < 0) throw new Error("unknown input context " + JSON.stringify(context));
+        return state === 1;
     },
     pause:          ()                     => Deno.core.ops.bsengine_pause(),
     resume:         ()                     => Deno.core.ops.bsengine_resume(),

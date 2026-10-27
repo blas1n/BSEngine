@@ -35,10 +35,13 @@ declare namespace Bsengine {
     function clearTimeout(id: unknown): unknown;
     function damageShield(name: string, amount: number): void;
     function destroy(name: string): void;
+    function disableInputContext(context: string): void;
     function distanceTo(nameA: string, nameB: string): number;
     function distanceToPoint(name: string, x: number, y: number, z: number): number;
+    function enableInputContext(context: string): void;
     function entityExists(name: string): boolean;
-    function getActionBindings(action: string): unknown;
+    function getActionBindings(action: string, context?: string): unknown;
+    function getActionHoldTime(action: unknown): unknown;
     function getActionNames(): unknown;
     function getActionStrength(action: unknown): unknown;
     function getAngularDamping(name: string): number;
@@ -135,8 +138,11 @@ declare namespace Bsengine {
     function getWorldTransform(name: string): unknown;
     function hasNavArrived(name: string): boolean;
     function instantiatePrefab(params: unknown): string;
+    function isActionCanceled(action: unknown): unknown;
     function isActionDown(action: unknown): unknown;
+    function isActionOngoing(action: unknown): unknown;
     function isActionPressed(action: unknown): unknown;
+    function isActionTriggered(action: unknown): unknown;
     function isActionUp(action: unknown): unknown;
     function isAnimationLooping(name: string): boolean;
     function isAnimationPlaying(name: string): boolean;
@@ -147,6 +153,7 @@ declare namespace Bsengine {
     function isGamepadButton(btn: number): boolean;
     function isGamepadButtonDown(btn: number): boolean;
     function isGamepadButtonUp(btn: number): boolean;
+    function isInputContextEnabled(context: string): unknown;
     function isKeyDown(key: string): boolean;
     function isKeyPressed(key: string): boolean;
     function isKeyUp(key: string): boolean;
@@ -209,7 +216,7 @@ declare namespace Bsengine {
     function save(path: string): void;
     function seekSound(id: number, pos: number): void;
     function sendMessage(target: unknown, key: unknown, data: unknown): unknown;
-    function setActionBindings(action: string, bindings: unknown): void;
+    function setActionBindings(action: string, bindings: unknown, context?: string): void;
     function setAngularDamping(name: string, damping: number): void;
     function setAngularVelocity(name: string, a: unknown, b: unknown, c: unknown): void;
     function setAnimationLooping(name: string, looping: boolean): void;

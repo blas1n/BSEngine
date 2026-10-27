@@ -1003,10 +1003,20 @@ pub enum ScriptCommand {
     /// Rebind an input action. The bindings were parsed when the command was
     /// queued, so applying it cannot fail on a bad string.
     SetActionBindings {
+        /// The input context whose mapping changes.
+        context: String,
         /// The action's name.
         action: String,
         /// Its new bindings, as binding strings.
         bindings: Vec<String>,
+    },
+    /// Switch an input context on or off. The name was checked when the
+    /// command was queued.
+    SetInputContextEnabled {
+        /// The context's name.
+        context: String,
+        /// On or off.
+        enabled: bool,
     },
     /// Set the skybox texture used for the background/environment.
     SetSkybox {
@@ -1552,11 +1562,16 @@ thread_local! {
     pub(crate) static ENTITY_NAME_MAP: RefCell<HashMap<u64, String>> =
         RefCell::new(HashMap::new());
 
-    // Input actions (`[input.actions]` in project.toml): this frame's
-    // reading of each, and each one's bindings as strings.
+    // Input actions (`[input]` in project.toml): this frame's reading of
+    // each; each action's bindings as strings across the *enabled* contexts
+    // (every action is a key, with an empty list when no enabled context
+    // maps it -- the names, and a remote peer's keys, come from here); and
+    // each context's on/off state and mappings, for the context-aware calls.
     pub(crate) static ACTION_SNAPSHOT: RefCell<HashMap<String, bsengine_input::ActionValue>> =
         RefCell::new(HashMap::new());
     pub(crate) static ACTION_BINDINGS_SNAPSHOT: RefCell<std::collections::BTreeMap<String, Vec<String>>> =
+        const { RefCell::new(std::collections::BTreeMap::new()) };
+    pub(crate) static INPUT_CONTEXTS_SNAPSHOT: RefCell<std::collections::BTreeMap<String, InputContextSnapshot>> =
         const { RefCell::new(std::collections::BTreeMap::new()) };
 
     // Gamepad button state (bit 0=South..15=DPadRight)
@@ -2170,14 +2185,24 @@ pub fn bsengine_action_names() -> String {
     })
 }
 
+/// One input context as scripts see it: on or off, and what it maps.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct InputContextSnapshot {
+    pub enabled: bool,
+    pub actions: std::collections::BTreeMap<String, Vec<String>>,
+}
+
 /// `action`'s reading for `entity` as `[strength, pressed, just_pressed,
-/// just_released]`, the last three as 0 or 1.
+/// just_released, triggered, ongoing, canceled, held_time]`, the flags as 0
+/// or 1.
 ///
 /// An entity driven by a remote peer is read from that peer's keys, as
 /// `isKeyPressed` is (see `key_pressed_for`): otherwise a server simulating
 /// a client's player through `isActionPressed("jump")` would jump whenever
 /// the *server's* keyboard did. Only key bindings count for such an entity,
-/// at strength 1 -- the peer replicates key names, not sticks or buttons.
+/// at strength 1 -- the peer replicates key names, not sticks or buttons --
+/// and `triggered` is the press edge: interactions time a press with this
+/// machine's frames, which the peer's replicated key set does not carry.
 #[script_op]
 #[serde]
 pub fn bsengine_action_value(#[string] entity: String, #[string] action: String) -> Vec<f32> {
@@ -2185,7 +2210,7 @@ pub fn bsengine_action_value(#[string] entity: String, #[string] action: String)
 }
 
 /// The body of [`bsengine_action_value`], callable from tests.
-pub(crate) fn action_value_for(entity: &str, action: &str) -> [f32; 4] {
+pub(crate) fn action_value_for(entity: &str, action: &str) -> [f32; 8] {
     let flag = |b: bool| if b { 1.0 } else { 0.0 };
     let remote = REMOTE_INPUT.with(|r| r.borrow().contains_key(entity));
     if remote {
@@ -2207,6 +2232,10 @@ pub(crate) fn action_value_for(entity: &str, action: &str) -> [f32; 4] {
             flag(held),
             flag(held && !was),
             flag(was && !held),
+            flag(held && !was),
+            0.0,
+            0.0,
+            0.0,
         ];
     }
     let v = ACTION_SNAPSHOT.with(|s| s.borrow().get(action).copied().unwrap_or_default());
@@ -2215,22 +2244,39 @@ pub(crate) fn action_value_for(entity: &str, action: &str) -> [f32; 4] {
         flag(v.pressed),
         flag(v.just_pressed),
         flag(v.just_released),
+        flag(v.triggered),
+        flag(v.ongoing),
+        flag(v.canceled),
+        v.held_time,
     ]
 }
 
-/// What `action` is bound to, as a JSON array of binding strings, or `null`
-/// for a name that is not an action.
+/// The error for a context name scripts asked about that does not exist,
+/// naming the ones that do.
+fn unknown_input_context(context: &str) -> String {
+    let names = INPUT_CONTEXTS_SNAPSHOT.with(|c| c.borrow().keys().cloned().collect::<Vec<_>>());
+    format!(
+        "unknown input context {context:?}; contexts are {}",
+        names.join(", ")
+    )
+}
+
+/// What `action` is bound to in `context`, as a JSON array of binding
+/// strings, or `null` when that context does not map it.
 #[script_op]
 #[string]
-pub fn bsengine_get_action_bindings(#[string] action: String) -> String {
-    ACTION_BINDINGS_SNAPSHOT.with(|b| match b.borrow().get(&action) {
-        Some(list) => serde_json::to_string(list).unwrap_or_else(|_| "[]".to_string()),
-        None => "null".to_string(),
+pub fn bsengine_get_action_bindings(#[string] action: String, #[string] context: String) -> String {
+    INPUT_CONTEXTS_SNAPSHOT.with(|c| {
+        match c.borrow().get(&context).and_then(|ctx| ctx.actions.get(&action)) {
+            Some(list) => serde_json::to_string(list).unwrap_or_else(|_| "[]".to_string()),
+            None => "null".to_string(),
+        }
     })
 }
 
-/// Rebinds `action` to `bindings_json` (a JSON array of binding strings).
-/// Returns "" on success, otherwise what was wrong -- the prelude throws it.
+/// Rebinds `action` in `context` to `bindings_json` (a JSON array of
+/// binding strings). Returns "" on success, otherwise what was wrong -- the
+/// prelude throws it.
 ///
 /// Every binding is parsed here, before anything is queued, so a rebinding
 /// screen that offers a bad string fails at the call rather than leaving the
@@ -2243,6 +2289,7 @@ pub fn bsengine_get_action_bindings(#[string] action: String) -> String {
 pub fn bsengine_set_action_bindings(
     #[string] action: String,
     #[string] bindings_json: String,
+    #[string] context: String,
 ) -> String {
     let texts: Vec<String> = match serde_json::from_str(&bindings_json) {
         Ok(texts) => texts,
@@ -2251,6 +2298,18 @@ pub fn bsengine_set_action_bindings(
     if !ACTION_BINDINGS_SNAPSHOT.with(|b| b.borrow().contains_key(&action)) {
         return format!("unknown action {action:?}");
     }
+    let mapped = INPUT_CONTEXTS_SNAPSHOT.with(|c| {
+        c.borrow()
+            .get(&context)
+            .map(|ctx| ctx.actions.contains_key(&action))
+    });
+    match mapped {
+        None => return unknown_input_context(&context),
+        Some(false) => {
+            return format!("input context {context:?} does not map action {action:?}")
+        }
+        Some(true) => {}
+    }
     let errors: Vec<String> = texts
         .iter()
         .filter_map(|text| bsengine_input::Binding::parse(text).err())
@@ -2258,14 +2317,51 @@ pub fn bsengine_set_action_bindings(
     if !errors.is_empty() {
         return errors.join("; ");
     }
-    ACTION_BINDINGS_SNAPSHOT.with(|b| {
-        b.borrow_mut().insert(action.clone(), texts.clone());
+    INPUT_CONTEXTS_SNAPSHOT.with(|c| {
+        if let Some(ctx) = c.borrow_mut().get_mut(&context) {
+            ctx.actions.insert(action.clone(), texts.clone());
+        }
     });
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut().push(ScriptCommand::SetActionBindings {
+            context,
             action,
             bindings: texts,
         })
+    });
+    String::new()
+}
+
+/// Whether input context `context` is enabled: 1 or 0, or -1 when there is
+/// no such context (the prelude throws on that, naming the real ones).
+#[script_op(fast)]
+pub fn bsengine_input_context_enabled(#[string] context: String) -> i32 {
+    INPUT_CONTEXTS_SNAPSHOT.with(|c| match c.borrow().get(&context) {
+        Some(ctx) => i32::from(ctx.enabled),
+        None => -1,
+    })
+}
+
+/// Switches input context `context` on or off. Returns "" on success,
+/// otherwise what was wrong. The snapshot follows at once, so
+/// `isInputContextEnabled` right after reads the new state; the action
+/// readings follow from the next frame, as a rebinding's do.
+#[script_op]
+#[string]
+pub fn bsengine_set_input_context_enabled(#[string] context: String, enabled: bool) -> String {
+    let known = INPUT_CONTEXTS_SNAPSHOT.with(|c| match c.borrow_mut().get_mut(&context) {
+        Some(ctx) => {
+            ctx.enabled = enabled;
+            true
+        }
+        None => false,
+    });
+    if !known {
+        return unknown_input_context(&context);
+    }
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetInputContextEnabled { context, enabled })
     });
     String::new()
 }
@@ -5520,6 +5616,8 @@ macro_rules! with_every_op {
             bsengine_action_value,
             bsengine_get_action_bindings,
             bsengine_set_action_bindings,
+            bsengine_input_context_enabled,
+            bsengine_set_input_context_enabled,
             bsengine_set_morph_weight,
             bsengine_get_morph_weights,
             bsengine_tr,
@@ -5901,12 +5999,21 @@ mod tests {
             );
         }
 
+        /// The default context maps every pair, as `[input.actions]` would.
         fn set_actions(pairs: &[(&str, &[&str])]) {
-            crate::ops::ACTION_BINDINGS_SNAPSHOT.with(|b| {
-                *b.borrow_mut() = pairs
-                    .iter()
-                    .map(|(n, list)| (n.to_string(), list.iter().map(|s| s.to_string()).collect()))
-                    .collect();
+            let mapped: std::collections::BTreeMap<String, Vec<String>> = pairs
+                .iter()
+                .map(|(n, list)| (n.to_string(), list.iter().map(|s| s.to_string()).collect()))
+                .collect();
+            crate::ops::ACTION_BINDINGS_SNAPSHOT.with(|b| *b.borrow_mut() = mapped.clone());
+            crate::ops::INPUT_CONTEXTS_SNAPSHOT.with(|c| {
+                c.borrow_mut().insert(
+                    "default".to_string(),
+                    crate::ops::InputContextSnapshot {
+                        enabled: true,
+                        actions: mapped,
+                    },
+                );
             });
         }
 
@@ -5918,7 +6025,7 @@ mod tests {
                         strength,
                         pressed: strength > 0.0,
                         just_pressed,
-                        just_released: false,
+                        ..Default::default()
                     },
                 );
             });
@@ -5927,6 +6034,7 @@ mod tests {
         fn clear_actions() {
             crate::ops::ACTION_SNAPSHOT.with(|s| s.borrow_mut().clear());
             crate::ops::ACTION_BINDINGS_SNAPSHOT.with(|s| s.borrow_mut().clear());
+            crate::ops::INPUT_CONTEXTS_SNAPSHOT.with(|s| s.borrow_mut().clear());
         }
 
         /// An entity a remote peer drives reads its actions from that peer's
@@ -5946,32 +6054,159 @@ mod tests {
 
             assert_eq!(
                 action_value_for("Local", "jump"),
-                [1.0, 1.0, 1.0, 0.0],
+                [1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
                 "premise: this machine is holding jump"
             );
             assert_eq!(
                 action_value_for("Remote", "jump"),
-                [0.0, 0.0, 0.0, 0.0],
+                [0.0; 8],
                 "the peer is not holding jump, whatever this keyboard does"
             );
             assert_eq!(
                 action_value_for("Remote", "fire"),
-                [1.0, 1.0, 1.0, 0.0],
-                "the peer's E is fire, and it went down this frame"
+                [1.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+                "the peer's E is fire, it went down this frame, and that edge is its trigger"
             );
 
             REMOTE_INPUT_PREVIOUS.with(|r| r.borrow_mut().insert("Remote".into(), set(&["E"])));
             assert_eq!(
                 action_value_for("Remote", "fire"),
-                [1.0, 1.0, 0.0, 0.0],
+                [1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
                 "held since last frame: no new edge"
             );
             REMOTE_INPUT.with(|r| r.borrow_mut().insert("Remote".into(), set(&[])));
             assert_eq!(
                 action_value_for("Remote", "fire"),
-                [0.0, 0.0, 0.0, 1.0],
+                [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0],
                 "let go this frame"
             );
+            clear();
+            clear_actions();
+        }
+
+        /// Each interaction function reads its own field: every field is set
+        /// to a value no other has, so a function reading its neighbour's
+        /// slot fails. And the context calls check the name, change the
+        /// snapshot at once and queue exactly one command -- none when
+        /// refused.
+        #[test]
+        fn interaction_and_context_functions_read_their_fields_and_check_names() {
+            use crate::runtime::ScriptRuntime;
+            clear();
+            clear_actions();
+            let mut rt = ScriptRuntime::new_with_ops();
+            rt.exec_source(super::super::BOOTSTRAP_JS, "<bootstrap>")
+                .unwrap();
+            let eval = |rt: &mut ScriptRuntime, js: &str| rt.eval(js).unwrap();
+            let catch = |js: &str| {
+                format!(
+                    r#"(() => {{ try {{ {js}; return "no throw"; }} catch (e) {{ return e.message; }} }})()"#
+                )
+            };
+            set_actions(&[("charge", &["Space"]), ("dodge", &["ShiftLeft"])]);
+            crate::ops::INPUT_CONTEXTS_SNAPSHOT.with(|c| {
+                c.borrow_mut().insert(
+                    "menu".to_string(),
+                    crate::ops::InputContextSnapshot {
+                        enabled: false,
+                        actions: [("back".to_string(), vec!["Escape".to_string()])].into(),
+                    },
+                );
+            });
+            crate::ops::ACTION_BINDINGS_SNAPSHOT
+                .with(|b| b.borrow_mut().insert("back".to_string(), Vec::new()));
+            crate::ops::ACTION_SNAPSHOT.with(|s| {
+                let mut s = s.borrow_mut();
+                s.insert(
+                    "charge".to_string(),
+                    bsengine_input::ActionValue {
+                        strength: 1.0,
+                        pressed: true,
+                        ongoing: true,
+                        held_time: 0.375,
+                        ..Default::default()
+                    },
+                );
+                s.insert(
+                    "dodge".to_string(),
+                    bsengine_input::ActionValue {
+                        triggered: true,
+                        canceled: false,
+                        ..Default::default()
+                    },
+                );
+                s.insert(
+                    "back".to_string(),
+                    bsengine_input::ActionValue {
+                        canceled: true,
+                        ..Default::default()
+                    },
+                );
+            });
+            let r = eval(
+                &mut rt,
+                r#"[
+                    Bsengine.isActionOngoing("charge"), Bsengine.isActionTriggered("charge"),
+                    Bsengine.isActionCanceled("charge"), Bsengine.getActionHoldTime("charge"),
+                    Bsengine.isActionTriggered("dodge"), Bsengine.isActionOngoing("dodge"),
+                    Bsengine.isActionCanceled("back"), Bsengine.isActionTriggered("back"),
+                ].join(",")"#,
+            );
+            assert_eq!(
+                r, "true,false,false,0.375,true,false,true,false",
+                "each function reads its own field"
+            );
+
+            let queued = |kind: &str| {
+                crate::ops::COMMAND_BUFFER.with(|c| {
+                    c.borrow()
+                        .iter()
+                        .filter(|cmd| format!("{cmd:?}").starts_with(kind))
+                        .count()
+                })
+            };
+            let r = eval(&mut rt, &catch(r#"Bsengine.enableInputContext("hud")"#));
+            assert!(r.contains("unknown input context \"hud\"") && r.contains("default, menu"), "{r}");
+            let r = eval(&mut rt, &catch(r#"Bsengine.isInputContextEnabled("hud")"#));
+            assert!(r.contains("unknown input context \"hud\""), "{r}");
+            assert_eq!(queued("SetInputContextEnabled"), 0, "a refused switch queues nothing");
+
+            let r = eval(
+                &mut rt,
+                r#"const before = Bsengine.isInputContextEnabled("menu");
+                   Bsengine.enableInputContext("menu");
+                   before + "," + Bsengine.isInputContextEnabled("menu")"#,
+            );
+            assert_eq!(r, "false,true", "read back at once");
+            assert_eq!(queued("SetInputContextEnabled"), 1);
+
+            let r = eval(
+                &mut rt,
+                &catch(r#"Bsengine.setActionBindings("charge", ["J"], "menu")"#),
+            );
+            assert!(r.contains("does not map action \"charge\""), "{r}");
+            let r = eval(
+                &mut rt,
+                r#"Bsengine.setActionBindings("back", ["Backspace"], "menu");
+                   JSON.stringify([Bsengine.getActionBindings("back", "menu"),
+                                   Bsengine.getActionBindings("back"),
+                                   Bsengine.getActionBindings("charge")])"#,
+            );
+            assert_eq!(
+                r, r#"[["Backspace"],null,["Space"]]"#,
+                "the named context changed; the default does not map back"
+            );
+            let menu_rebinds = crate::ops::COMMAND_BUFFER.with(|c| {
+                c.borrow()
+                    .iter()
+                    .filter(|cmd| {
+                        matches!(cmd, crate::ops::ScriptCommand::SetActionBindings { context, action, .. }
+                            if context == "menu" && action == "back")
+                    })
+                    .count()
+            });
+            assert_eq!(menu_rebinds, 1, "queued for the menu context");
+            crate::ops::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
             clear();
             clear_actions();
         }

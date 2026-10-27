@@ -105,6 +105,11 @@ pub(crate) struct Tracker {
     /// This press already fired or was canceled: nothing more until it ends.
     /// Without it a hold would fire on every frame past its threshold.
     done: bool,
+    /// The interaction the current press is under, kept for its release: a
+    /// press can end *because* its mapping went away (its context was
+    /// disabled), and then the frame that ends it has no interaction to ask
+    /// -- the hold in progress would vanish instead of being canceled.
+    pressed_under: Option<Interaction>,
 }
 
 impl Tracker {
@@ -127,6 +132,12 @@ impl Tracker {
         tapped: bool,
         dt: f32,
     ) -> Step {
+        let interaction = if pressed {
+            interaction
+        } else {
+            interaction.or(self.pressed_under)
+        };
+        self.pressed_under = if pressed { interaction } else { None };
         let just_pressed = (pressed && !was) || tapped;
         let released = (was && !pressed) || (tapped && !pressed);
         let duration = if was { self.held + dt } else { 0.0 };

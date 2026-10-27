@@ -1,7 +1,9 @@
 # Every dependency builds from `vendor/`, in this repository, not from a
 # registry cache outside it: what the engine is built from is committed, shows
-# in a diff and builds offline -- as Godot keeps `thirdparty/` and Unreal
-# `ThirdParty/` in their trees. After any change to Cargo.lock, run
+# in a diff and needs no registry -- as Godot keeps `thirdparty/` and Unreal
+# `ThirdParty/` in their trees. Not fully offline: v8's build script still
+# downloads its prebuilt library (RUSTY_V8_ARCHIVE points it at a local copy)
+# and mach-dxcompiler-rs its static DXC. After any change to Cargo.lock, run
 # `cargo vendor --locked vendor` and commit what it changes; CI checks that
 # the two agree.
 #

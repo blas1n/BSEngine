@@ -47,8 +47,8 @@ cargo build --all
 # Two invocations, not one. bsengine-editor shares a process with V8 badly:
 # run concatenated with the rest of the workspace, its reflection-heavy suite
 # overflows the stack. Split, both pass.
-cargo test --workspace --exclude bsengine-editor   # ~2,000 tests
-cargo test -p bsengine-editor                      # ~940 tests
+cargo test --workspace --exclude bsengine-editor   # ~2,780 tests (2026-10-27)
+cargo test -p bsengine-editor                      # 351 tests (2026-10-27)
 
 cargo +nightly fmt --all                           # nightly, see below
 cargo clippy --all-targets                         # --all-targets matters

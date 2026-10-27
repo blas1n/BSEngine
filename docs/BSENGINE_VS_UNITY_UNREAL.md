@@ -117,6 +117,8 @@ TAA, SSR, 데칼, 볼류메트릭 포그, 라이트 프로브, IBL, 래그돌, �
 **→ 1~4 모두 끝남(2026-10-27 확인).** 3의 멀티스레딩은 위 "구조 문제"대로 방향을 바꿔 끝냈다. 남은 확인된 부재는 입력
 액션 위의 **매핑 컨텍스트·홀드/탭 인터랙션**(Unreal Enhanced Input의 Mapping Context·Trigger, Unity Input System의
 Interaction) — `grep -rliE "mapping_?context|InputContext|hold_?time|tap_?threshold" crates --include=*.rs` → 0.
+**→ 그것도 닫힘(2026-10-27, `[input.contexts]` + `interaction`; 위 "입력 액션 맵" 행).** 같은 grep이 이제
+`bsengine-input/src/actions.rs`·`interaction.rs`를 찾는다.
 
 ## 현재 남은 작업 (2026-09-28, 전부 grep으로 부재 확인함)
 

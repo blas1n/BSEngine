@@ -260,7 +260,7 @@ pub use smaa::{Smaa, SmaaQuality};
 pub use taa::Taa;
 pub use texture_import::{TextureCompression, TextureFilter, TextureImportSettings, TextureWrap};
 pub use texture_streaming_config::TextureStreamingSettings;
-pub use time::Time;
+pub use time::{Time, TimeSystems};
 pub use timeline::{
     animations_between, evaluate, events_between, AnimationKey, CameraKey, CameraPose, EventKey,
     ShotCut, Timeline, TimelineEvents, TimelinePlayer, Track,

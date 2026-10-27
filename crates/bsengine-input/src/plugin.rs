@@ -70,7 +70,14 @@ impl Plugin for InputPlugin {
                     .chain()
                     .in_set(InputSystems),
             )
-            .add_systems(PreUpdate, update_action_state.after(InputSystems));
+            // After the clock too: interactions (hold, tap) time a press with
+            // this frame's `delta_seconds`; see `TimeSystems`.
+            .add_systems(
+                PreUpdate,
+                update_action_state
+                    .after(InputSystems)
+                    .after(bsengine_core::TimeSystems),
+            );
 
         match gilrs::Gilrs::new() {
             Ok(g) => {

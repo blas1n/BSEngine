@@ -2811,15 +2811,27 @@ fn run_scripts(world: &mut World) {
                     l.set_locale(&locale);
                 }
             }
-            ScriptCommand::SetActionBindings { action, bindings } => {
+            ScriptCommand::SetActionBindings {
+                context,
+                action,
+                bindings,
+            } => {
                 let parsed: Vec<bsengine_input::Binding> = bindings
                     .iter()
                     .filter_map(|text| bsengine_input::Binding::parse(text).ok())
                     .collect();
                 if let Some(mut actions) = world.get_resource_mut::<bsengine_input::InputActions>()
                 {
-                    if let Err(e) = actions.set_bindings(&action, parsed) {
+                    if let Err(e) = actions.set_bindings_in(&context, &action, parsed) {
                         tracing::error!("[scripting] setActionBindings: {e}");
+                    }
+                }
+            }
+            ScriptCommand::SetInputContextEnabled { context, enabled } => {
+                if let Some(mut actions) = world.get_resource_mut::<bsengine_input::InputActions>()
+                {
+                    if let Err(e) = actions.set_context_enabled(&context, enabled) {
+                        tracing::error!("[scripting] input context: {e}");
                     }
                 }
             }
@@ -3953,32 +3965,60 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
     GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT.with(|s| *s.borrow_mut() = gpad_just_pressed);
     GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT.with(|s| *s.borrow_mut() = gpad_just_released);
     GAMEPAD_STICKS_SNAPSHOT.with(|s| *s.borrow_mut() = gamepad_sticks);
-    // Input actions: this frame's reading of each, and each one's bindings as
-    // strings. The bindings answer `getActionBindings` and let an entity a
-    // remote peer drives be read from that peer's keys.
+    // Input actions: this frame's reading of each; each one's bindings as
+    // strings across the enabled contexts (the action names, and an entity a
+    // remote peer drives, read from that peer's keys, come from these); and
+    // every context with its state and mappings, which answer
+    // `getActionBindings` and `isInputContextEnabled`.
     let action_values: HashMap<String, bsengine_input::ActionValue> = world
         .get_resource::<bsengine_input::ActionState>()
         .map(|state| state.iter().map(|(n, v)| (n.to_string(), *v)).collect())
         .unwrap_or_default();
-    let action_bindings: std::collections::BTreeMap<String, Vec<String>> = world
+    let (action_bindings, input_contexts) = world
         .get_resource::<bsengine_input::InputActions>()
         .map(|actions| {
-            actions
+            let contexts: std::collections::BTreeMap<String, crate::ops::InputContextSnapshot> =
+                actions
+                    .context_names()
+                    .filter_map(|name| actions.context(name).map(|c| (name, c)))
+                    .map(|(name, context)| {
+                        let mapped = context
+                            .actions()
+                            .map(|(action, mapping)| {
+                                let texts =
+                                    mapping.bindings.iter().map(ToString::to_string).collect();
+                                (action.to_string(), texts)
+                            })
+                            .collect();
+                        (
+                            name.to_string(),
+                            crate::ops::InputContextSnapshot {
+                                enabled: context.enabled,
+                                actions: mapped,
+                            },
+                        )
+                    })
+                    .collect();
+            let mut bindings: std::collections::BTreeMap<String, Vec<String>> = actions
                 .names()
-                .map(|name| {
-                    let texts = actions
-                        .bindings(name)
-                        .unwrap_or_default()
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect();
-                    (name.to_string(), texts)
-                })
-                .collect()
+                .map(|name| (name.to_string(), Vec::new()))
+                .collect();
+            for context in contexts.values().filter(|c| c.enabled) {
+                for (action, texts) in &context.actions {
+                    let list = bindings.entry(action.clone()).or_default();
+                    for text in texts {
+                        if !list.contains(text) {
+                            list.push(text.clone());
+                        }
+                    }
+                }
+            }
+            (bindings, contexts)
         })
         .unwrap_or_default();
     ACTION_SNAPSHOT.with(|s| *s.borrow_mut() = action_values);
     ACTION_BINDINGS_SNAPSHOT.with(|s| *s.borrow_mut() = action_bindings);
+    crate::ops::INPUT_CONTEXTS_SNAPSHOT.with(|s| *s.borrow_mut() = input_contexts);
     let morphs: HashMap<String, (Vec<String>, Vec<f32>)> = {
         let mut q = world.query::<(&Name, &bsengine_core::MorphWeights)>();
         q.iter(world)
@@ -7570,6 +7610,129 @@ mod tests {
         app.update();
         let _ = std::fs::remove_file(&script_path);
         assert_eq!(x(&app), 1.0, "J is");
+    }
+
+    /// `enableInputContext` from a script reaches the engine's
+    /// `InputActions`, and the context it enables then takes Escape from
+    /// gameplay: x = `isActionPressed("pause")`, z = `isActionPressed("back")`.
+    /// The resource is checked too, so a switch that only flipped the
+    /// script-side snapshot fails here rather than passing on the read-back.
+    #[test]
+    fn a_script_enabling_a_context_moves_a_key_to_it() {
+        use bsengine_input::actions::{ContextConfig, MappingConfig};
+        use bsengine_input::{ElementState, InputActions, InputPlugin, KeyCode, KeyInput};
+        let script_path =
+            std::env::temp_dir().join(format!("bsengine_test_context_{}.js", std::process::id()));
+        std::fs::write(
+            &script_path,
+            "let enabled = false, rebound = false;\n\
+             function onUpdate(name) {\n\
+                 if (!enabled) { Bsengine.enableInputContext(\"menu\"); enabled = true; }\n\
+                 const back = Bsengine.isActionPressed(\"back\");\n\
+                 if (back && !rebound) {\n\
+                     Bsengine.setActionBindings(\"back\", [\"Backspace\"], \"menu\");\n\
+                     rebound = true;\n\
+                 }\n\
+                 Bsengine.setPosition(name, Bsengine.isActionPressed(\"pause\") ? 1 : 0, 1,\n\
+                     back ? 1 : 0);\n\
+             }",
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        let default = [(
+            "pause".to_string(),
+            MappingConfig::from(vec!["Escape".to_string()]),
+        )]
+        .into();
+        let contexts = [(
+            "menu".to_string(),
+            ContextConfig {
+                priority: 10,
+                enabled: false,
+                actions: [(
+                    "back".to_string(),
+                    MappingConfig::from(vec!["Escape".to_string()]),
+                )]
+                .into(),
+                unknown_keys: Vec::new(),
+            },
+        )]
+        .into();
+        app.insert_resource(InputActions::from_contexts(&default, &contexts, 0.2).unwrap());
+        app.add_plugins(InputPlugin);
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: String::new(),
+        });
+        let entity = app
+            .world_mut()
+            .spawn((
+                Name("Menu".to_string()),
+                ScriptPath(script_path.to_string_lossy().to_string()),
+                Transform::default(),
+            ))
+            .id();
+        let read = |app: &bevy_app::App| {
+            let p = app.world().get::<Transform>(entity).unwrap().position;
+            (p.x, p.z)
+        };
+
+        let mut frames = 0;
+        while app.world().get::<Transform>(entity).unwrap().position.y != 1.0 {
+            app.update();
+            frames += 1;
+            assert!(frames < 300, "the script never ran");
+        }
+        app.update();
+        assert!(
+            app.world()
+                .resource::<InputActions>()
+                .context("menu")
+                .unwrap()
+                .enabled,
+            "the switch reached InputActions"
+        );
+
+        app.world_mut()
+            .resource_mut::<bevy_ecs::event::Events<KeyInput>>()
+            .send(KeyInput {
+                key_code: KeyCode::Escape,
+                state: ElementState::Pressed,
+                text: None,
+            });
+        app.update();
+        assert_eq!(
+            read(&app),
+            (0.0, 1.0),
+            "Escape is the menu's now, not pause's"
+        );
+
+        // Seeing `back`, the script rebinds it *in the menu context* to
+        // Backspace, so the menu no longer maps Escape and the still-held
+        // key falls through to pause. A rebinding applied to the default
+        // context instead fails ("does not map") and the menu keeps Escape.
+        app.update();
+        app.update();
+        let _ = std::fs::remove_file(&script_path);
+        let back: Vec<String> = app
+            .world()
+            .resource::<InputActions>()
+            .bindings_in("menu", "back")
+            .unwrap()
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(
+            back,
+            ["Backspace"],
+            "the rebinding reached the menu context"
+        );
+        assert_eq!(
+            read(&app),
+            (1.0, 0.0),
+            "Escape, still held, is pause's again"
+        );
     }
 
     /// `Bsengine.onAnimationEvent` through the real plugins: the animation

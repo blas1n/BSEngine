@@ -10,6 +10,8 @@
 pub mod actions;
 /// Translates platform (winit/gilrs) input events into BSEngine's own input types.
 pub mod convert;
+/// Hold, tap and hold-and-release: when an action's press fires.
+pub mod interaction;
 /// The `InputPlugin` bevy plugin and the per-frame `MouseState` resource.
 pub mod plugin;
 /// The generic `Input<T>` press/release tracking resource.
@@ -18,6 +20,7 @@ pub mod state;
 pub mod types;
 
 pub use actions::{ActionState, ActionValue, Binding, GamepadAxis, InputActions};
+pub use interaction::Interaction;
 pub use plugin::{InputPlugin, InputSystems, MouseState};
 pub use state::Input;
 pub use types::{

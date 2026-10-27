@@ -662,10 +662,12 @@ pub fn package_with_precook(
 /// run time, where a failed asset load is only a warning. `.glb` is
 /// self-contained and packs fine.
 ///
-/// Sidecars are deliberately NOT packed, though loose mode ships them. They
-/// exist so the engine can recover a reference whose asset has moved, and
-/// nothing moves inside a sealed archive — every path in it was resolved by
-/// the cook that wrote it, and no rename can reach it afterwards.
+/// Each asset's `.meta` sidecar goes in beside it, as loose mode copies it:
+/// the runtime builds its identity index from them (`identity::scan_archive`).
+/// This paragraph used to say sidecars were deliberately left out because
+/// nothing moves inside a sealed archive — but scenes reference assets by
+/// GUID, and without the sidecars every packaged build resolved them only
+/// through stored paths and warned that each identity was stale.
 ///
 /// # Errors
 ///

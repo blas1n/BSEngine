@@ -1,0 +1,18 @@
+[package]
+name = "boxed_error"
+description = "Macro for easily boxing an error"
+version = "0.2.3"
+edition = "2021"
+authors = ["the Deno authors"]
+license = "MIT"
+repository = "https://github.com/denoland/boxed_error"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+quote = "1.0.37"
+syn = "2.0.87"
+
+[dev-dependencies]
+thiserror = "2.0"

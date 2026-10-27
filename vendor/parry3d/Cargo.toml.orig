@@ -1,0 +1,234 @@
+[package]
+name = "parry3d"
+version.workspace = true
+authors.workspace = true
+description = "3 dimensional collision detection library in Rust."
+documentation.workspace = true
+homepage.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+edition.workspace = true
+
+[badges]
+maintenance = { status = "actively-developed" }
+
+[lints]
+workspace = true
+
+[features]
+default = ["required-features", "std", "spade"]
+required-features = ["dim3", "f32"]
+std = [
+    "glamx/std",
+    "slab",
+    "simba/std",
+    "arrayvec/std",
+    "spade?/std",
+    "thiserror/std",
+    "ena",
+]
+dim3 = []
+f32 = []
+serde-serialize = [
+    "serde",
+    "serde_arrays",
+    "glamx/serde",
+    "bitflags/serde",
+    "hashbrown?/serde",
+    "spade?/serde",
+]
+rkyv = ["dep:rkyv", "glamx/rkyv"]
+bytemuck-serialize = ["bytemuck", "glamx/bytemuck"]
+
+simd-stable = ["simba/wide", "simd-is-enabled"]
+simd-nightly = ["simba/portable_simd", "simd-is-enabled"]
+enhanced-determinism = ["simba/libm_force", "indexmap", "glamx/libm"]
+parallel = ["rayon"]
+# Adds `TriMesh:to_obj_file` function.
+wavefront = ["obj"]
+alloc = ["hashbrown", "smallvec", "downcast-rs", "rstar", "glamx/approx"]
+spade = ["dep:spade", "alloc"]
+improved_fixed_point_support = []
+encase = [ "dep:encase", "glamx/encase" ]
+
+# Do not enable this feature directly. It is automatically
+# enabled with the "simd-stable" or "simd-nightly" feature.
+simd-is-enabled = []
+
+[lib]
+name = "parry3d"
+path = "src/lib.rs"
+required-features = ["required-features"]
+
+[dependencies]
+either = { workspace = true }
+bitflags = { workspace = true }
+downcast-rs = { workspace = true, optional = true }
+num-traits = { workspace = true }
+slab = { workspace = true, optional = true }
+arrayvec = { workspace = true }
+simba = { workspace = true }
+glamx = { workspace = true, features = ["i32"] } # , "approx"] }
+approx = { workspace = true }
+serde = { workspace = true, optional = true, features = ["rc"] }
+serde_arrays = { workspace = true, optional = true }
+rkyv = { workspace = true, optional = true }
+num-derive = { workspace = true }
+indexmap = { workspace = true, optional = true }
+hashbrown = { workspace = true, optional = true }
+spade = { workspace = true, optional = true }
+rayon = { workspace = true, optional = true }
+bytemuck = { workspace = true, optional = true }
+log = { workspace = true }
+ordered-float = { workspace = true }
+thiserror = { workspace = true }
+rstar = { workspace = true, optional = true }
+obj = { workspace = true, optional = true }
+ena = { workspace = true, optional = true }
+smallvec = { workspace = true, optional = true }
+static_assertions = { workspace = true }
+foldhash = { workspace = true }
+encase = { workspace = true, optional = true }
+
+[dev-dependencies]
+oorandom = { workspace = true }
+ptree = { workspace = true }
+rand = { workspace = true }
+kiss3d = { workspace = true }
+rand_isaac = { workspace = true }
+web-time = { workspace = true }
+
+[package.metadata.docs.rs]
+rustdoc-args = ["-Zunstable-options", "--generate-link-to-definition"]
+cargo-args = ["-Zunstable-options", "-Zrustdoc-scrape-examples"]
+features = ["wavefront"]
+
+# The following listing is to allow for examples to be scraped,
+# see https://doc.rust-lang.org/rustdoc/scraped-examples.html#scraped-examples for details.
+# To help with generating this list, see the script `write_examples.sh`
+
+[[example]]
+name = "aabb3d"
+path = "examples/aabb3d.rs"
+doc-scrape-examples = true
+
+[[example]]
+name = "ball3d"
+path = "examples/ball3d.rs"
+doc-scrape-examples = true
+
+[[example]]
+name = "bounding_sphere3d"
+path = "examples/bounding_sphere3d.rs"
+doc-scrape-examples = true
+
+[[example]]
+name = "capsule"
+path = "examples/capsule.rs"
+doc-scrape-examples = true
+
+[[example]]
+name = "cone"
+path = "examples/cone.rs"
+doc-scrape-examples = true
+
+[[example]]
+name = "contact_query3d"
+path = "examples/contact_query3d.rs"
+doc-scrape-examples = true
+
+[[example]]
+name = "convex3d"
+path = "examples/convex3d.rs"
+required-features = ["alloc"]
+doc-scrape-examples = true
+
+[[example]]
+name = "convex_hull3d"
+path = "examples/convex_hull3d.rs"
+required-features = ["alloc"]
+doc-scrape-examples = true
+
+[[example]]
+name = "convex_try_new3d"
+path = "examples/convex_try_new3d.rs"
+required-features = ["alloc"]
+doc-scrape-examples = true
+
+[[example]]
+name = "cuboid3d"
+path = "examples/cuboid3d.rs"
+doc-scrape-examples = true
+
+[[example]]
+name = "cylinder"
+path = "examples/cylinder.rs"
+doc-scrape-examples = true
+
+[[example]]
+name = "distance_query3d"
+path = "examples/distance_query3d.rs"
+doc-scrape-examples = true
+
+[[example]]
+name = "getting_started"
+path = "examples/getting_started.rs"
+doc-scrape-examples = true
+
+[[example]]
+name = "mesh3d"
+path = "examples/mesh3d.rs"
+required-features = ["alloc"]
+doc-scrape-examples = true
+
+[[example]]
+name = "plane3d"
+path = "examples/plane3d.rs"
+doc-scrape-examples = true
+
+[[example]]
+name = "plane_intersection"
+path = "examples/plane_intersection.rs"
+required-features = ["alloc"]
+doc-scrape-examples = true
+
+[[example]]
+name = "polyline3d"
+path = "examples/polyline3d.rs"
+required-features = ["alloc"]
+doc-scrape-examples = true
+
+[[example]]
+name = "proximity_query3d"
+path = "examples/proximity_query3d.rs"
+doc-scrape-examples = true
+
+[[example]]
+name = "project_point3d"
+path = "examples/project_point3d.rs"
+required-features = ["alloc"]
+doc-scrape-examples = true
+
+[[example]]
+name = "solid_point_query3d"
+path = "examples/solid_point_query3d.rs"
+doc-scrape-examples = true
+
+[[example]]
+name = "solid_ray_cast3d"
+path = "examples/solid_ray_cast3d.rs"
+doc-scrape-examples = true
+
+[[example]]
+name = "time_of_impact_query3d"
+path = "examples/time_of_impact_query3d.rs"
+doc-scrape-examples = true
+
+[[example]]
+name = "convex_decomposition"
+path = "examples/convex_decomposition.rs"
+doc-scrape-examples = true
+required-features = ["wavefront"]

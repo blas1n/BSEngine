@@ -1,0 +1,25 @@
+[package]
+name = "deno_error"
+version = "0.7.1"
+description = "Error representation to JavaScript for deno"
+homepage = "https://deno.land/"
+repository = "https://github.com/denoland/deno_error"
+documentation = "https://docs.rs/deno_error"
+authors = ["the Deno authors"]
+edition = "2021"
+license = "MIT"
+
+[workspace]
+members = ["macros"]
+
+[dependencies]
+deno_error_macro = { version = "=0.7.1", path = "macros" }
+libc = "0.2.126"
+
+tokio = { version = "1", features = ["full"], optional = true }
+url = { version = "2", optional = true }
+serde = { version = "1", optional = true }
+serde_json = { version = "1", optional = true }
+
+[dev-dependencies]
+thiserror = "2"

@@ -1,0 +1,19 @@
+framework = "ImageIO"
+crate = "objc2-image-io"
+required-crates = ["objc2-core-foundation"]
+custom-lib-rs = true
+macos = "10.8"
+maccatalyst = "13.0"
+ios = "4.0"
+tvos = "9.0"
+watchos = "2.0"
+visionos = "1.0"
+
+# Emit these.
+const.IMAGEIO_PNG_NO_FILTERS.skipped = false
+const.IMAGEIO_PNG_FILTER_NONE.skipped = false
+const.IMAGEIO_PNG_FILTER_SUB.skipped = false
+const.IMAGEIO_PNG_FILTER_UP.skipped = false
+const.IMAGEIO_PNG_FILTER_AVG.skipped = false
+const.IMAGEIO_PNG_FILTER_PAETH.skipped = false
+const.IMAGEIO_PNG_ALL_FILTERS.skipped = false

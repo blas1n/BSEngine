@@ -1,0 +1,44 @@
+[package]
+name = "gstreamer-pbutils"
+authors = ["Sebastian Dröge <sebastian@centricular.com>"]
+description = "Rust bindings for GStreamer Base Utils library"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+documentation = "https://gstreamer.freedesktop.org/documentation/rust/stable/latest/docs/gstreamer_pbutils/"
+keywords = ["gstreamer", "multimedia", "audio", "pbutils", "gnome"]
+version.workspace = true
+categories.workspace = true
+repository.workspace = true 
+homepage.workspace = true 
+edition.workspace = true 
+rust-version.workspace = true 
+
+[dependencies]
+libc = "0.2"
+gstreamer-pbutils-sys.workspace = true
+glib.workspace = true
+gst.workspace = true
+gst-video.workspace = true
+gst-audio.workspace = true
+thiserror = "2"
+serde = { version = "1.0", optional = true }
+
+[dev-dependencies]
+gir-format-check = "0.1"
+serde_json = "1.0"
+
+[features]
+default = []
+v1_16 = ["gst/v1_16", "gst-audio/v1_16", "gst-video/v1_16", "gstreamer-pbutils-sys/v1_16"]
+v1_18 = ["gst/v1_18", "gst-audio/v1_18", "gst-video/v1_18", "gstreamer-pbutils-sys/v1_18", "v1_16"]
+v1_20 = ["gst/v1_20", "gst-audio/v1_20", "gst-video/v1_20", "gstreamer-pbutils-sys/v1_20", "v1_18"]
+v1_22 = ["gst/v1_22", "gst-audio/v1_22", "gst-video/v1_22", "gstreamer-pbutils-sys/v1_22", "v1_20"]
+v1_24 = ["gst/v1_24", "gst-audio/v1_24", "gst-video/v1_24", "gstreamer-pbutils-sys/v1_24", "v1_22"]
+v1_26 = ["gst/v1_26", "gst-audio/v1_26", "gst-video/v1_26", "gstreamer-pbutils-sys/v1_26", "v1_24"]
+v1_28 = ["gst/v1_28", "gst-audio/v1_28", "gst-video/v1_28", "gstreamer-pbutils-sys/v1_28", "v1_26"]
+v1_30 = ["gst/v1_30", "gst-audio/v1_30", "gst-video/v1_30", "gstreamer-pbutils-sys/v1_30", "v1_28"]
+serde = ["dep:serde", "gst/serde"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--generate-link-to-definition"]

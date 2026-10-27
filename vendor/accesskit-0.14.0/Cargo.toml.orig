@@ -1,0 +1,26 @@
+[package]
+name = "accesskit"
+version = "0.14.0"
+authors.workspace = true
+license.workspace = true
+description = "UI accessibility infrastructure across platforms"
+categories.workspace = true
+keywords = ["gui", "ui", "accessibility"]
+repository.workspace = true
+readme = "README.md"
+edition.workspace = true
+rust-version.workspace = true
+
+[package.metadata.docs.rs]
+features = ["schemars", "serde"]
+
+[dependencies]
+enumn = { version = "0.1.6", optional = true }
+pyo3 = { version = "0.20", optional = true }
+schemars = { version = "0.8.7", optional = true }
+serde = { version = "1.0", features = ["derive"], optional = true }
+
+[features]
+serde = ["dep:serde", "enumn"]
+schemars = ["dep:schemars", "serde"]
+

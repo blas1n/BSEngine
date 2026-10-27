@@ -1,0 +1,202 @@
+fn main() {
+  // Skip running benchmarks in debug or CI.
+  if cfg!(debug_assertions) || std::env::var("CI").is_ok() {
+    return;
+  }
+  v8::V8::set_flags_from_string(
+    "--turbo_fast_api_calls --allow_natives_syntax",
+  );
+  let platform = v8::new_default_platform(0, false).make_shared();
+  v8::V8::initialize_platform(platform);
+  v8::V8::initialize();
+  let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
+  v8::scope!(let handle_scope, isolate);
+  let context = v8::Context::new(handle_scope, Default::default());
+  let scope = &mut v8::ContextScope::new(handle_scope, context);
+  let global = context.global(scope);
+  {
+    let func = v8::Function::new(
+      scope,
+      |scope: &mut v8::PinScope,
+       _: v8::FunctionCallbackArguments,
+       mut rv: v8::ReturnValue| {
+        rv.set(v8::Integer::new(scope, 42).into());
+      },
+    )
+    .unwrap();
+    let name = v8::String::new(scope, "new_").unwrap();
+    global.set(scope, name.into(), func.into()).unwrap();
+  }
+  {
+    extern "C" fn callback(info: *const v8::FunctionCallbackInfo) {
+      let info = unsafe { &*info };
+      let scope = std::pin::pin!(unsafe { v8::CallbackScope::new(info) });
+      let scope = &scope.init();
+      let mut rv = v8::ReturnValue::from_function_callback_info(info);
+      rv.set(v8::Integer::new(scope, 42).into());
+    }
+    let func = v8::Function::new_raw(scope, callback).unwrap();
+    let name = v8::String::new(scope, "new_raw").unwrap();
+    global.set(scope, name.into(), func.into()).unwrap();
+  }
+  {
+    extern "C" fn callback(info: *const v8::FunctionCallbackInfo) {
+      let info = unsafe { &*info };
+      let mut rv = v8::ReturnValue::from_function_callback_info(info);
+      rv.set_uint32(42);
+    }
+    let func = v8::Function::new_raw(scope, callback).unwrap();
+    let name = v8::String::new(scope, "new_raw_set_uint32").unwrap();
+    global.set(scope, name.into(), func.into()).unwrap();
+  }
+  {
+    extern "C" fn callback(info: *const v8::FunctionCallbackInfo) {
+      let info = unsafe { &*info };
+      let parts = info.get_parts();
+      let mut rv = parts.return_value;
+      rv.set_uint32(42);
+    }
+    let func = v8::Function::new_raw(scope, callback).unwrap();
+    let name = v8::String::new(scope, "new_raw_parts_set_uint32").unwrap();
+    global.set(scope, name.into(), func.into()).unwrap();
+  }
+  {
+    let func = v8::Function::new(
+      scope,
+      |_: &mut v8::PinScope,
+       _: v8::FunctionCallbackArguments,
+       mut rv: v8::ReturnValue| {
+        rv.set_uint32(42);
+      },
+    )
+    .unwrap();
+    let name = v8::String::new(scope, "new_set_uint32").unwrap();
+    global.set(scope, name.into(), func.into()).unwrap();
+  }
+  {
+    fn fast_fn() -> i32 {
+      42
+    }
+    const FAST_CALL: v8::fast_api::CFunction = v8::fast_api::CFunction::new(
+      fast_fn as _,
+      &v8::fast_api::CFunctionInfo::new(
+        v8::fast_api::Type::Int32.as_info(),
+        &[v8::fast_api::Type::V8Value.as_info()],
+        v8::fast_api::Int64Representation::Number,
+      ),
+    );
+    let template = v8::FunctionTemplate::builder(
+      |scope: &mut v8::PinScope,
+       _: v8::FunctionCallbackArguments,
+       mut rv: v8::ReturnValue| {
+        rv.set(v8::Integer::new(scope, 42).into());
+      },
+    )
+    .build_fast(scope, &[FAST_CALL]);
+    let name = v8::String::new(scope, "new_fast").unwrap();
+    let value = template.get_function(scope).unwrap();
+
+    global.set(scope, name.into(), value.into()).unwrap();
+  }
+
+  {
+    extern "C" fn callback(info: *const v8::FunctionCallbackInfo) {
+      let info = unsafe { &*info };
+      let scope = std::pin::pin!(unsafe { v8::CallbackScope::new(info) });
+      let scope = &scope.init();
+      let mut rv = v8::ReturnValue::from_function_callback_info(info);
+      rv.set(v8::undefined(scope).into());
+    }
+    let func = v8::Function::new_raw(scope, callback).unwrap();
+    let name = v8::String::new(scope, "undefined_from_scope").unwrap();
+    global.set(scope, name.into(), func.into()).unwrap();
+  }
+
+  {
+    extern "C" fn callback(info: *const v8::FunctionCallbackInfo) {
+      let info = unsafe { &*info };
+      let mut rv = v8::ReturnValue::from_function_callback_info(info);
+      let mut args =
+        v8::FunctionCallbackArguments::from_function_callback_info(info);
+      rv.set(v8::undefined(unsafe { args.get_isolate() }).into());
+    }
+    let func = v8::Function::new_raw(scope, callback).unwrap();
+    let name = v8::String::new(scope, "undefined_from_isolate").unwrap();
+    global.set(scope, name.into(), func.into()).unwrap();
+  }
+  {
+    extern "C" fn callback(info: *const v8::FunctionCallbackInfo) {
+      let info = unsafe { &*info };
+      let parts = info.get_parts();
+      let mut rv = parts.return_value;
+      rv.set(
+        v8::undefined(unsafe {
+          v8::Isolate::ref_from_raw_isolate_ptr_unchecked(&parts.isolate)
+        })
+        .into(),
+      );
+    }
+    let func = v8::Function::new_raw(scope, callback).unwrap();
+    let name = v8::String::new(scope, "undefined_from_parts").unwrap();
+    global.set(scope, name.into(), func.into()).unwrap();
+  }
+
+  let runs = 100_000_000;
+
+  for (group_name, benches) in [
+    (
+      "function_overhead",
+      &[
+        "new_",
+        "new_raw",
+        "new_set_uint32",
+        "new_raw_set_uint32",
+        "new_raw_parts_set_uint32",
+        "new_fast",
+      ][..],
+    ),
+    (
+      "primitives",
+      &[
+        "undefined_from_scope",
+        "undefined_from_isolate",
+        "undefined_from_parts",
+      ][..],
+    ),
+  ] {
+    println!("Running {group_name} ...");
+    for x in benches {
+      let code = format!(
+        "
+            function bench() {{ return {x}(); }};
+            runs = {runs};
+            start = Date.now();
+            for (i = 0; i < runs; i++) bench();
+            Date.now() - start;
+          ",
+      );
+
+      let r = eval(scope, &code).unwrap();
+      let number = r.to_number(scope).unwrap();
+      let total_ms = number.number_value(scope).unwrap();
+      let total_ns = 1e6 * total_ms;
+      let ns_per_run = total_ns / (runs as f64);
+      let mops_per_sec = (runs as f64) / (total_ms / 1000.0) / 1e6;
+      println!(
+        "  {ns_per_run:.1} ns per run {mops_per_sec:.1} million ops/sec → {x}"
+      );
+    }
+  }
+}
+
+fn eval<'s>(
+  scope: &mut v8::PinScope<'s, '_>,
+  code: &str,
+) -> Option<v8::Local<'s, v8::Value>> {
+  v8::escapable_handle_scope!(let scope, scope);
+
+  let source = v8::String::new(scope, code).unwrap();
+  let script = v8::Script::compile(scope, source, None).unwrap();
+  let r = script.run(scope);
+  r.map(|v| scope.escape(v))
+}

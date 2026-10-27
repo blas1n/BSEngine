@@ -1,0 +1,16 @@
+[package]
+name = "sys_traits_macros"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/dsherret/sys_traits"
+description = "Procedural macros for sys_traits."
+
+[lib]
+path = "lib.rs"
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full"] }

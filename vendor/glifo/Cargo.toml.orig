@@ -1,0 +1,35 @@
+[package]
+name = "glifo"
+version = "0.2.0"
+description = "Glifo provides APIs for efficiently rendering text."
+keywords = ["text", "layout"]
+categories = ["gui", "graphics"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+
+[features]
+default = ["std"]
+std = ["foldhash/std", "vello_common/std", "skrifa/std"]
+libm = ["skrifa/libm", "vello_common/libm", "dep:core_maths"]
+png = ["std", "dep:png", "vello_common/png"]
+
+[lints]
+workspace = true
+
+[dependencies]
+bytemuck = { workspace = true }
+foldhash = { workspace = true }
+# TODO: Consider just using libm via kurbo, but it doesn't seem to have a `fract` method.
+core_maths = { workspace = true, optional = true }
+hashbrown = { workspace = true, features = ["raw-entry"] }
+log = { workspace = true }
+peniko = { workspace = true }
+skrifa = { workspace = true }
+smallvec = { workspace = true }
+vello_common = { workspace = true }
+png = { workspace = true, optional = true }

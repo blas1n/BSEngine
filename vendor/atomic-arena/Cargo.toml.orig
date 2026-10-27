@@ -1,0 +1,19 @@
+[package]
+name = "atomic-arena"
+version = "0.1.2"
+authors = ["Andrew Minnich <aminnich3@gmail.com>"]
+edition = "2018"
+description = "Generational arena that allows reserving keys from other threads"
+readme = "readme.md"
+repository = "https://github.com/tesselode/atomic-arena"
+license = "MIT OR Apache-2.0"
+keywords = ["arena", "generational"]
+categories = ["concurrency", "data-structures"]
+
+[dev-dependencies]
+criterion = "0.3.4"
+rand = "0.8.3"
+
+[[bench]]
+name = "benchmark"
+harness = false

@@ -1,0 +1,62 @@
+# egui-phosphor changelog
+
+## 0.14.0 - 2026-09-10
+
+- Updated to egui 0.36
+  - [#44](https://github.com/amPerl/egui-phosphor/pull/44) by [@UnknownSuperficialNight](https://github.com/UnknownSuperficialNight)
+- Added optional `subset` feature with a `subset!` macro that embeds only the named icons
+- Added `add_font_bytes_to_fonts` and `variants::bytes`
+
+## 0.13.0 - 2026-07-22
+
+- Updated to egui 0.35
+  - [#41](https://github.com/amPerl/egui-phosphor/pull/41) by [@crumblingstatue](https://github.com/crumblingstatue)
+
+## 0.12.0 - 2026-03-30
+
+- Updated to egui 0.34
+  - [#40](https://github.com/amPerl/egui-phosphor/pull/40) by [@crumblingstatue](https://github.com/crumblingstatue)
+
+## 0.11.0 - 2025-11-18
+
+- Updated to egui 0.33
+  - [#36](https://github.com/amPerl/egui-phosphor/pull/36) by [@philpax](https://github.com/philpax)
+
+## 0.10.0 - 2025-07-10
+
+- Updated to egui 0.32
+
+## 0.9.0 - 2024-12-17
+
+- Updated to egui 0.31
+  - [#33](https://github.com/amPerl/egui-phosphor/pull/33) by [@bircni](https://github.com/bircni)
+
+## 0.8.0 - 2024-12-17
+
+- Updated to egui 0.30
+
+## 0.7.3 - 2024-10-09
+
+- Fixed issue with phosphor overriding some normal latin text glyphs in egui, knocking it down to second-highest priority
+
+## 0.7.2 - 2024-10-09
+
+- Fixed some mismatched icons, `add_to_fonts` now sets phosphor as top priority font instead of last
+
+## 0.7.1 - 2024-09-30
+
+- Fixed alignment in egui 0.29, adjustment no longer necessary
+
+## 0.7.0 - 2024-09-30
+
+- Updated to egui 0.29
+  - [#25](https://github.com/amPerl/egui-phosphor/pull/25) by [@crumblingstatue](https://github.com/crumblingstatue)
+
+## 0.6.0 - 2024-07-30
+
+- Added public API for font bytes
+  - [#14](https://github.com/amPerl/egui-phosphor/pull/14) by [@romnn](https://github.com/romnn)
+- Bumped egui dependency to 0.28
+  - [#15](https://github.com/amPerl/egui-phosphor/pull/15) by [@crumblingstatue](https://github.com/crumblingstatue)
+- Updated to Phosphor Icons version 2.1.0
+  - [#18](https://github.com/amPerl/egui-phosphor/pull/18) by [@connorslade](https://github.com/connorslade)

@@ -1,0 +1,199 @@
+// Copyright 2021 The AccessKit Authors. All rights reserved.
+// Licensed under the Apache License, Version 2.0 (found in
+// the LICENSE-APACHE file) or the MIT license (found in
+// the LICENSE-MIT file), at your option.
+
+pub(crate) mod tree;
+pub use tree::{ChangeHandler as TreeChangeHandler, State as TreeState, Tree};
+
+pub(crate) mod node;
+pub use node::Node;
+
+pub(crate) mod filters;
+pub use filters::{common_filter, common_filter_with_root_exception, FilterResult};
+
+pub(crate) mod iterators;
+
+pub(crate) mod text;
+pub use text::{
+    AttributeValue as TextAttributeValue, Position as TextPosition, Range as TextRange,
+    WeakRange as WeakTextRange,
+};
+
+#[cfg(test)]
+mod tests {
+    use accesskit::{Affine, NodeBuilder, NodeId, Rect, Role, Tree, TreeUpdate, Vec2};
+
+    use crate::FilterResult;
+
+    pub const ROOT_ID: NodeId = NodeId(0);
+    pub const PARAGRAPH_0_ID: NodeId = NodeId(1);
+    pub const STATIC_TEXT_0_0_IGNORED_ID: NodeId = NodeId(2);
+    pub const PARAGRAPH_1_IGNORED_ID: NodeId = NodeId(3);
+    pub const BUTTON_1_0_HIDDEN_ID: NodeId = NodeId(4);
+    pub const CONTAINER_1_0_0_HIDDEN_ID: NodeId = NodeId(5);
+    pub const STATIC_TEXT_1_1_ID: NodeId = NodeId(6);
+    pub const BUTTON_1_2_HIDDEN_ID: NodeId = NodeId(7);
+    pub const CONTAINER_1_2_0_HIDDEN_ID: NodeId = NodeId(8);
+    pub const PARAGRAPH_2_ID: NodeId = NodeId(9);
+    pub const STATIC_TEXT_2_0_ID: NodeId = NodeId(10);
+    pub const PARAGRAPH_3_IGNORED_ID: NodeId = NodeId(11);
+    pub const EMPTY_CONTAINER_3_0_IGNORED_ID: NodeId = NodeId(12);
+    pub const LINK_3_1_IGNORED_ID: NodeId = NodeId(13);
+    pub const STATIC_TEXT_3_1_0_ID: NodeId = NodeId(14);
+    pub const BUTTON_3_2_ID: NodeId = NodeId(15);
+    pub const EMPTY_CONTAINER_3_3_IGNORED_ID: NodeId = NodeId(16);
+
+    pub fn test_tree() -> crate::tree::Tree {
+        let root = {
+            let mut builder = NodeBuilder::new(Role::RootWebArea);
+            builder.set_children(vec![
+                PARAGRAPH_0_ID,
+                PARAGRAPH_1_IGNORED_ID,
+                PARAGRAPH_2_ID,
+                PARAGRAPH_3_IGNORED_ID,
+            ]);
+            builder.build()
+        };
+        let paragraph_0 = {
+            let mut builder = NodeBuilder::new(Role::Paragraph);
+            builder.set_children(vec![STATIC_TEXT_0_0_IGNORED_ID]);
+            builder.build()
+        };
+        let static_text_0_0_ignored = {
+            let mut builder = NodeBuilder::new(Role::StaticText);
+            builder.set_name("static_text_0_0_ignored");
+            builder.build()
+        };
+        let paragraph_1_ignored = {
+            let mut builder = NodeBuilder::new(Role::Paragraph);
+            builder.set_transform(Affine::translate(Vec2::new(10.0, 40.0)));
+            builder.set_bounds(Rect {
+                x0: 0.0,
+                y0: 0.0,
+                x1: 800.0,
+                y1: 40.0,
+            });
+            builder.set_children(vec![
+                BUTTON_1_0_HIDDEN_ID,
+                STATIC_TEXT_1_1_ID,
+                BUTTON_1_2_HIDDEN_ID,
+            ]);
+            builder.build()
+        };
+        let button_1_0_hidden = {
+            let mut builder = NodeBuilder::new(Role::Button);
+            builder.set_name("button_1_0_hidden");
+            builder.set_hidden();
+            builder.set_children(vec![CONTAINER_1_0_0_HIDDEN_ID]);
+            builder.build()
+        };
+        let container_1_0_0_hidden = {
+            let mut builder = NodeBuilder::new(Role::GenericContainer);
+            builder.set_hidden();
+            builder.build()
+        };
+        let static_text_1_1 = {
+            let mut builder = NodeBuilder::new(Role::StaticText);
+            builder.set_bounds(Rect {
+                x0: 10.0,
+                y0: 10.0,
+                x1: 90.0,
+                y1: 30.0,
+            });
+            builder.set_name("static_text_1_1");
+            builder.build()
+        };
+        let button_1_2_hidden = {
+            let mut builder = NodeBuilder::new(Role::Button);
+            builder.set_name("button_1_2_hidden");
+            builder.set_hidden();
+            builder.set_children(vec![CONTAINER_1_2_0_HIDDEN_ID]);
+            builder.build()
+        };
+        let container_1_2_0_hidden = {
+            let mut builder = NodeBuilder::new(Role::GenericContainer);
+            builder.set_hidden();
+            builder.build()
+        };
+        let paragraph_2 = {
+            let mut builder = NodeBuilder::new(Role::Paragraph);
+            builder.set_children(vec![STATIC_TEXT_2_0_ID]);
+            builder.build()
+        };
+        let static_text_2_0 = {
+            let mut builder = NodeBuilder::new(Role::StaticText);
+            builder.set_name("static_text_2_0");
+            builder.build()
+        };
+        let paragraph_3_ignored = {
+            let mut builder = NodeBuilder::new(Role::Paragraph);
+            builder.set_children(vec![
+                EMPTY_CONTAINER_3_0_IGNORED_ID,
+                LINK_3_1_IGNORED_ID,
+                BUTTON_3_2_ID,
+                EMPTY_CONTAINER_3_3_IGNORED_ID,
+            ]);
+            builder.build()
+        };
+        let empty_container_3_0_ignored = NodeBuilder::new(Role::GenericContainer).build();
+        let link_3_1_ignored = {
+            let mut builder = NodeBuilder::new(Role::Link);
+            builder.set_children(vec![STATIC_TEXT_3_1_0_ID]);
+            builder.set_linked();
+            builder.build()
+        };
+        let static_text_3_1_0 = {
+            let mut builder = NodeBuilder::new(Role::StaticText);
+            builder.set_name("static_text_3_1_0");
+            builder.build()
+        };
+        let button_3_2 = {
+            let mut builder = NodeBuilder::new(Role::Button);
+            builder.set_name("button_3_2");
+            builder.build()
+        };
+        let empty_container_3_3_ignored = NodeBuilder::new(Role::GenericContainer).build();
+        let initial_update = TreeUpdate {
+            nodes: vec![
+                (ROOT_ID, root),
+                (PARAGRAPH_0_ID, paragraph_0),
+                (STATIC_TEXT_0_0_IGNORED_ID, static_text_0_0_ignored),
+                (PARAGRAPH_1_IGNORED_ID, paragraph_1_ignored),
+                (BUTTON_1_0_HIDDEN_ID, button_1_0_hidden),
+                (CONTAINER_1_0_0_HIDDEN_ID, container_1_0_0_hidden),
+                (STATIC_TEXT_1_1_ID, static_text_1_1),
+                (BUTTON_1_2_HIDDEN_ID, button_1_2_hidden),
+                (CONTAINER_1_2_0_HIDDEN_ID, container_1_2_0_hidden),
+                (PARAGRAPH_2_ID, paragraph_2),
+                (STATIC_TEXT_2_0_ID, static_text_2_0),
+                (PARAGRAPH_3_IGNORED_ID, paragraph_3_ignored),
+                (EMPTY_CONTAINER_3_0_IGNORED_ID, empty_container_3_0_ignored),
+                (LINK_3_1_IGNORED_ID, link_3_1_ignored),
+                (STATIC_TEXT_3_1_0_ID, static_text_3_1_0),
+                (BUTTON_3_2_ID, button_3_2),
+                (EMPTY_CONTAINER_3_3_IGNORED_ID, empty_container_3_3_ignored),
+            ],
+            tree: Some(Tree::new(ROOT_ID)),
+            focus: ROOT_ID,
+        };
+        crate::tree::Tree::new(initial_update, false)
+    }
+
+    pub fn test_tree_filter(node: &crate::Node) -> FilterResult {
+        let id = node.id();
+        if node.is_hidden() {
+            FilterResult::ExcludeSubtree
+        } else if id == STATIC_TEXT_0_0_IGNORED_ID
+            || id == PARAGRAPH_1_IGNORED_ID
+            || id == PARAGRAPH_3_IGNORED_ID
+            || id == EMPTY_CONTAINER_3_0_IGNORED_ID
+            || id == LINK_3_1_IGNORED_ID
+            || id == EMPTY_CONTAINER_3_3_IGNORED_ID
+        {
+            FilterResult::ExcludeNode
+        } else {
+            FilterResult::Include
+        }
+    }
+}

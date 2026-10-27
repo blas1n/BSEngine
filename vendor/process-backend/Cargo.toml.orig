@@ -1,0 +1,19 @@
+[package]
+name = "process-backend"
+version = "0.1.0"
+description = "Providers helpers for reading process memory specialized for minidump-writer"
+repository.workspace = true
+homepage.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+testing = []
+
+[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
+libc.workspace = true
+log.workspace = true
+process-reader = { version = "0.1.0", path = "../../process-reader", features = ["serde"] }
+serde.workspace = true
+thiserror.workspace = true

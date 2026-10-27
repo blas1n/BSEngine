@@ -1,0 +1,111 @@
+// Copyright 2026 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! The drop shadow filter.
+
+use crate::color::{AlphaColor, Srgb};
+use crate::filter::gaussian_blur::{MAX_KERNEL_SIZE, plan_decimated_blur, transform_blur_params};
+use crate::filter::transform_offset_params;
+use crate::filter_effects::EdgeMode;
+use crate::kurbo::Affine;
+
+/// A drop shadow filter.
+#[derive(Debug)]
+pub struct DropShadow {
+    /// The x-offset of the shadow.
+    pub dx: f32,
+    /// The y-offset of the shadow.
+    pub dy: f32,
+    /// The color of the shadow.
+    pub color: AlphaColor<Srgb>,
+    /// Standard deviation for the blur (for reference/debugging).
+    pub std_deviation: f32,
+    /// Edge mode for blur sampling.
+    pub edge_mode: EdgeMode,
+    /// Whether to composite the original input over the colored shadow.
+    pub composite_original: bool,
+    /// Number of 2x2 decimation levels to use (0 means direct convolution).
+    pub n_decimations: usize,
+    /// Pre-computed Gaussian kernel weights for the reduced blur.
+    /// Only the first `kernel_size` elements are valid.
+    pub kernel: [f32; MAX_KERNEL_SIZE],
+    /// Actual length of the kernel (kernel is padded to `MAX_KERNEL_SIZE`).
+    pub kernel_size: u8,
+}
+
+impl DropShadow {
+    /// Create a new drop shadow filter with the specified parameters.
+    ///
+    /// This precomputes the blur decimation plan and kernel for optimal performance.
+    pub fn new(
+        dx: f32,
+        dy: f32,
+        std_deviation: f32,
+        edge_mode: EdgeMode,
+        color: AlphaColor<Srgb>,
+    ) -> Self {
+        Self::new_impl(dx, dy, std_deviation, edge_mode, color, true)
+    }
+
+    /// Create a new shadow-only drop shadow with the specified parameters.
+    pub fn new_shadow_only(
+        dx: f32,
+        dy: f32,
+        std_deviation: f32,
+        edge_mode: EdgeMode,
+        color: AlphaColor<Srgb>,
+    ) -> Self {
+        Self::new_impl(dx, dy, std_deviation, edge_mode, color, false)
+    }
+
+    fn new_impl(
+        dx: f32,
+        dy: f32,
+        std_deviation: f32,
+        edge_mode: EdgeMode,
+        color: AlphaColor<Srgb>,
+        composite_original: bool,
+    ) -> Self {
+        // Precompute blur plan (same logic as GaussianBlur::new)
+        let (n_decimations, kernel, kernel_size) = plan_decimated_blur(std_deviation);
+
+        Self {
+            dx,
+            dy,
+            color,
+            std_deviation,
+            edge_mode,
+            composite_original,
+            n_decimations,
+            kernel,
+            kernel_size,
+        }
+    }
+}
+
+/// Transform a drop shadow's offset and standard deviation using the affine transformation.
+///
+/// Applies the full linear transformation (rotation, scale, and shear) to the offset vector,
+/// and scales the blur standard deviation uniformly.
+///
+/// # Arguments
+/// * `dx` - Horizontal offset in user space
+/// * `dy` - Vertical offset in user space
+/// * `std_deviation` - Blur standard deviation in user space
+/// * `transform` - The transformation matrix to apply
+///
+/// # Returns
+/// A tuple of (`scaled_dx`, `scaled_dy`, `scaled_std_dev`) in device space
+pub(crate) fn transform_shadow_params(
+    dx: f32,
+    dy: f32,
+    std_deviation: f32,
+    transform: &Affine,
+) -> (f32, f32, f32) {
+    let (scaled_dx, scaled_dy) = transform_offset_params(dx, dy, transform);
+
+    // Scale the blur radius uniformly
+    let scaled_std_dev = transform_blur_params(std_deviation, transform);
+
+    (scaled_dx, scaled_dy, scaled_std_dev)
+}

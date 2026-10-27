@@ -1,0 +1,18 @@
+[package]
+name = "texpresso"
+version = "2.0.2"
+license = "MIT"
+authors = ["Jan Solanti <jhs@psonet.com>"]
+edition = "2021"
+description = "A pure Rust texture compression suite"
+homepage = "https://github.com/jansol/texpresso"
+repository = "https://github.com/jansol/texpresso"
+categories = ["compression", "multimedia::images", "multimedia::encoding", "no-std", "rendering::data-formats"]
+keywords = ["DDS", "DXT", "texture", "compression"]
+
+[badges]
+travis-ci = {repository = "jansol/texpresso"}
+
+[dependencies]
+libm = "0.2"
+rayon = {version = "1", optional = true}

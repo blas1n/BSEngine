@@ -1,0 +1,16 @@
+[package]
+name = "syn-match"
+version = "0.3.1"
+edition = "2024"
+description = "a macro for matching on syn paths"
+repository = "https://github.com/crowlKats/syn-match"
+license = "MIT"
+
+[dependencies]
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"
+
+[lib]
+proc-macro = true
+doctest = false

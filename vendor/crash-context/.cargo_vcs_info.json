@@ -1,0 +1,6 @@
+{
+  "git": {
+    "sha1": "deb17c272daa0a20c9327e42526537910bd97882"
+  },
+  "path_in_vcs": "crates/crash-context"
+}

@@ -1,0 +1,220 @@
+# There are two kinds of continuous integration jobs in this project:
+#
+# - Every code submission or master push passes continuous integration on the
+#   minimal supported Rust version and the current stable Rust version.
+# - Two times a month, a scheduled job makes sure that the code remains
+#   compatible and lint-free on upcoming Rust toolchains (beta and nightly).
+
+name: Continuous Integration
+permissions:
+  contents: read
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '0 0 11/15 * *'
+
+# Cancel existing jobs on new pushes to the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: 0
+  RUSTFLAGS: -D warnings
+  RUSTDOCFLAGS: -D warnings
+  MINIMAL_RUST: 1.86.0  # Minimal Supported Rust Version
+
+  # Workarounds for windows "spurious network error".
+  # Try to remove them on the next MSRV bump.
+  CARGO_NET_GIT_FETCH_WITH_CLI: true
+  CARGO_HTTP_MULTIPLEXING: false
+
+jobs:
+  # Workaround for github CI dropping env var expansion in matrix strategy
+  matrix_vars:
+    runs-on: ubuntu-latest
+    outputs:
+      MINIMAL_RUST: ${{ env.MINIMAL_RUST }}
+    steps:
+      - name: Forward env var to output
+        run: echo "MINIMAL_RUST=${{ env.MINIMAL_RUST }}" >> $GITHUB_OUTPUT
+
+
+  # Format doesn't depend on configuration, and lints don't depend on the
+  # operating system since there's no OS-specific code path in this crate.
+  #
+  # We don't care about warnings on the minimum supported Rust version, only
+  # about building and running correctly.
+  format-lints:
+    # Don't run CI twice when a PR is created from a branch internal to the repo
+    if: github.event_name == 'push' || github.event_name == 'schedule' || github.event.pull_request.head.repo.full_name != github.repository
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v6
+
+      - name: Set up stable toolchain
+        if: github.event_name != 'schedule'
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: rustfmt,clippy
+
+      - name: Set up nightly toolchain
+        if: github.event_name == 'schedule'
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: nightly
+          components: rustfmt,clippy
+
+      - name: Check format
+        run: cargo fmt --all --check
+
+      - name: Check clippy lints
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Install cargo-machete
+        uses: taiki-e/install-action@cargo-machete
+
+      - name: Look for unused dependencies with cargo-machete
+        run: cargo machete
+
+      - name: Check semver
+        # Not guaranteed to run on nightly, so we use the separate job below
+        if: github.event_name != 'schedule'
+        uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          rust-toolchain: manual
+
+  # Workaround for cargo-semver-checks not guaranteeing nightly support
+  scheduled-semver-checks:
+    if: github.event_name == 'schedule'
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v6
+
+      - name: Set up stable toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: rustfmt,clippy
+
+      - name: Check semver (scheduled version)
+        uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          rust-toolchain: manual
+
+
+  # Run the tests on all supported OSes and Rust versions (main CI)
+  test-contrib:
+    # Don't run CI twice when a PR is created from a branch internal to the repo
+    # Don't run in scheduled jobs, that's what test-scheduled is for
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
+
+    runs-on: ${{ matrix.os }}
+
+    needs: matrix_vars
+
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+        rust:
+          - stable
+          - ${{ needs.matrix_vars.outputs.MINIMAL_RUST }}
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v6
+
+      - name: Set up toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: Run basic tests
+        run: cargo test
+
+      - name: Run concurrent tests
+        # FIXME: macOS runners are too overloaded for concurrent testing
+        if: runner.os != 'macOS'
+        run: cargo test --release -- --ignored --test-threads=1
+
+      - name: Check that benchmarks build
+        run: cargo build --benches
+
+
+  # Run the tests in Miri for more thorough runtime checks
+  #
+  # Since Miri is an abstract machine and this crate contains no OS-specific
+  # code, testing on one single OS is sufficient. Per Miri documentation, Linux
+  # gets the highest-quality support, so that's our obvious pick.
+  miri:
+    # Only run on "pull_request" event for external PRs. This is to avoid
+    # duplicate builds for PRs created from internal branches.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository || github.event_name == 'schedule'
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v6
+
+      - name: Set up toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: miri,rust-src
+          toolchain: nightly
+
+      - name: Run tests
+        run: cargo +nightly miri test --features=miri -- --include-ignored
+
+  # Check compatibility with newer Rust/deps versions (scheduled CI)
+  #
+  # FIXME: There should be a way to use conditional build matrices without
+  #        duplicating the whole job recipe...
+  #
+  test-scheduled:
+    if: github.event_name == 'schedule'
+
+    runs-on: ${{ matrix.os }}
+
+    needs: matrix_vars
+
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+        rust:
+          - beta
+          - nightly
+          - ${{ needs.matrix_vars.outputs.MINIMAL_RUST }}
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v6
+
+      - name: Set up toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: Run basic tests
+        run: cargo test
+
+      - name: Run concurrent tests
+        # FIXME: macOS runners are too overloaded for concurrent testing
+        if: runner.os != 'macOS'
+        run: cargo test --release -- --ignored --test-threads=1
+
+      - name: Check that benchmarks build
+        run: cargo build --benches

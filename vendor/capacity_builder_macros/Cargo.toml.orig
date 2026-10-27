@@ -1,0 +1,15 @@
+[package]
+name = "capacity_builder_macros"
+version = "0.3.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/dsherret/capacity_builder"
+description = "Macros for capacity_builder"
+
+[lib]
+path = "./lib.rs"
+proc-macro = true
+
+[dependencies]
+quote = "1"
+syn = "2"

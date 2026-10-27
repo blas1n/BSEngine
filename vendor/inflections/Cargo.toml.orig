@@ -1,0 +1,9 @@
+[package]
+authors = ["Caleb Meredith <calebmeredith8@gmail.com>"]
+description = "High performance inflection transformation library for changing properties of words like the case."
+documentation = "http://calebmer.com/inflections/inflections"
+keywords = ["inflect", "case", "camel"]
+license = "MIT"
+name = "inflections"
+repository = "https://docs.rs/inflections"
+version = "1.1.1"

@@ -1,0 +1,63 @@
+[package]
+name = "bevy_mikktspace"
+version = "1.0.0"
+edition = "2024"
+authors = [
+    "Morten S. Mikkelsen <mmikk@users.noreply.github.com>",
+    "Benjamin Wasty <benny.wasty@gmail.com>",
+    "David Harvey-Macaulay <alteous@outlook.com>",
+    "Layl Bongers <LaylBongers@users.noreply.github.com>",
+    "Atlas Dostal <email@atlasdostal.com>",
+    "Zac Harrold <zac@harrold.com.au>",
+]
+description = "Safe rust implementation of Mikkelsen tangent space algorithm"
+documentation = "https://docs.rs/bevy_mikktspace"
+homepage = "https://bevy.org"
+repository = "https://github.com/bevyengine/bevy_mikktspace"
+license = "Zlib AND (MIT OR Apache-2.0)"
+keywords = ["bevy", "3D", "graphics", "algorithm", "tangent"]
+rust-version = "1.85.0"
+
+exclude = ["/data", "/fuzz"]
+
+[dependencies]
+# This space is intentionally left blank
+
+[features]
+default = ["std"]
+std = []
+
+# The below features will cause the resulting values to differ from the original
+# C implementation.
+
+# Corrects a sorting bug in the original C implementation.
+# See https://github.com/mmikk/MikkTSpace/issues/5 for details
+corrected-edge-sorting = []
+
+# Uses a BTreeMap to weld vertices which is guaranteed to use the smallest vertex
+# indices.
+# This handles `NaN` values differently to the C implementation, so will produce
+# different results for poor geometry.
+# For typical geometry, this should produce identical results.
+corrected-vertex-welding = []
+
+[dev-dependencies]
+mikktspace-sys = "0.1.1"
+wavefront_obj = "11.0.0"
+libm = "0.2.15"
+criterion = "0.6.0"
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = ['cfg(mikktspace_rs_more_assertions)']
+
+[[example]]
+name = "cube_tangents"
+
+[[bench]]
+name = "plane"
+harness = false
+
+[package.metadata.docs.rs]
+rustdoc-args = ["-Zunstable-options", "--generate-link-to-definition"]
+all-features = true

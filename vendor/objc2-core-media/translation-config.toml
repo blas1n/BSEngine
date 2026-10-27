@@ -1,0 +1,38 @@
+framework = "CoreMedia"
+crate = "objc2-core-media"
+required-crates = ["objc2-core-foundation"]
+custom-lib-rs = true
+macos = "10.7"
+maccatalyst = "13.1"
+ios = "4.0"
+tvos = "9.0"
+watchos = "6.0"
+visionos = "1.0"
+
+# Unknown how to handle the calling convention for arrays
+fn.CMTextFormatDescriptionGetDefaultStyle.skipped = true
+
+# Differing definitions depending on architecture
+typedef.CMBaseClassVersion.skipped = true
+typedef.CMStructVersion.skipped = true
+
+# Used to better support older versions that didn't expose the symbol, but redundant nowadays.
+const.kCMFormatDescriptionExtension_VerbatimImageDescription.skipped = true
+
+# Depends on CFTimeInterval and CFAbsoluteTime without feature gating.
+const.kCMTimebaseVeryLongCFTimeInterval.skipped = true
+const.kCMTimebaseFarFutureCFAbsoluteTime.skipped = true
+
+# Naming conflicts with the newer Copy variants.
+fn.CMBufferQueueGetHead.renamed = "get_head"
+fn.CMTimebaseGetMasterTimebase.renamed = "get_master_timebase"
+fn.CMTimebaseGetMasterClock.renamed = "get_master_clock"
+fn.CMTimebaseGetMaster.renamed = "get_master"
+fn.CMTimebaseGetUltimateMasterClock.renamed = "get_ultimate_master_clock"
+
+# Doesn't use usual "Make" terminology
+fn.CMSampleBufferMakeDataReady.renamed = "make_data_ready"
+fn.CMClockMakeHostTimeFromSystemUnits.renamed = "make_host_time_from_system_units"
+
+# Translated as "new_empty", but it's common in Rust to just use "empty".
+fn.CMTimeMappingMakeEmpty.renamed = "empty"

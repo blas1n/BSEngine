@@ -1,0 +1,467 @@
+[options]
+girs_directories = ["../gir-files", "../gst-gir-files"]
+library = "GstPbutils"
+version = "1.0"
+min_cfg_version = "1.14"
+work_mode = "normal"
+concurrency = "send+sync"
+generate_safety_asserts = true
+single_version_file = true
+generate_display_trait = false
+trust_return_value_nullability = true
+
+external_libraries = [
+    "GLib",
+    "GObject",
+    "Gst",
+]
+
+generate = [
+    "GstPbutils.AudioVisualizerShader",
+    "GstPbutils.DiscovererResult",
+    "GstPbutils.InstallPluginsContext",
+    "GstPbutils.InstallPluginsReturn",
+    "GstPbutils.PbUtilsCapsDescriptionFlags",
+]
+
+manual = [
+    "GLib.DateTime",
+    "GLib.Error",
+    "GLib.MainContext",
+    "GLib.MainLoop",
+    "GLib.Source",
+    "GLib.Type",
+    "GLib.Variant",
+    "GObject.Object",
+    "Gst.Element",
+    "Gst.Object",
+    "Gst.Preset",
+]
+
+[[object]]
+name = "Gst.Buffer"
+status = "manual"
+ref_mode = "ref"
+
+[[object]]
+name = "Gst.Caps"
+status = "manual"
+ref_mode = "ref"
+
+[[object]]
+name = "Gst.ClockTime"
+status = "manual"
+conversion_type = "Option"
+
+[[object]]
+name = "Gst.Event"
+status = "manual"
+ref_mode = "ref"
+
+[[object]]
+name = "Gst.Message"
+status = "manual"
+ref_mode = "ref"
+
+[[object]]
+name = "Gst.Structure"
+status = "manual"
+ref_mode = "ref"
+
+[[object]]
+name = "Gst.TagList"
+status = "manual"
+ref_mode = "ref"
+
+
+[[object]]
+name = "Gst.Toc"
+status = "manual"
+ref_mode = "ref"
+
+[[object]]
+name = "GstPbutils.*"
+status = "generate"
+    # We'll opt-in for constants at a later time
+    [[object.constant]]
+    pattern = ".+"
+    ignore = true
+
+    [[object.function]]
+    pattern = "codec_utils_(aac_caps_set_level_and_profile|h264_caps_set_level_and_profile|h265_caps_set_level_tier_and_profile|h266_caps_set_level_tier_and_profile|mpeg4video_caps_set_level_and_profile)"
+    # Needs mutable caps references and checks for the caps
+    manual = true
+
+    [[object.function]]
+    name = "codec_utils_aac_get_level"
+        [object.function.return]
+        nullable_return_is_error = "Failed to get AAC level"
+
+    [[object.function]]
+    name = "codec_utils_aac_get_profile"
+        [object.function.return]
+        nullable_return_is_error = "Failed to get AAC profile"
+
+    [[object.function]]
+    name = "codec_utils_h264_get_level"
+        [object.function.return]
+        nullable_return_is_error = "Failed to get H264 level"
+
+    [[object.function]]
+    name = "codec_utils_h264_get_profile"
+        [object.function.return]
+        nullable_return_is_error = "Failed to get H264 profile"
+
+    [[object.function]]
+    name = "codec_utils_h264_get_profile_flags_level"
+    manual = true
+
+    [[object.function]]
+    name = "codec_utils_h264_get_level_limits"
+    manual = true
+
+    [[object.function]]
+    name = "codec_utils_h265_get_level"
+        [object.function.return]
+        nullable_return_is_error = "Failed to get H265 level"
+
+    [[object.function]]
+    name = "codec_utils_h265_get_profile"
+        [object.function.return]
+        nullable_return_is_error = "Failed to get H265 profile"
+
+    [[object.function]]
+    name = "codec_utils_h265_get_tier"
+        [object.function.return]
+        nullable_return_is_error = "Failed to get H265 tier"
+
+    [[object.function]]
+    name = "codec_utils_h266_get_level"
+        [object.function.return]
+        nullable_return_is_error = "Failed to get H266 level"
+
+    [[object.function]]
+    name = "codec_utils_h266_get_profile"
+        [object.function.return]
+        nullable_return_is_error = "Failed to get H266 profile"
+
+    [[object.function]]
+    name = "codec_utils_h266_get_tier"
+        [object.function.return]
+        nullable_return_is_error = "Failed to get H266 tier"
+
+    [[object.function]]
+    name = "codec_utils_mpeg4video_get_level"
+        [object.function.return]
+        nullable_return_is_error = "Failed to get MPEG4 video level"
+
+    [[object.function]]
+    name = "codec_utils_mpeg4video_get_profile"
+        [object.function.return]
+        nullable_return_is_error = "Failed to get MPEG4 video profile"
+
+    [[object.function]]
+    name = "codec_utils_caps_get_mime_codec"
+        [object.function.return]
+        nullable_return_is_error = "Unsupported caps"
+
+    [[object.function]]
+    name = "codec_utils_av1_get_level"
+        [object.function.return]
+        nullable_return_is_error = "Failed to get AV1 level"
+
+    [[object.function]]
+    name = "codec_utils_opus_create_caps"
+    # Manual checks
+    manual = true
+
+    [[object.function]]
+    name = "codec_utils_opus_create_header"
+    # Manual checks
+    manual = true
+
+    [[object.function]]
+    name = "codec_utils_opus_parse_caps"
+    # Manual checks
+    manual = true
+
+    [[object.function]]
+    name = "codec_utils_opus_parse_header"
+    # Manual checks
+    manual = true
+
+    [[object.function]]
+    name = "codec_utils_opus_create_caps_from_header"
+    # Use &CapsRef
+    manual = true
+
+    [[object.function]]
+    pattern = "(codec_utils_caps_get_mime_codec|pb_utils_get_caps_description_flags|pb_utils_get_file_extension_from_caps|codec_utils_vp9_estimate_level_idc_from_caps|codec_utils_vpx_create_vpcc_from_caps)"
+    # Use &CapsRef
+    manual = true
+
+    [[object.function]]
+    name = "codec_utils_vpx_caps_get_config"
+    # Manual conversion for `video_full_range` tri-state field
+    manual = true
+
+    # Plugin installer API needs some manual impls
+    [[object.function]]
+    pattern = "install_plugins.*"
+    ignore = true
+
+    # Plugin installer API needs some manual impls
+    [[object.function]]
+    pattern = "missing_.*"
+    ignore = true
+
+    # Plugin installer API needs some manual impls
+    [[object.function]]
+    name = "is_missing_plugin_message"
+    ignore = true
+
+    # Initialization is handled implicitly
+    [[object.function]]
+    name = "pb_utils_init"
+    ignore = true
+
+    # Needs special handling for mutable taglists
+    [[object.function]]
+    name = "pb_utils_add_codec_description_to_tag_list"
+    ignore = true
+
+    # Needs special handling for caps refs
+    [[object.function]]
+    name = "pb_utils_get_codec_description"
+    ignore = true
+
+    # Needs special handling for caps refs
+    [[object.function]]
+    name = "pb_utils_get_decoder_description"
+    ignore = true
+
+    # Needs special handling for caps refs
+    [[object.function]]
+    name = "pb_utils_get_encoder_description"
+    ignore = true
+
+    [[object.function]]
+    name = "plugins_base_version_string"
+    assertion = "skip"
+
+    [[object.function]]
+    name = "plugins_base_version"
+    assertion = "skip"
+
+    # Needs special handle for buffer ref
+    [[object.function]]
+    name = "codec_utils_av1_create_caps_from_av1c"
+    manual = true
+
+    # Needs special handle for caps ref
+    [[object.function]]
+    name = "codec_utils_av1_create_av1c_from_caps"
+    manual = true
+
+
+[[object]]
+name = "GstPbutils.AudioVisualizer"
+status = "generate"
+manual_traits = ["AudioVisualizerExtManual"]
+
+[[object]]
+name = "GstPbutils.Discoverer"
+status = "generate"
+final_type = true
+
+    [[object.function]]
+    name = "discover_uri_async"
+        [object.function.return]
+        bool_return_is_error = "Failed to add URI to list of discovers"
+
+    [[object.function]]
+    name = "new"
+        [[object.function.parameter]]
+        name = "timeout"
+        mandatory = true
+
+    # Manually implemented to use ClockTime
+    [[object.property]]
+    name = "timeout"
+    manual = true
+
+    [[object.property]]
+    name = "use-cache"
+    version = "1.16"
+
+[[object]]
+name = "GstPbutils.DiscovererAudioInfo"
+status = "generate"
+final_type = true
+
+[[object]]
+name = "GstPbutils.DiscovererAudioInfoBuilder"
+status = "manual"
+
+[[object]]
+name = "GstPbutils.DiscovererContainerInfo"
+status = "generate"
+final_type = true
+
+[[object]]
+name = "GstPbutils.DiscovererContainerInfoBuilder"
+status = "manual"
+
+[[object]]
+name = "GstPbutils.DiscovererInfo"
+status = "generate"
+    [[object.function]]
+    name = "from_variant"
+        [object.function.return]
+        nullable_return_is_error = "Failed to create DiscovererInfo from Variant"
+
+[[object]]
+name = "GstPbutils.DiscovererInfoBuilder"
+status = "manual"
+
+[[object]]
+name = "GstPbutils.DiscovererSerializeFlags"
+status = "generate"
+    [[object.member]]
+    name = "basic"
+    ignore = true
+    [[object.member]]
+    name = "all"
+    ignore = true
+
+[[object]]
+name = "GstPbutils.DiscovererStreamInfo"
+status = "generate"
+final_type = false
+manual_traits = ["DiscovererStreamInfoExtManual"]
+
+    # Not useful
+    [[object.function]]
+    name = "list_free"
+    ignore = true
+
+[[object]]
+name = "GstPbutils.DiscovererSubtitleInfo"
+status = "generate"
+final_type = true
+
+[[object]]
+name = "GstPbutils.DiscovererSubtitleInfoBuilder"
+status = "manual"
+
+[[object]]
+name = "GstPbutils.DiscovererVideoInfo"
+status = "generate"
+final_type = true
+
+    # Implement manually to expose as gst::Fraction
+    [[object.function]]
+    name = "get_framerate_num"
+    manual = true
+    [[object.function]]
+    name = "get_framerate_denom"
+    manual = true
+    [[object.function]]
+    name = "get_par_num"
+    manual = true
+    [[object.function]]
+    name = "get_par_denom"
+    manual = true
+
+[[object]]
+name = "GstPbutils.DiscovererVideoInfoBuilder"
+status = "manual"
+
+[[object]]
+name = "GstPbutils.EncodingAudioProfile"
+status = "generate"
+final_type = true
+    # Ignore all setters, making it immutable. A builder will be provided.
+    [[object.function]]
+    name = "new"
+    manual = true
+    [[object.function]]
+    pattern = "set_.*"
+    manual = true
+
+[[object]]
+name = "GstPbutils.EncodingContainerProfile"
+status = "generate"
+
+    # Make it immutable, only able to be constructed for a builder
+    [[object.function]]
+    name = "new"
+    manual = true
+
+    [[object.function]]
+    name = "add_profile"
+    manual = true
+
+[[object]]
+name = "GstPbutils.EncodingProfile"
+status = "generate"
+manual_traits = ["EncodingProfileExtManual"]
+
+    # Ignore all setters, making it immutable. A builder will be provided.
+    [[object.function]]
+    name = "new"
+    manual = true
+    [[object.function]]
+    pattern = "set_.*"
+    manual = true
+
+    [[object.function]]
+    pattern = "get_restriction"
+    manual = true
+
+    [[object.function]]
+    name = "get_element_properties"
+    # Use custom wrapper types
+    manual = true
+
+    [[object.property]]
+    name = "restriction-caps"
+    # encodingprofile is immutable after constructed
+    ignore = true
+
+    [[object.function]]
+    name = "from_discoverer"
+        [object.function.return]
+        nullable_return_is_error = "Failed to create EncodingProfile from DiscovererInfo"
+
+    [[object.function]]
+    name = "from_string"
+        [object.function.return]
+        nullable_return_is_error = "Failed to create EncodingProfile from string"
+
+[[object]]
+name = "GstPbutils.EncodingTarget"
+status = "generate"
+
+    [[object.function]]
+    name = "add_profile"
+    # can be provided on constructor and we better
+    # consider this immutable
+    ignore = true
+
+    [[object.function]]
+    name = "new"
+        [object.function.return]
+        nullable_return_is_error = "Failed to create EncodingTarget"
+
+[[object]]
+name = "GstPbutils.EncodingVideoProfile"
+status = "generate"
+final_type = true
+    # Ignore all setters, making it immutable. A builder will be provided.
+    [[object.function]]
+    name = "new"
+    manual = true
+    [[object.function]]
+    pattern = "set_.*"
+    manual = true

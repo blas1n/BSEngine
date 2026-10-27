@@ -1,0 +1,46 @@
+[package]
+name = "triple_buffer"
+#
+# Release checklist:
+#
+# - Cross-check all public API documentation, update as needed
+# - Update changelog
+# - Update version number in Cargo.toml, run some command to update lockfile
+# - Push branch, auto-merge when it passes CI
+# - Cargo publish
+# - Roll an annotated git tag
+# - Add a github release
+#
+version = "9.0.0"
+authors = ["Hadrien G. <knights_of_ni@gmx.com>"]
+description = "An implementation of triple buffering, useful for sharing frequently updated data between threads"
+documentation = "https://docs.rs/triple_buffer/"
+repository = "https://github.com/HadrienG2/triple-buffer"
+readme = "README.md"
+keywords = [ "synchronization", "spsc", "multithreading", "non-blocking", "wait-free" ]
+categories = [ "algorithms", "asynchronous", "concurrency", "data-structures" ]
+license = "MPL-2.0"
+edition = "2024"
+rust-version = "1.86"
+
+[badges]
+maintenance = { status = "passively-maintained" }
+
+[features]
+# Adjust the test configuration (e.g. reduce problem sizes) so the tests can run
+# under Miri within a reasonable time budget.
+miri = []
+
+[dependencies]
+crossbeam-utils = { version = "0.8.11", default-features = false }
+
+[dev-dependencies]
+criterion = { version = "0.8", default-features = false }
+testbench = "1.0"
+
+[lib]
+bench = false
+
+[[bench]]
+name = "benchmarks"
+harness = false

@@ -1,0 +1,460 @@
+use std::{
+	ffi::OsString,
+	fs::File,
+	io::{BufRead, BufReader, Write},
+	path::{Path, PathBuf},
+};
+
+/// Whether the `pretty_errors` feature is enabled.
+pub const FEATURE_PRETTY_ERRORS: bool = cfg!(feature = "pretty_errors");
+/// Whether the `module_disambiguation` feature is enabled.
+pub const FEATURE_MODULE_DISAMBIGUATION: bool = cfg!(feature = "module_disambiguation");
+/// The number of enabled features.
+pub const NR_FEATURES: usize =
+	0 + FEATURE_PRETTY_ERRORS as usize + FEATURE_MODULE_DISAMBIGUATION as usize;
+/// A list of the enabled features.
+const FEATURES: [&'static str; NR_FEATURES] = get_features();
+
+/// Returns a list of enabled features.
+const fn get_features() -> [&'static str; NR_FEATURES]
+{
+	#[allow(unused_mut)]
+	let mut features: [&'static str; NR_FEATURES] = [""; NR_FEATURES];
+	#[cfg(feature = "pretty_errors")]
+	{
+		features[0] = "pretty_errors";
+	}
+	#[cfg(feature = "module_disambiguation")]
+	{
+		features[FEATURE_PRETTY_ERRORS as usize] = "module_disambiguation";
+	}
+	features
+}
+
+/// Manages the setting up and running of expansion tests using macrotest
+///
+/// Expansion test live in a home directory. This directory has a single
+/// testing sub-directory that is used during the test. Temporary testing
+/// files are put in the testing directory before each test but not removed
+/// after. (They may be deleted before each test, though)
+///
+/// The tester is configured to generate files in the testing directory from
+/// files in source directories (sub-directories of the home).
+/// Various rules can be configured, e.g. a simple copy of files, or duplicating
+/// the source files a number of times in the testing directory with various
+/// names.
+pub struct ExpansionTester<'a>
+{
+	/// The home directory for the tests
+	dir: &'a str,
+	/// The subdirectory (of the home) where test files may be put
+	testing_dir: &'a str,
+	/// Source sub-directory, and how it's files should be treated before
+	/// testing
+	source_dirs: Vec<(&'a str, Vec<Box<dyn Fn(&Path, &dyn AsRef<Path>)>>)>,
+
+	/// Whether this tester is testing errors, i.e. that expansions should fail
+	error_tests: bool,
+}
+
+impl<'a> ExpansionTester<'a>
+{
+	/// Construct a new tester with a home directory and a testing subdirectory.
+	pub fn new(home_dir: &'a str, testing_dir: &'a str) -> Self
+	{
+		Self {
+			dir: home_dir,
+			testing_dir,
+			source_dirs: Vec::new(),
+			error_tests: false,
+		}
+	}
+
+	/// Construct a new tester with a home directory and a testing subdirectory.
+	///
+	/// This tester will be testing errors.
+	pub fn new_errors(home_dir: &'a str, testing_dir: &'a str) -> Self
+	{
+		Self {
+			dir: home_dir,
+			testing_dir,
+			source_dirs: Vec::new(),
+			error_tests: true,
+		}
+	}
+
+	/// Add a source directory under the home directory,
+	/// with a list of actions that produce files in the testing directory
+	/// based on each file in the source directory.
+	pub fn add_source_dir(
+		&mut self,
+		dir: &'a str,
+		actions: Vec<Box<dyn Fn(&Path, &dyn AsRef<Path>)>>,
+	)
+	{
+		self.source_dirs.push((dir, actions));
+	}
+
+	/// Executes the tests including first setting up the testing directory.
+	pub fn execute_tests(&self)
+	{
+		// Remove old test files
+		let testing_dir = self.dir.to_owned() + "/" + self.testing_dir;
+		let _ = std::fs::remove_dir_all(&testing_dir);
+
+		// Recreate testing dir
+		std::fs::create_dir_all(&testing_dir).unwrap();
+
+		// For each source dir, execute action of each file
+		for (source_dir, actions) in self.source_dirs.iter()
+		{
+			let source_dir_path = self.dir.to_owned() + "/" + source_dir;
+			if let Ok(files) = std::fs::read_dir(&source_dir_path)
+			{
+				for file in files
+				{
+					if let Ok(file) = file
+					{
+						for action in actions.iter()
+						{
+							action(&file.path(), &testing_dir);
+						}
+					}
+					else
+					{
+						panic!("Error accessing source file: {:?}", file)
+					}
+				}
+			}
+		}
+
+		// Prepare feature list for expansion testing
+		let mut args = Vec::new();
+		let mut features = String::new();
+		args.push("--no-default-features");
+		if NR_FEATURES > 0
+		{
+			args.push("--features");
+			for f in FEATURES.iter()
+			{
+				features.push_str(f);
+				features.push(',');
+			}
+			args.push(features.as_str());
+		}
+
+		if self.error_tests
+		{
+			duplicate_macrotest::expand_without_refresh_args_fail(
+				testing_dir + "/*.rs",
+				args.as_slice(),
+			);
+		}
+		else
+		{
+			duplicate_macrotest::expand_without_refresh_args(
+				testing_dir + "/*.rs",
+				args.as_slice(),
+			);
+		}
+	}
+
+	/// Generates an action that copies the file given to the testing
+	/// directory with the given prefix added to its name.
+	pub fn copy_with_prefix(prefix: &str) -> Box<dyn Fn(&Path, &dyn AsRef<Path>)>
+	{
+		Self::copy_with_prefix_postfix(prefix, "")
+	}
+
+	/// Generates an action that copies the file given to the testing
+	/// directory with the given prefix added to its name.
+	pub fn copy_with_prefix_postfix(
+		prefix: &str,
+		postfix: &str,
+	) -> Box<dyn Fn(&Path, &dyn AsRef<Path>)>
+	{
+		let prefix = OsString::from(prefix);
+		let postfix = OsString::from(postfix);
+		Box::new(move |file, destination| {
+			let mut destination_file = destination.as_ref().to_path_buf();
+			let mut file_name = prefix.clone();
+			file_name.push(file.file_name().unwrap());
+			file_name.push(postfix.clone());
+			destination_file.push(file_name);
+			std::fs::copy(file, &destination_file).unwrap();
+		})
+	}
+
+	/// Generates an action that simply copies the file given to the testing
+	/// directory.
+	pub fn copy() -> Box<dyn Fn(&Path, &dyn AsRef<Path>)>
+	{
+		Self::copy_with_prefix("")
+	}
+
+	/// Generates an action that creates two versions of the given file in the
+	/// testing directory. The source file must use the attribute
+	/// macro, where:
+	/// - The invocation must starts with `#[duplicate_item(` or
+	///   `#[substitute_item(` on a the first line
+	/// (with nothing else). Notice that you must not import the attribute but
+	/// use its full path.
+	/// - Then the body of the invocation. Both syntaxes are allowed.
+	/// - Then the `)]` on its own line, followed immediately by
+	///   `//duplicate_end`.
+	/// I.e. `)]//duplicate_end`
+	/// - Then the item to be duplicated, followed on the next line by
+	///   `//item_end` on
+	/// its own.
+	///
+	/// This action will then generate 2 versions of this file. The first is
+	/// almost identical the original, but the second will change the invocation
+	/// to instead use `duplicate` or `substitute`. It uses the exact rules
+	/// specified above to correctly change the code, so any small deviation
+	/// from the above rules might result in an error. The name of the first
+	/// version is the same as the original and the second version is prefixed
+	/// with 'inline_'
+	///
+	/// ### Example
+	/// Original file (`test.rs`):
+	/// ```
+	/// #[duplicate_item(
+	///   name;
+	///   [SomeName];
+	/// )]//duplicate_end
+	/// pub struct name();
+	/// //item_end
+	/// ```
+	/// First version (`test.expanded.rs`):
+	/// ```
+	/// #[duplicate_item(
+	///   name;
+	///   [SomeName];
+	/// )]
+	/// pub struct name();
+	/// ```
+	/// Second version (`inline_test.expanded.rs`):
+	/// ```
+	/// duplicate{
+	///   [
+	///     name;
+	///     [SomeName];
+	///   ]
+	///   pub struct name();
+	/// }
+	/// ```
+	pub fn duplicate_for_inline() -> Box<dyn Fn(&Path, &dyn AsRef<Path>)>
+	{
+		Self::duplicate_for_inline_with_prefix("")
+	}
+
+	/// like 'duplicate_for_inline' except adds the given prefix to the name of
+	/// the original files.
+	pub fn duplicate_for_inline_with_prefix(
+		prefix: &str,
+	) -> Box<dyn '_ + Fn(&Path, &dyn AsRef<Path>)>
+	{
+		Box::new(move |file, destination| {
+			let mut inline_file_name = OsString::from("inline_");
+			inline_file_name.push(prefix);
+			inline_file_name.push(file.file_name().unwrap());
+			let mut new_file_name = OsString::from(prefix);
+			new_file_name.push(file.file_name().unwrap());
+
+			let mut dest_file_path = destination.as_ref().to_path_buf();
+			let mut dest_inline_file_path = destination.as_ref().to_path_buf();
+
+			dest_file_path.push(new_file_name);
+			dest_inline_file_path.push(inline_file_name);
+
+			let mut dest_file = File::create(dest_file_path).unwrap();
+			let mut dest_inline_file = File::create(dest_inline_file_path).unwrap();
+
+			for line in BufReader::new(File::open(file).unwrap()).lines()
+			{
+				let line = line.unwrap();
+				let line = line.trim();
+
+				match line
+				{
+					"#[duplicate_item(" =>
+					{
+						dest_file.write_all("#[duplicate_item(".as_bytes()).unwrap();
+						dest_inline_file
+							.write_all("duplicate!{[".as_bytes())
+							.unwrap();
+					},
+					"#[substitute_item(" =>
+					{
+						dest_file
+							.write_all("#[substitute_item(".as_bytes())
+							.unwrap();
+						dest_inline_file
+							.write_all("substitute!{[".as_bytes())
+							.unwrap();
+					},
+					")]//duplicate_end" =>
+					{
+						dest_file.write_all(")]".as_bytes()).unwrap();
+						dest_inline_file.write_all("]".as_bytes()).unwrap();
+					},
+					"//item_end" =>
+					{
+						dest_inline_file.write_all("}".as_bytes()).unwrap();
+					},
+					_ =>
+					{
+						dest_file.write_all(line.as_bytes()).unwrap();
+						dest_inline_file.write_all(line.as_bytes()).unwrap();
+					},
+				}
+				dest_file.write_all("\n".as_bytes()).unwrap();
+				dest_inline_file.write_all("\n".as_bytes()).unwrap();
+			}
+		})
+	}
+
+	/// Sets up and runs tests in a specific directory using our standard test
+	/// setup.
+	pub fn run_default_test_setup(home_dir: &str, test_subdir: &str)
+	{
+		Self::run_default_test_setup_errors(home_dir, test_subdir, false)
+	}
+
+	/// Sets up and runs tests in a specific directory using our standard test
+	/// setup.
+	pub fn run_default_test_setup_errors(home_dir: &str, test_subdir: &str, test_errors: bool)
+	{
+		let mut test = if test_errors
+		{
+			ExpansionTester::new_errors(home_dir, test_subdir)
+		}
+		else
+		{
+			ExpansionTester::new(home_dir, test_subdir)
+		};
+		test.add_source_dir("from", vec![ExpansionTester::duplicate_for_inline()]);
+		test.add_source_dir(
+			"expected",
+			vec![
+				ExpansionTester::copy(),
+				ExpansionTester::copy_with_prefix("inline_"),
+			],
+		);
+		test.add_source_dir(
+			"expected_both",
+			vec![
+				ExpansionTester::copy_with_prefix("inline_short_"),
+				ExpansionTester::copy_with_prefix("inline_verbose_"),
+				ExpansionTester::copy_with_prefix("short_"),
+				ExpansionTester::copy_with_prefix("verbose_"),
+			],
+		);
+		test.execute_tests();
+	}
+}
+
+/// Runs all basic error message tests in the given path.
+///
+/// A folder named 'source' should contain each source code to test for
+/// expansion errors. A folder named 'basic' should contain the expected basic
+/// error message. The two folders must each have a file with the same name for
+/// each test (except the source file must have the '.rs' extension).
+pub fn run_basic_expansion_error_tests(path: &str)
+{
+	let mut tester = ExpansionTester::new_errors(path, "testing_basic");
+
+	// First setup all basic tests
+	tester.add_source_dir(
+		"basic",
+		vec![
+			ExpansionTester::copy_with_prefix_postfix("basic_", ".expanded.rs"),
+			ExpansionTester::copy_with_prefix_postfix("inline_basic_", ".expanded.rs"),
+		],
+	);
+	tester.add_source_dir(
+		"source",
+		vec![ExpansionTester::duplicate_for_inline_with_prefix("basic_")],
+	);
+	tester.execute_tests();
+}
+
+/// Copies the source file with the same name as the current file
+/// into the testing directory in both attribute and inline version (see
+/// duplicate_for_inline)
+#[cfg_attr(not(feature = "pretty_errors"), allow(dead_code))]
+pub fn get_source(prefix: &str) -> Box<dyn '_ + Fn(&Path, &dyn AsRef<Path>)>
+{
+	Box::new(move |file, destination| {
+		let mut source_file_name = std::ffi::OsString::from(file.file_name().unwrap());
+		source_file_name.push(".rs");
+
+		let mut source_file_path = PathBuf::from(file.parent().unwrap().parent().unwrap());
+		source_file_path.push("source");
+		source_file_path.push(source_file_name);
+
+		assert!(
+			source_file_path.exists(),
+			"Missing file: {:?}",
+			source_file_path.as_os_str()
+		);
+
+		ExpansionTester::duplicate_for_inline_with_prefix(prefix)(&source_file_path, destination);
+	})
+}
+
+/// Runs all error message highlights tests in the given path.
+///
+/// A folder named 'source' should contain each source code to test for
+/// expansion errors. A folder named 'highlight' should contain the expected
+/// basic error message. The two folders must each have a file with the same
+/// name for each test (except the source file must have the '.rs' extension).
+///
+/// If the 'pretty_errors' feature is not enabled, does nothing.
+#[cfg_attr(not(feature = "pretty_errors"), allow(unused_variables))]
+pub fn run_error_highlight_tests(path: &str)
+{
+	#[cfg(feature = "pretty_errors")]
+	{
+		let mut tester = ExpansionTester::new_errors(path, "testing_highlight");
+
+		tester.add_source_dir(
+			"highlight",
+			vec![
+				ExpansionTester::copy_with_prefix_postfix("highlight_", ".expanded.rs"),
+				ExpansionTester::copy_with_prefix_postfix("inline_highlight_", ".expanded.rs"),
+				get_source("highlight_"),
+			],
+		);
+
+		tester.execute_tests();
+	}
+}
+
+/// Runs all error message hint tests in the given path.
+///
+/// A folder named 'source' should contain each source code to test for
+/// expansion errors. A folder named 'hint' should contain the expected basic
+/// error message. The two folders must each have a file with the same name for
+/// each test (except the source file must have the '.rs' extension).
+///
+/// If the 'pretty_errors' feature is not enabled, does nothing.
+#[cfg_attr(not(feature = "pretty_errors"), allow(unused_variables))]
+pub fn run_error_hint_tests(path: &str)
+{
+	#[cfg(feature = "pretty_errors")]
+	{
+		let mut tester = ExpansionTester::new_errors(path, "testing_hint");
+
+		tester.add_source_dir(
+			"hint",
+			vec![
+				ExpansionTester::copy_with_prefix_postfix("hint_", ".expanded.rs"),
+				ExpansionTester::copy_with_prefix_postfix("inline_hint_", ".expanded.rs"),
+				get_source("hint_"),
+			],
+		);
+
+		tester.execute_tests();
+	}
+}

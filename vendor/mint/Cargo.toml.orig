@@ -1,0 +1,25 @@
+[package]
+name = "mint"
+version = "0.5.9"
+edition = "2018"
+authors = [
+	"Benjamin Saunders <ben.e.saunders@gmail.com>",
+	"Dzmitry Malyshau <kvarkus@gmail.com>",
+	"Evgenii P. <eupn@protonmail.com>",
+	"George Burton <burtonageo@gmail.com>",
+	"Ilya Bogdanov <fumlead@gmail.com>",
+	"Osspial <osspial@gmail.com>",
+	"Pâris DOUADY <paris.douady@hotmail.fr>",
+	"Rémi Lauzier <remilauzier@protonmail.com>",
+]
+description = "Math interoperability standard types"
+license = "MIT"
+repository = "https://github.com/kvark/mint"
+documentation = "https://docs.rs/mint"
+keywords = ["math"]
+
+[dependencies]
+serde = { version = "1.0", optional = true, default-features = false }
+
+[dev-dependencies]
+serde_json = "1.0"

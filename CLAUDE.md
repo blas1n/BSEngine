@@ -33,6 +33,13 @@ which `*.rs text eol=lf` or autocrlf would rewrite) and the last line of
 matched 196 vendored files). A file either rule touched fails the build on its
 crate's `.cargo-checksum.json`.
 
+**Re-vendoring on Windows drops executable bits.** With `core.filemode=false`
+every *new* file is committed as `100644`; the checksums do not cover modes, so
+the build stays green locally and only CI's Ubuntu vendor check sees it (321
+scripts, the first time). Copy the bits from the `.crate` tarballs
+(`tar -tvzf` in `$CARGO_HOME/registry/cache`) with
+`git update-index --chmod=+x --stdin`.
+
 Why the output used to live outside: `v8`'s build script makes a `gn_root`
 symlink when its source and its output are on different drives, which a
 normal Windows account may not do (`symlink_dir failed: Os { code: 1314 }`).

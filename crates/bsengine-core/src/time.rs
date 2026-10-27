@@ -1,6 +1,16 @@
 use crate::clock::Instant;
 
-use bevy_ecs::prelude::Resource;
+use bevy_ecs::prelude::{Resource, SystemSet};
+
+/// The set the app's clock ticks in, once per frame in `PreUpdate`.
+///
+/// A `PreUpdate` system that reads `delta_seconds` must run `.after` this.
+/// Unordered, the scheduler is free to run it before the tick: it then reads
+/// the previous frame's step -- and on a fixed clock's first frame, 0 -- so an
+/// input hold measured in frames comes out one frame long or short depending
+/// on which plugin was added first.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TimeSystems;
 
 /// Frame timing resource updated once per frame by the app's main loop.
 #[derive(Resource)]

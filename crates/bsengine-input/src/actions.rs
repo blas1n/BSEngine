@@ -5,10 +5,18 @@
 //! bindings across devices, gameplay asks about the action, and the bindings
 //! can be changed at runtime without touching gameplay. They also agree that
 //! an action has a *strength* (0..1) as well as a pressed state, so a stick
-//! pushed halfway and a key held down answer the same question. This module is
-//! that shape and no more: no contexts/priorities (Unreal's mapping contexts)
-//! and no interactions (Unity's hold/tap) -- a script builds those from
-//! `isActionDown` and a timer, and none of this repo's games needs them.
+//! pushed halfway and a key held down answer the same question.
+//!
+//! On top of that shape, the two that have them agree on two more things,
+//! and this module has both. **Contexts** (Unreal's mapping contexts; Unity's
+//! action maps are the equal-priority case): each [`InputContext`] maps
+//! actions to bindings, can be switched on and off, and while on consumes the
+//! inputs it maps from every context of lower priority -- a menu takes
+//! `Escape` from gameplay without gameplay being switched off. **Interactions**
+//! ([`Interaction`]: hold, tap, hold-and-release): when a press fires, read as
+//! [`ActionValue::triggered`], with `ongoing` / `canceled` phases. Godot has
+//! neither. `[input.actions]` is the context named [`DEFAULT_CONTEXT`], so a
+//! project that writes neither behaves exactly as before they existed.
 //!
 //! Bindings are strings so that `project.toml`, scripts and error messages
 //! all speak the same spelling:

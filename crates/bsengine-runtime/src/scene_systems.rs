@@ -100,15 +100,23 @@ impl ProjectManifest {
     }
 }
 
-/// `project.toml`'s `[input]` table: the project's named actions.
+/// `project.toml`'s `[input]` table: the project's named actions, and the
+/// mapping contexts beyond the default one.
 ///
 /// ```toml
 /// [input]
 /// deadzone = 0.2
 ///
-/// [input.actions]
+/// [input.actions]                     # the "default" context
 /// jump = ["Space", "Gamepad:South"]
 /// move_right = ["D", "Right", "Gamepad:LeftStickX+"]
+/// dodge  = { bindings = ["ShiftLeft"], interaction = "tap",  time = 0.2 }
+/// sprint = { bindings = ["ShiftLeft"], interaction = "hold", time = 0.2 }
+///
+/// [input.contexts.menu]
+/// priority = 10                       # takes Escape from lower contexts
+/// enabled = false                     # a script enables it
+/// actions.back = ["Escape"]
 /// ```
 ///
 /// Kept as strings here and parsed by [`InputSection::actions`], so that a
@@ -119,9 +127,57 @@ pub struct InputSection {
     /// Stick travel below which an axis binding reads 0.
     #[serde(default = "default_input_deadzone")]
     pub deadzone: f32,
-    /// Action name -> its bindings.
+    /// Action name -> its mapping in the default context.
     #[serde(default)]
-    pub actions: std::collections::BTreeMap<String, Vec<String>>,
+    pub actions: std::collections::BTreeMap<String, MappingSpec>,
+    /// Context name -> its table.
+    #[serde(default)]
+    pub contexts: std::collections::BTreeMap<String, ContextSpec>,
+}
+
+/// An action's mapping as written: a list of bindings, or a table when it
+/// also has an interaction.
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum MappingSpec {
+    /// `jump = ["Space"]`.
+    List(Vec<String>),
+    /// `dodge = { bindings = [...], interaction = "tap", time = 0.2 }`.
+    Table {
+        /// Binding strings.
+        #[serde(default)]
+        bindings: Vec<String>,
+        /// The interaction's name.
+        interaction: Option<String>,
+        /// Its threshold in seconds.
+        time: Option<f32>,
+        /// Anything else, kept to be reported as unknown: with
+        /// `deny_unknown_fields`, serde's untagged error would say only that
+        /// the value "did not match any variant".
+        #[serde(flatten)]
+        unknown: std::collections::BTreeMap<String, toml::Value>,
+    },
+}
+
+/// One `[input.contexts.<name>]` table as written.
+#[derive(Deserialize)]
+pub struct ContextSpec {
+    /// Higher takes the inputs it maps from lower contexts.
+    #[serde(default)]
+    pub priority: i32,
+    /// Whether it starts enabled.
+    #[serde(default = "enabled_by_default")]
+    pub enabled: bool,
+    /// Action name -> its mapping here.
+    #[serde(default)]
+    pub actions: std::collections::BTreeMap<String, MappingSpec>,
+    /// As in [`MappingSpec::Table`].
+    #[serde(flatten)]
+    pub unknown: std::collections::BTreeMap<String, toml::Value>,
+}
+
+fn enabled_by_default() -> bool {
+    true
 }
 
 fn default_input_deadzone() -> f32 {
@@ -135,14 +191,62 @@ impl Default for InputSection {
         Self {
             deadzone: default_input_deadzone(),
             actions: Default::default(),
+            contexts: Default::default(),
         }
     }
+}
+
+impl MappingSpec {
+    fn config(&self) -> bsengine_input::actions::MappingConfig {
+        match self {
+            MappingSpec::List(bindings) => bindings.clone().into(),
+            MappingSpec::Table {
+                bindings,
+                interaction,
+                time,
+                unknown,
+            } => bsengine_input::actions::MappingConfig {
+                bindings: bindings.clone(),
+                interaction: interaction.clone(),
+                time: *time,
+                unknown_keys: unknown.keys().cloned().collect(),
+            },
+        }
+    }
+}
+
+fn mapping_configs(
+    specs: &std::collections::BTreeMap<String, MappingSpec>,
+) -> std::collections::BTreeMap<String, bsengine_input::actions::MappingConfig> {
+    specs
+        .iter()
+        .map(|(name, spec)| (name.clone(), spec.config()))
+        .collect()
 }
 
 impl InputSection {
     /// The parsed actions, or every problem with them.
     pub fn actions(&self) -> Result<bsengine_input::InputActions, String> {
-        bsengine_input::InputActions::from_config(&self.actions, self.deadzone)
+        let contexts = self
+            .contexts
+            .iter()
+            .map(|(name, spec)| {
+                (
+                    name.clone(),
+                    bsengine_input::actions::ContextConfig {
+                        priority: spec.priority,
+                        enabled: spec.enabled,
+                        actions: mapping_configs(&spec.actions),
+                        unknown_keys: spec.unknown.keys().cloned().collect(),
+                    },
+                )
+            })
+            .collect();
+        bsengine_input::InputActions::from_contexts(
+            &mapping_configs(&self.actions),
+            &contexts,
+            self.deadzone,
+        )
     }
 }
 
@@ -1078,6 +1182,70 @@ mod tests {
                  same defaults TextureStreamingSettings uses"
             );
         }
+    }
+
+    fn input_of(toml_text: &str) -> super::InputSection {
+        let m: super::ProjectManifest = toml::from_str(&format!(
+            "[project]\nname = \"t\"\nentry_scene = \"s.ron\"\n{toml_text}"
+        ))
+        .unwrap();
+        m.input
+    }
+
+    /// Both forms of a mapping and a context table reach `InputActions`
+    /// with every field: the list form as it always read, the table's
+    /// interaction and time, the context's priority and `enabled = false`
+    /// (each distinct from its default, so a field that fell back to the
+    /// default would show).
+    #[test]
+    fn input_section_reads_lists_tables_and_contexts() {
+        let actions = input_of(
+            "[input.actions]\n\
+             jump = [\"Space\"]\n\
+             dodge = { bindings = [\"ShiftLeft\"], interaction = \"tap\", time = 0.25 }\n\
+             [input.contexts.menu]\npriority = 10\nenabled = false\nactions.back = [\"Escape\"]\n",
+        )
+        .actions()
+        .unwrap();
+        assert_eq!(
+            actions.bindings("jump"),
+            Some(&[bsengine_input::Binding::Key(bsengine_input::KeyCode::Space)][..])
+        );
+        let dodge = actions.context("default").unwrap().mapping("dodge").unwrap();
+        assert_eq!(
+            dodge.interaction,
+            Some(bsengine_input::Interaction::Tap { time: 0.25 })
+        );
+        let menu = actions.context("menu").unwrap();
+        assert_eq!((menu.priority, menu.enabled), (10, false));
+        assert!(menu.mapping("back").is_some());
+        assert_eq!(actions.names().collect::<Vec<_>>(), ["back", "dodge", "jump"]);
+
+        let none = input_of("").actions().unwrap();
+        let empty = input_of("[input]\n").actions().unwrap();
+        assert_eq!(
+            none.context_names().collect::<Vec<_>>(),
+            empty.context_names().collect::<Vec<_>>(),
+            "an absent [input] and an empty one agree"
+        );
+    }
+
+    /// A misspelled key in a mapping or a context is reported by name, with
+    /// the rest -- not swallowed, and not serde's "did not match any variant".
+    #[test]
+    fn input_section_reports_unknown_keys_with_the_rest() {
+        let err = input_of(
+            "[input.actions]\n\
+             dodge = { bindings = [\"ShiftLeft\"], intercation = \"tap\", time = 0.2 }\n\
+             jump = [\"space\"]\n\
+             [input.contexts.menu]\npriorty = 10\n",
+        )
+        .actions()
+        .expect_err("three problems");
+        assert!(err.contains("unknown key \"intercation\""), "{err}");
+        assert!(err.contains("\"time\" without an \"interaction\""), "{err}");
+        assert!(err.contains("action \"jump\": unknown key in binding \"space\""), "{err}");
+        assert!(err.contains("context \"menu\": unknown key \"priorty\""), "{err}");
     }
 
     /// Both streaming fields are read from the file, with values distinct

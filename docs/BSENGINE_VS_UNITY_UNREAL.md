@@ -62,13 +62,25 @@ TAA, SSR, 데칼, 볼류메트릭 포그, 라이트 프로브, IBL, 래그돌, �
 
 ### 구조 문제
 
-- **ECS가 단일 스레드.** `Cargo.toml`의 `bevy_ecs`·`bevy_app`이 `default-features = false`에 `multi_threaded`가 없어 모든
+> **2026-10-27 재확인:** 아래 네 항목 중 앞의 셋은 닫혔다(마지막 GPU 검증만 남음). ECS 항목은 "고쳐서"가 아니라
+> **방향을 바꿔서** 닫혔으므로, `grep -c multi_threaded Cargo.toml` → 0을 보고 다시 열지 말 것.
+
+- ~~**ECS가 단일 스레드.**~~ `Cargo.toml`의 `bevy_ecs`·`bevy_app`이 `default-features = false`에 `multi_threaded`가 없어 모든
   스케줄이 단일 스레드 실행기로 돈다(`grep -c multi_threaded Cargo.toml` → 0). 렌더도 별도 스레드 없이 같은 스레드. Unity
   (Job System·DOTS)·Unreal(태스크 그래프·렌더 스레드)과 규모 차이의 뿌리.
-- **에디터 플러그인 한 파일이 94,553줄**(`crates/bsengine-editor/src/plugin.rs`; 제품 코드 약 3만 줄 + 30,272행부터 테스트).
+  **→ 방향 변경으로 닫힘(2026-09-29, 사용자 결정).** `multi_threaded` 실행기는 켜지 않는다: Update에서 순서 없는 충돌
+  쌍이 400개였고 그중 277개가 `&mut World` 배타 시스템이라 병렬로 얻는 것이 없고, 스크립트·타임라인 순서가 비결정적이
+  되면 E2E 리플레이가 깨진다. 세 엔진도 게임플레이는 한 스레드에서 고정 순서로 돌리고 하위 시스템 안을 병렬화한다. 그래서
+  시스템별 프레임 시간을 먼저 재고(#1910, `measure_frame_time_by_system`) 가장 무거운 곳을 순서가 바뀌지 않게
+  병렬화했다(#1911, 드로 리스트 컬링을 rayon으로). `multi_threaded` 0은 의도된 값이다.
+- ~~**에디터 플러그인 한 파일이 94,553줄**~~(`crates/bsengine-editor/src/plugin.rs`; 제품 코드 약 3만 줄 + 30,272행부터 테스트).
   다음으로 큰 것은 `scripting/src/ops.rs` 11,939줄, `rhi-wgpu/src/surface.rs` 8,490줄.
-- **삭제된 zoo 컴포넌트의 주석 잔재.** `scripting/src/ops.rs`에 `// <이름>: <필드들>` 형태 220줄(1888~2110행), DOF·모션 블러·컬러
+  **→ 닫힘(#1909).** `plugin/` 디렉터리로 분할(`mod.rs` 209줄, 도구는 그룹별, 시스템은 역할별, 테스트는 그룹별). 2026-10-27
+  기준 레포에서 가장 큰 `.rs`는 `rhi-wgpu/src/surface.rs` 13,071줄, `scripting/src/ops.rs` 11,502줄.
+- ~~**삭제된 zoo 컴포넌트의 주석 잔재.**~~ `scripting/src/ops.rs`에 `// <이름>: <필드들>` 형태 220줄(1888~2110행), DOF·모션 블러·컬러
   그레이딩 스냅샷 자리에는 static 없이 주석만 남음.
+  **→ 닫힘(#1906·#1913·#1915).** ⚠️ #1906은 지웠다고 적었지만 277줄이 남아 있었다(#1913) — 삭제 PR은 지운 뒤 같은 패턴을
+  다시 세어 0인지 확인할 것.
 - **실제 GPU 검증 없음.** CI는 lavapipe(Ubuntu)·Metal(macOS)·Windows 러너라 BC 압축·성능 수치가 실제 데스크톱 GPU에서
   확인된 적 없다(아래 "플랫폼" 절과 같은 사실).
 
@@ -101,6 +113,10 @@ TAA, SSR, 데칼, 볼류메트릭 포그, 라이트 프로브, IBL, 래그돌, �
    기능을 넣기 전에 해서 새 기능이 단일 스레드를 전제로 짜이지 않게 한다.
 4. **기능 격차** — 맨 앞은 위 압축 패키징 결함, 그다음 게임을 만들 때 먼저 부딪히는 것(캐릭터 컨트롤러, 입력 액션 맵),
    그다음 기본 후처리(반사 프로브, DOF, 컬러 그레이딩).
+
+**→ 1~4 모두 끝남(2026-10-27 확인).** 3의 멀티스레딩은 위 "구조 문제"대로 방향을 바꿔 끝냈다. 남은 확인된 부재는 입력
+액션 위의 **매핑 컨텍스트·홀드/탭 인터랙션**(Unreal Enhanced Input의 Mapping Context·Trigger, Unity Input System의
+Interaction) — `grep -rliE "mapping_?context|InputContext|hold_?time|tap_?threshold" crates --include=*.rs` → 0.
 
 ## 현재 남은 작업 (2026-09-28, 전부 grep으로 부재 확인함)
 

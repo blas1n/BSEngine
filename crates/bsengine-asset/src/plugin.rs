@@ -191,6 +191,22 @@ impl Plugin for AssetPlugin {
             // already minted would be re-minted under the new name — which is
             // every GUID the scenes now store.
             meta_check: bevy_asset::AssetMetaCheck::Never,
+            // Bevy 0.16 refuses ("unapproved") any path with a root, a
+            // prefix or a `..` that climbs out of the source -- by default
+            // with `Forbid`, which no override reaches. Every engine path is
+            // resolved by `resolve_project_path` before a loader sees it, so
+            // a project opened by an absolute path (the editor's file dialog,
+            // every test's temp project) hands bevy_asset absolute paths for
+            // all of its assets, and under `Forbid` every one of them failed
+            // to load: terrain heightmaps first, ten terrain tests with them.
+            // `Allow` is what 0.15 did. What Bevy is guarding against -- a
+            // path from an untrusted source reading outside the asset root --
+            // is answered here by the root not being the project to begin
+            // with (see `asset_source_root`); making it the project, so
+            // `Forbid` would mean something, is its own change. A packaged
+            // game reads through `PakAssetReader`, by archive key, and never
+            // reaches the filesystem at all.
+            unapproved_path_mode: bevy_asset::UnapprovedPathMode::Allow,
             ..Default::default()
         })
         .insert_resource(AssetRoot(PathBuf::from(root)))

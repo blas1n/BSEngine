@@ -495,7 +495,7 @@ pub enum ReflectCommand {
         /// Fully-qualified reflected type path of the component.
         type_path: String,
         /// Edited reflected value to apply onto the component.
-        value: Box<dyn bevy_reflect::Reflect>,
+        value: Box<dyn bevy_reflect::PartialReflect>,
     },
 }
 

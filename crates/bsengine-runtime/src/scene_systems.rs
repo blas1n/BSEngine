@@ -719,7 +719,7 @@ pub fn stream_scenes_by_distance(
     }
 
     if !ops.is_empty() {
-        commands.add(move |world: &mut World| {
+        commands.queue(move |world: &mut World| {
             world
                 .get_resource_or_insert_with(PendingSceneStream::default)
                 .ops

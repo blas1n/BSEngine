@@ -1739,7 +1739,7 @@ mod tests {
     #[test]
     fn a_compiled_shader_keeps_its_handle_so_a_reload_can_reach_it() {
         use bevy_asset::{AssetEvent, AssetServer, Assets};
-        use bevy_ecs::event::{Events, ManualEventReader};
+        use bevy_ecs::event::{EventCursor, Events};
 
         let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../games/mini-arena/assets/shaders/glow.wgsl");
@@ -1799,10 +1799,10 @@ mod tests {
         // point: the buffer still holds the `Added`/`LoadedWithDependencies`
         // events the initial load emitted, so a bare length check would pass
         // even if the reload reached nothing at all.
-        let mut reader: ManualEventReader<AssetEvent<crate::shader_asset::ShaderSource>> = app
+        let mut reader: EventCursor<AssetEvent<crate::shader_asset::ShaderSource>> = app
             .world_mut()
             .resource_mut::<Events<AssetEvent<crate::shader_asset::ShaderSource>>>()
-            .get_reader();
+            .get_cursor();
         {
             let events = app
                 .world()
@@ -1847,7 +1847,7 @@ mod tests {
     #[test]
     fn a_shader_that_failed_to_compile_is_not_retried_every_frame_but_stays_reloadable() {
         use bevy_asset::{AssetEvent, AssetServer, Assets};
-        use bevy_ecs::event::{Events, ManualEventReader};
+        use bevy_ecs::event::{EventCursor, Events};
 
         let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../games/mini-arena/assets/shaders/glow.wgsl");
@@ -1912,10 +1912,10 @@ mod tests {
 
         // Only events emitted from here on: the buffer still holds the load's
         // own Added/LoadedWithDependencies events.
-        let mut reader: ManualEventReader<AssetEvent<crate::shader_asset::ShaderSource>> = app
+        let mut reader: EventCursor<AssetEvent<crate::shader_asset::ShaderSource>> = app
             .world_mut()
             .resource_mut::<Events<AssetEvent<crate::shader_asset::ShaderSource>>>()
-            .get_reader();
+            .get_cursor();
         {
             let events = app
                 .world()
@@ -2550,7 +2550,7 @@ mod tests {
     #[test]
     fn an_uploaded_skybox_keeps_its_handle_so_a_reload_reaches_the_screen() {
         use bevy_asset::{AssetEvent, AssetServer, Assets};
-        use bevy_ecs::event::{Events, ManualEventReader};
+        use bevy_ecs::event::{EventCursor, Events};
         use bsengine_asset::TextureAsset;
 
         let (mut app, png) = skybox_app("reload");
@@ -2588,10 +2588,10 @@ mod tests {
         // point: the buffer still holds the `Added`/`LoadedWithDependencies`
         // events the initial load emitted, so a bare length check would pass
         // even if the reload reached nothing at all.
-        let mut reader: ManualEventReader<AssetEvent<TextureAsset>> = app
+        let mut reader: EventCursor<AssetEvent<TextureAsset>> = app
             .world_mut()
             .resource_mut::<Events<AssetEvent<TextureAsset>>>()
-            .get_reader();
+            .get_cursor();
         {
             let events = app.world().resource::<Events<AssetEvent<TextureAsset>>>();
             let _ = reader.read(events).count();

@@ -345,7 +345,7 @@ pub enum InspectorCmd {
         /// Fully qualified reflected type path of the component being updated.
         type_path: String,
         /// Edited component value to write back.
-        value: Box<dyn bevy_reflect::Reflect>,
+        value: Box<dyn bevy_reflect::PartialReflect>,
     },
     /// Instantiate a prefab at the given world position, optionally
     /// parented under an existing entity (by editor entity id). Routed

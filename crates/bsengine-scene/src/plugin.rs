@@ -809,7 +809,7 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                                             ] {
                                                 if let Some(field) = s.field_mut(field_name) {
                                                     if let Some(path) =
-                                                        field.downcast_mut::<String>()
+                                                        field.try_downcast_mut::<String>()
                                                     {
                                                         *path = bsengine_core::resolve_project_path(
                                                             project_dir.as_ref(),
@@ -1440,7 +1440,7 @@ mod tests {
 
     #[test]
     fn every_reflect_wrapper_can_be_authored_in_a_scene() {
-        // `impl_reflect_value!` makes these opaque leaf types, and an opaque
+        // `impl_reflect_opaque!` makes these opaque leaf types, and an opaque
         // type can only be deserialized through `ReflectDeserialize`. Without
         // it the whole *containing component* comes back absent -- a warning in
         // the log, no error, and an entity quietly missing what the scene said

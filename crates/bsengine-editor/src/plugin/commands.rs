@@ -357,7 +357,7 @@ pub(super) fn process_editor_commands(
             // not worth restructuring the set for. The closure runs when
             // `commands` flush, at the end of this system -- the same frame.
             EditorCommand::ParticleBurst { entity_id } => {
-                commands.add(move |world: &mut World| {
+                commands.queue(move |world: &mut World| {
                     let mut emitters =
                         world.query::<(Entity, &mut bsengine_core::ParticleEmitter)>();
                     for (entity, mut emitter) in emitters.iter_mut(world) {
@@ -368,7 +368,7 @@ pub(super) fn process_editor_commands(
                 });
             }
             EditorCommand::ParticleRestart { entity_id } => {
-                commands.add(move |world: &mut World| {
+                commands.queue(move |world: &mut World| {
                     let mut emitters =
                         world.query::<(Entity, &mut bsengine_core::ParticleEmitter)>();
                     for (entity, mut emitter) in emitters.iter_mut(world) {
@@ -774,7 +774,7 @@ pub(super) fn process_editor_commands(
                 // empty world, and applied nothing.)
                 {
                     let (path, content) = (path.clone(), content.clone());
-                    commands.add(move |world: &mut World| {
+                    commands.queue(move |world: &mut World| {
                         bsengine_scene::lightmaps::apply(world, &path, &content);
                     });
                 }

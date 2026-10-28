@@ -1,4 +1,4 @@
-use bevy_reflect::Reflect;
+use bevy_reflect::{PartialReflect, Reflect};
 
 /// Read-only context threaded through every `draw_reflect_ui`/`draw_leaf_ui`
 /// call in a single Inspector frame — bundled into one struct rather than
@@ -101,7 +101,11 @@ pub(crate) fn validate_after_edit(
 ///   item via the type registry.
 /// - Opaque `Value`: glam Vec2/Vec3/Vec4/Quat get dedicated multi-DragValue
 ///   rows; everything else falls through to primitive widgets.
-pub fn draw_reflect_ui(ui: &mut egui::Ui, value: &mut dyn Reflect, ctx: &ReflectUiCtx) -> bool {
+pub fn draw_reflect_ui(
+    ui: &mut egui::Ui,
+    value: &mut dyn PartialReflect,
+    ctx: &ReflectUiCtx,
+) -> bool {
     // Enum variant switching is decided in a read-only pass first: building
     // the DynamicEnum needs `value.apply(..)`, a *mutable* borrow, but the
     // combo box itself is drawn while holding `e: &mut dyn Enum` (an
@@ -159,7 +163,7 @@ pub fn draw_reflect_ui(ui: &mut egui::Ui, value: &mut dyn Reflect, ctx: &Reflect
     // `l` (below) mutably borrows value for the rest of this match, so this lookup (which
     // needs &value) has to happen first.
     let list_item_type_id = match value.get_represented_type_info() {
-        Some(bevy_reflect::TypeInfo::List(list_info)) => Some(list_info.item_type_id()),
+        Some(bevy_reflect::TypeInfo::List(list_info)) => Some(list_info.item_ty().id()),
         _ => None,
     };
     match value.reflect_mut() {
@@ -272,14 +276,14 @@ fn build_default_variant(
     ))
 }
 
-fn draw_leaf_ui(ui: &mut egui::Ui, value: &mut dyn Reflect, ctx: &ReflectUiCtx) -> bool {
+fn draw_leaf_ui(ui: &mut egui::Ui, value: &mut dyn PartialReflect, ctx: &ReflectUiCtx) -> bool {
     // `Entity`-typed fields (e.g. Follow/LookAt/Parent's target) get a
     // dedicated picker: the current target is shown as "[id] name", a drop
     // zone accepts the same u64 drag payload Hierarchy rows already emit
     // (`row_response.dnd_set_drag_payload(info.id)` in hierarchy.rs) for
     // reparenting, and a searchable ComboBox is offered as a fallback for
     // when drag-and-drop isn't convenient.
-    if let Some(entity) = value.downcast_mut::<bevy_ecs::prelude::Entity>() {
+    if let Some(entity) = value.try_downcast_mut::<bevy_ecs::prelude::Entity>() {
         // `ui.next_auto_id()` (NOT `ui.id()`) as the ComboBox salt -- `ui.id()`
         // is egui's *stable* id, identical across sibling fields under the
         // same parent `Ui`, which caused a real ComboBox id-collision bug
@@ -342,7 +346,7 @@ fn draw_leaf_ui(ui: &mut egui::Ui, value: &mut dyn Reflect, ctx: &ReflectUiCtx) 
     // orphan rule blocks that impl from bsengine-core) — reflected components store these as the
     // local `ReflectVec2`/`ReflectVec3`/`ReflectVec4`/`ReflectQuat` wrapper types instead
     // (`Deref<Target = glam::TheRealType>`), so that's what shows up here at runtime.
-    if let Some(v) = value.downcast_mut::<bsengine_core::ReflectVec3>() {
+    if let Some(v) = value.try_downcast_mut::<bsengine_core::ReflectVec3>() {
         let mut arr = v.to_array();
         let mut changed = false;
         ui.horizontal(|ui| {
@@ -355,7 +359,7 @@ fn draw_leaf_ui(ui: &mut egui::Ui, value: &mut dyn Reflect, ctx: &ReflectUiCtx) 
         }
         return changed;
     }
-    if let Some(v) = value.downcast_mut::<bsengine_core::ReflectColor>() {
+    if let Some(v) = value.try_downcast_mut::<bsengine_core::ReflectColor>() {
         let mut arr = v.to_array();
         let changed = ui.color_edit_button_rgb(&mut arr).changed();
         if changed {
@@ -363,12 +367,12 @@ fn draw_leaf_ui(ui: &mut egui::Ui, value: &mut dyn Reflect, ctx: &ReflectUiCtx) 
         }
         return changed;
     }
-    if let Some(v) = value.downcast_mut::<bsengine_core::ReflectDegrees>() {
+    if let Some(v) = value.try_downcast_mut::<bsengine_core::ReflectDegrees>() {
         return ui
             .add(egui::DragValue::new(&mut v.0).speed(0.5).suffix("°"))
             .changed();
     }
-    if let Some(v) = value.downcast_mut::<bsengine_core::ReflectVec2>() {
+    if let Some(v) = value.try_downcast_mut::<bsengine_core::ReflectVec2>() {
         let mut arr = v.to_array();
         let mut changed = false;
         ui.horizontal(|ui| {
@@ -381,7 +385,7 @@ fn draw_leaf_ui(ui: &mut egui::Ui, value: &mut dyn Reflect, ctx: &ReflectUiCtx) 
         }
         return changed;
     }
-    if let Some(v) = value.downcast_mut::<bsengine_core::ReflectVec4>() {
+    if let Some(v) = value.try_downcast_mut::<bsengine_core::ReflectVec4>() {
         let mut arr = v.to_array();
         let mut changed = false;
         ui.horizontal(|ui| {
@@ -394,7 +398,7 @@ fn draw_leaf_ui(ui: &mut egui::Ui, value: &mut dyn Reflect, ctx: &ReflectUiCtx) 
         }
         return changed;
     }
-    if let Some(v) = value.downcast_mut::<bsengine_core::ReflectQuat>() {
+    if let Some(v) = value.try_downcast_mut::<bsengine_core::ReflectQuat>() {
         // Same to_euler/from_euler(EulerRot::XYZ) convention already used by
         // the hardcoded Transform panel (inspector.rs) and hierarchy.rs --
         // showing/editing raw quaternion x/y/z/w here would be far less
@@ -419,16 +423,16 @@ fn draw_leaf_ui(ui: &mut egui::Ui, value: &mut dyn Reflect, ctx: &ReflectUiCtx) 
         }
         return changed;
     }
-    if let Some(v) = value.downcast_mut::<f32>() {
+    if let Some(v) = value.try_downcast_mut::<f32>() {
         return ui.add(egui::DragValue::new(v).speed(0.05)).changed();
     }
-    if let Some(v) = value.downcast_mut::<f64>() {
+    if let Some(v) = value.try_downcast_mut::<f64>() {
         return ui.add(egui::DragValue::new(v).speed(0.05)).changed();
     }
-    if let Some(v) = value.downcast_mut::<bool>() {
+    if let Some(v) = value.try_downcast_mut::<bool>() {
         return ui.checkbox(v, "").changed();
     }
-    if let Some(v) = value.downcast_mut::<String>() {
+    if let Some(v) = value.try_downcast_mut::<String>() {
         return ui.text_edit_singleline(v).changed();
     }
     ui.label("(unsupported field type)");

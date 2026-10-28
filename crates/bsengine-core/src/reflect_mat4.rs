@@ -7,7 +7,7 @@
 //! is local to this crate, so `Reflect` can't be implemented for `Mat4`
 //! directly.
 use bevy_reflect::{
-    impl_reflect_value, prelude::ReflectDefault, ReflectDeserialize, ReflectSerialize,
+    impl_reflect_opaque, prelude::ReflectDefault, ReflectDeserialize, ReflectSerialize,
 };
 
 /// Reflectable wrapper around a `glam::Mat4`.
@@ -59,7 +59,7 @@ impl<'de> serde::Deserialize<'de> for ReflectMat4 {
     }
 }
 
-impl_reflect_value!((in bsengine_core::reflect_mat4) ReflectMat4(
+impl_reflect_opaque!((in bsengine_core::reflect_mat4) ReflectMat4(
     Debug,
     PartialEq,
     Default,
@@ -96,7 +96,9 @@ mod tests {
         let v: ReflectMat4 = glam::Mat4::from_scale(glam::Vec3::new(2.0, 3.0, 4.0)).into();
         let reflected: &dyn Reflect = &v;
         let cloned = reflected.clone_value();
-        let back = cloned.downcast::<ReflectMat4>().expect("downcast failed");
+        let back = cloned
+            .try_downcast::<ReflectMat4>()
+            .expect("downcast failed");
         assert_eq!(*back, v);
     }
 }

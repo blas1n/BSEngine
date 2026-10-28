@@ -476,7 +476,7 @@ fn screen_space_gi_attached_and_edited_by_reflection_reaches_the_trace() {
         *reflected
             .reflect_path_mut("full_resolution")
             .expect("a reflected field")
-            .downcast_mut::<bool>()
+            .try_downcast_mut::<bool>()
             .expect("a bool") = true;
     }
     app.update();

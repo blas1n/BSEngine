@@ -2,7 +2,7 @@
 //!
 //! `glam::{Vec2, Vec3, Vec4, Quat}` cannot implement `bevy_reflect::Reflect` directly: both the
 //! trait (defined in `bevy_reflect`) and the types (defined in `glam`) are foreign to this crate,
-//! which Rust's orphan rule forbids (confirmed directly: `impl_reflect_value!(::glam::Vec3(..))`
+//! which Rust's orphan rule forbids (confirmed directly: `impl_reflect_opaque!(::glam::Vec3(..))`
 //! fails to compile with E0117, "only traits defined in the current crate can be implemented for
 //! types defined outside of the crate"). `bevy_reflect` ships its own optional `glam` feature
 //! with built-in impls, but it pins `glam = "0.27"` while this workspace uses `glam = "0.29"` —
@@ -12,15 +12,15 @@
 //! legal since the wrapper types are local to this crate. Callers convert at the boundary via
 //! `From`/`Into`/`Deref`.
 //!
-//! Note on `impl_reflect_value!` syntax: a path with no leading `::` (e.g. bare `Foo`, or even a
+//! Note on `impl_reflect_opaque!` syntax: a path with no leading `::` (e.g. bare `Foo`, or even a
 //! multi-segment local path like `crate::reflect_glam::Foo`) is parsed as a "primitive" name and
 //! its module path is discarded, which fails to resolve for anything but actual language
 //! primitives. A leading-`::` absolute path can't refer back to this crate from within itself.
-//! The macro's custom-path form, `impl_reflect_value!((in crate_name::module) Type(...))`, is the
+//! The macro's custom-path form, `impl_reflect_opaque!((in crate_name::module) Type(...))`, is the
 //! documented way to reflect a local type: the bare `Type` resolves normally in this scope, while
 //! `(in ...)` only supplies the string used for `reflect_type_path()`.
 use bevy_reflect::{
-    impl_reflect_value, prelude::ReflectDefault, ReflectDeserialize, ReflectSerialize,
+    impl_reflect_opaque, prelude::ReflectDefault, ReflectDeserialize, ReflectSerialize,
 };
 
 macro_rules! reflect_glam_wrapper {
@@ -61,7 +61,7 @@ macro_rules! reflect_glam_wrapper {
         // nothing about the representation needs `glam` to know how.
         //
         // The point of having them at all is `ReflectDeserialize`, registered
-        // below. `impl_reflect_value!` makes each wrapper an *opaque* leaf as
+        // below. `impl_reflect_opaque!` makes each wrapper an *opaque* leaf as
         // far as reflection is concerned, and an opaque type without that data
         // cannot be deserialised -- which takes the whole containing component
         // down silently, with a warning and no error.
@@ -106,28 +106,28 @@ reflect_glam_wrapper!(
     [f32; 4]
 );
 
-impl_reflect_value!((in bsengine_core::reflect_glam) ReflectVec2(
+impl_reflect_opaque!((in bsengine_core::reflect_glam) ReflectVec2(
     Debug,
     PartialEq,
     Default,
     Serialize,
     Deserialize
 ));
-impl_reflect_value!((in bsengine_core::reflect_glam) ReflectVec3(
+impl_reflect_opaque!((in bsengine_core::reflect_glam) ReflectVec3(
     Debug,
     PartialEq,
     Default,
     Serialize,
     Deserialize
 ));
-impl_reflect_value!((in bsengine_core::reflect_glam) ReflectVec4(
+impl_reflect_opaque!((in bsengine_core::reflect_glam) ReflectVec4(
     Debug,
     PartialEq,
     Default,
     Serialize,
     Deserialize
 ));
-impl_reflect_value!((in bsengine_core::reflect_glam) ReflectQuat(
+impl_reflect_opaque!((in bsengine_core::reflect_glam) ReflectQuat(
     Debug,
     PartialEq,
     Default,

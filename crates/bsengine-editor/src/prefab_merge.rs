@@ -214,7 +214,7 @@ fn snapshot_extra_components(
     entity: Entity,
 ) -> Vec<(String, String)> {
     let excluded = merge_excluded_component_types();
-    let Some(entity_ref) = world.get_entity(entity) else {
+    let Ok(entity_ref) = world.get_entity(entity) else {
         return Vec::new();
     };
     let mut components = Vec::new();
@@ -1182,7 +1182,7 @@ pub(crate) fn resync_instance(
         let live_entity = resolved_by_raw_name
             .get(raw_name)
             .copied()
-            .filter(|&e| world.get_entity(e).is_some());
+            .filter(|&e| world.get_entity(e).is_ok());
 
         match (in_baseline, in_new, live_entity) {
             (Some(_), None, Some(live_e)) => {
@@ -2852,7 +2852,7 @@ mod tests {
         resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
 
         assert!(
-            app.world().get_entity(flag).is_some(),
+            app.world().get_entity(flag).is_ok(),
             "a manually-added child entity must survive an unrelated field update on its siblings"
         );
     }
@@ -2910,11 +2910,11 @@ mod tests {
         resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
 
         assert!(
-            app.world().get_entity(barrel).is_none(),
+            app.world().get_entity(barrel).is_err(),
             "Barrel must be despawned"
         );
         assert!(
-            app.world().get_entity(flag).is_none(),
+            app.world().get_entity(flag).is_err(),
             "Flag must cascade-despawn with its parent, despite being a manual addition"
         );
     }
@@ -3126,11 +3126,11 @@ mod tests {
         resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
 
         assert!(
-            app.world().get_entity(barrel).is_none(),
+            app.world().get_entity(barrel).is_err(),
             "Barrel must be despawned -- the source removed it"
         );
         assert!(
-            app.world().get_entity(scope).is_none(),
+            app.world().get_entity(scope).is_err(),
             "the original live Scope entity must be gone too: it was a live descendant of \
              Barrel at the moment Barrel's structural removal cascaded, and the design spec's \
              removal rule is unconditional (\"that entity's entire live subtree is despawned... \

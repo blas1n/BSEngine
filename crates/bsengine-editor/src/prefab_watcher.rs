@@ -265,7 +265,7 @@ pub(crate) fn resync_prefab_instances(world: &mut World, changed_source_path: &s
         nested_prefab_source_paths(changed_source_path, &prefab, project_dir.as_ref());
 
     for root in roots {
-        if world.get_entity(root).is_none() {
+        if world.get_entity(root).is_err() {
             tracing::warn!(
                 "prefab live-sync: an instance root for '{changed_source_path}' was already \
                  despawned (likely a descendant of another matching instance that was resynced \
@@ -687,7 +687,7 @@ mod tests {
         resync_prefab_instances(app.world_mut(), &source_path);
 
         assert!(
-            app.world().get_entity(root).is_some(),
+            app.world().get_entity(root).is_ok(),
             "a deleted source file must leave the existing instance untouched, not despawned"
         );
     }
@@ -716,7 +716,7 @@ mod tests {
         resync_prefab_instances(app.world_mut(), &source_path);
 
         assert!(
-            app.world().get_entity(root).is_some(),
+            app.world().get_entity(root).is_ok(),
             "an unparseable source file must leave the existing instance untouched"
         );
         assert_eq!(
@@ -760,7 +760,7 @@ mod tests {
         resync_prefab_instances(app.world_mut(), &source_path);
 
         assert!(
-            app.world().get_entity(root).is_some(),
+            app.world().get_entity(root).is_ok(),
             "a structurally-invalid-but-parseable source file (e.g. two root entities) must \
              leave the existing instance untouched, not despawn it only to fail re-instantiation"
         );
@@ -843,7 +843,7 @@ mod tests {
         resync_prefab_instances(app.world_mut(), &nested_path);
 
         assert!(
-            app.world().get_entity(sibling_before).is_some(),
+            app.world().get_entity(sibling_before).is_ok(),
             "editing only the nested prefab's file must leave the outer instance's \
              unrelated sibling entity untouched"
         );
@@ -1085,7 +1085,7 @@ mod tests {
         resync_prefab_instances(app.world_mut(), &source_path_a);
 
         assert!(
-            app.world().get_entity(instance_b_root).is_some(),
+            app.world().get_entity(instance_b_root).is_ok(),
             "an unrelated PrefabInstance reparented underneath the instance being resynced \
              must survive, not be despawned as collateral damage"
         );
@@ -1234,12 +1234,12 @@ mod tests {
         resync_prefab_instances(app.world_mut(), &nested_path);
 
         assert!(
-            app.world().get_entity(sibling_before).is_some(),
+            app.world().get_entity(sibling_before).is_ok(),
             "editing the shared nested.ron must leave the outer instance's unrelated \
              sibling entity untouched"
         );
         assert!(
-            app.world().get_entity(standalone_root).is_some(),
+            app.world().get_entity(standalone_root).is_ok(),
             "the standalone top-level nested instance has no overridden fields, so it must \
              patch in place (same Entity id) rather than respawn"
         );
@@ -1568,7 +1568,7 @@ mod tests {
         .unwrap();
 
         assert!(
-            app.world().get_entity(old_nested_root).is_none(),
+            app.world().get_entity(old_nested_root).is_err(),
             "the old nested instance (pointing at nested_a.ron) must be despawned once its \
              reference is repointed at a different file"
         );
@@ -1681,7 +1681,7 @@ mod tests {
         .unwrap();
 
         assert!(
-            app.world().get_entity(old_widget).is_none(),
+            app.world().get_entity(old_widget).is_err(),
             "the old plain Widget entity must be despawned when it's converted to a nested \
              reference, not left behind or field-merged in place"
         );
@@ -1801,7 +1801,7 @@ mod tests {
         resync_prefab_instances(app.world_mut(), &source_path);
 
         assert!(
-            app.world().get_entity(root).is_some(),
+            app.world().get_entity(root).is_ok(),
             "an instance with no baseline must not be despawned outright"
         );
         assert!(

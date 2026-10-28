@@ -1,4 +1,4 @@
-use bevy_asset::io::{AsyncReadExt, Reader};
+use bevy_asset::io::Reader;
 use bevy_asset::{AssetLoader, LoadContext};
 use bsengine_asset::identity::sidecar::Sidecar;
 use bsengine_core::ModelImportSettings;
@@ -33,11 +33,11 @@ impl AssetLoader for GltfSourceLoader {
     type Settings = ();
     type Error = String;
 
-    async fn load<'a>(
-        &'a self,
-        reader: &'a mut Reader<'_>,
-        _settings: &'a Self::Settings,
-        load_context: &'a mut LoadContext<'_>,
+    async fn load(
+        &self,
+        reader: &mut dyn Reader,
+        _settings: &Self::Settings,
+        load_context: &mut LoadContext<'_>,
     ) -> Result<Self::Asset, Self::Error> {
         let path = load_context
             .path()

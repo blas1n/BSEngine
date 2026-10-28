@@ -1212,14 +1212,14 @@ mod tests {
             .world_mut()
             .spawn(bsengine_core::Lifetime::from_seconds(0.05))
             .id();
-        assert!(app.world().get_entity(doomed).is_some());
+        assert!(app.world().get_entity(doomed).is_ok());
 
         // The test app pins its step to 1/60, so four frames is past 0.05s.
         for _ in 0..4 {
             app.update();
         }
         assert!(
-            app.world().get_entity(doomed).is_none(),
+            app.world().get_entity(doomed).is_err(),
             "an expired Lifetime has to despawn its entity"
         );
     }

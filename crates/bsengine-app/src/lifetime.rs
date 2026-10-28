@@ -52,7 +52,7 @@ mod tests {
 
         app.update();
 
-        assert!(app.world().get_entity(entity).is_none());
+        assert!(app.world().get_entity(entity).is_err());
     }
 
     #[test]
@@ -62,7 +62,7 @@ mod tests {
 
         app.update();
 
-        assert!(app.world().get_entity(entity).is_some());
+        assert!(app.world().get_entity(entity).is_ok());
     }
 
     #[test]
@@ -83,14 +83,14 @@ mod tests {
 
         // Frame 1: remaining = 0.6
         app.update();
-        assert!(app.world().get_entity(entity).is_some());
+        assert!(app.world().get_entity(entity).is_ok());
 
         // Frame 2: remaining = 0.2
         app.update();
-        assert!(app.world().get_entity(entity).is_some());
+        assert!(app.world().get_entity(entity).is_ok());
 
         // Frame 3: remaining = -0.2 → despawn
         app.update();
-        assert!(app.world().get_entity(entity).is_none());
+        assert!(app.world().get_entity(entity).is_err());
     }
 }

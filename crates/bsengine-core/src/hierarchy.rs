@@ -1,15 +1,22 @@
-use bevy_ecs::prelude::{Component, Entity, ReflectComponent};
-use bevy_reflect::Reflect;
+//! Parent and child: Bevy's own [`ChildOf`] / [`Children`] relationship,
+//! re-exported from the crate root.
+//!
+//! This crate had its own `Parent(Entity)` until Bevy 0.16 brought the
+//! relationship into `bevy_ecs`. What changed with it: a parent's
+//! [`Children`] is kept by the relationship's hooks rather than found by
+//! scanning every `Parent`; a `ChildOf` naming an entity that does not exist is
+//! removed with a warning rather than left dangling; and despawning a parent
+//! despawns its children, as Unity's `Destroy` and Godot's `queue_free` do
+//! (Unreal's actor destroy detaches them instead -- the two engines whose model
+//! of "an object and its children" this one follows are the first two).
+//! [`crate::propagate_global_transforms`] and `Transform`'s insert hook read
+//! `ChildOf` to place a child in its parent's space.
 
-/// Reference to this entity's parent, used to build transform hierarchies
-/// consumed by [`crate::propagate_global_transforms`].
-#[derive(Component, Debug, Clone, Copy, Reflect)]
-#[reflect(Component)]
-pub struct Parent(pub Entity);
+pub use bevy_ecs::hierarchy::{ChildOf, Children};
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::ChildOf;
     use bevy_ecs::prelude::World;
 
     #[test]
@@ -27,7 +34,7 @@ mod tests {
             .spawn((
                 crate::Transform::from_position(glam::Vec3::new(0.0, 1.0, 0.0)),
                 crate::GlobalTransform::default(),
-                Parent(parent),
+                ChildOf(parent),
             ))
             .id();
 
@@ -55,7 +62,7 @@ mod tests {
             .spawn((
                 crate::Transform::from_position(glam::Vec3::new(0.0, 1.0, 0.0)),
                 crate::GlobalTransform::default(),
-                Parent(grandparent),
+                ChildOf(grandparent),
             ))
             .id();
 
@@ -63,7 +70,7 @@ mod tests {
             .spawn((
                 crate::Transform::from_position(glam::Vec3::new(0.0, 0.0, 1.0)),
                 crate::GlobalTransform::default(),
-                Parent(parent),
+                ChildOf(parent),
             ))
             .id();
 

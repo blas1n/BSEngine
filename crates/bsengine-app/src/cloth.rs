@@ -1018,7 +1018,7 @@ mod tests {
                 loose(),
                 bsengine_core::Transform::default(),
                 bsengine_core::GlobalTransform::default(),
-                bsengine_core::Parent(parent),
+                bsengine_core::ChildOf(parent),
             ))
             .id();
 

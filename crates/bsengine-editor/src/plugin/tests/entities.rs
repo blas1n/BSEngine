@@ -51,6 +51,44 @@ fn mcp_despawn_entity_removes_it() {
 }
 
 #[test]
+fn mcp_despawn_entity_takes_its_children_with_it() {
+    // Deleting a car deletes its wheels, and a wheel's hub with them -- Unity
+    // and Godot both destroy the subtree. A stale child pointing at a parent
+    // that no longer exists is what this used to leave behind.
+    let mut app = new_app();
+    app.add_plugins(McpPlugin);
+    app.add_plugins(EditorPlugin);
+    let car = app.world_mut().spawn(Name("Car".to_string())).id();
+    let wheel = app
+        .world_mut()
+        .spawn((Name("Wheel".to_string()), bsengine_core::ChildOf(car)))
+        .id();
+    app.world_mut()
+        .spawn((Name("Hub".to_string()), bsengine_core::ChildOf(wheel)));
+    app.world_mut().spawn(Name("Bystander".to_string()));
+    app.update();
+
+    {
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        mcp.0
+            .lock()
+            .unwrap()
+            .execute("despawn_entity", json!({"id": car.index() as u64}))
+            .expect("despawn_entity not found");
+    }
+    app.update();
+
+    let mut q = app.world_mut().query::<&Name>();
+    let mut names: Vec<_> = q.iter(app.world()).map(|n| n.0.clone()).collect();
+    names.sort();
+    assert_eq!(
+        names,
+        vec!["Bystander".to_string()],
+        "the whole subtree went, and only it"
+    );
+}
+
+#[test]
 fn mcp_rename_entity_with_suffix_appends_suffix_to_name() {
     let mut app = new_app();
     app.add_plugins(McpPlugin);

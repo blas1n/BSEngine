@@ -3,7 +3,7 @@
 use bevy_ecs::prelude::*;
 use bevy_reflect::prelude::ReflectDefault;
 use bevy_reflect::Reflect;
-use bsengine_core::{Parent, Transform};
+use bsengine_core::{ChildOf, Transform};
 use glam::{Mat4, Quat, Vec3};
 
 use crate::PhysicsWorld;
@@ -96,7 +96,7 @@ impl Default for SpringArm {
 /// This entity's world matrix, from the `Transform`s up its `Parent` chain as
 /// they are now -- not `GlobalTransform`, which is last frame's until this
 /// frame's propagation runs after the arm.
-fn world_matrix(entity: Entity, transforms: &Query<(&Transform, Option<&Parent>)>) -> Mat4 {
+fn world_matrix(entity: Entity, transforms: &Query<(&Transform, Option<&ChildOf>)>) -> Mat4 {
     let mut matrix = Mat4::IDENTITY;
     let mut current = Some(entity);
     // Bounded, as propagation is, so a parent cycle cannot hang the frame.
@@ -114,7 +114,7 @@ fn world_matrix(entity: Entity, transforms: &Query<(&Transform, Option<&Parent>)
 /// The entity and its ancestors: what the arm must not collide with.
 fn with_ancestors(
     entity: Entity,
-    transforms: &Query<(&Transform, Option<&Parent>)>,
+    transforms: &Query<(&Transform, Option<&ChildOf>)>,
 ) -> Vec<Entity> {
     let mut out = vec![entity];
     let mut current = transforms
@@ -173,8 +173,8 @@ pub fn update_spring_arms(
     physics: Option<Res<PhysicsWorld>>,
     time: Option<Res<bsengine_core::Time>>,
     mut arms: Query<(Entity, &mut SpringArm)>,
-    children: Query<(Entity, &Parent)>,
-    mut transforms: ParamSet<(Query<(&Transform, Option<&Parent>)>, Query<&mut Transform>)>,
+    children: Query<(Entity, &ChildOf)>,
+    mut transforms: ParamSet<(Query<(&Transform, Option<&ChildOf>)>, Query<&mut Transform>)>,
 ) {
     let dt = time.as_ref().map_or(0.0, |t| t.delta_seconds);
     let mut placed: Vec<(Entity, Placement)> = Vec::new();
@@ -338,13 +338,13 @@ mod tests {
             .world_mut()
             .spawn((
                 Transform::from_position(Vec3::new(0.0, 1.5, 0.0)),
-                Parent(character),
+                ChildOf(character),
                 arm,
             ))
             .id();
         let camera = app
             .world_mut()
-            .spawn((Transform::default(), Parent(pivot)))
+            .spawn((Transform::default(), ChildOf(pivot)))
             .id();
         (character, pivot, camera)
     }
@@ -583,7 +583,7 @@ mod tests {
             .world_mut()
             .spawn((
                 Transform::from_position(Vec3::new(0.0, 1.5, 0.0)),
-                Parent(character),
+                ChildOf(character),
                 arm,
             ))
             .id();
@@ -594,7 +594,7 @@ mod tests {
                     rotation: camera_rotation.into(),
                     ..Default::default()
                 },
-                Parent(pivot),
+                ChildOf(pivot),
             ))
             .id();
         (character, pivot, camera)
@@ -607,7 +607,7 @@ mod tests {
         let mut current = Some(entity);
         while let Some(e) = current {
             m = world.get::<Transform>(e).unwrap().to_matrix() * m;
-            current = world.get::<Parent>(e).map(|p| p.0);
+            current = world.get::<ChildOf>(e).map(|p| p.0);
         }
         let (_, rotation, position) = m.to_scale_rotation_translation();
         (position, rotation)

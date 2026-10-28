@@ -165,7 +165,7 @@ fn populate_inspector_copies_parent_tags_script_primitive() {
         .world_mut()
         .spawn((
             Name("Child".to_string()),
-            bsengine_core::Parent(parent),
+            bsengine_core::ChildOf(parent),
             crate::snapshot::Tags(vec!["enemy".to_string(), "boss".to_string()]),
             bsengine_scene::ScriptPath("assets/scripts/child.js".to_string()),
             bsengine_scene::PrimitiveMesh(bsengine_scene::Primitive::Sphere),

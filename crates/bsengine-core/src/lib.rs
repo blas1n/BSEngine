@@ -53,6 +53,8 @@ pub mod gi_config;
 pub mod global_transform;
 /// The project's MSAA setting.
 pub mod hdr_output;
+/// Parent-entity reference for building transform hierarchies.
+pub mod hierarchy;
 /// Named on-screen HUD text overlay resource.
 pub mod hud_texts;
 /// The one `import:` value a sidecar carries: a texture's or a model's
@@ -107,8 +109,6 @@ pub mod net_input;
 pub mod network_id;
 /// Runtime switch for occlusion culling, set from `project.toml`.
 pub mod occlusion_config;
-/// Parent-entity reference for building transform hierarchies.
-pub mod parent;
 /// Short-lived billboarded particles and the emitter that owns them.
 pub mod particles;
 /// Whether gameplay simulation is currently paused.
@@ -204,6 +204,7 @@ pub use fxaa::Fxaa;
 pub use gi_config::GiSettings;
 pub use global_transform::GlobalTransform;
 pub use hdr_output::{HdrOutputFormat, HdrOutputSettings};
+pub use hierarchy::{ChildOf, Children};
 pub use hud_texts::HudTexts;
 pub use import_settings::ImportSettings;
 pub use inspector::{
@@ -234,7 +235,6 @@ pub use nav_mesh_surface::NavMeshSurface;
 pub use net_input::{LocalHeldKeys, PendingReplays, RemoteHeldKeys, ReplayRequest};
 pub use network_id::{NetworkAuthority, NetworkId};
 pub use occlusion_config::OcclusionCullingEnabled;
-pub use parent::Parent;
 pub use particles::{
     GpuParticleStep, Particle, ParticleCollision, ParticleEmitter, ParticleSimulation, Rng,
 };
@@ -281,7 +281,7 @@ pub fn propagate_global_transforms(world: &mut bevy_ecs::world::World) {
     use glam::Mat4;
     use std::collections::HashMap;
 
-    let mut query = world.query::<(Entity, &Transform, Option<&Parent>)>();
+    let mut query = world.query::<(Entity, &Transform, Option<&ChildOf>)>();
     let entries: Vec<(Entity, Mat4, Option<Entity>)> = query
         .iter(world)
         .map(|(e, t, p)| (e, t.to_matrix(), p.map(|p| p.0)))

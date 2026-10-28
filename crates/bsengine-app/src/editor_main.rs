@@ -1,6 +1,6 @@
 use bevy_app::{PostStartup, Update};
 use bsengine_app::new_app;
-use bsengine_core::{Camera, DirectionalLight, Parent, PointLight, Transform};
+use bsengine_core::{Camera, ChildOf, DirectionalLight, PointLight, Transform};
 use bsengine_ecs::{Added, Commands, Entity, Query, Res, ResMut};
 use bsengine_editor::EditorPlugin;
 use bsengine_input::InputPlugin;
@@ -93,7 +93,7 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
     commands.spawn((
         MeshRenderer { mesh_id: cube_id },
         Transform::from_position(Vec3::new(1.2, 0.0, 0.0)),
-        Parent(parent),
+        ChildOf(parent),
     ));
 
     commands.spawn((

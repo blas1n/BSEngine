@@ -3,7 +3,7 @@
 
 use super::{build_entity_descriptors, save_entities_as_prefab, EditorPlugin};
 use bsengine_app::new_app;
-use bsengine_core::{InspectorCmd, InspectorState, Parent, Transform};
+use bsengine_core::{ChildOf, InspectorCmd, InspectorState, Transform};
 use bsengine_mcp::{McpPlugin, McpRegistryResource};
 use bsengine_scene::Name;
 use glam::Vec3;

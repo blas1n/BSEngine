@@ -417,7 +417,7 @@ fn sync_vehicles(
 fn sync_wheel_transforms(
     vehicles: Query<&Vehicle>,
     mut wheels: Query<(
-        &bsengine_core::Parent,
+        &bsengine_core::ChildOf,
         &WheelIndex,
         &mut bsengine_core::Transform,
     )>,
@@ -498,7 +498,9 @@ fn sync_ragdolls(
             // removes it, and it would go on falling through the level and
             // reporting contacts under a collider handle that maps to nothing.
             world.remove_body(bone);
-            commands.entity(bone).despawn();
+            // `try_`: the owner's own despawn may have taken its bones
+            // already.
+            commands.entity(bone).try_despawn();
         }
         warned.remove(&owner);
     }
@@ -2962,7 +2964,7 @@ mod tests {
             .map(|i| {
                 app.world_mut()
                     .spawn((
-                        bsengine_core::Parent(car),
+                        bsengine_core::ChildOf(car),
                         WheelIndex(i),
                         bsengine_core::Transform::default(),
                     ))
@@ -3116,7 +3118,7 @@ mod tests {
         let stray = app
             .world_mut()
             .spawn((
-                bsengine_core::Parent(car),
+                bsengine_core::ChildOf(car),
                 WheelIndex(99),
                 bsengine_core::Transform::default(),
             ))

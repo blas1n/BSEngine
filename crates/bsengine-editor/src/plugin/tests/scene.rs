@@ -103,6 +103,68 @@ fn mcp_terrain_write_threads_an_optional_splatmap_path_through_when_given() {
 }
 
 #[test]
+fn mcp_clear_scene_with_a_hierarchy_removes_everything_once() {
+    // ClearScene despawns every entity it sees, children included, while a
+    // parent's despawn already takes its children: the second despawn of a
+    // child is of an entity that is gone. That has to be harmless -- no
+    // panic, nothing left -- whichever order the two arrive in.
+    let mut app = new_app();
+    app.add_plugins(McpPlugin);
+    app.add_plugins(EditorPlugin);
+    let root = app
+        .world_mut()
+        .spawn(bsengine_scene::Name("Root".to_string()))
+        .id();
+    let mid = app
+        .world_mut()
+        .spawn((
+            bsengine_scene::Name("Mid".to_string()),
+            bsengine_core::ChildOf(root),
+        ))
+        .id();
+    app.world_mut().spawn((
+        bsengine_scene::Name("Leaf".to_string()),
+        bsengine_core::ChildOf(mid),
+    ));
+    app.update();
+
+    {
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let stats = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_scene_stats", json!({}))
+            .unwrap();
+        assert_eq!(
+            stats.content["total_entities"], 3,
+            "premise: the tree is there"
+        );
+        let result = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("clear_scene", json!({}))
+            .expect("clear_scene not found");
+        assert!(result.is_ok());
+    }
+    app.update(); // process: all despawned
+    app.update(); // snapshot
+
+    let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+    let stats = mcp
+        .0
+        .lock()
+        .unwrap()
+        .execute("get_scene_stats", json!({}))
+        .unwrap();
+    assert_eq!(
+        stats.content["total_entities"], 0,
+        "nothing survives a clear"
+    );
+}
+
+#[test]
 fn mcp_clear_scene_removes_all_entities() {
     let mut app = new_app();
     app.add_plugins(McpPlugin);

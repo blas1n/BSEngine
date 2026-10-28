@@ -4,8 +4,8 @@ use bevy_app::{App, AppExit, Plugin, PostStartup, Update};
 use bevy_ecs::prelude::*;
 use bsengine_audio::AudioWorld;
 use bsengine_core::{
-    resolve_project_path, CursorConfig, CustomShader, EditorPlayState, GlobalTransform, HudTexts,
-    InspectorState, Material, Parent, ProjectDir, ScreenSize, SkyboxPath, Transform, UiState,
+    resolve_project_path, ChildOf, CursorConfig, CustomShader, EditorPlayState, GlobalTransform,
+    HudTexts, InspectorState, Material, ProjectDir, ScreenSize, SkyboxPath, Transform, UiState,
     UiWidget, Visible,
 };
 use bsengine_input::{GamepadButton, GamepadSticks, Input, KeyCode, MouseButton, MouseState};
@@ -2849,14 +2849,14 @@ fn run_scripts(world: &mut World) {
                     }
                 }
                 if let (Some(ce), Some(pe)) = (child_entity, parent_entity) {
-                    world.entity_mut(ce).insert(Parent(pe));
+                    world.entity_mut(ce).insert(ChildOf(pe));
                 }
             }
             ScriptCommand::ClearParent { child } => {
                 let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
                 let child_entity = q.iter(world).find(|(_, n)| n.0 == child).map(|(e, _)| e);
                 if let Some(ce) = child_entity {
-                    world.entity_mut(ce).remove::<Parent>();
+                    world.entity_mut(ce).remove::<ChildOf>();
                 }
             }
             ScriptCommand::SetCursorVisible { visible } => {
@@ -3688,7 +3688,7 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
         .unwrap_or_default();
 
     let parent_map: HashMap<String, String> = {
-        let mut q = world.query::<(Entity, &Name, &Parent)>();
+        let mut q = world.query::<(Entity, &Name, &ChildOf)>();
         q.iter(world)
             .filter_map(|(_, n, p)| {
                 entity_name_map
@@ -7615,6 +7615,54 @@ mod tests {
     /// gameplay: x = `isActionPressed("pause")`, z = `isActionPressed("back")`.
     /// The resource is checked too, so a switch that only flipped the
     /// script-side snapshot fails here rather than passing on the read-back.
+    #[test]
+    fn a_script_destroying_an_entity_destroys_its_children() {
+        // `Bsengine.destroy` is a script's Unity `Destroy` / Godot `queue_free`,
+        // and both take the subtree. Driven through a real script, because
+        // the despawn happens where the command buffer is applied.
+        let script_path =
+            std::env::temp_dir().join(format!("bsengine_test_destroy_{}.js", std::process::id()));
+        std::fs::write(
+            &script_path,
+            "function onUpdate(name) { Bsengine.destroy(\"Car\"); }",
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: String::new(),
+        });
+        let car = app.world_mut().spawn(Name("Car".to_string())).id();
+        let wheel = app
+            .world_mut()
+            .spawn((Name("Wheel".to_string()), bsengine_core::ChildOf(car)))
+            .id();
+        let director = app
+            .world_mut()
+            .spawn((
+                Name("Director".to_string()),
+                ScriptPath(script_path.to_string_lossy().to_string()),
+            ))
+            .id();
+
+        let mut frames = 0;
+        while app.world().get_entity(car).is_ok() {
+            app.update();
+            frames += 1;
+            assert!(frames < 300, "the script never destroyed the car");
+        }
+        assert!(
+            app.world().get_entity(wheel).is_err(),
+            "the wheel went with the car"
+        );
+        assert!(
+            app.world().get_entity(director).is_ok(),
+            "and nothing else did"
+        );
+        let _ = std::fs::remove_file(&script_path);
+    }
+
     #[test]
     fn a_script_enabling_a_context_moves_a_key_to_it() {
         use bsengine_input::actions::{ContextConfig, MappingConfig};

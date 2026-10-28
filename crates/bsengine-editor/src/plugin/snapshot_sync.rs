@@ -14,7 +14,7 @@ pub(super) fn update_editor_snapshot(
         Option<&DirectionalLight>,
         Option<&SpotLight>,
         Option<&Camera>,
-        Option<&Parent>,
+        Option<&ChildOf>,
         Option<&Tags>,
         Option<&Visible>,
         Option<&Material>,
@@ -369,7 +369,12 @@ pub(crate) fn excluded_from_extra_components() -> std::collections::HashSet<std:
         std::any::TypeId::of::<DirectionalLight>(),
         std::any::TypeId::of::<SpotLight>(),
         std::any::TypeId::of::<Material>(),
-        std::any::TypeId::of::<Parent>(),
+        std::any::TypeId::of::<ChildOf>(),
+        // The other half of the relationship. Its entity list is the live
+        // world's, written by `ChildOf`'s hooks -- never authored, and not
+        // serializable (`Entity` has no ReflectSerialize), so leaving it in
+        // logged a failed snapshot for every parent, every frame.
+        std::any::TypeId::of::<bsengine_core::Children>(),
         std::any::TypeId::of::<bsengine_core::Follow>(),
         std::any::TypeId::of::<bsengine_core::LookAt>(),
         std::any::TypeId::of::<Visible>(),

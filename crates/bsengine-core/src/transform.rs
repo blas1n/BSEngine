@@ -87,7 +87,7 @@ fn fill_global_transform(
         return;
     };
     let parent_world = world
-        .get::<crate::Parent>(entity)
+        .get::<crate::ChildOf>(entity)
         .and_then(|p| world.get::<crate::GlobalTransform>(p.0))
         .map(|g| g.0 .0);
     let matrix = parent_world.map_or(local, |p| p * local);
@@ -154,7 +154,7 @@ mod tests {
         let child = world
             .spawn((
                 Transform::from_position(Vec3::new(0.0, 1.0, 0.0)),
-                crate::Parent(parent),
+                crate::ChildOf(parent),
             ))
             .id();
         let pos = world

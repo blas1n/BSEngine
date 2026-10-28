@@ -1525,8 +1525,8 @@ mod tests {
                     as Box<dyn bevy_reflect::Reflect>,
             ),
             (
-                "bsengine_core::parent::Parent".to_string(),
-                Box::new(bsengine_core::Parent(
+                "bevy_ecs::hierarchy::ChildOf".to_string(),
+                Box::new(bsengine_core::ChildOf(
                     bevy_ecs::prelude::Entity::PLACEHOLDER,
                 )) as Box<dyn bevy_reflect::Reflect>,
             ),

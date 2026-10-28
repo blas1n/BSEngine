@@ -271,7 +271,9 @@ pub(super) fn process_editor_commands(
             EditorCommand::ClearScene => {
                 let entities: Vec<_> = params.p0().iter().collect();
                 for entity in entities {
-                    commands.entity(entity).despawn();
+                    // `try_`: a parent's despawn takes its children, so a
+                    // child's own despawn, queued here too, finds it gone.
+                    commands.entity(entity).try_despawn();
                 }
             }
             EditorCommand::SpawnCamera {
@@ -377,13 +379,13 @@ pub(super) fn process_editor_commands(
                 let parent_entity = params.p0().iter().find(|e| e.index() as u64 == parent_id);
                 let child_entity = params.p0().iter().find(|e| e.index() as u64 == entity_id);
                 if let (Some(child), Some(parent)) = (child_entity, parent_entity) {
-                    commands.entity(child).insert(Parent(parent));
+                    commands.entity(child).insert(ChildOf(parent));
                 }
             }
             EditorCommand::RemoveParent { entity_id } => {
                 let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
                 if let Some(entity) = target {
-                    commands.entity(entity).remove::<Parent>();
+                    commands.entity(entity).remove::<ChildOf>();
                 }
             }
             EditorCommand::TagEntity { entity_id, tag } => {

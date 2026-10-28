@@ -11,9 +11,14 @@ use glam::{Mat4, Quat, Vec3};
 /// a Transform without it was an entity at the origin to every system. Unity's
 /// `Transform` and Godot's `Node3D` carry both by construction; Bevy's own
 /// `Transform` has required its `GlobalTransform` since 0.15.
+///
+/// Inserting one also writes that `GlobalTransform` (see
+/// [`fill_global_transform`]), so an entity is where it was put from the moment
+/// it exists rather than from the next PostUpdate.
 #[derive(Component, Debug, Clone, PartialEq, Reflect)]
 #[reflect(Component, Default)]
 #[require(crate::GlobalTransform)]
+#[component(on_insert = fill_global_transform)]
 pub struct Transform {
     /// Local-space position.
     pub position: ReflectVec3,
@@ -62,6 +67,35 @@ impl Transform {
     }
 }
 
+/// `on_insert` hook of [`Transform`]: writes the entity's `GlobalTransform`
+/// from it, through the parent's `GlobalTransform` when it has a [`crate::Parent`].
+///
+/// [`crate::propagate_global_transforms`] runs in PostUpdate and everything that
+/// moves things runs before it. Before the `GlobalTransform` was required, an
+/// entity spawned this frame had none, and readers such as cloth and the
+/// behaviour tree's `MoveTo` fell back to its `Transform`; a required one left at
+/// identity until PostUpdate would instead put it at the origin for that frame.
+/// Unity's `transform.position` and Godot's `global_transform` are right as soon
+/// as the object exists, and so is this. A parent's own `GlobalTransform` may be
+/// a frame old, which propagation corrects as it always has.
+fn fill_global_transform(
+    mut world: bevy_ecs::world::DeferredWorld,
+    entity: bevy_ecs::entity::Entity,
+    _: bevy_ecs::component::ComponentId,
+) {
+    let Some(local) = world.get::<Transform>(entity).map(Transform::to_matrix) else {
+        return;
+    };
+    let parent_world = world
+        .get::<crate::Parent>(entity)
+        .and_then(|p| world.get::<crate::GlobalTransform>(p.0))
+        .map(|g| g.0 .0);
+    let matrix = parent_world.map_or(local, |p| p * local);
+    if let Some(mut global) = world.get_mut::<crate::GlobalTransform>(entity) {
+        global.0 = matrix.into();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -90,6 +124,63 @@ mod tests {
         assert!(
             (pos - Vec3::new(2.0, 3.0, 4.0)).length() < 1e-5,
             "and propagation fills it in: pos={pos}"
+        );
+    }
+
+    #[test]
+    fn a_spawned_transform_is_in_the_world_before_propagation_runs() {
+        // Propagation runs in PostUpdate, and gameplay -- a behaviour tree's
+        // MoveTo, cloth reading where it hangs -- runs before it. Before the
+        // GlobalTransform was required those readers fell back to the
+        // Transform of an entity that had none; a required one that sat at
+        // identity until PostUpdate would send them to the origin for the
+        // frame it was spawned in. So insertion fills it in, from the parent's
+        // world transform when there is one.
+        let mut world = bevy_ecs::world::World::new();
+        let parent = world
+            .spawn(Transform::from_position(Vec3::new(10.0, 0.0, 0.0)))
+            .id();
+        let root = world
+            .get::<crate::GlobalTransform>(parent)
+            .unwrap()
+            .0
+            .w_axis
+            .truncate();
+        assert!(
+            (root - Vec3::new(10.0, 0.0, 0.0)).length() < 1e-5,
+            "root: {root}"
+        );
+
+        let child = world
+            .spawn((
+                Transform::from_position(Vec3::new(0.0, 1.0, 0.0)),
+                crate::Parent(parent),
+            ))
+            .id();
+        let pos = world
+            .get::<crate::GlobalTransform>(child)
+            .unwrap()
+            .0
+            .w_axis
+            .truncate();
+        assert!(
+            (pos - Vec3::new(10.0, 1.0, 0.0)).length() < 1e-5,
+            "child: {pos}"
+        );
+
+        // And a replaced Transform is a moved entity, not a stale one.
+        world
+            .entity_mut(parent)
+            .insert(Transform::from_position(Vec3::new(-4.0, 0.0, 0.0)));
+        let moved = world
+            .get::<crate::GlobalTransform>(parent)
+            .unwrap()
+            .0
+            .w_axis
+            .truncate();
+        assert!(
+            (moved - Vec3::new(-4.0, 0.0, 0.0)).length() < 1e-5,
+            "moved: {moved}"
         );
     }
 

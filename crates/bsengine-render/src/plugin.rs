@@ -237,7 +237,7 @@ struct PendingShaders(std::collections::HashMap<String, PendingShader>);
 /// its WGSL source through `bsengine_asset::load` (`LoadMode::Async`) and
 /// handing the text to `compile_and_store_shader`. Split out of
 /// `render_frame` (rather than folded in as two more top-level params)
-/// because that function is already at Bevy 0.14's 16-top-level-param
+/// because that function is already at Bevy's 16-top-level-param
 /// `SystemParamFunction` ceiling — see the comment on `render_frame`'s
 /// `render_queries` param. Registered in the same `PostUpdate` `.chain()`
 /// as `render_frame` (see `RenderPlugin::build`), immediately before it, so
@@ -464,7 +464,7 @@ impl ShownSkybox {
 /// `image::open`, upload) into decode and upload halves, and the blocking half
 /// has since been deleted outright -- nothing in the engine may stall a frame
 /// on a file read. This gets its own system rather than staying in
-/// `render_frame` because that function is already at Bevy 0.14's
+/// `render_frame` because that function is already at Bevy's
 /// 16-top-level-param ceiling (see the comment on its `render_queries` param),
 /// and because waiting across frames is not a render pass's job.
 ///
@@ -649,20 +649,20 @@ fn render_frame(
     mouse_buttons: Option<Res<Input<MouseButton>>>,
     mut key_events: EventReader<KeyInput>,
     keys: Option<Res<Input<KeyCode>>>,
-    // Bundled into one ParamSet: Bevy 0.14's SystemParamFunction impls only
+    // Bundled into one ParamSet: Bevy's SystemParamFunction impls only
     // go up to 16 top-level params, and adding editor_panels as a 17th
     // plain parameter broke `IntoSystem` resolution for this function
     // (surfaced as a `.chain()` trait-bound error in RenderPlugin::build).
     // Folding these Querys into one param keeps the total within that limit.
     //
-    // This ParamSet is now FULL: Bevy 0.14's `impl_param_set!` macro is
+    // This ParamSet is now FULL: Bevy's `impl_param_set!` macro is
     // generated with `max_params = 8`, so there is no `p8()`. A ninth
     // sub-query needs the same treatment applied one level down (a tuple,
     // or a `#[derive(SystemParam)]` struct), not another entry here.
     mut render_queries: ParamSet<(
         // `VolumetricFog` rides in this tuple rather than as a seventeenth
         // top-level parameter for the reason spelled out above: this function
-        // is at Bevy 0.14's 16/16 `SystemParamFunction` ceiling, and going
+        // is at Bevy's 16/16 `SystemParamFunction` ceiling, and going
         // over it does not say so -- it surfaces as a `.chain()` trait-bound
         // error in `RenderPlugin::build`.
         Query<(
@@ -713,7 +713,7 @@ fn render_frame(
     // in which case particles draw against the default white texture.
     texture_cache: Option<Res<crate::texture_cache::TextureCache>>,
     // ONE tuple parameter, deliberately, rather than two plain ones: this
-    // function already stood at 15 top-level params and Bevy 0.14 stops
+    // function already stood at 15 top-level params and Bevy stops
     // implementing `SystemParamFunction` at 16, while the `ParamSet` above
     // is now at its own hard maximum of 8 sub-params. Two more plain
     // parameters would overflow the first limit and a ninth ParamSet entry
@@ -729,7 +729,7 @@ fn render_frame(
     //
     // `taa_frame_index` rides along in the same tuple for exactly the reason
     // above: with the tuple counted as one, this function already stands at
-    // 16 top-level params, and `bevy_ecs` 0.14 stops implementing
+    // 16 top-level params, and `bevy_ecs` stops implementing
     // `SystemParamFunction` at 16 (`all_tuples!(impl_system_function, 0, 16,
     // F)`). It is a `Local` for the same reason the buffer is -- it is this
     // system's own frame counter, driving the Halton jitter cycle, and no

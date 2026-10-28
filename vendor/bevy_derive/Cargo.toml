@@ -12,7 +12,7 @@
 [package]
 edition = "2024"
 name = "bevy_derive"
-version = "0.17.3"
+version = "0.18.1"
 build = false
 autolib = false
 autobins = false
@@ -40,7 +40,7 @@ path = "src/lib.rs"
 proc-macro = true
 
 [dependencies.bevy_macro_utils]
-version = "0.17.3"
+version = "0.18.0"
 
 [dependencies.quote]
 version = "1.0"

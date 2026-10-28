@@ -10,7 +10,7 @@ If extensions are enabled, some rules will be replaced. For that, see the
 ## RON file
 
 ```ebnf
-RON = [extensions], ws, value, ws;
+RON = ws, [extensions], ws, value, ws;
 ```
 
 ## Whitespace and comments
@@ -20,6 +20,7 @@ ws = { ws_single | comment };
 ws_single = "\n" | "\t" | "\r" | " " | U+000B | U+000C | U+0085 | U+200E | U+200F | U+2028 | U+2029;
 comment = ["//", { no_newline }, "\n"] | ["/*", nested_block_comment, "*/"];
 nested_block_comment = { ? any characters except "/*" or "*/" ? }, [ "/*", nested_block_comment, "*/", nested_block_comment ];
+no_newline = ? any character except "\n" ?;
 ```
 
 ## Commas
@@ -33,6 +34,7 @@ comma = ws, ",", ws;
 ```ebnf
 extensions = { "#", ws, "!", ws, "[", ws, extensions_inner, ws, "]", ws };
 extensions_inner = "enable", ws, "(", extension_name, { comma, extension_name }, [comma], ws, ")";
+extension_name = "unwrap_newtypes" | "implicit_some" | "unwrap_variant_newtypes" | "explicit_struct_names";
 ```
 
 For the extension names see the [`extensions.md`][exts] document.
@@ -40,7 +42,7 @@ For the extension names see the [`extensions.md`][exts] document.
 ## Value
 
 ```ebnf
-value = integer | byte | float | string | byte_string | char | bool | option | list | map | tuple | struct | enum_variant;
+value = integer | byte | float | string | byte_string | char | bool | option | list | map | tuple | struct | enum_variant | range;
 ```
 
 ## Numbers
@@ -50,6 +52,8 @@ digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9";
 digit_binary = "0" | "1";
 digit_octal = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7";
 digit_hexadecimal = digit | "A" | "a" | "B" | "b" | "C" | "c" | "D" | "d" | "E" | "e" | "F" | "f";
+
+number = integer | byte | float;
 
 integer = ["+" | "-"], unsigned, [integer_suffix];
 integer_suffix = ("i", "u"), ("8", "16", "32", "64", "128");
@@ -61,7 +65,8 @@ unsigned_hexadecimal = "0x", digit_hexadecimal, { digit_hexadecimal | "_" };
 unsigned_decimal = digit, { digit | "_" };
 
 byte = "b", "'", byte_content, "'";
-byte_content = ascii | ("\\", (escape_ascii | escape_byte));
+byte_content = ascii | ("\", (escape_ascii | escape_byte));
+ascii = ? any ASCII character in range 0x00 ..= 0x7F ?;
 
 float = ["+" | "-"], ("inf" | "NaN" | float_num), [float_suffix];
 float_num = (float_int | float_std | float_frac), [float_exp];
@@ -78,15 +83,30 @@ float_suffix = "f", ("32", "64");
 
 ```ebnf
 string = string_std | string_raw;
-string_std = "\"", { no_double_quotation_marks | string_escape }, "\"";
-string_escape = "\\", (escape_ascii | escape_byte | escape_unicode);
+string_std = '"', { unicode_without_double_quotation_marks_or_backslash | string_escape }, '"';
+string_escape = "\", (escape_ascii | escape_byte | escape_unicode | escape_line);
 string_raw = "r", string_raw_content;
-string_raw_content = ("#", string_raw_content, "#") | "\"", { unicode_non_greedy }, "\"";
+string_raw_content = ("#", string_raw_content, "#") | '"', { unicode_non_greedy }, '"';
+unicode_non_greedy = ? any character ?;
+unicode_without_double_quotation_marks_or_backslash = ? any character except backslash or double quotation mark ?;
 
-escape_ascii = "'" | "\"" | "\\" | "n" | "r" | "t" | "0";
+escape_ascii = "'" | '"' | "\" | "n" | "r" | "t" | "0";
 escape_byte = "x", digit_hexadecimal, digit_hexadecimal;
-escape_unicode = "u", digit_hexadecimal, [digit_hexadecimal, [digit_hexadecimal, [digit_hexadecimal, [digit_hexadecimal, [digit_hexadecimal]]]]];
+escape_unicode = "u", "{", digit_hexadecimal, [digit_hexadecimal, [digit_hexadecimal, [digit_hexadecimal, [digit_hexadecimal, [digit_hexadecimal]]]]], "}";
+escape_line = ("\n" | "\r\n"), { "\t" | "\n" | "\r" | " " };
 ```
+
+> Note: A Unicode escape is written as `\u{...}` with 1 to 6 hex digits, and
+  the value has to be a valid Unicode scalar value, so `\u{D800}` or
+  `\u{110000}` are rejected.
+
+> Note: RON supports [Rust-style string continuation escapes]. A backslash
+  immediately before LF removes that LF and all subsequent spaces, tabs,
+  carriage returns, and line feeds. RON also accepts CRLF at the continuation
+  site, treating it as LF. String continuation escapes are supported in both
+  standard strings and standard byte strings. Raw strings and raw byte strings
+  keep string continuation escapes as-is. Rust warns when a continuation skips
+  additional lines; RON accepts them without a warning.
 
 > Note: Raw strings start with an `r`, followed by n `#`s and a quotation mark
   `"`. They may contain any characters or escapes (except the end sequence).
@@ -101,12 +121,13 @@ Raw strings cannot be written in EBNF, as they are context-sensitive.
 Also see [the Rust document] about context-sensitivity of raw strings.
 
 [the Rust document]: https://github.com/rust-lang/rust/blob/d046ffddc4bd50e04ffc3ff9f766e2ac71f74d50/src/grammar/raw-string-literal-ambiguity.md
+[Rust-style string continuation escapes]: https://doc.rust-lang.org/reference/expressions/literal-expr.html#string-continuation-escapes
 
 ## Byte String
 
 ```ebnf
 byte_string = byte_string_std | byte_string_raw;
-byte_string_std = "b\"", { no_double_quotation_marks | string_escape }, "\"";
+byte_string_std = 'b"', { unicode_without_double_quotation_marks_or_backslash | string_escape }, '"';
 byte_string_raw = "br", string_raw_content;
 ```
 
@@ -123,8 +144,15 @@ byte_string_raw = "br", string_raw_content;
 ## Char
 
 ```ebnf
-char = "'", (no_apostrophe | "\\\\" | "\\'"), "'";
+char = "'", (unicode_without_apostrophe_or_backslash | char_escape), "'";
+char_escape = "\", (escape_ascii | escape_byte | escape_unicode);
+unicode_without_apostrophe_or_backslash = ? any character except backslash or apostrophe ?;
 ```
+
+> Note: A char accepts the same escapes as a string, except for string
+  continuation escapes. A `\x` escape in a char must be a single ASCII
+  character (`\x00` to `\x7F`), so several byte escapes can't be combined
+  into one UTF-8 character like they can in a string.
 
 ## Boolean
 
@@ -138,6 +166,24 @@ bool = "true" | "false";
 option = "None" | option_some;
 option_some = "Some", ws, "(", ws, value, ws, ")";
 ```
+
+## Range
+
+```ebnf
+range = range_from_to_inclusive | range_from_to_exclusive | range_from | range_to_inclusive | range_to_exclusive | range_full;
+range_from_to_inclusive = number, "..=", number;
+range_from_to_exclusive = number, "..", number;
+range_from = number, "..";
+range_to_inclusive = "..=", number;
+range_to_exclusive = "..", number;
+range_full = "..";
+```
+
+> Note: Alternatives are ordered by specificity — `..=` must be matched before `..`
+  to avoid ambiguity. A parser should attempt the longer token (`..=`) first.
+  The six range forms correspond directly to Rust's range types:
+  `x..y` → `Range`, `x..=y` → `RangeInclusive`, `x..` → `RangeFrom`,
+  `..y` → `RangeTo`, `..=y` → `RangeToInclusive`, `..` → `RangeFull`.
 
 ## List
 
@@ -186,6 +232,8 @@ ident_std_first = XID_Start | "_";
 ident_std_rest = XID_Continue;
 ident_raw = "r", "#", ident_raw_rest, { ident_raw_rest };
 ident_raw_rest = ident_std_rest | "." | "+" | "-";
+XID_Start = ? any character in the Unicode XID_Start character set ?;
+XID_Continue = ? any character in the Unicode XID_Continue character set ?;
 ```
 
 > Note: [XID_Start](http://unicode.org/cldr/utility/list-unicodeset.jsp?a=%5B%3AXID_Start%3A%5D&abb=on&g=&i=) and [XID_Continue](http://unicode.org/cldr/utility/list-unicodeset.jsp?a=%5B%3AXID_Continue%3A%5D&abb=on&g=&i=) refer to Unicode character sets.

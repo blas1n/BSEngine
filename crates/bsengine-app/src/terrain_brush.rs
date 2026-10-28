@@ -84,7 +84,7 @@ fn pick_terrain_under_cursor(
     insp.terrain_pick = hit.and_then(|h| {
         let chunk_entity = h.entity?;
         let owner = chunk_query.get(chunk_entity).ok()?;
-        Some((owner.0.index() as u64, h.point.to_array()))
+        Some((owner.0.index_u32() as u64, h.point.to_array()))
     });
 }
 
@@ -373,7 +373,7 @@ fn preview_terrain_brush_stroke(
     };
     let Some((terrain_entity, terrain, terrain_transform)) = terrain_query
         .iter()
-        .find(|(e, _, _)| e.index() as u64 == stroke.terrain_entity_id)
+        .find(|(e, _, _)| e.index_u32() as u64 == stroke.terrain_entity_id)
     else {
         return;
     };
@@ -601,7 +601,7 @@ fn commit_terrain_brush_stroke(
 
     let Some((terrain_entity, mut terrain, terrain_transform)) = terrain_query
         .iter_mut()
-        .find(|(e, _, _)| e.index() as u64 == ended.terrain_entity_id)
+        .find(|(e, _, _)| e.index_u32() as u64 == ended.terrain_entity_id)
     else {
         return;
     };
@@ -1150,7 +1150,7 @@ mod tests {
             insp.terrain_brush_settings.radius = 20.0;
             insp.terrain_brush_settings.strength = 1.0;
             insp.terrain_brush_stroke = Some(TerrainBrushStroke {
-                terrain_entity_id: terrain_entity.index() as u64,
+                terrain_entity_id: terrain_entity.index_u32() as u64,
                 world_pos: [5.0, 0.0, 5.0],
             });
         }
@@ -1208,7 +1208,7 @@ mod tests {
             insp.terrain_brush_settings.radius = 20.0;
             insp.terrain_brush_settings.strength = 1.0;
             insp.terrain_brush_stroke = Some(TerrainBrushStroke {
-                terrain_entity_id: terrain_entity.index() as u64,
+                terrain_entity_id: terrain_entity.index_u32() as u64,
                 world_pos: [drop_xz, 0.0, drop_xz],
             });
         }
@@ -1318,7 +1318,7 @@ mod tests {
             insp.terrain_brush_settings.radius = 20.0;
             insp.terrain_brush_settings.strength = 1.0;
             insp.terrain_brush_stroke = Some(TerrainBrushStroke {
-                terrain_entity_id: terrain_entity.index() as u64,
+                terrain_entity_id: terrain_entity.index_u32() as u64,
                 world_pos: [chunk_size / 2.0, 0.0, chunk_size / 2.0],
             });
         }

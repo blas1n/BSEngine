@@ -37,7 +37,8 @@ pub struct ScriptSource(pub String);
 /// Declares no [`AssetLoader::extensions`], like every other loader in this
 /// engine: loads are type-directed (`AssetServer::load::<ScriptSource>(path)`),
 /// so nothing here claims the `.js` extension or competes for it.
-#[derive(Default)]
+// `TypePath`: Bevy 0.18 makes it a supertrait of `AssetLoader`.
+#[derive(Default, bevy_reflect::TypePath)]
 pub struct ScriptSourceLoader;
 
 impl AssetLoader for ScriptSourceLoader {

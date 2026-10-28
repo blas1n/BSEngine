@@ -25,7 +25,8 @@ const SELF_CONTAINED_EXTENSION: &str = "glb";
 /// hidden: **a `.gltf` with sibling files cannot be served from an archive**,
 /// and `bsengine_asset::cook` refuses to pack one rather than letting it fail at
 /// run time.
-#[derive(Default)]
+// `TypePath`: Bevy 0.18 makes it a supertrait of `AssetLoader`.
+#[derive(Default, bevy_reflect::TypePath)]
 pub struct GltfSourceLoader;
 
 impl AssetLoader for GltfSourceLoader {
@@ -41,11 +42,13 @@ impl AssetLoader for GltfSourceLoader {
     ) -> Result<Self::Asset, Self::Error> {
         let path = load_context
             .path()
+            .path()
             .to_str()
             .ok_or_else(|| "glTF asset path is not valid UTF-8".to_string())?
             .to_string();
 
         let self_contained = load_context
+            .path()
             .path()
             .extension()
             .is_some_and(|extension| extension.eq_ignore_ascii_case(SELF_CONTAINED_EXTENSION));
@@ -83,7 +86,7 @@ async fn import_settings(load_context: &mut LoadContext<'_>) -> ModelImportSetti
         tracing::warn!(
             "model import: the sidecar beside {} records {} import settings, which a \
              model has no use for; loading it with the defaults",
-            load_context.path().display(),
+            load_context.path().path().display(),
             sidecar.import.map(|i| i.kind()).unwrap_or_default()
         );
     }

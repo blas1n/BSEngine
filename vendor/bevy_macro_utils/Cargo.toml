@@ -12,7 +12,7 @@
 [package]
 edition = "2024"
 name = "bevy_macro_utils"
-version = "0.17.3"
+version = "0.18.1"
 build = false
 autolib = false
 autobins = false
@@ -37,9 +37,6 @@ all-features = true
 [lib]
 name = "bevy_macro_utils"
 path = "src/lib.rs"
-
-[dependencies.parking_lot]
-version = "0.12"
 
 [dependencies.proc-macro2]
 version = "1.0"

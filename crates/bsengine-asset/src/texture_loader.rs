@@ -10,7 +10,8 @@ use crate::types::TextureAsset;
 /// from the `.meta` sidecar beside it. Backs `LoadMode::Async` for
 /// textures via `AssetServer::load`; `LoadMode::Sync` does not use this —
 /// see `load_mode.rs`.
-#[derive(Default)]
+// `TypePath`: Bevy 0.18 makes it a supertrait of `AssetLoader`.
+#[derive(Default, bevy_reflect::TypePath)]
 pub struct TextureAssetLoader;
 
 impl AssetLoader for TextureAssetLoader {
@@ -32,7 +33,7 @@ impl AssetLoader for TextureAssetLoader {
         let settings = import_settings(load_context).await;
         // An IES profile is a table of numbers, not an image: it becomes the
         // equirectangular panorama a light cookie is (`crate::ies`).
-        if crate::ies::is_profile_path(&load_context.path().to_string_lossy()) {
+        if crate::ies::is_profile_path(&load_context.path().path().to_string_lossy()) {
             let text = std::str::from_utf8(&bytes).map_err(|e| format!("IES profile: {e}"))?;
             let profile =
                 crate::ies::IesProfile::parse(text).map_err(|e| format!("IES profile: {e}"))?;
@@ -75,7 +76,7 @@ async fn import_settings(load_context: &mut LoadContext<'_>) -> TextureImportSet
         tracing::warn!(
             "texture import: the sidecar beside {} records {} import settings, which a \
              texture has no use for; loading it with the defaults",
-            load_context.path().display(),
+            load_context.path().path().display(),
             sidecar.import.map(|i| i.kind()).unwrap_or_default()
         );
     }

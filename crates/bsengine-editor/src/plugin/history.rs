@@ -23,7 +23,7 @@ pub(super) fn reconcile_to_snapshot(
     {
         let mut q = world.query::<Entity>();
         for e in q.iter(world) {
-            live_by_id.insert(e.index() as u64, e);
+            live_by_id.insert(e.index_u32() as u64, e);
         }
     }
 

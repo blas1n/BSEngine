@@ -115,27 +115,36 @@ pub(super) fn process_editor_commands(
                 ));
             }
             EditorCommand::Despawn { entity_id } => {
-                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                let target = params
+                    .p0()
+                    .iter()
+                    .find(|e| e.index_u32() as u64 == entity_id);
                 if let Some(entity) = target {
                     commands.entity(entity).despawn();
                 }
             }
             EditorCommand::SetPosition { entity_id, x, y, z } => {
                 for (e, mut t) in params.p1().iter_mut() {
-                    if e.index() as u64 == entity_id {
+                    if e.index_u32() as u64 == entity_id {
                         t.position = glam::Vec3::new(x, y, z).into();
                         break;
                     }
                 }
             }
             EditorCommand::AttachMeshRenderer { entity_id, mesh_id } => {
-                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                let target = params
+                    .p0()
+                    .iter()
+                    .find(|e| e.index_u32() as u64 == entity_id);
                 if let Some(entity) = target {
                     commands.entity(entity).insert(MeshRenderer { mesh_id });
                 }
             }
             EditorCommand::DetachMeshRenderer { entity_id } => {
-                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                let target = params
+                    .p0()
+                    .iter()
+                    .find(|e| e.index_u32() as u64 == entity_id);
                 if let Some(entity) = target {
                     commands.entity(entity).remove::<MeshRenderer>();
                 }
@@ -145,7 +154,10 @@ pub(super) fn process_editor_commands(
                 rigidbody,
                 collider,
             } => {
-                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                let target = params
+                    .p0()
+                    .iter()
+                    .find(|e| e.index_u32() as u64 == entity_id);
                 if let Some(entity) = target {
                     commands
                         .entity(entity)
@@ -158,7 +170,10 @@ pub(super) fn process_editor_commands(
                 }
             }
             EditorCommand::DetachPhysicsBody { entity_id } => {
-                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                let target = params
+                    .p0()
+                    .iter()
+                    .find(|e| e.index_u32() as u64 == entity_id);
                 if let Some(entity) = target {
                     commands
                         .entity(entity)
@@ -204,7 +219,10 @@ pub(super) fn process_editor_commands(
                 ));
             }
             EditorCommand::RemoveLight { entity_id } => {
-                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                let target = params
+                    .p0()
+                    .iter()
+                    .find(|e| e.index_u32() as u64 == entity_id);
                 if let Some(entity) = target {
                     commands
                         .entity(entity)
@@ -220,7 +238,7 @@ pub(super) fn process_editor_commands(
                 range,
             } => {
                 for (e, mut light) in params.p2().iter_mut() {
-                    if e.index() as u64 == entity_id {
+                    if e.index_u32() as u64 == entity_id {
                         if let Some(c) = color {
                             light.color = glam::Vec3::from(c).into();
                         }
@@ -241,7 +259,7 @@ pub(super) fn process_editor_commands(
                 ambient,
             } => {
                 for (e, mut light) in params.p3().iter_mut() {
-                    if e.index() as u64 == entity_id {
+                    if e.index_u32() as u64 == entity_id {
                         if let Some(c) = color {
                             light.color = glam::Vec3::from(c).into();
                         }
@@ -255,7 +273,7 @@ pub(super) fn process_editor_commands(
                     let dir = glam::Vec3::from(d).normalize_or(glam::Vec3::NEG_Z);
                     let rotation = glam::Quat::from_rotation_arc(glam::Vec3::NEG_Z, dir);
                     for (e, mut t) in params.p1().iter_mut() {
-                        if e.index() as u64 == entity_id {
+                        if e.index_u32() as u64 == entity_id {
                             t.rotation = rotation.into();
                             break;
                         }
@@ -263,7 +281,10 @@ pub(super) fn process_editor_commands(
                 }
             }
             EditorCommand::RenameEntity { entity_id, name } => {
-                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                let target = params
+                    .p0()
+                    .iter()
+                    .find(|e| e.index_u32() as u64 == entity_id);
                 if let Some(entity) = target {
                     commands.entity(entity).insert(Name(name));
                 }
@@ -290,7 +311,7 @@ pub(super) fn process_editor_commands(
                 fov_y_degrees,
             } => {
                 for (e, mut cam) in params.p5().iter_mut() {
-                    if e.index() as u64 == entity_id {
+                    if e.index_u32() as u64 == entity_id {
                         if let Some(fov) = fov_y_degrees {
                             cam.fov_y_degrees = fov.into();
                         }
@@ -330,14 +351,17 @@ pub(super) fn process_editor_commands(
                 dz,
             } => {
                 for (e, mut t) in params.p1().iter_mut() {
-                    if e.index() as u64 == entity_id {
+                    if e.index_u32() as u64 == entity_id {
                         t.position.0 += glam::Vec3::new(dx, dy, dz);
                         break;
                     }
                 }
             }
             EditorCommand::SetVisible { entity_id, visible } => {
-                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                let target = params
+                    .p0()
+                    .iter()
+                    .find(|e| e.index_u32() as u64 == entity_id);
                 if let Some(entity) = target {
                     commands.entity(entity).insert(Visible {
                         is_visible: visible,
@@ -354,7 +378,7 @@ pub(super) fn process_editor_commands(
                     let mut emitters =
                         world.query::<(Entity, &mut bsengine_core::ParticleEmitter)>();
                     for (entity, mut emitter) in emitters.iter_mut(world) {
-                        if entity.index() as u64 == entity_id {
+                        if entity.index_u32() as u64 == entity_id {
                             emitter.burst();
                         }
                     }
@@ -365,7 +389,7 @@ pub(super) fn process_editor_commands(
                     let mut emitters =
                         world.query::<(Entity, &mut bsengine_core::ParticleEmitter)>();
                     for (entity, mut emitter) in emitters.iter_mut(world) {
-                        if entity_id.is_some_and(|id| entity.index() as u64 != id) {
+                        if entity_id.is_some_and(|id| entity.index_u32() as u64 != id) {
                             continue;
                         }
                         restart_emitter(&mut emitter);
@@ -376,14 +400,23 @@ pub(super) fn process_editor_commands(
                 entity_id,
                 parent_id,
             } => {
-                let parent_entity = params.p0().iter().find(|e| e.index() as u64 == parent_id);
-                let child_entity = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                let parent_entity = params
+                    .p0()
+                    .iter()
+                    .find(|e| e.index_u32() as u64 == parent_id);
+                let child_entity = params
+                    .p0()
+                    .iter()
+                    .find(|e| e.index_u32() as u64 == entity_id);
                 if let (Some(child), Some(parent)) = (child_entity, parent_entity) {
                     commands.entity(child).insert(ChildOf(parent));
                 }
             }
             EditorCommand::RemoveParent { entity_id } => {
-                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                let target = params
+                    .p0()
+                    .iter()
+                    .find(|e| e.index_u32() as u64 == entity_id);
                 if let Some(entity) = target {
                     commands.entity(entity).remove::<ChildOf>();
                 }
@@ -392,7 +425,7 @@ pub(super) fn process_editor_commands(
                 let existing = params
                     .p6()
                     .iter_mut()
-                    .find(|(e, _)| e.index() as u64 == entity_id)
+                    .find(|(e, _)| e.index_u32() as u64 == entity_id)
                     .map(|(_, mut t)| {
                         if !t.0.contains(&tag) {
                             t.0.push(tag.clone());
@@ -400,7 +433,10 @@ pub(super) fn process_editor_commands(
                         true
                     });
                 if existing.is_none() {
-                    let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                    let target = params
+                        .p0()
+                        .iter()
+                        .find(|e| e.index_u32() as u64 == entity_id);
                     if let Some(entity) = target {
                         commands.entity(entity).insert(Tags(vec![tag]));
                     }
@@ -408,7 +444,7 @@ pub(super) fn process_editor_commands(
             }
             EditorCommand::UntagEntity { entity_id, tag } => {
                 for (e, mut t) in params.p6().iter_mut() {
-                    if e.index() as u64 == entity_id {
+                    if e.index_u32() as u64 == entity_id {
                         t.0.retain(|s| s != &tag);
                         break;
                     }
@@ -421,7 +457,7 @@ pub(super) fn process_editor_commands(
                 rz,
             } => {
                 for (e, mut t) in params.p1().iter_mut() {
-                    if e.index() as u64 == entity_id {
+                    if e.index_u32() as u64 == entity_id {
                         t.rotation = glam::Quat::from_euler(
                             glam::EulerRot::XYZ,
                             rx.to_radians(),
@@ -440,7 +476,7 @@ pub(super) fn process_editor_commands(
                 sz,
             } => {
                 for (e, mut t) in params.p1().iter_mut() {
-                    if e.index() as u64 == entity_id {
+                    if e.index_u32() as u64 == entity_id {
                         t.scale = glam::Vec3::new(sx, sy, sz).into();
                         break;
                     }
@@ -453,7 +489,7 @@ pub(super) fn process_editor_commands(
                 scale,
             } => {
                 for (e, mut t) in params.p1().iter_mut() {
-                    if e.index() as u64 == entity_id {
+                    if e.index_u32() as u64 == entity_id {
                         if let Some([x, y, z]) = position {
                             t.position = glam::Vec3::new(x, y, z).into();
                         }
@@ -514,7 +550,7 @@ pub(super) fn process_editor_commands(
                 outer_angle,
             } => {
                 for (e, mut light) in params.p4().iter_mut() {
-                    if e.index() as u64 == entity_id {
+                    if e.index_u32() as u64 == entity_id {
                         if let Some(c) = color {
                             light.color = glam::Vec3::from(c).into();
                         }
@@ -535,7 +571,10 @@ pub(super) fn process_editor_commands(
                 }
             }
             EditorCommand::AttachScript { entity_id, path } => {
-                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                let target = params
+                    .p0()
+                    .iter()
+                    .find(|e| e.index_u32() as u64 == entity_id);
                 if let Some(entity) = target {
                     commands
                         .entity(entity)
@@ -543,7 +582,10 @@ pub(super) fn process_editor_commands(
                 }
             }
             EditorCommand::DetachScript { entity_id } => {
-                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                let target = params
+                    .p0()
+                    .iter()
+                    .find(|e| e.index_u32() as u64 == entity_id);
                 if let Some(entity) = target {
                     commands
                         .entity(entity)
@@ -554,7 +596,10 @@ pub(super) fn process_editor_commands(
                 entity_id,
                 primitive,
             } => {
-                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                let target = params
+                    .p0()
+                    .iter()
+                    .find(|e| e.index_u32() as u64 == entity_id);
                 if let Some(entity) = target {
                     commands
                         .entity(entity)
@@ -562,7 +607,10 @@ pub(super) fn process_editor_commands(
                 }
             }
             EditorCommand::DetachPrimitiveMesh { entity_id } => {
-                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                let target = params
+                    .p0()
+                    .iter()
+                    .find(|e| e.index_u32() as u64 == entity_id);
                 if let Some(entity) = target {
                     // `resolve_primitives` (bsengine-runtime) reacts to
                     // `Added<PrimitiveMesh>` by inserting a derived
@@ -580,7 +628,10 @@ pub(super) fn process_editor_commands(
                 intensity,
                 range,
             } => {
-                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                let target = params
+                    .p0()
+                    .iter()
+                    .find(|e| e.index_u32() as u64 == entity_id);
                 if let Some(entity) = target {
                     commands.entity(entity).insert(PointLight {
                         color: glam::Vec3::from(color).into(),
@@ -594,7 +645,10 @@ pub(super) fn process_editor_commands(
                 entity_id,
                 fov_y_degrees,
             } => {
-                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                let target = params
+                    .p0()
+                    .iter()
+                    .find(|e| e.index_u32() as u64 == entity_id);
                 if let Some(entity) = target {
                     commands
                         .entity(entity)

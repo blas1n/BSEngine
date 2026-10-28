@@ -309,7 +309,7 @@ fn mcp_save_load_scene_round_trip_preserves_physics_body_attached_via_mcp() {
                 .execute(
                     "attach_physics_body",
                     json!({
-                        "entity_id": eid.index() as u64,
+                        "entity_id": eid.index_u32() as u64,
                         "rigidbody": "Static",
                         "collider_shape": "Box",
                         "hx": 1.0, "hy": 1.0, "hz": 1.0,
@@ -402,7 +402,7 @@ fn mcp_save_load_scene_round_trip_preserves_animation_state_machine() {
                 .execute(
                     "set_reflected_component",
                     json!({
-                        "entity_id": eid.index() as u64,
+                        "entity_id": eid.index_u32() as u64,
                         "type_path": "bsengine_core::animation_state_machine::AnimationStateMachine",
                         "value_json": value_json,
                     }),

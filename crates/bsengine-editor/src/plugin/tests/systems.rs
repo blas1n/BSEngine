@@ -177,9 +177,9 @@ fn populate_inspector_copies_parent_tags_script_primitive() {
     let child_info = insp
         .entities
         .iter()
-        .find(|e| e.id == child.index() as u64)
+        .find(|e| e.id == child.index_u32() as u64)
         .expect("child entity should be in inspector snapshot");
-    assert_eq!(child_info.parent_id, Some(parent.index() as u64));
+    assert_eq!(child_info.parent_id, Some(parent.index_u32() as u64));
     assert_eq!(
         child_info.tags,
         vec!["enemy".to_string(), "boss".to_string()]
@@ -261,7 +261,7 @@ fn reflect_command_attaches_and_removes_component_by_type_path() {
             .lock()
             .unwrap()
             .push(crate::snapshot::ReflectCommand::AttachComponentByType {
-                entity_id: eid.index() as u64,
+                entity_id: eid.index_u32() as u64,
                 type_path: "bsengine_core::camera::Camera".to_string(),
             });
     }
@@ -281,7 +281,7 @@ fn reflect_command_attaches_and_removes_component_by_type_path() {
             .lock()
             .unwrap()
             .push(crate::snapshot::ReflectCommand::RemoveComponentByType {
-                entity_id: eid.index() as u64,
+                entity_id: eid.index_u32() as u64,
                 type_path: "bsengine_core::camera::Camera".to_string(),
             });
     }
@@ -317,7 +317,7 @@ fn reflect_command_apply_component_value_mutates_attached_component() {
             .lock()
             .unwrap()
             .push(crate::snapshot::ReflectCommand::ApplyComponentValue {
-                entity_id: eid.index() as u64,
+                entity_id: eid.index_u32() as u64,
                 type_path: "bsengine_core::camera::Camera".to_string(),
                 value: Box::new(edited),
             });
@@ -366,7 +366,7 @@ fn reflect_command_apply_component_value_mutates_a_list_shaped_component() {
             .lock()
             .unwrap()
             .push(crate::snapshot::ReflectCommand::ApplyComponentValue {
-                entity_id: eid.index() as u64,
+                entity_id: eid.index_u32() as u64,
                 type_path: "bsengine_editor::snapshot::Tags".to_string(),
                 value: Box::new(edited),
             });
@@ -404,7 +404,7 @@ fn apply_component_value_fixes_up_a_stale_entity_field_generation() {
     );
     assert_ne!(
         target,
-        bevy_ecs::prelude::Entity::from_raw_u32(target.index())
+        bevy_ecs::prelude::Entity::from_raw_u32(target.index_u32())
             .expect("an entity index from a live entity is never u32::MAX"),
         "test setup requires a nonzero generation to actually exercise the fixup"
     );
@@ -413,7 +413,7 @@ fn apply_component_value_fixes_up_a_stale_entity_field_generation() {
     app.update();
 
     let stale_follow = bsengine_core::Follow::new(
-        bevy_ecs::prelude::Entity::from_raw_u32(target.index())
+        bevy_ecs::prelude::Entity::from_raw_u32(target.index_u32())
             .expect("an entity index from a live entity is never u32::MAX"),
     );
     {
@@ -425,7 +425,7 @@ fn apply_component_value_fixes_up_a_stale_entity_field_generation() {
             .lock()
             .unwrap()
             .push(crate::snapshot::ReflectCommand::ApplyComponentValue {
-                entity_id: follower.index() as u64,
+                entity_id: follower.index_u32() as u64,
                 type_path: "bsengine_core::follow::Follow".to_string(),
                 value: Box::new(stale_follow),
             });
@@ -479,7 +479,7 @@ fn apply_component_value_fixes_up_stale_entity_generations_inside_array_and_map_
     );
     assert_ne!(
         target,
-        bevy_ecs::prelude::Entity::from_raw_u32(target.index())
+        bevy_ecs::prelude::Entity::from_raw_u32(target.index_u32())
             .expect("an entity index from a live entity is never u32::MAX"),
         "test setup requires a nonzero generation to actually exercise the fixup"
     );
@@ -487,7 +487,7 @@ fn apply_component_value_fixes_up_stale_entity_generations_inside_array_and_map_
     let holder = app.world_mut().spawn(Name("Holder".to_string())).id();
     app.update();
 
-    let stale = bevy_ecs::prelude::Entity::from_raw_u32(target.index())
+    let stale = bevy_ecs::prelude::Entity::from_raw_u32(target.index_u32())
         .expect("an entity index from a live entity is never u32::MAX");
     let mut map = std::collections::HashMap::new();
     map.insert("target".to_string(), stale);
@@ -506,7 +506,7 @@ fn apply_component_value_fixes_up_stale_entity_generations_inside_array_and_map_
             .lock()
             .unwrap()
             .push(crate::snapshot::ReflectCommand::ApplyComponentValue {
-                entity_id: holder.index() as u64,
+                entity_id: holder.index_u32() as u64,
                 type_path,
                 value: Box::new(value),
             });
@@ -550,7 +550,7 @@ fn inspector_cmd_apply_reflected_component_reaches_reflect_queue() {
     {
         let mut insp = app.world_mut().resource_mut::<InspectorState>();
         insp.cmd_queue.push(InspectorCmd::ApplyReflectedComponent {
-            id: eid.index() as u64,
+            id: eid.index_u32() as u64,
             type_path: "bsengine_core::camera::Camera".to_string(),
             value: Box::new(edited),
         });
@@ -593,7 +593,7 @@ fn reflect_command_queue_pushes_undo_checkpoint() {
             .lock()
             .unwrap()
             .push(crate::snapshot::ReflectCommand::AttachComponentByType {
-                entity_id: eid.index() as u64,
+                entity_id: eid.index_u32() as u64,
                 type_path: "bsengine_core::camera::Camera".to_string(),
             });
     }
@@ -625,7 +625,7 @@ fn populate_reflected_component_snapshot_clones_attached_camera() {
         .id();
     {
         let mut insp = app.world_mut().resource_mut::<InspectorState>();
-        insp.selected_id = Some(eid.index() as u64);
+        insp.selected_id = Some(eid.index_u32() as u64);
     }
     app.update();
 
@@ -659,7 +659,7 @@ fn populate_reflected_component_snapshot_includes_attached_tags() {
         .id();
     {
         let mut insp = app.world_mut().resource_mut::<InspectorState>();
-        insp.selected_id = Some(eid.index() as u64);
+        insp.selected_id = Some(eid.index_u32() as u64);
     }
     app.update();
 
@@ -685,7 +685,7 @@ fn populate_reflected_component_snapshot_clears_when_nothing_selected() {
         .id();
     {
         let mut insp = app.world_mut().resource_mut::<InspectorState>();
-        insp.selected_id = Some(eid.index() as u64);
+        insp.selected_id = Some(eid.index_u32() as u64);
     }
     app.update();
     assert!(!app
@@ -723,7 +723,7 @@ fn populate_reflected_component_snapshot_includes_attached_primitive_mesh_and_sc
         .id();
     {
         let mut insp = app.world_mut().resource_mut::<InspectorState>();
-        insp.selected_id = Some(eid.index() as u64);
+        insp.selected_id = Some(eid.index_u32() as u64);
     }
     app.update();
 
@@ -753,7 +753,7 @@ fn inspector_cmd_attach_component_by_type_reaches_reflect_queue() {
     {
         let mut insp = app.world_mut().resource_mut::<InspectorState>();
         insp.cmd_queue.push(InspectorCmd::AttachComponentByType {
-            id: eid.index() as u64,
+            id: eid.index_u32() as u64,
             type_path: "bsengine_core::camera::Camera".to_string(),
         });
     }
@@ -796,7 +796,7 @@ fn inspector_cmd_attach_component_by_type_inserts_a_real_default_primitive_mesh(
     {
         let mut insp = app.world_mut().resource_mut::<InspectorState>();
         insp.cmd_queue.push(InspectorCmd::AttachComponentByType {
-            id: eid.index() as u64,
+            id: eid.index_u32() as u64,
             type_path: "bsengine_scene::types::PrimitiveMesh".to_string(),
         });
     }
@@ -926,8 +926,16 @@ fn inspector_set_selection_updates_selection_resource() {
     let mut app = new_app();
     app.add_plugins(McpPlugin);
     app.add_plugins(EditorPlugin);
-    let id_a = app.world_mut().spawn(Name("A".to_string())).id().index() as u64;
-    let id_b = app.world_mut().spawn(Name("B".to_string())).id().index() as u64;
+    let id_a = app
+        .world_mut()
+        .spawn(Name("A".to_string()))
+        .id()
+        .index_u32() as u64;
+    let id_b = app
+        .world_mut()
+        .spawn(Name("B".to_string()))
+        .id()
+        .index_u32() as u64;
     app.update();
 
     app.world_mut()
@@ -954,9 +962,21 @@ fn editor_snapshot_reflects_multi_selection() {
     let mut app = new_app();
     app.add_plugins(McpPlugin);
     app.add_plugins(EditorPlugin);
-    let id_a = app.world_mut().spawn(Name("A".to_string())).id().index() as u64;
-    let id_b = app.world_mut().spawn(Name("B".to_string())).id().index() as u64;
-    let id_c = app.world_mut().spawn(Name("C".to_string())).id().index() as u64;
+    let id_a = app
+        .world_mut()
+        .spawn(Name("A".to_string()))
+        .id()
+        .index_u32() as u64;
+    let id_b = app
+        .world_mut()
+        .spawn(Name("B".to_string()))
+        .id()
+        .index_u32() as u64;
+    let id_c = app
+        .world_mut()
+        .spawn(Name("C".to_string()))
+        .id()
+        .index_u32() as u64;
     app.update();
 
     app.world_mut()
@@ -992,8 +1012,16 @@ fn inspector_set_selection_replaces_previous_selection() {
     let mut app = new_app();
     app.add_plugins(McpPlugin);
     app.add_plugins(EditorPlugin);
-    let id_a = app.world_mut().spawn(Name("A".to_string())).id().index() as u64;
-    let id_b = app.world_mut().spawn(Name("B".to_string())).id().index() as u64;
+    let id_a = app
+        .world_mut()
+        .spawn(Name("A".to_string()))
+        .id()
+        .index_u32() as u64;
+    let id_b = app
+        .world_mut()
+        .spawn(Name("B".to_string()))
+        .id()
+        .index_u32() as u64;
     app.update();
 
     app.world_mut()
@@ -1030,7 +1058,7 @@ fn undo_restores_despawned_entity() {
             Transform::from_position(Vec3::new(1.0, 2.0, 3.0)),
         ))
         .id()
-        .index() as u64;
+        .index_u32() as u64;
     app.update();
 
     {
@@ -1100,7 +1128,7 @@ fn undo_restores_a_deleted_lights_cookie_and_cone() {
             },
         ))
         .id()
-        .index() as u64;
+        .index_u32() as u64;
     let spot = app
         .world_mut()
         .spawn((
@@ -1115,7 +1143,7 @@ fn undo_restores_a_deleted_lights_cookie_and_cone() {
             },
         ))
         .id()
-        .index() as u64;
+        .index_u32() as u64;
     app.update();
     for entity_id in [lamp, spot] {
         app.world()
@@ -1172,7 +1200,7 @@ fn undo_restores_a_deleted_lights_bake_mode() {
             .world_mut()
             .spawn((Name(name.to_string()), Transform::default()));
         bundle(&mut e);
-        e.id().index() as u64
+        e.id().index_u32() as u64
     };
     let ids = [
         spawn(
@@ -1248,7 +1276,11 @@ fn redo_reapplies_despawn_after_undo() {
     let mut app = new_app();
     app.add_plugins(McpPlugin);
     app.add_plugins(EditorPlugin);
-    let id = app.world_mut().spawn(Name("Box".to_string())).id().index() as u64;
+    let id = app
+        .world_mut()
+        .spawn(Name("Box".to_string()))
+        .id()
+        .index_u32() as u64;
     app.update();
 
     {
@@ -1301,7 +1333,7 @@ fn undo_reverts_position_change() {
             Transform::from_position(Vec3::new(1.0, 0.0, 0.0)),
         ))
         .id()
-        .index() as u64;
+        .index_u32() as u64;
     app.update();
 
     {
@@ -1387,7 +1419,7 @@ fn inspector_duplicate_cmd_spawns_a_copy() {
             Transform::from_position(Vec3::new(1.0, 2.0, 3.0)),
         ))
         .id()
-        .index() as u64;
+        .index_u32() as u64;
     app.update();
 
     app.world_mut()
@@ -1443,12 +1475,12 @@ fn update_editor_snapshot_and_populate_inspector_report_is_prefab_instance() {
     let with_info = inspector
         .entities
         .iter()
-        .find(|e| e.id == with_instance.index() as u64)
+        .find(|e| e.id == with_instance.index_u32() as u64)
         .unwrap();
     let without_info = inspector
         .entities
         .iter()
-        .find(|e| e.id == without_instance.index() as u64)
+        .find(|e| e.id == without_instance.index_u32() as u64)
         .unwrap();
     assert!(
         with_info.is_prefab_instance,
@@ -1477,7 +1509,7 @@ fn inspector_cmd_set_visible_writes_the_component_the_renderer_actually_reads() 
     {
         let mut insp = app.world_mut().resource_mut::<InspectorState>();
         insp.cmd_queue.push(InspectorCmd::SetVisible {
-            id: eid.index() as u64,
+            id: eid.index_u32() as u64,
             visible: false,
         });
     }
@@ -1501,7 +1533,7 @@ fn editor_command_attach_and_detach_script() {
     {
         let queue = app.world().resource::<EditorCommandQueueResource>();
         queue.0.lock().unwrap().push(EditorCommand::AttachScript {
-            entity_id: eid.index() as u64,
+            entity_id: eid.index_u32() as u64,
             path: "assets/scripts/foo.js".to_string(),
         });
     }
@@ -1516,7 +1548,7 @@ fn editor_command_attach_and_detach_script() {
     {
         let queue = app.world().resource::<EditorCommandQueueResource>();
         queue.0.lock().unwrap().push(EditorCommand::DetachScript {
-            entity_id: eid.index() as u64,
+            entity_id: eid.index_u32() as u64,
         });
     }
     app.update();
@@ -1538,7 +1570,7 @@ fn editor_command_attach_and_detach_primitive_mesh() {
             .lock()
             .unwrap()
             .push(EditorCommand::AttachPrimitiveMesh {
-                entity_id: eid.index() as u64,
+                entity_id: eid.index_u32() as u64,
                 primitive: bsengine_scene::Primitive::Capsule,
             });
     }
@@ -1557,7 +1589,7 @@ fn editor_command_attach_and_detach_primitive_mesh() {
             .lock()
             .unwrap()
             .push(EditorCommand::DetachPrimitiveMesh {
-                entity_id: eid.index() as u64,
+                entity_id: eid.index_u32() as u64,
             });
     }
     app.update();
@@ -1594,7 +1626,7 @@ fn editor_command_detach_primitive_mesh_also_removes_derived_mesh_renderer() {
             .lock()
             .unwrap()
             .push(EditorCommand::DetachPrimitiveMesh {
-                entity_id: eid.index() as u64,
+                entity_id: eid.index_u32() as u64,
             });
     }
     app.update();
@@ -1869,7 +1901,7 @@ fn process_prefab_apply_commands_applies_a_queued_entity() {
         pl.intensity = 5.0;
     }
 
-    let root_id = root.index() as u64;
+    let root_id = root.index_u32() as u64;
     {
         let queue = app
             .world()
@@ -2137,7 +2169,7 @@ fn the_inspector_snapshot_carries_each_emitters_live_count() {
     let find = |e: bevy_ecs::entity::Entity| {
         insp.entities
             .iter()
-            .find(|i| i.id == e.index() as u64)
+            .find(|i| i.id == e.index_u32() as u64)
             .and_then(|i| i.particles)
             .expect("an entity with an emitter must carry a particle snapshot")
     };
@@ -2164,7 +2196,7 @@ fn particle_burst_queues_a_burst_on_the_named_emitter_only() {
         .resource_mut::<InspectorState>()
         .cmd_queue
         .push(InspectorCmd::ParticleBurst {
-            id: burst_only.index() as u64,
+            id: burst_only.index_u32() as u64,
         });
     app.update();
     assert_eq!(emitter(&app, burst_only).pending_burst, 7);
@@ -2191,7 +2223,7 @@ fn particle_restart_drops_live_particles_and_requeues_a_burst_only_effect() {
         .resource_mut::<InspectorState>()
         .cmd_queue
         .push(InspectorCmd::ParticleRestart {
-            id: Some(continuous.index() as u64),
+            id: Some(continuous.index_u32() as u64),
         });
     app.update();
     let smoke = emitter(&app, continuous);

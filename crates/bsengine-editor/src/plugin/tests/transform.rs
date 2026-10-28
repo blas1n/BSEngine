@@ -14,7 +14,7 @@ fn inspector_set_rotation_updates_transform() {
             Transform::from_position(Vec3::ZERO),
         ))
         .id()
-        .index() as u64;
+        .index_u32() as u64;
     app.update();
 
     app.world_mut()
@@ -1977,7 +1977,7 @@ fn mcp_set_transform_moves_entity() {
             .unwrap()
             .execute(
                 "set_transform",
-                json!({"id": eid.index() as u64, "x": 10.0, "y": 0.0, "z": 0.0}),
+                json!({"id": eid.index_u32() as u64, "x": 10.0, "y": 0.0, "z": 0.0}),
             )
             .expect("set_transform not found");
     }

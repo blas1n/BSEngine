@@ -13,7 +13,7 @@
 edition = "2024"
 rust-version = "1.85.0"
 name = "bevy_ptr"
-version = "0.17.3"
+version = "0.18.1"
 build = false
 autolib = false
 autobins = false

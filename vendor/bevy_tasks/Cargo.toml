@@ -12,7 +12,7 @@
 [package]
 edition = "2024"
 name = "bevy_tasks"
-version = "0.17.3"
+version = "0.18.1"
 build = false
 autolib = false
 autobins = false
@@ -92,7 +92,7 @@ version = "1"
 default-features = false
 
 [dependencies.bevy_platform]
-version = "0.17.3"
+version = "0.18.0"
 features = ["alloc"]
 default-features = false
 
@@ -137,7 +137,7 @@ features = ["portable-atomic"]
 default-features = false
 
 [target.'cfg(not(all(target_has_atomic = "8", target_has_atomic = "16", target_has_atomic = "32", target_has_atomic = "64", target_has_atomic = "ptr")))'.dependencies.heapless]
-version = "0.8"
+version = "0.9"
 features = ["portable-atomic"]
 default-features = false
 

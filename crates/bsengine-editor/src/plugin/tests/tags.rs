@@ -591,7 +591,7 @@ fn inspector_cmd_tag_and_untag_entity_via_existing_pipeline() {
     {
         let mut insp = app.world_mut().resource_mut::<InspectorState>();
         insp.cmd_queue.push(InspectorCmd::TagEntity {
-            id: eid.index() as u64,
+            id: eid.index_u32() as u64,
             tag: "enemy".to_string(),
         });
     }
@@ -604,7 +604,7 @@ fn inspector_cmd_tag_and_untag_entity_via_existing_pipeline() {
     {
         let mut insp = app.world_mut().resource_mut::<InspectorState>();
         insp.cmd_queue.push(InspectorCmd::UntagEntity {
-            id: eid.index() as u64,
+            id: eid.index_u32() as u64,
             tag: "enemy".to_string(),
         });
     }

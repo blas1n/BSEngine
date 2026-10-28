@@ -3,37 +3,38 @@
 //! # Example usage
 //!
 //! ```
+//! use core::ptr::addr_of_mut;
 //! use heapless::{box_pool, pool::boxed::{Box, BoxBlock}};
 //!
-//! box_pool!(P: u128);
+//! box_pool!(MyBoxPool: u128);
 //!
 //! // cannot allocate without first giving memory blocks to the pool
-//! assert!(P.alloc(42).is_err());
+//! assert!(MyBoxPool.alloc(42).is_err());
 //!
 //! // (some `no_std` runtimes have safe APIs to create `&'static mut` references)
 //! let block: &'static mut BoxBlock<u128> = unsafe {
-//!     static mut B: BoxBlock <u128>= BoxBlock::new();
-//!     &mut B
+//!     static mut BLOCK: BoxBlock <u128>= BoxBlock::new();
+//!     addr_of_mut!(BLOCK).as_mut().unwrap()
 //! };
 //!
 //! // give block of memory to the pool
-//! P.manage(block);
+//! MyBoxPool.manage(block);
 //!
 //! // it's now possible to allocate
-//! let mut boxed = P.alloc(1).unwrap();
+//! let mut boxed = MyBoxPool.alloc(1).unwrap();
 //!
 //! // mutation is possible
 //! *boxed += 1;
 //! assert_eq!(2, *boxed);
 //!
 //! // number of boxes is limited to the number of blocks managed by the pool
-//! let res = P.alloc(3);
+//! let res = MyBoxPool.alloc(3);
 //! assert!(res.is_err());
 //!
 //! // give another memory block to the pool
-//! P.manage(unsafe {
-//!     static mut B: BoxBlock<u128> = BoxBlock::new();
-//!     &mut B
+//! MyBoxPool.manage(unsafe {
+//!     static mut BLOCK: BoxBlock<u128> = BoxBlock::new();
+//!     addr_of_mut!(BLOCK).as_mut().unwrap()
 //! });
 //!
 //! // cloning also consumes a memory block from the pool
@@ -42,14 +43,14 @@
 //! assert_eq!(3, *separate_box);
 //!
 //! // after the clone it's not possible to allocate again
-//! let res = P.alloc(4);
+//! let res = MyBoxPool.alloc(4);
 //! assert!(res.is_err());
 //!
 //! // `boxed`'s destructor returns the memory block to the pool
 //! drop(boxed);
 //!
 //! // it's possible to allocate again
-//! let res = P.alloc(5);
+//! let res = MyBoxPool.alloc(5);
 //!
 //! assert!(res.is_ok());
 //! ```
@@ -60,20 +61,22 @@
 //! to the `BoxPool`. This requires an intermediate `const` value as shown below:
 //!
 //! ```
+//! use core::ptr::addr_of_mut;
 //! use heapless::{box_pool, pool::boxed::BoxBlock};
 //!
-//! box_pool!(P: u128);
+//! box_pool!(MyBoxPool: u128);
 //!
 //! const POOL_CAPACITY: usize = 8;
 //!
 //! let blocks: &'static mut [BoxBlock<u128>] = {
+//!     #[allow(clippy::declare_interior_mutable_const)]
 //!     const BLOCK: BoxBlock<u128> = BoxBlock::new(); // <=
 //!     static mut BLOCKS: [BoxBlock<u128>; POOL_CAPACITY] = [BLOCK; POOL_CAPACITY];
-//!     unsafe { &mut BLOCKS }
+//!     unsafe { addr_of_mut!(BLOCKS).as_mut().unwrap() }
 //! };
 //!
 //! for block in blocks {
-//!     P.manage(block);
+//!     MyBoxPool.manage(block);
 //! }
 //! ```
 
@@ -82,8 +85,8 @@ use core::{
     hash::{Hash, Hasher},
     mem::{ManuallyDrop, MaybeUninit},
     ops, ptr,
+    ptr::{addr_of, addr_of_mut},
 };
-
 use stable_deref_trait::StableDeref;
 
 use super::treiber::{NonNullPtr, Stack, UnionNode};
@@ -100,6 +103,9 @@ macro_rules! box_pool {
             type Data = $data_type;
 
             fn singleton() -> &'static $crate::pool::boxed::BoxPoolImpl<$data_type> {
+                // Even though the static variable is not exposed to user code, it is
+                // still useful to have a descriptive symbol name for debugging.
+                #[allow(non_upper_case_globals)]
                 static $name: $crate::pool::boxed::BoxPoolImpl<$data_type> =
                     $crate::pool::boxed::BoxPoolImpl::new();
 
@@ -162,7 +168,7 @@ pub trait BoxPool: Sized {
 
     /// Add a statically allocated memory block to the memory pool
     fn manage(block: &'static mut BoxBlock<Self::Data>) {
-        Self::singleton().manage(block)
+        Self::singleton().manage(block);
     }
 }
 
@@ -172,6 +178,43 @@ where
     P: BoxPool,
 {
     node_ptr: NonNullPtr<UnionNode<MaybeUninit<P::Data>>>,
+}
+
+impl<P> Box<P>
+where
+    P: BoxPool,
+{
+    /// Consumes the `Box`, returning the wrapped pointer
+    pub fn into_raw(b: Self) -> *mut P::Data {
+        let mut b = ManuallyDrop::new(b);
+        // SAFETY: `b` is not dropped, so the pointer remains valid however caller must ensure that
+        // eventually it is returned to the pool
+        addr_of_mut!(**b)
+    }
+
+    /// Constructs a `Box<P>` from a raw pointer
+    ///
+    /// # Safety
+    ///
+    /// The `ptr` must have been allocated by the same `BoxPool` `P` that this `Box<P>` uses.
+    pub unsafe fn from_raw(ptr: *mut P::Data) -> Self {
+        // SAFETY: caller must guarantee that `ptr` is valid and was allocated by `P`
+        debug_assert!(!ptr.is_null(), "Pointer must be non-null");
+
+        // Calculate the offset of the `data` field within `UnionNode` (with the current layout
+        // tha data is at the beginning so offset is zero, but this may change in the future)
+        let uninit_union_node = MaybeUninit::<UnionNode<MaybeUninit<P::Data>>>::uninit();
+        let data_ptr = unsafe { addr_of!((*uninit_union_node.as_ptr()).data) };
+        let data_offset = (data_ptr as usize) - (uninit_union_node.as_ptr() as usize);
+        let union_node_ptr = ptr
+            .cast::<u8>()
+            .sub(data_offset)
+            .cast::<UnionNode<MaybeUninit<P::Data>>>();
+
+        Self {
+            node_ptr: NonNullPtr::from_ptr_unchecked(union_node_ptr),
+        }
+    }
 }
 
 impl<A> Clone for Box<A>
@@ -255,7 +298,7 @@ where
     where
         H: Hasher,
     {
-        (**self).hash(state)
+        (**self).hash(state);
     }
 }
 
@@ -313,6 +356,7 @@ pub struct BoxPoolImpl<T> {
 }
 
 impl<T> BoxPoolImpl<T> {
+    #[allow(clippy::new_without_default)]
     pub const fn new() -> Self {
         Self {
             stack: Stack::new(),
@@ -332,6 +376,11 @@ impl<T> BoxPoolImpl<T> {
     fn manage(&self, block: &'static mut BoxBlock<T>) {
         let node: &'static mut _ = &mut block.node;
 
+        // SAFETY: The node within a `BoxBlock` is always properly initialized for linking because
+        // the only way for         client code to construct a `BoxBlock` is through
+        // `BoxBlock::new`. The `NonNullPtr` comes from a         reference, so it is
+        // guaranteed to be dereferencable. It is also unique because the `BoxBlock` itself
+        //         is passed as a `&mut`
         unsafe { self.stack.push(NonNullPtr::from_static_mut_ref(node)) }
     }
 }
@@ -347,78 +396,82 @@ impl<T> BoxBlock<T> {
     /// Creates a new memory block
     pub const fn new() -> Self {
         Self {
-            node: UnionNode {
-                data: ManuallyDrop::new(MaybeUninit::uninit()),
-            },
+            node: UnionNode::unlinked(),
         }
+    }
+}
+
+impl<T> Default for BoxBlock<T> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    use std::thread;
+    use std::{ptr::addr_of_mut, thread};
 
     use super::*;
 
     #[test]
     fn cannot_alloc_if_empty() {
-        box_pool!(P: i32);
+        box_pool!(MyBoxPool: i32);
 
-        assert_eq!(Err(42), P.alloc(42));
+        assert_eq!(Err(42), MyBoxPool.alloc(42));
     }
 
     #[test]
     fn can_alloc_if_pool_manages_one_block() {
-        box_pool!(P: i32);
+        box_pool!(MyBoxPool: i32);
 
         let block = unsafe {
-            static mut B: BoxBlock<i32> = BoxBlock::new();
-            &mut B
+            static mut BLOCK: BoxBlock<i32> = BoxBlock::new();
+            addr_of_mut!(BLOCK).as_mut().unwrap()
         };
-        P.manage(block);
+        MyBoxPool.manage(block);
 
-        assert_eq!(42, *P.alloc(42).unwrap());
+        assert_eq!(42, *MyBoxPool.alloc(42).unwrap());
     }
 
     #[test]
     fn alloc_drop_alloc() {
-        box_pool!(P: i32);
+        box_pool!(MyBoxPool: i32);
 
         let block = unsafe {
-            static mut B: BoxBlock<i32> = BoxBlock::new();
-            &mut B
+            static mut BLOCK: BoxBlock<i32> = BoxBlock::new();
+            addr_of_mut!(BLOCK).as_mut().unwrap()
         };
-        P.manage(block);
+        MyBoxPool.manage(block);
 
-        let boxed = P.alloc(1).unwrap();
+        let boxed = MyBoxPool.alloc(1).unwrap();
 
         drop(boxed);
 
-        assert_eq!(2, *P.alloc(2).unwrap());
+        assert_eq!(2, *MyBoxPool.alloc(2).unwrap());
     }
 
     #[test]
     fn runs_destructor_exactly_once_on_drop() {
         static COUNT: AtomicUsize = AtomicUsize::new(0);
 
-        pub struct S;
+        pub struct MyStruct;
 
-        impl Drop for S {
+        impl Drop for MyStruct {
             fn drop(&mut self) {
                 COUNT.fetch_add(1, Ordering::Relaxed);
             }
         }
 
-        box_pool!(P: S);
+        box_pool!(MyBoxPool: MyStruct);
 
         let block = unsafe {
-            static mut B: BoxBlock<S> = BoxBlock::new();
-            &mut B
+            static mut BLOCK: BoxBlock<MyStruct> = BoxBlock::new();
+            addr_of_mut!(BLOCK).as_mut().unwrap()
         };
-        P.manage(block);
+        MyBoxPool.manage(block);
 
-        let boxed = P.alloc(S).ok().unwrap();
+        let boxed = MyBoxPool.alloc(MyStruct).ok().unwrap();
 
         assert_eq!(0, COUNT.load(Ordering::Relaxed));
 
@@ -432,76 +485,74 @@ mod tests {
         #[repr(align(4096))]
         pub struct Zst4096;
 
-        box_pool!(P: Zst4096);
+        box_pool!(MyBoxPool: Zst4096);
 
         let block = unsafe {
-            static mut B: BoxBlock<Zst4096> = BoxBlock::new();
-            &mut B
+            static mut BLOCK: BoxBlock<Zst4096> = BoxBlock::new();
+            addr_of_mut!(BLOCK).as_mut().unwrap()
         };
-        P.manage(block);
+        MyBoxPool.manage(block);
 
-        let boxed = P.alloc(Zst4096).ok().unwrap();
+        let boxed = MyBoxPool.alloc(Zst4096).ok().unwrap();
 
-        let raw = &*boxed as *const Zst4096;
+        let raw = std::ptr::from_ref::<Zst4096>(&*boxed);
         assert_eq!(0, raw as usize % 4096);
     }
 
-    #[allow(clippy::redundant_clone)]
     #[test]
     fn can_clone_if_pool_is_not_exhausted() {
         static STRUCT_CLONE_WAS_CALLED: AtomicBool = AtomicBool::new(false);
 
-        pub struct S;
+        pub struct MyStruct;
 
-        impl Clone for S {
+        impl Clone for MyStruct {
             fn clone(&self) -> Self {
                 STRUCT_CLONE_WAS_CALLED.store(true, Ordering::Relaxed);
                 Self
             }
         }
 
-        box_pool!(P: S);
+        box_pool!(MyBoxPool: MyStruct);
 
-        P.manage(unsafe {
-            static mut B: BoxBlock<S> = BoxBlock::new();
-            &mut B
+        MyBoxPool.manage(unsafe {
+            static mut BLOCK: BoxBlock<MyStruct> = BoxBlock::new();
+            addr_of_mut!(BLOCK).as_mut().unwrap()
         });
-        P.manage(unsafe {
-            static mut B: BoxBlock<S> = BoxBlock::new();
-            &mut B
+        MyBoxPool.manage(unsafe {
+            static mut BLOCK: BoxBlock<MyStruct> = BoxBlock::new();
+            addr_of_mut!(BLOCK).as_mut().unwrap()
         });
 
-        let first = P.alloc(S).ok().unwrap();
+        let first = MyBoxPool.alloc(MyStruct).ok().unwrap();
         let _second = first.clone();
 
         assert!(STRUCT_CLONE_WAS_CALLED.load(Ordering::Relaxed));
 
-        let is_oom = P.alloc(S).is_err();
+        let is_oom = MyBoxPool.alloc(MyStruct).is_err();
         assert!(is_oom);
     }
 
-    #[allow(clippy::redundant_clone)]
     #[test]
     fn clone_panics_if_pool_exhausted() {
         static STRUCT_CLONE_WAS_CALLED: AtomicBool = AtomicBool::new(false);
 
-        pub struct S;
+        pub struct MyStruct;
 
-        impl Clone for S {
+        impl Clone for MyStruct {
             fn clone(&self) -> Self {
                 STRUCT_CLONE_WAS_CALLED.store(true, Ordering::Relaxed);
                 Self
             }
         }
 
-        box_pool!(P: S);
+        box_pool!(MyBoxPool: MyStruct);
 
-        P.manage(unsafe {
-            static mut B: BoxBlock<S> = BoxBlock::new();
-            &mut B
+        MyBoxPool.manage(unsafe {
+            static mut BLOCK: BoxBlock<MyStruct> = BoxBlock::new();
+            addr_of_mut!(BLOCK).as_mut().unwrap()
         });
 
-        let first = P.alloc(S).ok().unwrap();
+        let first = MyBoxPool.alloc(MyStruct).ok().unwrap();
 
         let thread = thread::spawn(move || {
             let _second = first.clone();
@@ -515,32 +566,31 @@ mod tests {
         // assert!(!STRUCT_CLONE_WAS_CALLED.load(Ordering::Relaxed));
     }
 
-    #[allow(clippy::redundant_clone)]
     #[test]
     fn panicking_clone_does_not_leak_memory() {
         static STRUCT_CLONE_WAS_CALLED: AtomicBool = AtomicBool::new(false);
 
-        pub struct S;
+        pub struct MyStruct;
 
-        impl Clone for S {
+        impl Clone for MyStruct {
             fn clone(&self) -> Self {
                 STRUCT_CLONE_WAS_CALLED.store(true, Ordering::Relaxed);
                 panic!()
             }
         }
 
-        box_pool!(P: S);
+        box_pool!(MyBoxPool: MyStruct);
 
-        P.manage(unsafe {
-            static mut B: BoxBlock<S> = BoxBlock::new();
-            &mut B
+        MyBoxPool.manage(unsafe {
+            static mut BLOCK: BoxBlock<MyStruct> = BoxBlock::new();
+            addr_of_mut!(BLOCK).as_mut().unwrap()
         });
-        P.manage(unsafe {
-            static mut B: BoxBlock<S> = BoxBlock::new();
-            &mut B
+        MyBoxPool.manage(unsafe {
+            static mut BLOCK: BoxBlock<MyStruct> = BoxBlock::new();
+            addr_of_mut!(BLOCK).as_mut().unwrap()
         });
 
-        let boxed = P.alloc(S).ok().unwrap();
+        let boxed = MyBoxPool.alloc(MyStruct).ok().unwrap();
 
         let thread = thread::spawn(move || {
             let _boxed = boxed.clone();
@@ -551,10 +601,63 @@ mod tests {
 
         assert!(STRUCT_CLONE_WAS_CALLED.load(Ordering::Relaxed));
 
-        let once = P.alloc(S);
-        let twice = P.alloc(S);
+        let once = MyBoxPool.alloc(MyStruct);
+        let twice = MyBoxPool.alloc(MyStruct);
 
         assert!(once.is_ok());
         assert!(twice.is_ok());
+    }
+
+    #[test]
+    fn into_raw_from_raw() {
+        pub struct MyStruct {
+            value: [u8; 64],
+        }
+
+        static NUM_DROP_CALLS: AtomicUsize = AtomicUsize::new(0);
+        impl Drop for MyStruct {
+            fn drop(&mut self) {
+                NUM_DROP_CALLS.fetch_add(1, Ordering::AcqRel);
+            }
+        }
+
+        box_pool!(MyBoxPool: MyStruct);
+
+        MyBoxPool.manage(unsafe {
+            static mut BLOCK: BoxBlock<MyStruct> = BoxBlock::new();
+            addr_of_mut!(BLOCK).as_mut().unwrap()
+        });
+
+        MyBoxPool.manage(unsafe {
+            static mut BLOCK: BoxBlock<MyStruct> = BoxBlock::new();
+            addr_of_mut!(BLOCK).as_mut().unwrap()
+        });
+
+        let raw = {
+            let boxed = MyBoxPool
+                .alloc(MyStruct { value: [0xA5; 64] })
+                .ok()
+                .unwrap();
+            Box::into_raw(boxed)
+        };
+        assert_eq!(0, NUM_DROP_CALLS.load(Ordering::Acquire));
+        let addr_1 = raw as usize;
+
+        {
+            let boxed_again: Box<MyBoxPool> = unsafe { Box::from_raw(raw) };
+            let addr_2 = boxed_again.node_ptr.as_ptr() as usize;
+            assert_eq!([0xA5; 64], boxed_again.value);
+            assert_eq!(addr_1, addr_2);
+        }
+        assert_eq!(1, NUM_DROP_CALLS.load(Ordering::Acquire));
+
+        // Allocate again to ensure memory was returned to the pool
+        let boxed_2 = MyBoxPool
+            .alloc(MyStruct { value: [0xEF; 64] })
+            .ok()
+            .unwrap();
+        let addr_2 = boxed_2.node_ptr.as_ptr() as usize;
+        assert_eq!([0xEF; 64], boxed_2.value);
+        assert_eq!(addr_1, addr_2);
     }
 }

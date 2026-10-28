@@ -29,7 +29,8 @@ use bevy_asset::io::Reader;
 use bevy_asset::{AssetLoader, LoadContext};
 
 /// Backs `LoadMode::Async` for audio via `AssetServer::load`.
-#[derive(Default)]
+// `TypePath`: Bevy 0.18 makes it a supertrait of `AssetLoader`.
+#[derive(Default, bevy_reflect::TypePath)]
 pub struct AudioSourceLoader;
 
 impl AssetLoader for AudioSourceLoader {

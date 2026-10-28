@@ -306,9 +306,9 @@ fn draw_leaf_ui(ui: &mut egui::Ui, value: &mut dyn PartialReflect, ctx: &Reflect
         } else {
             ctx.entities
                 .iter()
-                .find(|e| e.id == entity.index() as u64)
+                .find(|e| e.id == entity.index_u32() as u64)
                 .map(|e| format!("[{}] {}", e.id, e.name.as_deref().unwrap_or("(unnamed)")))
-                .unwrap_or_else(|| format!("[{}] (not found)", entity.index()))
+                .unwrap_or_else(|| format!("[{}] (not found)", entity.index_u32()))
         };
         let (rect, response) = ui.allocate_exact_size(
             egui::vec2(ui.available_width().min(160.0), 20.0),
@@ -1352,7 +1352,7 @@ mod tests {
             .drop_without_applying_deltas();
 
         assert_eq!(
-            target.index(),
+            target.index_u32(),
             2,
             "dropping the id-2 Hierarchy payload should set the field's target to that raw index"
         );

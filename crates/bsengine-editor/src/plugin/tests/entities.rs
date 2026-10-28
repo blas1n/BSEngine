@@ -40,7 +40,7 @@ fn mcp_despawn_entity_removes_it() {
         mcp.0
             .lock()
             .unwrap()
-            .execute("despawn_entity", json!({"id": eid.index() as u64}))
+            .execute("despawn_entity", json!({"id": eid.index_u32() as u64}))
             .expect("despawn_entity not found");
     }
     app.update();
@@ -73,7 +73,7 @@ fn mcp_despawn_entity_takes_its_children_with_it() {
         mcp.0
             .lock()
             .unwrap()
-            .execute("despawn_entity", json!({"id": car.index() as u64}))
+            .execute("despawn_entity", json!({"id": car.index_u32() as u64}))
             .expect("despawn_entity not found");
     }
     app.update();
@@ -358,7 +358,7 @@ fn mcp_rename_entity_changes_name() {
             .unwrap()
             .execute(
                 "rename_entity",
-                json!({"entity_id": eid.index() as u64, "name": "NewName"}),
+                json!({"entity_id": eid.index_u32() as u64, "name": "NewName"}),
             )
             .expect("rename_entity not found");
     }
@@ -395,7 +395,7 @@ fn inspector_cmd_rename_entity_renames_via_existing_pipeline() {
     {
         let mut insp = app.world_mut().resource_mut::<InspectorState>();
         insp.cmd_queue.push(InspectorCmd::RenameEntity {
-            id: eid.index() as u64,
+            id: eid.index_u32() as u64,
             name: "New Name".to_string(),
         });
     }

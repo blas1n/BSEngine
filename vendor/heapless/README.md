@@ -21,6 +21,15 @@ $ # run only for example histbuf tests
 $ cargo test histbuf --features serde
 ```
 
+# Formatting
+
+Like most Rust projects, we use `rustfmt` to keep the formatting of code consistent. However, we
+make use of cecertain options that are currently only available in the nightly version:
+
+```console
+$ cargo +nightly fmt --all
+```
+
 ## License
 
 Licensed under either of
@@ -31,6 +40,11 @@ Licensed under either of
 - MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
 
 at your option.
+
+## MSRV Policy
+
+This crate is guaranteed to compile with the latest two stable releases of Rust. For example, if the
+latest stable Rust release is 1.70, then this crate is guaranteed to compile with Rust 1.69 and 1.70.
 
 ## Contribution
 

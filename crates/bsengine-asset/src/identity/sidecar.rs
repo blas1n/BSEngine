@@ -218,7 +218,7 @@ impl Sidecar {
     /// settings go through here: two copies of that policy is how one of
     /// them ends up without it.
     pub async fn read_beside_loading_asset(load_context: &mut LoadContext<'_>) -> Option<Self> {
-        let asset_path = load_context.asset_path().clone_owned();
+        let asset_path = load_context.path().clone_owned();
         let sidecar = AssetPath::from(sidecar_path(asset_path.path()));
         match load_context.read_asset_bytes(sidecar).await {
             Ok(bytes) => match std::str::from_utf8(&bytes)

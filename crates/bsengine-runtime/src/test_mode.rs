@@ -2125,7 +2125,9 @@ mod tests {
     #[should_panic(expected = "action \"jump\": unknown key in binding \"space\"")]
     fn a_bad_binding_in_project_toml_stops_the_app() {
         let dir = write_action_project("jump = [\"space\"]\nleft = []\nright = []");
-        build_test_app(dir.path().to_str().unwrap(), None, false);
+        // Never reached: building panics. `let _` because `App` is
+        // `#[must_use]` since Bevy 0.18.
+        let _ = build_test_app(dir.path().to_str().unwrap(), None, false);
     }
 
     /// End-to-end walkability proof for roadmap item 44's terrain core
@@ -2507,7 +2509,7 @@ mod tests {
             insp.terrain_brush_settings.radius = 20.0;
             insp.terrain_brush_settings.strength = 1.0;
             insp.terrain_brush_stroke = Some(bsengine_core::TerrainBrushStroke {
-                terrain_entity_id: terrain_entity.index() as u64,
+                terrain_entity_id: terrain_entity.index_u32() as u64,
                 world_pos: [drop_xz, 0.0, drop_xz],
             });
         }

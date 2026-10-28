@@ -1,16 +1,17 @@
-use crate::io::{AssetSourceEvent, AssetWatcher};
-use crate::path::normalize_path;
-use bevy_utils::tracing::error;
-use bevy_utils::Duration;
+use crate::{
+    io::{AssetSourceEvent, AssetWatcher},
+    path::normalize_path,
+};
+use bevy_utils::{tracing::error, Duration};
 use crossbeam_channel::Sender;
 use notify_debouncer_full::{
     new_debouncer,
     notify::{
         self,
         event::{AccessKind, AccessMode, CreateKind, ModifyKind, RemoveKind, RenameMode},
-        RecommendedWatcher, RecursiveMode, Watcher,
+        RecommendedWatcher, RecursiveMode,
     },
-    DebounceEventResult, Debouncer, FileIdMap,
+    DebounceEventResult, Debouncer, RecommendedCache,
 };
 use std::path::{Path, PathBuf};
 
@@ -20,18 +21,18 @@ use std::path::{Path, PathBuf};
 /// This introduces a small delay in processing events, but it helps reduce event duplicates. A small delay is also necessary
 /// on some systems to avoid processing a change event before it has actually been applied.
 pub struct FileWatcher {
-    _watcher: Debouncer<RecommendedWatcher, FileIdMap>,
+    _watcher: Debouncer<RecommendedWatcher, RecommendedCache>,
 }
 
 impl FileWatcher {
     pub fn new(
-        root: PathBuf,
+        path: PathBuf,
         sender: Sender<AssetSourceEvent>,
         debounce_wait_time: Duration,
     ) -> Result<Self, notify::Error> {
-        let root = normalize_path(super::get_base_path().join(root).as_path());
+        let root = normalize_path(&path);
         let watcher = new_asset_event_debouncer(
-            root.clone(),
+            path.clone(),
             debounce_wait_time,
             FileEventHandler {
                 root,
@@ -72,7 +73,7 @@ pub(crate) fn new_asset_event_debouncer(
     root: PathBuf,
     debounce_wait_time: Duration,
     mut handler: impl FilesystemEventHandler,
-) -> Result<Debouncer<RecommendedWatcher, FileIdMap>, notify::Error> {
+) -> Result<Debouncer<RecommendedWatcher, RecommendedCache>, notify::Error> {
     let root = super::get_base_path().join(root);
     let mut debouncer = new_debouncer(
         debounce_wait_time,
@@ -244,8 +245,7 @@ pub(crate) fn new_asset_event_debouncer(
             }
         },
     )?;
-    debouncer.watcher().watch(&root, RecursiveMode::Recursive)?;
-    debouncer.cache().add_root(&root, RecursiveMode::Recursive);
+    debouncer.watch(&root, RecursiveMode::Recursive)?;
     Ok(debouncer)
 }
 

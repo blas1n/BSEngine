@@ -1,6 +1,6 @@
 use bevy_app::{App, Plugin, Update};
 use bevy_ecs::prelude::*;
-use bsengine_core::{AnimationPlayer, GlobalTransform, Material, Transform};
+use bsengine_core::{AnimationPlayer, Material, Transform};
 use bsengine_render::MeshRenderer;
 use bsengine_rhi_wgpu::{GpuMeshRegistry, GpuTextureRegistry};
 use tracing::warn;
@@ -619,12 +619,12 @@ fn load_gltf_assets(
                 }
                 e.remove::<(GltfAsset, PendingGltf)>();
                 if existing_transform.is_none() {
-                    e.insert((Transform::default(), GlobalTransform::default()));
+                    e.insert(Transform::default());
                 }
                 first = false;
             } else {
                 let t = existing_transform.cloned().unwrap_or_default();
-                commands.spawn((MeshRenderer { mesh_id }, mat, t, GlobalTransform::default()));
+                commands.spawn((MeshRenderer { mesh_id }, mat, t));
             }
         }
 
@@ -1113,7 +1113,7 @@ mod tests {
     #[test]
     fn reload_tolerates_separator_style_but_not_a_canonicalised_path() {
         use bevy_asset::{AssetEvent, AssetServer, Assets};
-        use bevy_ecs::event::{Events, ManualEventReader};
+        use bevy_ecs::event::{EventCursor, Events};
 
         let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../games/mini-arena/assets/models/fox.glb");
@@ -1143,10 +1143,10 @@ mod tests {
         }
         assert!(ok, "fixture must load first");
 
-        let mut reader: ManualEventReader<AssetEvent<LoadedGltf>> = app
+        let mut reader: EventCursor<AssetEvent<LoadedGltf>> = app
             .world_mut()
             .resource_mut::<Events<AssetEvent<LoadedGltf>>>()
-            .get_reader();
+            .get_cursor();
 
         // Spellings a watcher could plausibly hand us, all naming this file.
         let backslashed = loaded_form.replace('/', "\\");
@@ -1210,7 +1210,7 @@ mod tests {
     #[test]
     fn reload_emits_modified_only_while_a_handle_is_retained() {
         use bevy_asset::{AssetEvent, AssetServer, Assets};
-        use bevy_ecs::event::{Events, ManualEventReader};
+        use bevy_ecs::event::{EventCursor, Events};
 
         let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../games/mini-arena/assets/models/fox.glb");
@@ -1247,13 +1247,13 @@ mod tests {
             "fixture must load before the experiment means anything"
         );
 
-        let mut reader: ManualEventReader<AssetEvent<LoadedGltf>> = app
+        let mut reader: EventCursor<AssetEvent<LoadedGltf>> = app
             .world_mut()
             .resource_mut::<Events<AssetEvent<LoadedGltf>>>()
-            .get_reader();
+            .get_cursor();
 
         let drain = |app: &mut bevy_app::App,
-                     reader: &mut ManualEventReader<AssetEvent<LoadedGltf>>|
+                     reader: &mut EventCursor<AssetEvent<LoadedGltf>>|
          -> Vec<String> {
             let events = app.world().resource::<Events<AssetEvent<LoadedGltf>>>();
             reader.read(events).map(|e| format!("{e:?}")).collect()
@@ -1912,7 +1912,7 @@ mod tests {
     #[test]
     fn a_loaded_gltf_keeps_its_handle_so_a_reload_can_reach_it() {
         use bevy_asset::{AssetEvent, AssetServer, Assets};
-        use bevy_ecs::event::{Events, ManualEventReader};
+        use bevy_ecs::event::{EventCursor, Events};
 
         let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../games/mini-arena/assets/models/fox.glb");
@@ -1970,10 +1970,10 @@ mod tests {
         // Read Modified specifically, rather than `Events::len() > 0`: the
         // buffer still holds the events the *load* emitted, so a bare length
         // check would pass even if the reload reached nothing at all.
-        let mut reader: ManualEventReader<AssetEvent<LoadedGltf>> = app
+        let mut reader: EventCursor<AssetEvent<LoadedGltf>> = app
             .world_mut()
             .resource_mut::<Events<AssetEvent<LoadedGltf>>>()
-            .get_reader();
+            .get_cursor();
         {
             let events = app.world().resource::<Events<AssetEvent<LoadedGltf>>>();
             let _ = reader.read(events).count();

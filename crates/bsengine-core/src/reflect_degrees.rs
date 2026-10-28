@@ -5,7 +5,7 @@
 //! orphan-rule obstacle here — `f32` already implements `Reflect` (a
 //! `bevy_reflect` built-in), so a plain `#[derive(Reflect)]` on a tuple
 //! struct wrapping it would compile fine. `ReflectDegrees` uses
-//! `impl_reflect_value!` anyway, to keep it an *opaque* leaf value (like
+//! `impl_reflect_opaque!` anyway, to keep it an *opaque* leaf value (like
 //! `ReflectVecN`) rather than a `TupleStruct`-shaped one — that's what lets
 //! `draw_reflect_ui`'s existing `Struct`/`Enum`-only top-level dispatch pick
 //! it up via `draw_leaf_ui`'s downcast-based handling, with no changes
@@ -20,7 +20,7 @@
 //! second. Both Camera and SpotLight now store their angle fields in
 //! degrees internally.
 use bevy_reflect::{
-    impl_reflect_value, prelude::ReflectDefault, ReflectDeserialize, ReflectSerialize,
+    impl_reflect_opaque, prelude::ReflectDefault, ReflectDeserialize, ReflectSerialize,
 };
 
 /// Reflectable `f32` wrapper representing an angle in degrees, used to signal
@@ -71,7 +71,7 @@ impl<'de> serde::Deserialize<'de> for ReflectDegrees {
     }
 }
 
-impl_reflect_value!((in bsengine_core::reflect_degrees) ReflectDegrees(
+impl_reflect_opaque!((in bsengine_core::reflect_degrees) ReflectDegrees(
     Debug,
     PartialEq,
     Default,
@@ -109,7 +109,7 @@ mod tests {
         let reflected: &dyn Reflect = &v;
         let cloned = reflected.clone_value();
         let back = cloned
-            .downcast::<ReflectDegrees>()
+            .try_downcast::<ReflectDegrees>()
             .expect("downcast failed");
         assert_eq!(*back, v);
     }

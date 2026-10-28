@@ -8,6 +8,7 @@ use glam::Mat4;
 /// used to build a right-handed projection matrix each frame.
 #[derive(Component, Debug, Clone, Reflect)]
 #[reflect(Component, Default)]
+#[require(crate::Transform)]
 pub struct Camera {
     /// Vertical field of view.
     pub fov_y_degrees: ReflectDegrees,

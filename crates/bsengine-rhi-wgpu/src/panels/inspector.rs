@@ -101,7 +101,7 @@ impl EditorPanel for InspectorPanel {
                     entities: entities_snapshot,
                     type_registry,
                 };
-                let mut to_apply: Vec<(String, Box<dyn bevy_reflect::Reflect>)> = Vec::new();
+                let mut to_apply: Vec<(String, Box<dyn bevy_reflect::PartialReflect>)> = Vec::new();
                 let mut to_remove: Option<String> = None;
                 for (i, (type_path, value)) in insp
                     .reflected_components
@@ -2139,7 +2139,7 @@ mod tests {
                 // mechanism production uses (`ReflectComponent::
                 // apply_or_insert`), to get a concrete value to assert on.
                 let mut transform = bsengine_core::Transform::default();
-                bevy_reflect::Reflect::apply(&mut transform, value.as_ref());
+                bevy_reflect::PartialReflect::apply(&mut transform, value.as_ref());
                 assert!(
                     (transform.position.0.x - 0.15).abs() < 1e-4,
                     "translation.x should have moved by 3 * speed(0.05) = 0.15, got {}",
@@ -2281,7 +2281,7 @@ mod tests {
                 // patch it onto a real `ScriptPath` via `Reflect::apply`, the
                 // same mechanism production uses, to get a concrete value.
                 let mut script_path = bsengine_scene::ScriptPath(String::new());
-                bevy_reflect::Reflect::apply(&mut script_path, value.as_ref());
+                bevy_reflect::PartialReflect::apply(&mut script_path, value.as_ref());
                 assert_eq!(script_path.0, "foo.js");
             }
             other => panic!(

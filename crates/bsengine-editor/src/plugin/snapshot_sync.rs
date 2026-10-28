@@ -169,12 +169,22 @@ pub(super) fn populate_reflected_component_snapshot(world: &mut World) {
                 // `ReflectFromReflect` (auto-registered by `derive(Reflect)`
                 // via `FromReflect`, unless a type explicitly opts out) does
                 // produce a real `Box<Camera>` boxed as `dyn Reflect`, so
-                // prefer it; fall back to `clone_value()` only if a type
-                // somehow lacks that registration.
-                let cloned_value = registration
+                // prefer it. Since Bevy 0.15 the `clone_value()` fallback is a
+                // `dyn PartialReflect`, and a dynamic proxy is not `Reflect` at
+                // all, so a type without `FromReflect` (none today: nothing
+                // sets `from_reflect = false`) is skipped with a warning rather
+                // than shown as a value the Inspector could never write back.
+                let Some(cloned_value) = registration
                     .data::<bevy_reflect::ReflectFromReflect>()
-                    .and_then(|rfr| rfr.from_reflect(value))
-                    .unwrap_or_else(|| value.clone_value());
+                    .and_then(|rfr| rfr.from_reflect(value.as_partial_reflect()))
+                    .or_else(|| value.clone_value().try_into_reflect().ok())
+                else {
+                    tracing::warn!(
+                        "inspector: '{}' has no FromReflect, so it cannot be shown",
+                        registration.type_info().type_path()
+                    );
+                    continue;
+                };
                 cloned.push((
                     registration.type_info().type_path().to_string(),
                     cloned_value,

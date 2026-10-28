@@ -12,8 +12,8 @@ use super::*;
 /// as-is could silently target the wrong (or a since-despawned-and-reused)
 /// entity slot; this runs once, here, where `World` access is actually
 /// available, before the value is applied to a live component.
-pub(super) fn fixup_entity_fields(value: &mut dyn bevy_reflect::Reflect, world: &World) {
-    if let Some(entity) = value.downcast_mut::<bevy_ecs::prelude::Entity>() {
+pub(super) fn fixup_entity_fields(value: &mut dyn bevy_reflect::PartialReflect, world: &World) {
+    if let Some(entity) = value.try_downcast_mut::<bevy_ecs::prelude::Entity>() {
         let wanted_index = entity.index();
         if let Some(live) = world
             .iter_entities()

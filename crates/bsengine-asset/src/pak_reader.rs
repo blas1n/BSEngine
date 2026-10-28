@@ -16,9 +16,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use bevy_asset::io::{
-    AssetReader, AssetReaderError, ErasedAssetReader, PathStream, Reader, VecReader,
-};
+use bevy_asset::io::{AssetReader, AssetReaderError, ErasedAssetReader, PathStream, VecReader};
 
 use crate::pak::Pak;
 
@@ -53,10 +51,10 @@ impl PakAssetReader {
 }
 
 impl AssetReader for PakAssetReader {
-    async fn read<'a>(&'a self, path: &'a Path) -> Result<Box<Reader<'a>>, AssetReaderError> {
+    async fn read<'a>(&'a self, path: &'a Path) -> Result<VecReader, AssetReaderError> {
         let key = archive_key(path, &self.project_dir);
         match self.pak.get(&key) {
-            Some(bytes) => Ok(Box::new(VecReader::new(bytes.to_vec()))),
+            Some(bytes) => Ok(VecReader::new(bytes.to_vec())),
             None => Err(AssetReaderError::NotFound(path.to_path_buf())),
         }
     }
@@ -65,7 +63,7 @@ impl AssetReader for PakAssetReader {
     /// [`crate::AssetPlugin`] builds `bevy_asset` with `AssetMetaCheck::Never`
     /// because this crate's identity sidecars use the very filename `bevy_asset`
     /// reserves for its own meta. Packing them would be packing that collision.
-    async fn read_meta<'a>(&'a self, path: &'a Path) -> Result<Box<Reader<'a>>, AssetReaderError> {
+    async fn read_meta<'a>(&'a self, path: &'a Path) -> Result<VecReader, AssetReaderError> {
         Err(AssetReaderError::NotFound(path.to_path_buf()))
     }
 

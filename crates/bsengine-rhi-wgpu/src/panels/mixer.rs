@@ -145,7 +145,7 @@ impl EditorPanel for MixerPanel {
 ///
 /// It lives beside the panel rather than in `dock.rs` with the other built-ins
 /// for two reasons. `ensure_builtin_panels` is called from inside
-/// `render_frame`, which sits at Bevy 0.14's 16-parameter ceiling with a full
+/// `render_frame`, which sits at Bevy's 16-parameter ceiling with a full
 /// `ParamSet` — there is no room to thread a `MixerShared` through it. And
 /// keeping the wiring here lets the panel's own tests drive the panel this
 /// function registered, which is the only way to observe that the panel is

@@ -10392,7 +10392,7 @@ impl WgpuSurface {
                                 entities: &entities_snapshot,
                                 type_registry: type_registry_guard.as_deref(),
                             };
-                            let mut to_apply: Vec<(String, Box<dyn bevy_reflect::Reflect>)> =
+                            let mut to_apply: Vec<(String, Box<dyn bevy_reflect::PartialReflect>)> =
                                 Vec::new();
 
                             egui::Panel::right("bse_insp_props")

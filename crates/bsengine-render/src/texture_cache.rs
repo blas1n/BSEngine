@@ -883,6 +883,16 @@ mod tests {
         use bsengine_core::{Camera, ScreenSize, TextureStreamingSettings};
 
         let mut app = test_app();
+        // Where the camera is comes from its GlobalTransform, as in a game,
+        // so the camera has to move the way a game moves it: Transform in
+        // Update, propagated in PostUpdate. Before the GlobalTransform was a
+        // required component this camera had none and streaming read its
+        // Transform directly -- a path no shipped camera took, since the scene
+        // loader always gave them one.
+        app.add_systems(
+            bevy_app::PostUpdate,
+            bsengine_core::propagate_global_transforms,
+        );
         app.insert_resource(ScreenSize {
             width: 1280,
             height: 720,
@@ -941,30 +951,34 @@ mod tests {
         );
 
         move_camera(&mut app, 3.0);
-        let near: Vec<Option<u32>> = (0..4)
+        let near: Vec<Option<u32>> = (0..5)
             .map(|_| {
                 app.update();
                 residency(&app)
             })
             .collect();
         assert_eq!(wanted(&app), Some(0), "620 px wants everything");
+        // The first frame still sees the camera where PostUpdate last put it
+        // -- streaming runs in Update -- and then it climbs a level a frame.
         assert_eq!(
             near,
-            vec![Some(1), Some(0), Some(0), Some(0)],
+            vec![Some(2), Some(1), Some(0), Some(0), Some(0)],
             "one level a frame up to whole, then rest"
         );
 
         move_camera(&mut app, 200.0);
-        let away: Vec<Option<u32>> = (0..7)
+        let away: Vec<Option<u32>> = (0..8)
             .map(|_| {
                 app.update();
                 residency(&app)
             })
             .collect();
         assert_eq!(wanted(&app), Some(5), "6 px wants the 8 level");
+        // Again a frame late, for the same reason as `near`.
         assert_eq!(
             away,
             vec![
+                Some(0),
                 Some(1),
                 Some(2),
                 Some(3),

@@ -13,7 +13,7 @@
 //! three raw XYZ `DragValue`s. Both wrap the same underlying `glam::Vec3` —
 //! the type alone is what tells the UI which widget to use.
 use bevy_reflect::{
-    impl_reflect_value, prelude::ReflectDefault, ReflectDeserialize, ReflectSerialize,
+    impl_reflect_opaque, prelude::ReflectDefault, ReflectDeserialize, ReflectSerialize,
 };
 
 /// Reflectable RGB color wrapper around a `glam::Vec3` (linear space, 0.0-1.0 per channel).
@@ -72,7 +72,7 @@ impl<'de> serde::Deserialize<'de> for ReflectColor {
 // `Serialize`/`Deserialize` in this list are what register `ReflectSerialize`
 // and `ReflectDeserialize` for the type, and those are what a scene needs.
 //
-// `impl_reflect_value!` makes this an *opaque* type as far as reflection is
+// `impl_reflect_opaque!` makes this an *opaque* type as far as reflection is
 // concerned, and an opaque type can only be deserialised through
 // `ReflectDeserialize`. Structural types -- structs, tuples, arrays -- are
 // walked field by field and need none of this, which is why a component made
@@ -83,7 +83,7 @@ impl<'de> serde::Deserialize<'de> for ReflectColor {
 // The sibling wrappers in `reflect_glam.rs` and `reflect_degrees.rs` still
 // have the gap. Nothing authors them from a scene today, so this fixes the one
 // that a scene needed rather than all of them at once.
-impl_reflect_value!((in bsengine_core::reflect_color) ReflectColor(
+impl_reflect_opaque!((in bsengine_core::reflect_color) ReflectColor(
     Debug,
     PartialEq,
     Default,
@@ -120,7 +120,9 @@ mod tests {
         let v: ReflectColor = glam::Vec3::new(0.2, 0.8, 1.0).into();
         let reflected: &dyn Reflect = &v;
         let cloned = reflected.clone_value();
-        let back = cloned.downcast::<ReflectColor>().expect("downcast failed");
+        let back = cloned
+            .try_downcast::<ReflectColor>()
+            .expect("downcast failed");
         assert_eq!(*back, v);
     }
 }

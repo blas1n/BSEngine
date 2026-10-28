@@ -36,6 +36,7 @@ pub const MAX_REFLECTION_PROBES: usize = 4;
 /// one), exactly as before.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Component, Default)]
+#[require(crate::Transform)]
 pub struct ReflectionProbe {
     /// Half-extents of the box of influence, in world units, around the
     /// entity's position. Axis-aligned: the entity's rotation and scale do

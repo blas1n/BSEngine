@@ -1007,6 +1007,14 @@ mod tests {
             .get_mut::<bsengine_core::Transform>(camera)
             .unwrap()
             .position = glam::Vec3::new(x, 0.0, 0.0).into();
+        // Two frames: streaming reads the camera's GlobalTransform in Update
+        // and propagation writes it in PostUpdate, so the first frame still
+        // sees the camera where it was -- as every scene camera always has,
+        // since the loader gave them one. This camera only got a
+        // GlobalTransform of its own once it became a required component;
+        // before that, streaming fell back to its Transform and saw the move
+        // in the same frame, which no game camera did.
+        app.update();
         app.update();
     }
 
@@ -1212,14 +1220,14 @@ mod tests {
             .world_mut()
             .spawn(bsengine_core::Lifetime::from_seconds(0.05))
             .id();
-        assert!(app.world().get_entity(doomed).is_some());
+        assert!(app.world().get_entity(doomed).is_ok());
 
         // The test app pins its step to 1/60, so four frames is past 0.05s.
         for _ in 0..4 {
             app.update();
         }
         assert!(
-            app.world().get_entity(doomed).is_none(),
+            app.world().get_entity(doomed).is_err(),
             "an expired Lifetime has to despawn its entity"
         );
     }

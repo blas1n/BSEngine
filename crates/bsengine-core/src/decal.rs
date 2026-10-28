@@ -26,6 +26,7 @@ pub const MAX_DECALS: usize = 64;
 /// A texture projected onto the geometry inside a box.
 #[derive(Component, Debug, Clone, PartialEq, Reflect)]
 #[reflect(Component, Default)]
+#[require(crate::Transform)]
 pub struct Decal {
     /// Texture to project, as a path, the way materials name theirs.
     pub texture_path: String,

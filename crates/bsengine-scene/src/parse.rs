@@ -54,6 +54,42 @@ pub fn parse_descriptor<T: DeserializeOwned>(
     Ok(value)
 }
 
+/// Every scene and prefab file the games ship, with its text. Found by content
+/// (an `entities:` list) rather than by folder, because `net-2p-demo` keeps its
+/// two outside `assets/scenes`; the other `.ron` files the games ship -- script
+/// graphs, shader graphs, timelines -- have no entity list. Shared by the key
+/// guard below and the reflected-value guard in `plugin.rs`, so the two cannot
+/// disagree about which files exist.
+#[cfg(test)]
+pub(crate) fn checked_in_scene_files() -> Vec<(std::path::PathBuf, String)> {
+    fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        for entry in std::fs::read_dir(dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let name = path.file_name().unwrap().to_string_lossy();
+                // Build output and packaged copies, not sources.
+                if !matches!(
+                    name.as_ref(),
+                    "dist" | "dist-web" | "target" | ".bsengine_cache"
+                ) {
+                    walk(&path, out);
+                }
+            } else if path.extension().is_some_and(|e| e == "ron") {
+                out.push(path);
+            }
+        }
+    }
+    let mut files = Vec::new();
+    walk(std::path::Path::new("../../games"), &mut files);
+    files
+        .into_iter()
+        .filter_map(|file| {
+            let text = std::fs::read_to_string(&file).unwrap();
+            text.contains("entities:").then_some((file, text))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -114,39 +150,12 @@ mod tests {
     /// rather than a light quietly at its default: `scale-level`'s six spot
     /// lights were exactly that until this test existed.
     ///
-    /// Scene files are found by content (an `entities:` list) rather than by
-    /// folder, because `net-2p-demo` keeps its two outside `assets/scenes`;
-    /// the other `.ron` files the games ship -- script graphs, shader graphs,
-    /// timelines -- have no entity list.
+    /// Which files: see [`super::checked_in_scene_files`].
     #[test]
     fn every_checked_in_scene_and_prefab_uses_only_known_keys() {
-        fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
-            for entry in std::fs::read_dir(dir).unwrap().flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    let name = path.file_name().unwrap().to_string_lossy();
-                    // Build output and packaged copies, not sources.
-                    if !matches!(
-                        name.as_ref(),
-                        "dist" | "dist-web" | "target" | ".bsengine_cache"
-                    ) {
-                        walk(&path, out);
-                    }
-                } else if path.extension().is_some_and(|e| e == "ron") {
-                    out.push(path);
-                }
-            }
-        }
-        let mut files = Vec::new();
-        walk(std::path::Path::new("../../games"), &mut files);
-
         let mut checked = 0;
         let mut problems = Vec::new();
-        for file in files {
-            let text = std::fs::read_to_string(&file).unwrap();
-            if !text.contains("entities:") {
-                continue;
-            }
+        for (file, text) in super::checked_in_scene_files() {
             let shown = file.display().to_string();
             let unknown = if shown.contains("prefab") {
                 parse_with_unknown_keys::<PrefabDescriptor>(&text).map(|(_, u)| u)

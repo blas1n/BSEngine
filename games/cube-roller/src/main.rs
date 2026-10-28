@@ -8,7 +8,7 @@
 
 use bevy_ecs::system::Local;
 use bsengine_app::{new_app, Startup, Update};
-use bsengine_core::{Camera, DirectionalLight, GlobalTransform, Time, Transform};
+use bsengine_core::{Camera, DirectionalLight, Time, Transform};
 use bsengine_ecs::{Commands, Component, Entity, IntoSystemConfigs, Query, Res, ResMut, With};
 use bsengine_input::{Input, InputPlugin, KeyCode};
 use bsengine_physics::{
@@ -66,7 +66,6 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
                 .into(),
             ..Default::default()
         },
-        GlobalTransform::default(),
     ));
 
     let Some(mut reg) = registry else { return };
@@ -82,7 +81,6 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
             rotation: Quat::IDENTITY.into(),
             scale: Vec3::new(20.0, 0.2, 20.0).into(),
         },
-        GlobalTransform::default(),
         RigidBody::fixed(),
         Collider::cuboid(10.0, 0.1, 10.0),
         PhysicsInput {
@@ -101,7 +99,6 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
             rotation: Quat::IDENTITY.into(),
             scale: Vec3::ONE.into(),
         },
-        GlobalTransform::default(),
         RigidBody {
             linear_damping: LINEAR_DAMPING,
             ..RigidBody::dynamic()
@@ -130,7 +127,6 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
                 rotation: Quat::IDENTITY.into(),
                 scale: Vec3::splat(0.4).into(),
             },
-            GlobalTransform::default(),
         ));
     }
 }

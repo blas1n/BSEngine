@@ -167,7 +167,7 @@ mod tests {
         for _ in 0..200 {
             app.update();
             let events = app.world().resource::<Events<CollisionEvent>>();
-            let mut reader = events.get_reader();
+            let mut reader = events.get_cursor();
             if reader.read(events).next().is_some() {
                 received = true;
                 break;

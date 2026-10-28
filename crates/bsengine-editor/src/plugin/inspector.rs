@@ -191,7 +191,7 @@ pub(super) fn apply_inspector_cmds(
                     // Started with the whole world in hand (the bake's
                     // resources), rather than by adding parameters to this
                     // system.
-                    commands.add(move |world: &mut bevy_ecs::world::World| {
+                    commands.queue(move |world: &mut bevy_ecs::world::World| {
                         super::lightmap_bake::start(world, path);
                     });
                 } else {

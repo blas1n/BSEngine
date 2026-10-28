@@ -8,8 +8,7 @@ use bevy_reflect::prelude::ReflectDefault;
 use bevy_reflect::Reflect;
 use bsengine_asset::{AssetGuid, AssetIndex};
 use bsengine_core::{
-    Camera, DirectionalLight, GlobalTransform, Material, PointLight, ProjectDir, SkyboxPath,
-    SpotLight, Transform,
+    Camera, DirectionalLight, Material, PointLight, ProjectDir, SkyboxPath, SpotLight, Transform,
 };
 use bsengine_gltf::GltfAsset;
 use glam::{Quat, Vec3};
@@ -621,7 +620,7 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                 rotation: rotation.into(),
                 scale: Vec3::from(t.scale).into(),
             };
-            builder.insert((transform, GlobalTransform::default()));
+            builder.insert(transform);
         }
 
         if let Some(gltf_path) = gltf_path {
@@ -673,14 +672,11 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                 .as_ref()
                 .map(|t| (Vec3::from(t.position), Vec3::from(t.scale)))
                 .unwrap_or((Vec3::ZERO, Vec3::ONE));
-            builder.insert((
-                Transform {
-                    position: translation.into(),
-                    rotation: rotation.into(),
-                    scale: scale.into(),
-                },
-                GlobalTransform::default(),
-            ));
+            builder.insert((Transform {
+                position: translation.into(),
+                rotation: rotation.into(),
+                scale: scale.into(),
+            },));
         }
 
         if let Some(pl) = &entity.point_light {
@@ -809,7 +805,7 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                                             ] {
                                                 if let Some(field) = s.field_mut(field_name) {
                                                     if let Some(path) =
-                                                        field.downcast_mut::<String>()
+                                                        field.try_downcast_mut::<String>()
                                                     {
                                                         *path = bsengine_core::resolve_project_path(
                                                             project_dir.as_ref(),
@@ -1440,7 +1436,7 @@ mod tests {
 
     #[test]
     fn every_reflect_wrapper_can_be_authored_in_a_scene() {
-        // `impl_reflect_value!` makes these opaque leaf types, and an opaque
+        // `impl_reflect_opaque!` makes these opaque leaf types, and an opaque
         // type can only be deserialized through `ReflectDeserialize`. Without
         // it the whole *containing component* comes back absent -- a warning in
         // the log, no error, and an entity quietly missing what the scene said
@@ -1512,6 +1508,140 @@ mod tests {
                 "{path} did not survive deserialization -- one of its fields is an                  opaque wrapper with no ReflectDeserialize"
             );
         }
+    }
+
+    #[test]
+    fn every_reflected_component_in_a_checked_in_scene_round_trips() {
+        // A reflected value that fails to deserialize is a warning and a
+        // missing component, never an error (see `spawn_scene_entities`), and
+        // a field the registry cannot place can come back *defaulted* rather
+        // than failed -- `AsmState.states` was silently emptied that way twice.
+        // So "the scene loads" is the easy side. The hard side is that
+        // everything a shipped file wrote is still there after deserialize ->
+        // insert -> reflect -> serialize, which is the path the engine loads
+        // through and the editor saves through.
+        //
+        // Written before the Bevy 0.15 upgrade, whose reflection changes how a
+        // single-field tuple struct is serialized and splits `Reflect` from
+        // `PartialReflect`: either can turn a value the files hold into one the
+        // registry no longer reads, with only a log line to say so.
+        use bevy_reflect::serde::{TypedReflectDeserializer, TypedReflectSerializer};
+        use serde::de::DeserializeSeed;
+
+        // `original` is contained in `round`: a key the file omitted may come
+        // back as its default; a key the file wrote must come back with the
+        // value it wrote. RON's `Value` drops enum variant names, which is
+        // why `NetworkId`'s three authorities are also covered by their own
+        // tests rather than only here.
+        fn contained(original: &ron::Value, round: &ron::Value, at: &str, out: &mut Vec<String>) {
+            match (original, round) {
+                (ron::Value::Map(a), ron::Value::Map(b)) => {
+                    for (k, v) in a.iter() {
+                        match b.iter().find(|(kb, _)| *kb == k) {
+                            Some((_, w)) => contained(v, w, &format!("{at}.{k:?}"), out),
+                            None => out.push(format!("{at}.{k:?} missing after the round trip")),
+                        }
+                    }
+                }
+                (ron::Value::Seq(a), ron::Value::Seq(b)) if a.len() == b.len() => {
+                    for (i, (v, w)) in a.iter().zip(b).enumerate() {
+                        contained(v, w, &format!("{at}[{i}]"), out);
+                    }
+                }
+                (ron::Value::Option(Some(a)), ron::Value::Option(Some(b))) => {
+                    contained(a, b, at, out)
+                }
+                (ron::Value::Number(a), ron::Value::Number(b)) => {
+                    if (a.into_f64() - b.into_f64()).abs() > 1e-6 {
+                        out.push(format!("{at}: {a:?} came back as {b:?}"));
+                    }
+                }
+                (a, b) if a == b => {}
+                (a, b) => out.push(format!("{at}: {a:?} came back as {b:?}")),
+            }
+        }
+
+        let mut app = new_app();
+        super::register_gameplay_reflect_types(&mut app);
+        // What the runtime's plugins register beyond the shared list --
+        // `TerrainPlugin`, `PhysicsPlugin`, `AudioPlugin` -- without building
+        // the plugins themselves, which want a renderer and an audio device.
+        // A shipped scene that names a type missing here fails below as "not
+        // registered", loudly, so this list cannot go stale quietly.
+        app.register_type::<crate::types::Terrain>();
+        app.register_type::<bsengine_physics::CharacterBody>();
+        app.register_type::<bsengine_audio::AudioListener>();
+        app.register_type::<bsengine_audio::AudioEmitter>();
+        app.register_type::<bsengine_audio::AudioOcclusion>();
+        let registry = app
+            .world()
+            .resource::<bevy_ecs::reflect::AppTypeRegistry>()
+            .clone();
+        let registry = registry.read();
+
+        let mut checked = 0;
+        let mut problems = Vec::new();
+        for (file, text) in crate::parse::checked_in_scene_files() {
+            let shown = file.display().to_string();
+            let entities = if shown.contains("prefab") {
+                ron::from_str::<crate::types::PrefabDescriptor>(&text).map(|p| p.entities)
+            } else {
+                ron::from_str::<crate::types::SceneDescriptor>(&text).map(|s| s.entities)
+            }
+            .unwrap_or_else(|e| panic!("{shown} does not parse: {e}"));
+            for entity in &entities {
+                for (path, value) in &entity.components {
+                    // Counted on the way in, so a value that fails below shows
+                    // up as the problem it is rather than as a short premise.
+                    checked += 1;
+                    let at = format!("{shown}: '{}' {path}", entity.name);
+                    let Some(registration) = registry.get_with_type_path(path) else {
+                        problems.push(format!("{at}: not registered for reflection"));
+                        continue;
+                    };
+                    let reflect_component = registration
+                        .data::<bevy_ecs::reflect::ReflectComponent>()
+                        .unwrap_or_else(|| panic!("{at}: no ReflectComponent"));
+                    let mut de = ron::de::Deserializer::from_str(value)
+                        .unwrap_or_else(|e| panic!("{at}: not RON: {e}"));
+                    let parsed = match TypedReflectDeserializer::new(registration, &registry)
+                        .deserialize(&mut de)
+                    {
+                        Ok(parsed) => parsed,
+                        Err(e) => {
+                            problems.push(format!("{at}: {e}"));
+                            continue;
+                        }
+                    };
+                    let world = app.world_mut();
+                    let id = world.spawn_empty().id();
+                    reflect_component.insert(&mut world.entity_mut(id), parsed.as_ref(), &registry);
+                    let back = reflect_component
+                        .reflect(world.entity(id))
+                        .unwrap_or_else(|| panic!("{at}: absent right after insert"));
+                    let written = ron::to_string(&TypedReflectSerializer::new(back, &registry))
+                        .unwrap_or_else(|e| panic!("{at}: does not serialize back: {e}"));
+                    world.despawn(id);
+                    let original: ron::Value = ron::from_str(value).unwrap();
+                    let round: ron::Value = ron::from_str(&written).unwrap_or_else(|e| {
+                        panic!("{at}: wrote RON it cannot read: {e}\n{written}")
+                    });
+                    contained(&original, &round, &at, &mut problems);
+                }
+            }
+        }
+        // 1,249 on 2026-10-28, across the shipped scenes and prefabs. Fewer
+        // means the walk or a descriptor lost them, and the empty problem list
+        // below would mean nothing.
+        assert!(
+            checked >= 1249,
+            "premise: only {checked} reflected values found"
+        );
+        assert!(
+            problems.is_empty(),
+            "reflected values a shipped scene writes that did not survive:\n{}",
+            problems.join("\n")
+        );
     }
 
     #[test]

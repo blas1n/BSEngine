@@ -80,7 +80,7 @@ mod tests {
         let events = app
             .world()
             .resource::<bevy_ecs::event::Events<bsengine_core::AnimationEventFired>>();
-        let mut reader = events.get_reader();
+        let mut reader = events.get_cursor();
         reader.read(events).map(|e| e.name.clone()).collect()
     }
 

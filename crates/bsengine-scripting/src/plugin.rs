@@ -696,7 +696,7 @@ fn adopt_script_source(
         "(function() {{\n{source}\nBsengine._scripts[\"{id}\"] = \
          {{ onUpdate: typeof onUpdate === 'function' ? onUpdate : null }};\n}})();"
     );
-    let mut entity_mut = world.get_entity_mut(entity)?;
+    let mut entity_mut = world.get_entity_mut(entity).ok()?;
     entity_mut.insert(Script { source });
     if let Some(mut load) = entity_mut.get_mut::<ScriptLoad>() {
         // A no-op on the ordinary path, where `execute_loaded_scripts` polled
@@ -774,9 +774,7 @@ fn adopt_script_source(
 fn reexecute_modified_scripts(
     world: &mut World,
     mut reader: Local<
-        bevy_ecs::event::ManualEventReader<
-            bevy_asset::AssetEvent<crate::script_asset::ScriptSource>,
-        >,
+        bevy_ecs::event::EventCursor<bevy_asset::AssetEvent<crate::script_asset::ScriptSource>>,
     >,
 ) {
     let changed: Vec<(bevy_asset::AssetId<crate::script_asset::ScriptSource>, bool)> = {
@@ -5640,7 +5638,7 @@ mod tests {
     #[test]
     fn reloading_a_resident_sound_replaces_it_rather_than_evicting_it() {
         use bevy_asset::{AssetEvent, AssetServer, Assets};
-        use bevy_ecs::event::{Events, ManualEventReader};
+        use bevy_ecs::event::{EventCursor, Events};
         use bsengine_audio::AudioSourceAsset;
 
         let dir =
@@ -5736,10 +5734,10 @@ mod tests {
              after it means anything"
         );
 
-        let mut reader: ManualEventReader<AssetEvent<AudioSourceAsset>> = app
+        let mut reader: EventCursor<AssetEvent<AudioSourceAsset>> = app
             .world_mut()
             .resource_mut::<Events<AssetEvent<AudioSourceAsset>>>()
-            .get_reader();
+            .get_cursor();
         // Discards the Added/LoadedWithDependencies of the original load, so
         // only what the reload itself emits is counted.
         {

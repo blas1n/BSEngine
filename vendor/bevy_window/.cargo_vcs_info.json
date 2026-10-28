@@ -1,6 +1,6 @@
 {
   "git": {
-    "sha1": "5c759a1be800209f537bea31d32b8ba7e966b0c1",
+    "sha1": "1030a99b8e2680a7e696d6433b79f5671768231c",
     "dirty": true
   },
   "path_in_vcs": "crates/bevy_window"

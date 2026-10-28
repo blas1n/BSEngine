@@ -404,15 +404,18 @@ fn apply_component_value_fixes_up_a_stale_entity_field_generation() {
     );
     assert_ne!(
         target,
-        bevy_ecs::prelude::Entity::from_raw(target.index()),
+        bevy_ecs::prelude::Entity::from_raw_u32(target.index())
+            .expect("an entity index from a live entity is never u32::MAX"),
         "test setup requires a nonzero generation to actually exercise the fixup"
     );
 
     let follower = app.world_mut().spawn(Name("Follower".to_string())).id();
     app.update();
 
-    let stale_follow =
-        bsengine_core::Follow::new(bevy_ecs::prelude::Entity::from_raw(target.index()));
+    let stale_follow = bsengine_core::Follow::new(
+        bevy_ecs::prelude::Entity::from_raw_u32(target.index())
+            .expect("an entity index from a live entity is never u32::MAX"),
+    );
     {
         let queue = app
             .world()
@@ -476,14 +479,16 @@ fn apply_component_value_fixes_up_stale_entity_generations_inside_array_and_map_
     );
     assert_ne!(
         target,
-        bevy_ecs::prelude::Entity::from_raw(target.index()),
+        bevy_ecs::prelude::Entity::from_raw_u32(target.index())
+            .expect("an entity index from a live entity is never u32::MAX"),
         "test setup requires a nonzero generation to actually exercise the fixup"
     );
 
     let holder = app.world_mut().spawn(Name("Holder".to_string())).id();
     app.update();
 
-    let stale = bevy_ecs::prelude::Entity::from_raw(target.index());
+    let stale = bevy_ecs::prelude::Entity::from_raw_u32(target.index())
+        .expect("an entity index from a live entity is never u32::MAX");
     let mut map = std::collections::HashMap::new();
     map.insert("target".to_string(), stale);
     let value = EntityCollections {

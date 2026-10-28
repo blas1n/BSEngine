@@ -13,7 +13,7 @@
 edition = "2024"
 rust-version = "1.85.0"
 name = "bevy_ptr"
-version = "0.16.1"
+version = "0.17.3"
 build = false
 autolib = false
 autobins = false
@@ -21,7 +21,7 @@ autoexamples = false
 autotests = false
 autobenches = false
 description = "Utilities for working with untyped pointers in a more safe way"
-homepage = "https://bevyengine.org"
+homepage = "https://bevy.org"
 readme = "README.md"
 keywords = [
     "bevy",
@@ -32,11 +32,11 @@ repository = "https://github.com/bevyengine/bevy"
 resolver = "2"
 
 [package.metadata.docs.rs]
-all-features = true
 rustdoc-args = [
     "-Zunstable-options",
     "--generate-link-to-definition",
 ]
+all-features = true
 
 [lib]
 name = "bevy_ptr"

@@ -13,6 +13,9 @@ For enums, you can either specify it on each variant, or on the enum as a whole.
 
 For variants that don't have a format specified, it will simply defer to the format of the
 inner variable. If there is no such variable, or there is more than 1, an error is generated.
+The only exception are unit variants, for these the name of the variant will be used if no
+format is specified. This can be controlled with the
+[`#[display(rename_all = "...")]` attribute](#The-`rename_all`-attribute).
 
 
 
@@ -33,7 +36,7 @@ once to get the address of the field itself, instead of the address of the
 reference to the field:
 
 ```rust
-# use derive_more::Display;
+# use derive_more::with_trait::Display;
 #
 #[derive(Display)]
 #[display("{field:p} {:p}", *field)]
@@ -44,12 +47,6 @@ struct RefInt<'a> {
 let a = &123;
 assert_eq!(format!("{}", RefInt{field: &a}), format!("{a:p} {:p}", a));
 ```
-
-For enums you can also specify a shared format on the enum itself instead of
-the variant. This format is used for each of the variants, and can be
-customized per variant by including the special `{_variant}` placeholder in
-this shared format, which is then replaced by the format string that's provided
-on the variant.
 
 
 ### Other formatting traits
@@ -107,7 +104,7 @@ Explicitly specified bounds are added to the inferred ones. Note how no `V: Disp
 because it's inferred already.
 
 ```rust
-# use derive_more::Display;
+# use derive_more::with_trait::Display;
 #
 # trait MyTrait { fn my_function(&self) -> i32; }
 #
@@ -177,6 +174,88 @@ struct MyOctalInt(i32);
 
 // and so, additional formatting parameters have no effect
 assert_eq!(format!("{:07}", MyOctalInt(9)), "11");
+```
+
+
+### Shared enum format
+
+Enums can have shared top-level `#[display("...", args...)]` attribute. Depending on its contents,
+it can act either as a default format or a wrapping one.
+
+#### Wrapping enum format
+
+To act as a wrapping format, the shared top-level `#[display("...", args...)]` attribute should
+contain at least one special `{_variant}` placeholder, which is then replaced by the format string
+that's provided (or inferred) on the variant.
+```rust
+# use derive_more::Display;
+#
+#[derive(Display)]
+#[display("Variant: {_variant} & {}", _variant)]
+enum Enum {
+    #[display("A {_0}")]
+    A(i32),
+    B { field: i32 },
+    #[display("c")]
+    C,
+}
+
+assert_eq!(Enum::A(1).to_string(), "Variant: A 1 & A 1");
+assert_eq!(Enum::B { field: 2 }.to_string(), "Variant: 2 & 2");
+assert_eq!(Enum::C.to_string(), "Variant: c & c");
+```
+
+#### Default enum format
+
+If the shared top-level `#[display("...", args...)]` attribute contains no `{_variant}` placeholders,
+then it acts as the default one for the variants without its own format.
+```rust
+# use derive_more::Display;
+#
+#[derive(Display)]
+#[display("Variant: {_0} & {}", _0)] // fields can be used too!
+enum Enum {
+    #[display("A {_0}")]
+    A(i32),
+    B(u32),
+    #[display("c")]
+    C,
+}
+
+assert_eq!(Enum::A(1).to_string(), "A 1");
+assert_eq!(Enum::B(2).to_string(), "Variant: 2 & 2");
+assert_eq!(Enum::C.to_string(), "c");
+```
+
+
+### The `rename_all` attribute
+
+When no format is specified, deriving `Display` uses the variant name verbatim as its format.
+To control this the `#[display(rename_all = "...")]` attribute can be placed on structs, enums and variants.
+
+The available casings are:
+- `lowercase`
+- `UPPERCASE`
+- `PascalCase`
+- `camelCase`
+- `snake_case`
+- `SCREAMING_SNAKE_CASE`
+- `kebab-case`
+- `SCREAMING-KEBAB-CASE`
+
+```rust
+# use derive_more::Display;
+#
+#[derive(Display)]
+#[display(rename_all = "lowercase")]
+enum Enum {
+    VariantOne,
+    #[display(rename_all = "kebab-case")] // overrides the top-level one
+    VariantTwo
+}
+
+assert_eq!(Enum::VariantOne.to_string(), "variantone");
+assert_eq!(Enum::VariantTwo.to_string(), "variant-two");
 ```
 
 

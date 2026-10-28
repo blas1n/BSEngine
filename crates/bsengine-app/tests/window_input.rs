@@ -1,5 +1,5 @@
 use bevy_app::Update;
-use bevy_ecs::event::{EventReader, Events};
+use bevy_ecs::message::{MessageReader, Messages};
 use bsengine_app::new_app;
 use bsengine_ecs::{ResMut, Resource};
 use bsengine_input::{ElementState, InputPlugin, KeyCode, KeyInput, MouseButton, MouseInput};
@@ -11,8 +11,8 @@ struct InputLog {
 }
 
 fn track_input(
-    mut events_key: EventReader<KeyInput>,
-    mut events_mouse: EventReader<MouseInput>,
+    mut events_key: MessageReader<KeyInput>,
+    mut events_mouse: MessageReader<MouseInput>,
     mut log: ResMut<InputLog>,
 ) {
     for ev in events_key.read() {
@@ -36,18 +36,18 @@ fn key_events_received_by_system() {
 
     // Manually send events (simulating winit input)
     {
-        let mut events = app.world_mut().resource_mut::<Events<KeyInput>>();
-        events.send(KeyInput {
+        let mut events = app.world_mut().resource_mut::<Messages<KeyInput>>();
+        events.write(KeyInput {
             key_code: KeyCode::W,
             state: ElementState::Pressed,
             text: None,
         });
-        events.send(KeyInput {
+        events.write(KeyInput {
             key_code: KeyCode::W,
             state: ElementState::Pressed,
             text: None,
         });
-        events.send(KeyInput {
+        events.write(KeyInput {
             key_code: KeyCode::S,
             state: ElementState::Pressed,
             text: None,
@@ -67,12 +67,12 @@ fn mouse_events_received_by_system() {
         .add_systems(Update, track_input);
 
     {
-        let mut events = app.world_mut().resource_mut::<Events<MouseInput>>();
-        events.send(MouseInput {
+        let mut events = app.world_mut().resource_mut::<Messages<MouseInput>>();
+        events.write(MouseInput {
             button: MouseButton::Left,
             state: ElementState::Pressed,
         });
-        events.send(MouseInput {
+        events.write(MouseInput {
             button: MouseButton::Right,
             state: ElementState::Pressed,
         }); // ignored
@@ -92,8 +92,8 @@ fn events_cleared_between_frames() {
 
     // Frame 1: send W
     {
-        let mut events = app.world_mut().resource_mut::<Events<KeyInput>>();
-        events.send(KeyInput {
+        let mut events = app.world_mut().resource_mut::<Messages<KeyInput>>();
+        events.write(KeyInput {
             key_code: KeyCode::W,
             state: ElementState::Pressed,
             text: None,

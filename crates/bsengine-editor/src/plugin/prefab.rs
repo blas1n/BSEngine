@@ -280,8 +280,7 @@ pub(super) fn process_prefab_commands(world: &mut World) {
         let resolved_path = bsengine_core::resolve_project_path(project_dir.as_ref(), &cmd.path);
         let parent_entity = cmd
             .parent_id
-            .and_then(|id| world.iter_entities().find(|e| e.id().index() as u64 == id))
-            .map(|e| e.id());
+            .and_then(|id| super::reflect::live_entity(world, id));
         let transform = bsengine_scene::TransformDescriptor {
             position: [cmd.x, cmd.y, cmd.z],
             ..Default::default()
@@ -317,11 +316,7 @@ pub(super) fn process_prefab_apply_commands(world: &mut World) {
         queue.drain(..).collect()
     };
     for cmd in cmds {
-        let Some(entity) = world
-            .iter_entities()
-            .find(|e| e.id().index() as u64 == cmd.entity_id)
-            .map(|e| e.id())
-        else {
+        let Some(entity) = super::reflect::live_entity(world, cmd.entity_id) else {
             tracing::warn!("apply-to-prefab: entity {} no longer exists", cmd.entity_id);
             continue;
         };

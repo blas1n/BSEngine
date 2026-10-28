@@ -176,7 +176,7 @@ struct Expansion<'a> {
     conversions: Option<attr::Conversion>,
 }
 
-impl<'a> ToTokens for Expansion<'a> {
+impl ToTokens for Expansion<'_> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let field_ty = &self.field.ty;
         let field_ident = self.field.ident.as_ref().map_or_else(
@@ -189,15 +189,7 @@ impl<'a> ToTokens for Expansion<'a> {
 
         let field_ref = quote! { & #mut_ self.#field_ident };
 
-        let generics_search = GenericsSearch {
-            types: self.generics.type_params().map(|p| &p.ident).collect(),
-            lifetimes: self
-                .generics
-                .lifetimes()
-                .map(|p| &p.lifetime.ident)
-                .collect(),
-            consts: self.generics.const_params().map(|p| &p.ident).collect(),
-        };
+        let generics_search = GenericsSearch::from(self.generics);
         let field_contains_generics = generics_search.any_in(field_ty);
 
         let is_blanket =
@@ -240,7 +232,7 @@ impl<'a> ToTokens for Expansion<'a> {
             };
 
             let trait_ty = quote! {
-                derive_more::#trait_ident <#return_ty>
+                derive_more::core::convert::#trait_ident <#return_ty>
             };
 
             let generics = match &impl_kind {
@@ -280,6 +272,8 @@ impl<'a> ToTokens for Expansion<'a> {
             };
 
             quote! {
+                #[allow(deprecated)] // omit warnings on deprecated fields/variants
+                #[allow(unreachable_code)] // omit warnings for `!` and other unreachable types
                 #[automatically_derived]
                 impl #impl_gens #trait_ty for #ty_ident #ty_gens #where_clause {
                     #[inline]

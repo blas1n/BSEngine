@@ -322,7 +322,8 @@ fn draw_leaf_ui(ui: &mut egui::Ui, value: &mut dyn PartialReflect, ctx: &Reflect
             ui.visuals().text_color(),
         );
         if let Some(dropped_id) = response.dnd_release_payload::<u64>() {
-            *entity = bevy_ecs::prelude::Entity::from_raw(*dropped_id as u32);
+            *entity = bevy_ecs::prelude::Entity::from_raw_u32(*dropped_id as u32)
+                .expect("an entity index from a live entity is never u32::MAX");
             changed = true;
         }
         egui::ComboBox::from_id_salt(picker_salt)
@@ -335,7 +336,8 @@ fn draw_leaf_ui(ui: &mut egui::Ui, value: &mut dyn PartialReflect, ctx: &Reflect
                         info.name.as_deref().unwrap_or("(unnamed)")
                     );
                     if ui.selectable_label(false, label).clicked() {
-                        *entity = bevy_ecs::prelude::Entity::from_raw(info.id as u32);
+                        *entity = bevy_ecs::prelude::Entity::from_raw_u32(info.id as u32)
+                            .expect("an entity index from a live entity is never u32::MAX");
                         changed = true;
                     }
                 }
@@ -1460,7 +1462,8 @@ mod tests {
 
             assert_eq!(
                 value.first,
-                bevy_ecs::prelude::Entity::from_raw(2),
+                bevy_ecs::prelude::Entity::from_raw_u32(2)
+                    .expect("an entity index from a live entity is never u32::MAX"),
                 "opening and selecting in `first`'s picker should set it to entity id 2 -- if \
                  this is still PLACEHOLDER, the click had no effect, which is exactly the \
                  symptom of the sibling-id-collision bug (both fields' picker ComboBoxes \
@@ -1503,7 +1506,8 @@ mod tests {
 
             assert_eq!(
                 value.second,
-                bevy_ecs::prelude::Entity::from_raw(2),
+                bevy_ecs::prelude::Entity::from_raw_u32(2)
+                    .expect("an entity index from a live entity is never u32::MAX"),
                 "opening and selecting in `second`'s picker should set it to entity id 2"
             );
             assert_eq!(

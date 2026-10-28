@@ -1,4 +1,4 @@
-use bsengine_ecs::{Event, Resource};
+use bsengine_ecs::{Message, Resource};
 use std::sync::Arc;
 use winit::window::Window;
 
@@ -31,7 +31,7 @@ impl Default for WindowDescriptor {
 }
 
 /// Fired whenever the OS window is resized, with the new dimensions.
-#[derive(Event, Debug, Clone)]
+#[derive(Message, Debug, Clone)]
 pub struct WindowResized {
     /// New window width, in physical pixels.
     pub width: u32,
@@ -40,11 +40,11 @@ pub struct WindowResized {
 }
 
 /// Fired once the OS window has been created and its handle inserted as a resource.
-#[derive(Event, Debug, Clone)]
+#[derive(Message, Debug, Clone)]
 pub struct WindowCreated;
 
 /// Fired when the user requests the window be closed (e.g. clicking the close button).
-#[derive(Event, Debug, Clone)]
+#[derive(Message, Debug, Clone)]
 pub struct WindowClosed;
 
 /// What the first frame has to wait for, where it cannot be had at once.

@@ -12,7 +12,7 @@
 [package]
 edition = "2024"
 name = "bevy_asset_macros"
-version = "0.16.1"
+version = "0.17.3"
 build = false
 autolib = false
 autobins = false
@@ -20,7 +20,7 @@ autoexamples = false
 autotests = false
 autobenches = false
 description = "Derive implementations for bevy_asset"
-homepage = "https://bevyengine.org"
+homepage = "https://bevy.org"
 readme = false
 keywords = ["bevy"]
 license = "MIT OR Apache-2.0"
@@ -28,11 +28,11 @@ repository = "https://github.com/bevyengine/bevy"
 resolver = "2"
 
 [package.metadata.docs.rs]
-all-features = true
 rustdoc-args = [
     "-Zunstable-options",
     "--generate-link-to-definition",
 ]
+all-features = true
 
 [lib]
 name = "bevy_asset_macros"
@@ -40,7 +40,7 @@ path = "src/lib.rs"
 proc-macro = true
 
 [dependencies.bevy_macro_utils]
-version = "0.16.1"
+version = "0.17.3"
 
 [dependencies.proc-macro2]
 version = "1.0"

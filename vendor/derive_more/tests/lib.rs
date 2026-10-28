@@ -1,4 +1,12 @@
 #![cfg_attr(not(feature = "std"), no_std)]
+#![allow(dead_code)] // some code is tested for type checking only
+
+#[cfg(not(feature = "std"))]
+#[macro_use]
+extern crate alloc;
+
+#[cfg(not(feature = "std"))]
+use alloc::{boxed::Box, string::ToString as _, vec::Vec};
 
 use derive_more::{
     Add, AddAssign, Binary, BitAnd, BitOr, BitXor, Constructor, Deref, DerefMut,

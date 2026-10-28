@@ -105,7 +105,7 @@ pub fn apply(world: &mut bevy_ecs::world::World, scene_path: &str, scene_text: &
         );
     }
     let mut by_name = std::collections::HashMap::new();
-    for entity in world.iter_entities() {
+    for entity in world.query::<bevy_ecs::world::EntityRef>().iter(world) {
         if let Some(name) = entity.get::<crate::Name>() {
             by_name.insert(name.0.clone(), entity.id());
         }

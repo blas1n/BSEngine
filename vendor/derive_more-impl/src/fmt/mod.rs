@@ -11,7 +11,9 @@ mod parsing;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, ToTokens};
 use syn::{
+    ext::IdentExt as _,
     parse::{Parse, ParseStream},
+    parse_quote,
     punctuated::Punctuated,
     spanned::Spanned as _,
     token,
@@ -140,7 +142,7 @@ impl FmtAttribute {
     /// Checks whether this [`FmtAttribute`] can be replaced with a transparent delegation (calling
     /// a formatting trait directly instead of interpolation syntax).
     ///
-    /// If such transparent call is possible, the returns an [`Ident`] of the delegated trait and
+    /// If such transparent call is possible, then returns an [`Ident`] of the delegated trait and
     /// the [`Expr`] to pass into the call, otherwise [`None`].
     ///
     /// [`Ident`]: struct@syn::Ident
@@ -198,6 +200,30 @@ impl FmtAttribute {
         Some((expr, format_ident!("{trait_name}")))
     }
 
+    /// Same as [`transparent_call()`], but additionally checks the returned [`Expr`] whether it's
+    /// one of the [`fmt_args_idents`] of the provided [`syn::Fields`], and makes it suitable for
+    /// passing directly into the transparent call of the delegated formatting trait.
+    ///
+    /// [`fmt_args_idents`]: FieldsExt::fmt_args_idents
+    /// [`transparent_call()`]: FmtAttribute::transparent_call
+    fn transparent_call_on_fields(
+        &self,
+        fields: &syn::Fields,
+    ) -> Option<(Expr, syn::Ident)> {
+        self.transparent_call().map(|(expr, trait_ident)| {
+            let expr = if let Some(field) = fields
+                .fmt_args_idents()
+                .find(|field| expr == *field || expr == field.unraw())
+            {
+                field.into()
+            } else {
+                parse_quote! { &(#expr) }
+            };
+
+            (expr, trait_ident)
+        })
+    }
+
     /// Returns an [`Iterator`] over bounded [`syn::Type`]s (and correspondent trait names) by this
     /// [`FmtAttribute`].
     fn bounded_types<'a>(
@@ -228,7 +254,10 @@ impl FmtAttribute {
                     f.unnamed.iter().nth(i).map(|f| &f.ty)
                 }
                 (syn::Fields::Named(f), None) => f.named.iter().find_map(|f| {
-                    f.ident.as_ref().filter(|s| **s == name).map(|_| &f.ty)
+                    f.ident
+                        .as_ref()
+                        .filter(|s| s.unraw() == name)
+                        .map(|_| &f.ty)
                 }),
                 _ => None,
             }?;
@@ -277,7 +306,9 @@ impl FmtAttribute {
 
     /// Returns an [`Iterator`] over the additional formatting arguments doing the dereferencing
     /// replacement in this [`FmtAttribute`] for those [`Placeholder`] representing the provided
-    /// [`syn::Fields`] and requiring it
+    /// [`syn::Fields`] and requiring it ([`fmt::Pointer`] ones).
+    ///
+    /// [`fmt::Pointer`]: std::fmt::Pointer
     fn additional_deref_args<'fmt: 'ret, 'fields: 'ret, 'ret>(
         &'fmt self,
         fields: &'fields syn::Fields,
@@ -285,15 +316,17 @@ impl FmtAttribute {
         let used_args = Placeholder::parse_fmt_string(&self.lit.value())
             .into_iter()
             .filter_map(|placeholder| match placeholder.arg {
-                Parameter::Named(name) => Some(name),
+                Parameter::Named(name) if placeholder.trait_name == "Pointer" => {
+                    Some(name)
+                }
                 _ => None,
             })
             .collect::<Vec<_>>();
 
         fields.fmt_args_idents().filter_map(move |field_name| {
-            (used_args.iter().any(|arg| field_name == arg)
+            (used_args.iter().any(|arg| field_name.unraw() == arg)
                 && !self.args.iter().any(|arg| {
-                    arg.alias.as_ref().map_or(false, |(n, _)| n == &field_name)
+                    arg.alias.as_ref().is_some_and(|(n, _)| n == &field_name)
                 }))
             .then(|| quote! { #field_name = *#field_name })
         })
@@ -569,7 +602,7 @@ impl ContainsGenericsExt for syn::Type {
                 }
 
                 if let Some(ident) = path.get_ident() {
-                    type_params.iter().any(|param| *param == ident)
+                    type_params.contains(&ident)
                 } else {
                     path.contains_generics(type_params)
                 }
@@ -632,8 +665,12 @@ impl ContainsGenericsExt for syn::Path {
         }
         self.segments
             .iter()
-            .any(|segment| match &segment.arguments {
-                syn::PathArguments::None => false,
+            .enumerate()
+            .any(|(n, segment)| match &segment.arguments {
+                syn::PathArguments::None => {
+                    // `TypeParam::AssocType` case.
+                    (n == 0) && type_params.contains(&&segment.ident)
+                }
                 syn::PathArguments::AngleBracketed(
                     syn::AngleBracketedGenericArguments { args, .. },
                 ) => args.iter().any(|generic| match generic {
@@ -691,7 +728,7 @@ mod fmt_attribute_spec {
 
     fn assert<'a>(input: &'a str, parsed: impl AsRef<[&'a str]>) {
         let parsed = parsed.as_ref();
-        let attr = syn::parse_str::<FmtAttribute>(&format!("\"\", {}", input)).unwrap();
+        let attr = syn::parse_str::<FmtAttribute>(&format!("\"\", {input}")).unwrap();
         let fmt_args = attr
             .args
             .into_iter()

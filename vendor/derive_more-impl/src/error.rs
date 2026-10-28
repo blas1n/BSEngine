@@ -40,8 +40,8 @@ pub fn expand(
         // Not using `#[inline]` here on purpose, since this is almost never part
         // of a hot codepath.
         quote! {
-            fn source(&self) -> Option<&(dyn derive_more::Error + 'static)> {
-                use derive_more::__private::AsDynError;
+            fn source(&self) -> Option<&(dyn derive_more::core::error::Error + 'static)> {
+                use derive_more::__private::AsDynError as _;
                 #source
             }
         }
@@ -82,7 +82,7 @@ pub fn expand(
                 where #(
                     #bounds: derive_more::core::fmt::Debug
                              + derive_more::core::fmt::Display
-                             + derive_more::Error
+                             + derive_more::core::error::Error
                              + 'static
                 ),*
             },
@@ -93,7 +93,7 @@ pub fn expand(
 
     let render = quote! {
         #[automatically_derived]
-        impl #impl_generics derive_more::Error for #ident #ty_generics #where_clause {
+        impl #impl_generics derive_more::core::error::Error for #ident #ty_generics #where_clause {
             #source
             #provide
         }
@@ -109,7 +109,9 @@ fn render_struct(
     let parsed_fields = parse_fields(type_params, state)?;
 
     let source = parsed_fields.render_source_as_struct();
-    let provide = parsed_fields.render_provide_as_struct();
+    let provide = cfg!(error_generic_member_access)
+        .then(|| parsed_fields.render_provide_as_struct())
+        .flatten();
 
     Ok((parsed_fields.bounds, source, provide))
 }
@@ -175,7 +177,7 @@ fn allowed_attr_params() -> AttrParams {
         enum_: vec!["ignore"],
         struct_: vec!["ignore"],
         variant: vec!["ignore"],
-        field: vec!["ignore", "source", "backtrace"],
+        field: vec!["ignore", "source", "optional", "backtrace"],
     }
 }
 
@@ -197,17 +199,23 @@ impl<'input, 'state> ParsedFields<'input, 'state> {
     }
 }
 
-impl<'input, 'state> ParsedFields<'input, 'state> {
+impl ParsedFields<'_, '_> {
     fn render_source_as_struct(&self) -> Option<TokenStream> {
         let source = self.source?;
         let ident = &self.data.members[source];
-        Some(render_some(quote! { #ident }))
+        let is_optional = self.data.infos[source].info.source_optional == Some(true)
+            || self.data.field_types[source].is_option();
+
+        Some(render_some(quote! { (&#ident) }, is_optional))
     }
 
     fn render_source_as_enum_variant_match_arm(&self) -> Option<TokenStream> {
         let source = self.source?;
         let pattern = self.data.matcher(&[source], &[quote! { source }]);
-        let expr = render_some(quote! { source });
+        let is_optional = self.data.infos[source].info.source_optional == Some(true)
+            || self.data.field_types[source].is_option();
+
+        let expr = render_some(quote! { source }, is_optional);
         Some(quote! { #pattern => #expr })
     }
 
@@ -217,7 +225,7 @@ impl<'input, 'state> ParsedFields<'input, 'state> {
         let source_provider = self.source.map(|source| {
             let source_expr = &self.data.members[source];
             quote! {
-                derive_more::Error::provide(&#source_expr, request);
+                derive_more::core::error::Error::provide(&#source_expr, request);
             }
         });
         let backtrace_provider = self
@@ -247,7 +255,7 @@ impl<'input, 'state> ParsedFields<'input, 'state> {
                 let pattern = self.data.matcher(&[source], &[quote! { source }]);
                 Some(quote! {
                     #pattern => {
-                        derive_more::Error::provide(source, request);
+                        derive_more::core::error::Error::provide(source, request);
                     }
                 })
             }
@@ -259,7 +267,7 @@ impl<'input, 'state> ParsedFields<'input, 'state> {
                 Some(quote! {
                     #pattern => {
                         request.provide_ref::<::std::backtrace::Backtrace>(backtrace);
-                        derive_more::Error::provide(source, request);
+                        derive_more::core::error::Error::provide(source, request);
                     }
                 })
             }
@@ -275,11 +283,11 @@ impl<'input, 'state> ParsedFields<'input, 'state> {
     }
 }
 
-fn render_some<T>(expr: T) -> TokenStream
-where
-    T: quote::ToTokens,
-{
-    quote! { Some(#expr.as_dyn_error()) }
+fn render_some(mut expr: TokenStream, unpack: bool) -> TokenStream {
+    if unpack {
+        expr = quote! { derive_more::core::option::Option::as_ref(#expr)? }
+    }
+    quote! { Some(#expr.__derive_more_as_dyn_error()) }
 }
 
 fn parse_fields<'input, 'state>(
@@ -328,10 +336,15 @@ fn parse_fields<'input, 'state>(
     }?;
 
     if let Some(source) = parsed_fields.source {
+        let is_optional = parsed_fields.data.infos[source].info.source_optional
+            == Some(true)
+            || state.fields[source].ty.is_option();
+
         add_bound_if_type_parameter_used_in_type(
             &mut parsed_fields.bounds,
             type_params,
             &state.fields[source].ty,
+            is_optional,
         );
     }
 
@@ -486,8 +499,63 @@ fn add_bound_if_type_parameter_used_in_type(
     bounds: &mut HashSet<syn::Type>,
     type_params: &HashSet<syn::Ident>,
     ty: &syn::Type,
+    unpack: bool,
 ) {
     if let Some(ty) = utils::get_if_type_parameter_used_in_type(type_params, ty) {
-        bounds.insert(ty);
+        bounds.insert(
+            unpack
+                .then(|| ty.get_inner())
+                .flatten()
+                .cloned()
+                .unwrap_or(ty),
+        );
+    }
+}
+
+/// Extension of a [`syn::Type`] used by this expansion.
+trait TypeExt {
+    /// Checks syntactically whether this [`syn::Type`] represents an [`Option`].
+    fn is_option(&self) -> bool;
+
+    /// Returns the inner [`syn::Type`] if this one represents a wrapper.
+    ///
+    /// `filter` filters out this [`syn::Type`] by its name.
+    fn get_inner_if(&self, filter: impl Fn(&syn::Ident) -> bool) -> Option<&Self>;
+
+    /// Returns the inner [`syn::Type`] if this one represents a wrapper.
+    fn get_inner(&self) -> Option<&Self> {
+        self.get_inner_if(|_| true)
+    }
+
+    /// Returns the inner [`syn::Type`] if this one represents an [`Option`].
+    fn get_option_inner(&self) -> Option<&Self> {
+        self.get_inner_if(|ident| ident == "Option")
+    }
+}
+
+impl TypeExt for syn::Type {
+    fn is_option(&self) -> bool {
+        self.get_option_inner().is_some()
+    }
+
+    fn get_inner_if(&self, filter: impl Fn(&syn::Ident) -> bool) -> Option<&Self> {
+        match self {
+            Self::Group(g) => g.elem.get_option_inner(),
+            Self::Paren(p) => p.elem.get_option_inner(),
+            Self::Path(p) => p
+                .path
+                .segments
+                .last()
+                .filter(|s| filter(&s.ident))
+                .and_then(|s| {
+                    if let syn::PathArguments::AngleBracketed(a) = &s.arguments {
+                        if let Some(syn::GenericArgument::Type(ty)) = a.args.first() {
+                            return Some(ty);
+                        }
+                    }
+                    None
+                }),
+            _ => None,
+        }
     }
 }

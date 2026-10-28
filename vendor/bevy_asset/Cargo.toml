@@ -12,7 +12,7 @@
 [package]
 edition = "2024"
 name = "bevy_asset"
-version = "0.16.1"
+version = "0.17.3"
 build = false
 autolib = false
 autobins = false
@@ -20,7 +20,7 @@ autoexamples = false
 autotests = false
 autobenches = false
 description = "Provides asset functionality for Bevy Engine"
-homepage = "https://bevyengine.org"
+homepage = "https://bevy.org"
 readme = "README.md"
 keywords = ["bevy"]
 license = "MIT OR Apache-2.0"
@@ -28,11 +28,11 @@ repository = "https://github.com/bevyengine/bevy"
 resolver = "2"
 
 [package.metadata.docs.rs]
-all-features = true
 rustdoc-args = [
     "-Zunstable-options",
     "--generate-link-to-definition",
 ]
+all-features = true
 
 [features]
 asset_processor = []
@@ -40,10 +40,21 @@ embedded_watcher = ["file_watcher"]
 file_watcher = [
     "notify-debouncer-full",
     "watch",
+    "multi_threaded",
+]
+http = [
+    "blocking",
+    "ureq",
+]
+https = [
+    "blocking",
+    "ureq",
+    "ureq/rustls",
 ]
 multi_threaded = ["bevy_tasks/multi_threaded"]
 trace = []
 watch = []
+web_asset_cache = []
 
 [lib]
 name = "bevy_asset"
@@ -51,71 +62,89 @@ path = "src/lib.rs"
 
 [dependencies.async-broadcast]
 version = "0.7.2"
+default-features = false
 
 [dependencies.async-fs]
 version = "2.0"
+default-features = false
 
 [dependencies.async-lock]
 version = "3.0"
+default-features = false
 
 [dependencies.atomicow]
-version = "1.0"
+version = "1.1"
+features = ["std"]
+default-features = false
 
 [dependencies.bevy_app]
-version = "0.16.1"
+version = "0.17.3"
+features = ["bevy_reflect"]
+default-features = false
 
 [dependencies.bevy_asset_macros]
-version = "0.16.1"
+version = "0.17.3"
 
 [dependencies.bevy_ecs]
-version = "0.16.1"
+version = "0.17.3"
+default-features = false
 
 [dependencies.bevy_platform]
-version = "0.16.1"
+version = "0.17.3"
 features = ["std"]
 default-features = false
 
 [dependencies.bevy_reflect]
-version = "0.16.1"
+version = "0.17.3"
 features = ["uuid"]
+default-features = false
 
 [dependencies.bevy_tasks]
-version = "0.16.1"
+version = "0.17.3"
+features = ["async_executor"]
+default-features = false
 
 [dependencies.bevy_utils]
-version = "0.16.1"
+version = "0.17.3"
+default-features = false
 
 [dependencies.bitflags]
 version = "2.3"
-features = ["serde"]
+default-features = false
 
 [dependencies.blake3]
 version = "1.5"
+default-features = false
 
 [dependencies.crossbeam-channel]
 version = "0.5"
+features = ["std"]
+default-features = false
 
 [dependencies.derive_more]
-version = "1"
+version = "2"
 features = ["from"]
 default-features = false
 
 [dependencies.disqualified]
 version = "1.0"
+default-features = false
 
 [dependencies.downcast-rs]
 version = "2"
-features = ["std"]
 default-features = false
 
 [dependencies.either]
 version = "1.13"
+default-features = false
 
 [dependencies.futures-io]
 version = "0.3"
+default-features = false
 
 [dependencies.futures-lite]
 version = "2.0.1"
+default-features = false
 
 [dependencies.parking_lot]
 version = "0.12"
@@ -123,16 +152,20 @@ features = [
     "arc_lock",
     "send_guard",
 ]
+default-features = false
 
 [dependencies.ron]
-version = "0.8"
+version = "0.10"
+default-features = false
 
 [dependencies.serde]
 version = "1"
 features = ["derive"]
+default-features = false
 
 [dependencies.stackfuture]
 version = "0.3"
+default-features = false
 
 [dependencies.thiserror]
 version = "2"
@@ -140,29 +173,40 @@ default-features = false
 
 [dependencies.tracing]
 version = "0.1"
-features = ["std"]
 default-features = false
 
 [dependencies.uuid]
 version = "1.13.1"
-features = ["v4"]
+features = [
+    "v4",
+    "serde",
+]
+default-features = false
+
+[dev-dependencies.async-channel]
+version = "2"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies.blocking]
+version = "1.6"
+optional = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.notify-debouncer-full]
 version = "0.5.0"
 optional = true
+default-features = false
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies.ureq]
+version = "3"
+optional = true
+default-features = false
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.bevy_app]
-version = "0.16.1"
+version = "0.17.3"
 features = ["web"]
 default-features = false
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.bevy_reflect]
-version = "0.16.1"
-features = ["web"]
-default-features = false
-
-[target.'cfg(target_arch = "wasm32")'.dependencies.bevy_tasks]
-version = "0.16.1"
+version = "0.17.3"
 features = ["web"]
 default-features = false
 
@@ -188,8 +232,9 @@ features = [
     "WorkerGlobalScope",
 ]
 
-[target.'cfg(target_os = "android")'.dependencies.bevy_window]
-version = "0.16.1"
+[target.'cfg(target_os = "android")'.dependencies.bevy_android]
+version = "0.17.3"
+default-features = false
 
 [lints.clippy]
 alloc_instead_of_core = "warn"

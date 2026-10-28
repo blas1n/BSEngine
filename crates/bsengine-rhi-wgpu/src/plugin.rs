@@ -2,7 +2,7 @@ use crate::mesh::GpuMeshRegistry;
 use crate::surface::{WgpuSurface, WgpuSurfaceResource};
 use crate::texture::GpuTextureRegistry;
 use bevy_app::{App, Plugin, Startup, Update};
-use bevy_ecs::prelude::{EventReader, ResMut, World};
+use bevy_ecs::prelude::{MessageReader, ResMut, World};
 use bsengine_ecs::Resource;
 use bsengine_window::{WindowHandle, WindowResized};
 use std::sync::Arc;
@@ -68,7 +68,7 @@ impl WgpuRHIPlugin {
 
 impl Plugin for WgpuRHIPlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<WindowResized>();
+        app.add_message::<WindowResized>();
         let mode = self.0;
         app.add_systems(Startup, move |world: &mut World| {
             create_surface_system(world, mode)
@@ -235,7 +235,7 @@ fn install_surface(world: &mut World, surface: WgpuSurface) {
 }
 
 fn handle_window_resize(
-    mut events: EventReader<WindowResized>,
+    mut events: MessageReader<WindowResized>,
     surface: Option<ResMut<WgpuSurfaceResource>>,
 ) {
     let Some(mut surface) = surface else {

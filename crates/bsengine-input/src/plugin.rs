@@ -1,5 +1,5 @@
 use bevy_app::{App, Plugin, PreUpdate};
-use bevy_ecs::prelude::{EventReader, NonSendMut, ResMut, Resource, SystemSet};
+use bevy_ecs::prelude::{MessageReader, NonSendMut, ResMut, Resource, SystemSet};
 use bsengine_ecs::IntoScheduleConfigs;
 
 use crate::{
@@ -42,11 +42,11 @@ pub struct InputSystems;
 
 impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<KeyInput>()
-            .add_event::<MouseInput>()
-            .add_event::<CursorMoved>()
-            .add_event::<MouseMotion>()
-            .add_event::<MouseWheel>()
+        app.add_message::<KeyInput>()
+            .add_message::<MouseInput>()
+            .add_message::<CursorMoved>()
+            .add_message::<MouseMotion>()
+            .add_message::<MouseWheel>()
             .insert_resource(Input::<KeyCode>::default())
             .insert_resource(Input::<MouseButton>::default())
             .insert_resource(Input::<GamepadButton>::default())
@@ -160,7 +160,7 @@ fn map_gilrs_button(btn: gilrs::Button) -> Option<GamepadButton> {
     }
 }
 
-fn update_keyboard_state(mut keys: ResMut<Input<KeyCode>>, mut events: EventReader<KeyInput>) {
+fn update_keyboard_state(mut keys: ResMut<Input<KeyCode>>, mut events: MessageReader<KeyInput>) {
     for ev in events.read() {
         match ev.state {
             ElementState::Pressed => keys.press(ev.key_code),
@@ -171,7 +171,7 @@ fn update_keyboard_state(mut keys: ResMut<Input<KeyCode>>, mut events: EventRead
 
 fn update_mouse_button_state(
     mut buttons: ResMut<Input<MouseButton>>,
-    mut events: EventReader<MouseInput>,
+    mut events: MessageReader<MouseInput>,
 ) {
     for ev in events.read() {
         match ev.state {
@@ -183,8 +183,8 @@ fn update_mouse_button_state(
 
 fn update_mouse_position_state(
     mut mouse_state: ResMut<MouseState>,
-    mut cursor_events: EventReader<CursorMoved>,
-    mut motion_events: EventReader<MouseMotion>,
+    mut cursor_events: MessageReader<CursorMoved>,
+    mut motion_events: MessageReader<MouseMotion>,
 ) {
     mouse_state.delta = (0.0, 0.0);
     for ev in cursor_events.read() {
@@ -198,7 +198,7 @@ fn update_mouse_position_state(
 
 fn update_scroll_state(
     mut mouse_state: ResMut<MouseState>,
-    mut wheel_events: EventReader<MouseWheel>,
+    mut wheel_events: MessageReader<MouseWheel>,
 ) {
     for ev in wheel_events.read() {
         mouse_state.scroll_delta += ev.delta;
@@ -211,35 +211,41 @@ mod tests {
         state::Input, CursorMoved, ElementState, GamepadButton, GamepadSticks, InputPlugin,
         KeyCode, KeyInput, MouseButton, MouseInput, MouseMotion, MouseState,
     };
-    use bevy_ecs::event::Events;
+    use bevy_ecs::message::Messages;
     use bsengine_app::new_app;
 
     #[test]
     fn input_plugin_registers_key_events() {
         let mut app = new_app();
         app.add_plugins(InputPlugin);
-        assert!(app.world().get_resource::<Events<KeyInput>>().is_some());
+        assert!(app.world().get_resource::<Messages<KeyInput>>().is_some());
     }
 
     #[test]
     fn input_plugin_registers_mouse_events() {
         let mut app = new_app();
         app.add_plugins(InputPlugin);
-        assert!(app.world().get_resource::<Events<MouseInput>>().is_some());
+        assert!(app.world().get_resource::<Messages<MouseInput>>().is_some());
     }
 
     #[test]
     fn input_plugin_registers_cursor_events() {
         let mut app = new_app();
         app.add_plugins(InputPlugin);
-        assert!(app.world().get_resource::<Events<CursorMoved>>().is_some());
+        assert!(app
+            .world()
+            .get_resource::<Messages<CursorMoved>>()
+            .is_some());
     }
 
     #[test]
     fn input_plugin_registers_mouse_motion_events() {
         let mut app = new_app();
         app.add_plugins(InputPlugin);
-        assert!(app.world().get_resource::<Events<MouseMotion>>().is_some());
+        assert!(app
+            .world()
+            .get_resource::<Messages<MouseMotion>>()
+            .is_some());
     }
 
     #[test]
@@ -248,8 +254,8 @@ mod tests {
         app.add_plugins(InputPlugin);
 
         app.world_mut()
-            .resource_mut::<Events<KeyInput>>()
-            .send(KeyInput {
+            .resource_mut::<Messages<KeyInput>>()
+            .write(KeyInput {
                 key_code: KeyCode::W,
                 state: ElementState::Pressed,
                 text: None,
@@ -268,8 +274,8 @@ mod tests {
         app.add_plugins(InputPlugin);
 
         app.world_mut()
-            .resource_mut::<Events<KeyInput>>()
-            .send(KeyInput {
+            .resource_mut::<Messages<KeyInput>>()
+            .write(KeyInput {
                 key_code: KeyCode::Space,
                 state: ElementState::Pressed,
                 text: None,
@@ -289,8 +295,8 @@ mod tests {
         app.add_plugins(InputPlugin);
 
         app.world_mut()
-            .resource_mut::<Events<KeyInput>>()
-            .send(KeyInput {
+            .resource_mut::<Messages<KeyInput>>()
+            .write(KeyInput {
                 key_code: KeyCode::A,
                 state: ElementState::Pressed,
                 text: None,
@@ -298,8 +304,8 @@ mod tests {
         app.update();
 
         app.world_mut()
-            .resource_mut::<Events<KeyInput>>()
-            .send(KeyInput {
+            .resource_mut::<Messages<KeyInput>>()
+            .write(KeyInput {
                 key_code: KeyCode::A,
                 state: ElementState::Released,
                 text: None,
@@ -317,8 +323,8 @@ mod tests {
         app.add_plugins(InputPlugin);
 
         app.world_mut()
-            .resource_mut::<Events<MouseInput>>()
-            .send(MouseInput {
+            .resource_mut::<Messages<MouseInput>>()
+            .write(MouseInput {
                 button: MouseButton::Left,
                 state: ElementState::Pressed,
             });
@@ -335,11 +341,11 @@ mod tests {
         app.add_plugins(InputPlugin);
 
         app.world_mut()
-            .resource_mut::<Events<MouseMotion>>()
-            .send(MouseMotion { dx: 3.0, dy: -2.0 });
+            .resource_mut::<Messages<MouseMotion>>()
+            .write(MouseMotion { dx: 3.0, dy: -2.0 });
         app.world_mut()
-            .resource_mut::<Events<MouseMotion>>()
-            .send(MouseMotion { dx: 1.0, dy: 1.0 });
+            .resource_mut::<Messages<MouseMotion>>()
+            .write(MouseMotion { dx: 1.0, dy: 1.0 });
 
         app.update();
 
@@ -354,8 +360,8 @@ mod tests {
         app.add_plugins(InputPlugin);
 
         app.world_mut()
-            .resource_mut::<Events<MouseMotion>>()
-            .send(MouseMotion { dx: 5.0, dy: 5.0 });
+            .resource_mut::<Messages<MouseMotion>>()
+            .write(MouseMotion { dx: 5.0, dy: 5.0 });
         app.update();
         app.update(); // no new events
 
@@ -369,8 +375,8 @@ mod tests {
         app.add_plugins(InputPlugin);
 
         app.world_mut()
-            .resource_mut::<Events<CursorMoved>>()
-            .send(CursorMoved { x: 100.0, y: 200.0 });
+            .resource_mut::<Messages<CursorMoved>>()
+            .write(CursorMoved { x: 100.0, y: 200.0 });
 
         app.update();
 

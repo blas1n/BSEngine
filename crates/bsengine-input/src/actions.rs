@@ -783,7 +783,7 @@ pub(crate) fn update_action_state(
 mod tests {
     use super::*;
     use crate::{ElementState, InputPlugin, KeyInput};
-    use bevy_ecs::event::Events;
+    use bevy_ecs::message::Messages;
     use bsengine_app::new_app;
 
     fn config(pairs: &[(&str, &[&str])]) -> BTreeMap<String, Vec<String>> {
@@ -883,8 +883,8 @@ mod tests {
 
     fn key(app: &mut bevy_app::App, code: KeyCode, state: ElementState) {
         app.world_mut()
-            .resource_mut::<Events<KeyInput>>()
-            .send(KeyInput {
+            .resource_mut::<Messages<KeyInput>>()
+            .write(KeyInput {
                 key_code: code,
                 state,
                 text: None,

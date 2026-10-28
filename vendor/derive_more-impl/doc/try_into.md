@@ -95,48 +95,48 @@ Code like this will be generated:
 #     UnsignedOne(u32),
 #     UnsignedTwo(u32),
 # }
-impl derive_more::TryFrom<MixedInts> for (i32) {
-    type Error = &'static str;
-    fn try_from(value: MixedInts) -> Result<Self, Self::Error> {
+impl TryFrom<MixedInts> for (i32) {
+    type Error = derive_more::TryIntoError<MixedInts>;
+    fn try_from(value: MixedInts) -> Result<Self, derive_more::TryIntoError<MixedInts>> {
         match value {
             MixedInts::SmallInt(__0) => Ok(__0),
-            _ => Err("Only SmallInt can be converted to i32"),
+            _ => Err(derive_more::TryIntoError::new(value, "SmallInt", "i32")),
         }
     }
 }
-impl derive_more::TryFrom<MixedInts> for (i64) {
-    type Error = &'static str;
-    fn try_from(value: MixedInts) -> Result<Self, Self::Error> {
+impl TryFrom<MixedInts> for (i64) {
+    type Error = derive_more::TryIntoError<MixedInts>;
+    fn try_from(value: MixedInts) -> Result<Self, derive_more::TryIntoError<MixedInts>> {
         match value {
             MixedInts::BigInt(__0) => Ok(__0),
-            _ => Err("Only BigInt can be converted to i64"),
+            _ => Err(derive_more::TryIntoError::new(value, "BigInt", "i64")),
         }
     }
 }
-impl derive_more::TryFrom<MixedInts> for (i32, i32) {
-    type Error = &'static str;
-    fn try_from(value: MixedInts) -> Result<Self, Self::Error> {
+impl TryFrom<MixedInts> for (i32, i32) {
+    type Error = derive_more::TryIntoError<MixedInts>;
+    fn try_from(value: MixedInts) -> Result<Self, derive_more::TryIntoError<MixedInts>> {
         match value {
             MixedInts::TwoSmallInts(__0, __1) => Ok((__0, __1)),
-            _ => Err("Only TwoSmallInts can be converted to (i32, i32)"),
+            _ => Err(derive_more::TryIntoError::new(value, "TwoSmallInts", "(i32, i32)")),
         }
     }
 }
-impl derive_more::TryFrom<MixedInts> for (i64, i64) {
-    type Error = &'static str;
-    fn try_from(value: MixedInts) -> Result<Self, Self::Error> {
+impl TryFrom<MixedInts> for (i64, i64) {
+    type Error = derive_more::TryIntoError<MixedInts>;
+    fn try_from(value: MixedInts) -> Result<Self, derive_more::TryIntoError<MixedInts>> {
         match value {
             MixedInts::NamedSmallInts { x: __0, y: __1 } => Ok((__0, __1)),
-            _ => Err("Only NamedSmallInts can be converted to (i64, i64)"),
+            _ => Err(derive_more::TryIntoError::new(value, "NamedSmallInts", "(i64, i64)")),
         }
     }
 }
-impl derive_more::TryFrom<MixedInts> for (u32) {
-    type Error = &'static str;
-    fn try_from(value: MixedInts) -> Result<Self, Self::Error> {
+impl TryFrom<MixedInts> for (u32) {
+    type Error = derive_more::TryIntoError<MixedInts>;
+    fn try_from(value: MixedInts) -> Result<Self, derive_more::TryIntoError<MixedInts>> {
         match value {
             MixedInts::UnsignedOne(__0) | MixedInts::UnsignedTwo(__0) => Ok(__0),
-            _ => Err("Only UnsignedOne, UnsignedTwo can be converted to u32"),
+            _ => Err(derive_more::TryIntoError::new(value, "UnsignedOne", "u32")),
         }
     }
 }
@@ -161,21 +161,94 @@ Code like this will be generated:
 #     SmallInt(i32),
 #     Unit,
 # }
-impl derive_more::TryFrom<EnumWithUnit> for (i32) {
-    type Error = &'static str;
-    fn try_from(value: EnumWithUnit) -> Result<Self, Self::Error> {
+impl TryFrom<EnumWithUnit> for (i32) {
+    type Error = derive_more::TryIntoError<EnumWithUnit>;
+    fn try_from(value: EnumWithUnit) -> Result<Self, derive_more::TryIntoError<EnumWithUnit>> {
         match value {
             EnumWithUnit::SmallInt(__0) => Ok(__0),
-            _ => Err("Only SmallInt can be converted to i32"),
+            _ => Err(derive_more::TryIntoError::new(value, "SmallInt", "i32")),
         }
     }
 }
-impl derive_more::TryFrom<EnumWithUnit> for () {
-    type Error = &'static str;
-    fn try_from(value: EnumWithUnit) -> Result<Self, Self::Error> {
+impl TryFrom<EnumWithUnit> for () {
+    type Error = derive_more::TryIntoError<EnumWithUnit>;
+    fn try_from(value: EnumWithUnit) -> Result<Self, derive_more::TryIntoError<EnumWithUnit>> {
         match value {
             EnumWithUnit::Unit => Ok(()),
-            _ => Err("Only Unit can be converted to ()"),
+            _ => Err(derive_more::TryIntoError::new(value, "Unit", "()")),
+        }
+    }
+}
+```
+
+
+
+
+## Custom error
+
+The `#[try_into(error(<ty>[, <conv>]))]` attribute can be used to convert the `TryIntoError` type
+into a custom error type.
+
+If the conversion function is not provided, the custom error type must implement
+`From<derive_more::TryIntoError<T>>`.
+The conversion function could be provided in the following forms:
+- function (like `CustomError::new`);
+- closure (like `|e| CustomError::new(e)`);
+- function call (like `CustomError::factory()`).
+
+This, however, doesn't support custom error with generic parameters, such as
+`struct CustomError<T>(derive_more::TryIntoError<T>)` (newtype wrapper around `derive_more::TryIntoError`).
+
+Given the following enum:
+```rust
+# use derive_more::TryInto;
+#
+struct CustomError(String);
+
+impl<T> From<derive_more::TryIntoError<T>> for CustomError {
+    fn from(value: derive_more::TryIntoError<T>) -> Self {
+        Self(value.to_string())
+    }
+}
+
+#[derive(TryInto, Clone, Debug)]
+#[try_into(error(CustomError))]
+enum MixedData {
+    Int(u32),
+    String(String),
+}
+```
+Code like this is generated:
+```rust
+# use derive_more::TryIntoError;
+#
+# enum MixedData {
+#     Int(u32),
+#     String(String),
+# }
+#
+# struct CustomError(String);
+#
+# impl<T> From<TryIntoError<T>> for CustomError {
+#     fn from(value: TryIntoError<T>) -> Self {
+#         Self(value.to_string())
+#     }
+# }
+impl derive_more::core::convert::TryFrom<MixedData> for (u32) {
+    type Error = CustomError;
+    fn try_from(value: MixedData) -> Result<Self, CustomError> {
+        match value {
+            MixedData::Int(v) => Ok(v),
+            _ => Err(derive_more::TryIntoError::new(value, "Int", "u32").into()),
+        }
+    }
+}
+impl derive_more::core::convert::TryFrom<MixedData> for (String) {
+    type Error = CustomError;
+    fn try_from(value: MixedData) -> Result<Self, CustomError> {
+        match value {
+            MixedData::String(v) => Ok(v),
+            _ => Err(derive_more::TryIntoError::new(value, "String", "String").into()),
         }
     }
 }

@@ -1,5 +1,7 @@
 use bevy_app::{App, Plugin, PostUpdate, Startup, Update};
-use bevy_ecs::prelude::{Entity, EventReader, IntoScheduleConfigs, Local, ParamSet, Query, ResMut};
+use bevy_ecs::prelude::{
+    Entity, IntoScheduleConfigs, Local, MessageReader, ParamSet, Query, ResMut,
+};
 use bsengine_core::{
     AmbientOcclusion, Bloom, Camera, CustomShader, DirectionalLight, EditorPanelRegistry,
     EditorPlayState, GlobalTransform, HudTexts, InspectorState, Material, PointLight, SkyboxPath,
@@ -377,7 +379,7 @@ fn wants_rebuild(
 /// retries them, so skipping them here would make a single typo permanent for
 /// the rest of the run.
 fn rebuild_modified_shaders(
-    mut events: bevy_ecs::prelude::EventReader<
+    mut events: bevy_ecs::prelude::MessageReader<
         bevy_asset::AssetEvent<crate::shader_asset::ShaderSource>,
     >,
     mut surface: Option<ResMut<WgpuSurfaceResource>>,
@@ -647,7 +649,7 @@ fn render_frame(
     mut inspector: Option<ResMut<InspectorState>>,
     mouse_state: Option<Res<MouseState>>,
     mouse_buttons: Option<Res<Input<MouseButton>>>,
-    mut key_events: EventReader<KeyInput>,
+    mut key_events: MessageReader<KeyInput>,
     keys: Option<Res<Input<KeyCode>>>,
     // Bundled into one ParamSet: Bevy's SystemParamFunction impls only
     // go up to 16 top-level params, and adding editor_panels as a 17th
@@ -1473,7 +1475,7 @@ fn render_frame(
     }
 }
 
-fn update_camera_aspect(mut events: EventReader<WindowResized>, mut cameras: Query<&mut Camera>) {
+fn update_camera_aspect(mut events: MessageReader<WindowResized>, mut cameras: Query<&mut Camera>) {
     for ev in events.read() {
         for mut cam in cameras.iter_mut() {
             cam.update_aspect_ratio(ev.width, ev.height);
@@ -1510,8 +1512,8 @@ impl Plugin for RenderPlugin {
             .init_resource::<ShownSkybox>()
             .init_resource::<ShownColorLut>()
             .init_resource::<crate::texture_cache::TextureCache>()
-            .add_event::<WindowResized>()
-            .add_event::<KeyInput>()
+            .add_message::<WindowResized>()
+            .add_message::<KeyInput>()
             .add_systems(Startup, bsengine_rhi_wgpu::panels::register_mixer_panel)
             .add_systems(
                 Update,
@@ -1739,7 +1741,7 @@ mod tests {
     #[test]
     fn a_compiled_shader_keeps_its_handle_so_a_reload_can_reach_it() {
         use bevy_asset::{AssetEvent, AssetServer, Assets};
-        use bevy_ecs::event::{EventCursor, Events};
+        use bevy_ecs::message::{MessageCursor, Messages};
 
         let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../games/mini-arena/assets/shaders/glow.wgsl");
@@ -1799,14 +1801,14 @@ mod tests {
         // point: the buffer still holds the `Added`/`LoadedWithDependencies`
         // events the initial load emitted, so a bare length check would pass
         // even if the reload reached nothing at all.
-        let mut reader: EventCursor<AssetEvent<crate::shader_asset::ShaderSource>> = app
+        let mut reader: MessageCursor<AssetEvent<crate::shader_asset::ShaderSource>> = app
             .world_mut()
-            .resource_mut::<Events<AssetEvent<crate::shader_asset::ShaderSource>>>()
+            .resource_mut::<Messages<AssetEvent<crate::shader_asset::ShaderSource>>>()
             .get_cursor();
         {
             let events = app
                 .world()
-                .resource::<Events<AssetEvent<crate::shader_asset::ShaderSource>>>();
+                .resource::<Messages<AssetEvent<crate::shader_asset::ShaderSource>>>();
             let _ = reader.read(events).count();
         }
 
@@ -1816,7 +1818,7 @@ mod tests {
             app.update();
             let events = app
                 .world()
-                .resource::<Events<AssetEvent<crate::shader_asset::ShaderSource>>>();
+                .resource::<Messages<AssetEvent<crate::shader_asset::ShaderSource>>>();
             if reader
                 .read(events)
                 .any(|ev| matches!(ev, AssetEvent::Modified { id } if *id == asset_id))
@@ -1847,7 +1849,7 @@ mod tests {
     #[test]
     fn a_shader_that_failed_to_compile_is_not_retried_every_frame_but_stays_reloadable() {
         use bevy_asset::{AssetEvent, AssetServer, Assets};
-        use bevy_ecs::event::{EventCursor, Events};
+        use bevy_ecs::message::{MessageCursor, Messages};
 
         let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../games/mini-arena/assets/shaders/glow.wgsl");
@@ -1912,14 +1914,14 @@ mod tests {
 
         // Only events emitted from here on: the buffer still holds the load's
         // own Added/LoadedWithDependencies events.
-        let mut reader: EventCursor<AssetEvent<crate::shader_asset::ShaderSource>> = app
+        let mut reader: MessageCursor<AssetEvent<crate::shader_asset::ShaderSource>> = app
             .world_mut()
-            .resource_mut::<Events<AssetEvent<crate::shader_asset::ShaderSource>>>()
+            .resource_mut::<Messages<AssetEvent<crate::shader_asset::ShaderSource>>>()
             .get_cursor();
         {
             let events = app
                 .world()
-                .resource::<Events<AssetEvent<crate::shader_asset::ShaderSource>>>();
+                .resource::<Messages<AssetEvent<crate::shader_asset::ShaderSource>>>();
             let _ = reader.read(events).count();
         }
 
@@ -1929,7 +1931,7 @@ mod tests {
             app.update();
             let events = app
                 .world()
-                .resource::<Events<AssetEvent<crate::shader_asset::ShaderSource>>>();
+                .resource::<Messages<AssetEvent<crate::shader_asset::ShaderSource>>>();
             if reader
                 .read(events)
                 .any(|ev| matches!(ev, AssetEvent::Modified { id } if *id == asset_id))
@@ -2550,7 +2552,7 @@ mod tests {
     #[test]
     fn an_uploaded_skybox_keeps_its_handle_so_a_reload_reaches_the_screen() {
         use bevy_asset::{AssetEvent, AssetServer, Assets};
-        use bevy_ecs::event::{EventCursor, Events};
+        use bevy_ecs::message::{MessageCursor, Messages};
         use bsengine_asset::TextureAsset;
 
         let (mut app, png) = skybox_app("reload");
@@ -2588,12 +2590,12 @@ mod tests {
         // point: the buffer still holds the `Added`/`LoadedWithDependencies`
         // events the initial load emitted, so a bare length check would pass
         // even if the reload reached nothing at all.
-        let mut reader: EventCursor<AssetEvent<TextureAsset>> = app
+        let mut reader: MessageCursor<AssetEvent<TextureAsset>> = app
             .world_mut()
-            .resource_mut::<Events<AssetEvent<TextureAsset>>>()
+            .resource_mut::<Messages<AssetEvent<TextureAsset>>>()
             .get_cursor();
         {
-            let events = app.world().resource::<Events<AssetEvent<TextureAsset>>>();
+            let events = app.world().resource::<Messages<AssetEvent<TextureAsset>>>();
             let _ = reader.read(events).count();
         }
 
@@ -2601,7 +2603,7 @@ mod tests {
         let mut saw_modified = false;
         for _ in 0..60 {
             app.update();
-            let events = app.world().resource::<Events<AssetEvent<TextureAsset>>>();
+            let events = app.world().resource::<Messages<AssetEvent<TextureAsset>>>();
             if reader
                 .read(events)
                 .any(|ev| matches!(ev, AssetEvent::Modified { id } if *id == asset_id))
@@ -2888,7 +2890,7 @@ mod tests {
         app.add_plugins(RenderPlugin);
 
         let cam_entity = app.world_mut().spawn(Camera::default()).id();
-        app.world_mut().send_event(WindowResized {
+        app.world_mut().write_message(WindowResized {
             width: 800,
             height: 600,
         });

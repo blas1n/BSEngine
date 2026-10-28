@@ -777,7 +777,7 @@ fn load_lod_assets(
 /// that at its load-time value and the reload is stomped in the same frame it
 /// landed. See [`refresh_skinning`].
 fn rebuild_modified_gltf(
-    mut events: bevy_ecs::prelude::EventReader<bevy_asset::AssetEvent<LoadedGltf>>,
+    mut events: bevy_ecs::prelude::MessageReader<bevy_asset::AssetEvent<LoadedGltf>>,
     mut query: Query<(
         &GltfLoaded,
         Option<&mut SkinnedMesh>,
@@ -1113,7 +1113,7 @@ mod tests {
     #[test]
     fn reload_tolerates_separator_style_but_not_a_canonicalised_path() {
         use bevy_asset::{AssetEvent, AssetServer, Assets};
-        use bevy_ecs::event::{EventCursor, Events};
+        use bevy_ecs::message::{MessageCursor, Messages};
 
         let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../games/mini-arena/assets/models/fox.glb");
@@ -1143,9 +1143,9 @@ mod tests {
         }
         assert!(ok, "fixture must load first");
 
-        let mut reader: EventCursor<AssetEvent<LoadedGltf>> = app
+        let mut reader: MessageCursor<AssetEvent<LoadedGltf>> = app
             .world_mut()
-            .resource_mut::<Events<AssetEvent<LoadedGltf>>>()
+            .resource_mut::<Messages<AssetEvent<LoadedGltf>>>()
             .get_cursor();
 
         // Spellings a watcher could plausibly hand us, all naming this file.
@@ -1157,14 +1157,14 @@ mod tests {
 
         let mut modified_count = |app: &mut bevy_app::App, spelling: String| -> usize {
             {
-                let events = app.world().resource::<Events<AssetEvent<LoadedGltf>>>();
+                let events = app.world().resource::<Messages<AssetEvent<LoadedGltf>>>();
                 let _ = reader.read(events).count();
             }
             app.world().resource::<AssetServer>().reload(spelling);
             let mut hits = 0;
             for _ in 0..40 {
                 app.update();
-                let events = app.world().resource::<Events<AssetEvent<LoadedGltf>>>();
+                let events = app.world().resource::<Messages<AssetEvent<LoadedGltf>>>();
                 hits += reader
                     .read(events)
                     .filter(|e| matches!(e, AssetEvent::Modified { .. }))
@@ -1210,7 +1210,7 @@ mod tests {
     #[test]
     fn reload_emits_modified_only_while_a_handle_is_retained() {
         use bevy_asset::{AssetEvent, AssetServer, Assets};
-        use bevy_ecs::event::{EventCursor, Events};
+        use bevy_ecs::message::{MessageCursor, Messages};
 
         let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../games/mini-arena/assets/models/fox.glb");
@@ -1247,15 +1247,15 @@ mod tests {
             "fixture must load before the experiment means anything"
         );
 
-        let mut reader: EventCursor<AssetEvent<LoadedGltf>> = app
+        let mut reader: MessageCursor<AssetEvent<LoadedGltf>> = app
             .world_mut()
-            .resource_mut::<Events<AssetEvent<LoadedGltf>>>()
+            .resource_mut::<Messages<AssetEvent<LoadedGltf>>>()
             .get_cursor();
 
         let drain = |app: &mut bevy_app::App,
-                     reader: &mut EventCursor<AssetEvent<LoadedGltf>>|
+                     reader: &mut MessageCursor<AssetEvent<LoadedGltf>>|
          -> Vec<String> {
-            let events = app.world().resource::<Events<AssetEvent<LoadedGltf>>>();
+            let events = app.world().resource::<Messages<AssetEvent<LoadedGltf>>>();
             reader.read(events).map(|e| format!("{e:?}")).collect()
         };
         let _ = drain(&mut app, &mut reader);
@@ -1912,7 +1912,7 @@ mod tests {
     #[test]
     fn a_loaded_gltf_keeps_its_handle_so_a_reload_can_reach_it() {
         use bevy_asset::{AssetEvent, AssetServer, Assets};
-        use bevy_ecs::event::{EventCursor, Events};
+        use bevy_ecs::message::{MessageCursor, Messages};
 
         let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../games/mini-arena/assets/models/fox.glb");
@@ -1970,12 +1970,12 @@ mod tests {
         // Read Modified specifically, rather than `Events::len() > 0`: the
         // buffer still holds the events the *load* emitted, so a bare length
         // check would pass even if the reload reached nothing at all.
-        let mut reader: EventCursor<AssetEvent<LoadedGltf>> = app
+        let mut reader: MessageCursor<AssetEvent<LoadedGltf>> = app
             .world_mut()
-            .resource_mut::<Events<AssetEvent<LoadedGltf>>>()
+            .resource_mut::<Messages<AssetEvent<LoadedGltf>>>()
             .get_cursor();
         {
-            let events = app.world().resource::<Events<AssetEvent<LoadedGltf>>>();
+            let events = app.world().resource::<Messages<AssetEvent<LoadedGltf>>>();
             let _ = reader.read(events).count();
         }
 
@@ -1991,7 +1991,7 @@ mod tests {
         let mut saw_modified = false;
         for _ in 0..60 {
             app.update();
-            let events = app.world().resource::<Events<AssetEvent<LoadedGltf>>>();
+            let events = app.world().resource::<Messages<AssetEvent<LoadedGltf>>>();
             if reader
                 .read(events)
                 .any(|ev| matches!(ev, AssetEvent::Modified { id } if *id == asset_id))

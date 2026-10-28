@@ -1,4 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(nightly, feature(never_type))]
 #![allow(dead_code)] // some code is tested for type checking only
 
 use derive_more::Constructor;
@@ -30,3 +31,75 @@ struct Point2D {
 }
 
 const POINT_2D: Point2D = Point2D::new(-4, 7);
+
+#[cfg(nightly)]
+mod never {
+    use super::*;
+
+    #[derive(Constructor)]
+    struct Tuple(!);
+
+    #[derive(Constructor)]
+    struct Struct {
+        field: !,
+    }
+
+    #[derive(Constructor)]
+    struct TupleMulti(i32, !);
+
+    #[derive(Constructor)]
+    struct StructMulti {
+        field: !,
+        other: i32,
+    }
+}
+
+mod deprecated {
+    use super::*;
+
+    #[derive(Constructor)]
+    #[deprecated(note = "struct")]
+    struct Tuple(#[deprecated(note = "field")] i32);
+
+    #[derive(Constructor)]
+    #[deprecated(note = "struct")]
+    struct Struct {
+        #[deprecated(note = "field")]
+        field: i32,
+    }
+}
+
+mod proxy_lint_attr {
+    #![deny(non_snake_case, clippy::too_many_arguments)]
+
+    use super::*;
+
+    #[allow(clippy::too_many_arguments)]
+    #[derive(Constructor)]
+    struct ManyArguments(
+        u8,
+        u8,
+        u8,
+        u8,
+        u8,
+        u8,
+        u8,
+        u8,
+        u8,
+        u8,
+        u8,
+        u8,
+        u8,
+        u8,
+        u8,
+        u8,
+        u8,
+        u8,
+    );
+
+    #[expect(non_snake_case)]
+    #[derive(Constructor)]
+    struct User {
+        Num: i32,
+    }
+}

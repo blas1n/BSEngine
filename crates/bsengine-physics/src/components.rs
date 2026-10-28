@@ -1,4 +1,4 @@
-use bevy_ecs::prelude::{Component, Entity, Event, ReflectComponent};
+use bevy_ecs::prelude::{Component, Entity, Message, ReflectComponent};
 use bevy_reflect::prelude::ReflectDefault;
 use bevy_reflect::Reflect;
 use bsengine_core::{ReflectQuat, ReflectVec3};
@@ -6,7 +6,7 @@ use glam::{Quat, Vec3};
 use rapier3d::prelude::{ColliderHandle, RigidBodyHandle};
 
 /// Fired when two colliders start or stop touching; `started` distinguishes the two cases.
-#[derive(Event, Debug, Clone, Copy)]
+#[derive(Message, Debug, Clone, Copy)]
 pub struct CollisionEvent {
     /// The first entity in the contact pair.
     pub entity_a: Entity,

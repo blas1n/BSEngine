@@ -4,7 +4,7 @@
 
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use syn::{parse_quote, spanned::Spanned as _, Ident};
+use syn::{ext::IdentExt as _, parse_quote, spanned::Spanned as _};
 
 use crate::utils::{
     attr::{self, ParseMultiple as _},
@@ -13,7 +13,7 @@ use crate::utils::{
 
 use super::{
     trait_name_to_attribute_name, ContainerAttributes, ContainsGenericsExt as _,
-    FieldsExt as _, FmtAttribute,
+    FmtAttribute,
 };
 
 /// Expands a [`fmt::Debug`] derive macro.
@@ -60,8 +60,10 @@ pub fn expand(input: &syn::DeriveInput, _: &str) -> syn::Result<TokenStream> {
     };
 
     Ok(quote! {
+        #[allow(deprecated)] // omit warnings on deprecated fields/variants
+        #[allow(unreachable_code)] // omit warnings for `!` and other unreachable types
         #[automatically_derived]
-        impl #impl_gens derive_more::Debug for #ident #ty_gens #where_clause {
+        impl #impl_gens derive_more::core::fmt::Debug for #ident #ty_gens #where_clause {
             #[inline]
             fn fmt(
                 &self, __derive_more_f: &mut derive_more::core::fmt::Formatter<'_>
@@ -77,7 +79,7 @@ pub fn expand(input: &syn::DeriveInput, _: &str) -> syn::Result<TokenStream> {
 /// [`fmt::Debug`]: std::fmt::Debug
 fn expand_struct(
     attrs: ContainerAttributes,
-    ident: &Ident,
+    ident: &syn::Ident,
     s: &syn::DataStruct,
     type_params: &[&syn::Ident],
     attr_name: &syn::Ident,
@@ -182,10 +184,11 @@ fn expand_enum(
         },
     )?;
 
-    let body = match_arms
-        .is_empty()
-        .then(|| quote! { match *self {} })
-        .unwrap_or_else(|| quote! { match self { #match_arms } });
+    let body = if match_arms.is_empty() {
+        quote! { match *self {} }
+    } else {
+        quote! { match self { #match_arms } }
+    };
 
     Ok((bounds, body))
 }
@@ -208,8 +211,8 @@ type FieldAttribute = Either<attr::Skip, FmtAttribute>;
 struct Expansion<'a> {
     attr: &'a ContainerAttributes,
 
-    /// Struct or enum [`Ident`](struct@Ident).
-    ident: &'a Ident,
+    /// Struct or enum [`Ident`](struct@syn::Ident).
+    ident: &'a syn::Ident,
 
     /// Struct or enum [`syn::Fields`].
     fields: &'a syn::Fields,
@@ -221,7 +224,7 @@ struct Expansion<'a> {
     attr_name: &'a syn::Ident,
 }
 
-impl<'a> Expansion<'a> {
+impl Expansion<'_> {
     /// Validates attributes of this [`Expansion`] to be consistent.
     fn validate_attrs(&self) -> syn::Result<()> {
         if self.attr.fmt.is_some() {
@@ -249,19 +252,17 @@ impl<'a> Expansion<'a> {
     /// [`Debug::fmt()`]: std::fmt::Debug::fmt()
     fn generate_body(&self) -> syn::Result<TokenStream> {
         if let Some(fmt) = &self.attr.fmt {
-            return Ok(if let Some((expr, trait_ident)) = fmt.transparent_call() {
-                let expr = if self.fields.fmt_args_idents().any(|field| expr == field) {
-                    quote! { #expr }
+            return Ok(
+                if let Some((expr, trait_ident)) =
+                    fmt.transparent_call_on_fields(self.fields)
+                {
+                    quote! { derive_more::core::fmt::#trait_ident::fmt(#expr, __derive_more_f) }
                 } else {
-                    quote! { &(#expr) }
-                };
+                    let deref_args = fmt.additional_deref_args(self.fields);
 
-                quote! { derive_more::core::fmt::#trait_ident::fmt(#expr, __derive_more_f) }
-            } else {
-                let deref_args = fmt.additional_deref_args(self.fields);
-
-                quote! { derive_more::core::write!(__derive_more_f, #fmt, #(#deref_args),*) }
-            });
+                    quote! { derive_more::core::write!(__derive_more_f, #fmt, #(#deref_args),*) }
+                },
+            );
         };
 
         match self.fields {
@@ -334,7 +335,7 @@ impl<'a> Expansion<'a> {
                     let field_ident = field.ident.as_ref().unwrap_or_else(|| {
                         unreachable!("`syn::Fields::Named`");
                     });
-                    let field_str = field_ident.to_string();
+                    let field_str = field_ident.unraw().to_string();
                     match FieldAttribute::parse_attrs(&field.attrs, self.attr_name)?
                         .map(Spanning::into_inner)
                     {
@@ -410,7 +411,7 @@ impl<'a> Expansion<'a> {
                         ));
                     }
                     Some(FieldAttribute::Left(_skip)) => {}
-                    None => out.extend([parse_quote! { #ty: derive_more::Debug }]),
+                    None => out.extend([parse_quote! { #ty: derive_more::core::fmt::Debug }]),
                 }
                 Ok(out)
             })

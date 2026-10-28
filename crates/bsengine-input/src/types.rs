@@ -1,5 +1,5 @@
 use bevy_ecs::prelude::Resource;
-use bsengine_ecs::Event;
+use bsengine_ecs::Message;
 
 /// Platform-independent physical keyboard key, translated from winit key codes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -134,7 +134,7 @@ pub enum ElementState {
 }
 
 /// Event fired when a keyboard key changes state (pressed or released).
-#[derive(Event, Debug, Clone)]
+#[derive(Message, Debug, Clone)]
 pub struct KeyInput {
     /// The physical key that changed state.
     pub key_code: KeyCode,
@@ -161,7 +161,7 @@ pub enum MouseButton {
 }
 
 /// Event fired when a mouse button changes state (pressed or released).
-#[derive(Event, Debug, Clone)]
+#[derive(Message, Debug, Clone)]
 pub struct MouseInput {
     /// The mouse button that changed state.
     pub button: MouseButton,
@@ -170,7 +170,7 @@ pub struct MouseInput {
 }
 
 /// Event fired with the cursor's absolute position whenever it moves within the window.
-#[derive(Event, Debug, Clone)]
+#[derive(Message, Debug, Clone)]
 pub struct CursorMoved {
     /// Cursor x position in window pixels, measured from the left edge.
     pub x: f64,
@@ -181,7 +181,7 @@ pub struct CursorMoved {
 /// Raw mouse movement delta from the OS device event stream.
 /// Unlike CursorMoved, this is not affected by cursor acceleration or screen bounds.
 /// Use this for FPS-style camera rotation.
-#[derive(Event, Debug, Clone)]
+#[derive(Message, Debug, Clone)]
 pub struct MouseMotion {
     /// Raw horizontal movement delta since the last frame, in device units.
     pub dx: f64,
@@ -192,7 +192,7 @@ pub struct MouseMotion {
 /// Scroll wheel delta for the current frame.
 /// Positive = scroll up / zoom in; negative = scroll down / zoom out.
 /// Line deltas are passed as-is; pixel deltas are normalised by 40 px/line.
-#[derive(Event, Debug, Clone)]
+#[derive(Message, Debug, Clone)]
 pub struct MouseWheel {
     /// Scroll amount for this event; positive scrolls up/zooms in, negative scrolls down/zooms out.
     pub delta: f64,

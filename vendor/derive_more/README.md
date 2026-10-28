@@ -1,10 +1,10 @@
 # `derive_more`
 
-[![Build Status](https://github.com/JelteF/derive_more/workflows/CI/badge.svg)](https://github.com/JelteF/derive_more/actions)
+[![Build Status](https://github.com/JelteF/derive_more/actions/workflows/ci.yml/badge.svg)](https://github.com/JelteF/derive_more/actions)
 [![Latest Version](https://img.shields.io/crates/v/derive_more.svg)](https://crates.io/crates/derive_more)
 [![Rust Documentation](https://docs.rs/derive_more/badge.svg)](https://docs.rs/derive_more)
 [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://raw.githubusercontent.com/JelteF/derive_more/master/LICENSE)
-[![Rust 1.75+](https://img.shields.io/badge/rustc-1.75+-lightgray.svg)](https://blog.rust-lang.org/2023/12/28/Rust-1.75.0.html)
+[![Rust 1.81+](https://img.shields.io/badge/rustc-1.81+-lightgray.svg)](https://blog.rust-lang.org/2024/09/05/Rust-1.81.0)
 [![Unsafe Forbidden](https://img.shields.io/badge/unsafe-forbidden-success.svg)](https://github.com/rust-secure-code/safety-dance)
 
 Rust has lots of builtin traits that are implemented for its basic types, such
@@ -123,6 +123,7 @@ These are traits that can be used for operator overloading.
    `BitOrAssign` and `BitXorAssign`
 10. [`MulAssign`-like], contains `MulAssign`, `DivAssign`, `RemAssign`,
     `ShrAssign` and `ShlAssign`
+11. [`Eq`], [`PartialEq`]
 
 
 ### Static methods
@@ -139,17 +140,18 @@ These don't derive traits, but derive static methods instead.
 
 ### Re-exports
 
-This crate also re-exports all the standard library traits that it adds derives
-for. So, both the `Display` derive and the `Display` trait will be in scope when
-you add the following code:
+This crate also re-exports all the standard library traits, that it adds derives
+for, in the `with_trait` module. So, both the `Display` derive and the `Display`
+trait will be in scope when you add the following code:
 ```rust
-use derive_more::Display; // also imports `core::fmt::Display`
+use derive_more::with_trait::Display; // also imports `core::fmt::Display`
 ```
 
-For derive macros only, without the corresponding traits, do import them from
-the `derive` module:
+By default, derive macros only, without the corresponding traits, are imported from
+the crate's root (or from the `derive` module):
 ```rust
-use derive_more::derive::Display; // imports macro only
+use derive_more::Display;   // imports macro only
+use derive_more::derive::*; // imports all macros only
 ```
 
 #### Hygiene
@@ -182,13 +184,13 @@ You have to enable each type of derive as a feature in `Cargo.toml`:
 [dependencies]
 # You can specify the types of derives that you need for less time spent
 # compiling. For the full list of features see this crate its `Cargo.toml`.
-derive_more = { version = "1", features = ["from", "add", "iterator"] }
+derive_more = { version = "2", features = ["from", "add", "into_iterator"] }
 ```
 ```toml
 [dependencies]
 # If you don't care much about compilation times and simply want to have
 # support for all the possible derives, you can use the "full" feature.
-derive_more = { version = "1", features = ["full"] }
+derive_more = { version = "2", features = ["full"] }
 ```
 ```toml
 [dependencies]
@@ -196,7 +198,7 @@ derive_more = { version = "1", features = ["full"] }
 # because the only default feature is the "std" feature.
 # NOTE: You can combine this with "full" feature to get support for all the
 #       possible derives in a `no_std` environment.
-derive_more = { version = "1", default-features = false }
+derive_more = { version = "2", default-features = false }
 ```
 
 And this to the top of your Rust file:
@@ -215,18 +217,18 @@ extern crate derive_more;
 
 ## [MSRV] policy
 
-This library requires Rust 1.75 or higher.
+This library requires Rust 1.81 or higher.
 
 Changing [MSRV] (minimum supported Rust version) of this crate is treated as a **minor version change** in terms of [Semantic Versioning].
 - So, if [MSRV] changes are **NOT concerning** for your project, just use the default [caret requirement]:
   ```toml
   [dependencies]
-  derive_more = "1" # or "1.0", or "^1.0"
+  derive_more = "2" # or "2.1", or "^2.1"
   ```
 - However, if [MSRV] changes are concerning for your project, then use the [tilde requirement] to **pin to a specific minor version**:
   ```toml
   [dependencies]
-  derive_more = "~1.0" # or "~1.0.0"
+  derive_more = "~2.1" # or "~2.1.1"
   ```
 
 
@@ -259,6 +261,8 @@ Changing [MSRV] (minimum supported Rust version) of this crate is treated as a *
 [`DerefMut`]: https://docs.rs/derive_more/latest/derive_more/derive.DerefMut.html
 [`AddAssign`-like]: https://docs.rs/derive_more/latest/derive_more/derive.AddAssign.html
 [`MulAssign`-like]: https://docs.rs/derive_more/latest/derive_more/derive.MulAssign.html
+[`Eq`]: https://docs.rs/derive_more/latest/derive_more/derive.Eq.html
+[`PartialEq`]: https://docs.rs/derive_more/latest/derive_more/derive.PartialEq.html
 
 [`Constructor`]: https://docs.rs/derive_more/latest/derive_more/derive.Constructor.html
 [`IsVariant`]: https://docs.rs/derive_more/latest/derive_more/derive.IsVariant.html

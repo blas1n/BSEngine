@@ -1,6 +1,6 @@
 //! Animation events: names fired when a clip's playhead crosses a time.
 
-use bevy_ecs::prelude::{Component, Entity, Event, ReflectComponent, SystemSet};
+use bevy_ecs::prelude::{Component, Entity, Message, ReflectComponent, SystemSet};
 use bevy_reflect::prelude::ReflectDefault;
 use bevy_reflect::Reflect;
 
@@ -41,7 +41,7 @@ pub struct AnimationEvents {
 
 /// Sent when an entity's animation crosses one of its [`AnimationEvents`].
 /// Scripts receive it through `Bsengine.onAnimationEvent`.
-#[derive(Event, Debug, Clone, PartialEq)]
+#[derive(Message, Debug, Clone, PartialEq)]
 pub struct AnimationEventFired {
     /// The entity whose player crossed the event.
     pub entity: Entity,

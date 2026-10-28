@@ -1,6 +1,11 @@
 #![allow(dead_code)] // some code is tested for type checking only
 
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
+
 use super::*;
+
+type RenamedOption<T> = Option<T>;
 
 derive_display!(TestErr);
 #[derive(Debug, Error)]
@@ -13,9 +18,16 @@ enum TestErr {
         source: SimpleErr,
         field: i32,
     },
-    #[cfg(feature = "std")]
     NamedImplicitBoxedSource {
         source: Box<dyn Error + Send + 'static>,
+        field: i32,
+    },
+    NamedImplicitOptionalSource {
+        source: Option<SimpleErr>,
+        field: i32,
+    },
+    NamedImplicitOptionalBoxedSource {
+        source: Option<Box<dyn Error + Send + 'static>>,
         field: i32,
     },
     NamedExplicitNoSource {
@@ -26,6 +38,21 @@ enum TestErr {
     NamedExplicitSource {
         #[error(source)]
         explicit_source: SimpleErr,
+        field: i32,
+    },
+    NamedExplicitOptionalSource {
+        #[error(source)]
+        explicit_source: Option<SimpleErr>,
+        field: i32,
+    },
+    NamedExplicitRenamedOptionalSource {
+        #[error(source(optional))]
+        explicit_source: RenamedOption<SimpleErr>,
+        field: i32,
+    },
+    NamedExplicitRenamedOptionalBoxedSource {
+        #[error(source(optional))]
+        explicit_source: RenamedOption<Box<dyn Error + Send + 'static>>,
         field: i32,
     },
     NamedExplicitNoSourceRedundant {
@@ -42,10 +69,25 @@ enum TestErr {
         #[error(source)]
         field: SimpleErr,
     },
+    NamedExplicitOptionalSuppressesImplicit {
+        source: i32,
+        #[error(source)]
+        field: Option<SimpleErr>,
+    },
     UnnamedImplicitNoSource(i32, i32),
     UnnamedImplicitSource(SimpleErr),
+    UnnamedImplicitOptionalSource(Option<SimpleErr>),
     UnnamedExplicitNoSource(#[error(not(source))] SimpleErr),
     UnnamedExplicitSource(#[error(source)] SimpleErr, i32),
+    UnnamedExplicitOptionalSource(#[error(source)] Option<SimpleErr>, i32),
+    UnnamedExplicitRenamedOptionalSource(
+        #[error(source(optional))] RenamedOption<SimpleErr>,
+        i32,
+    ),
+    UnnamedExplicitRenamedOptionalBoxedSource(
+        #[error(source(optional))] RenamedOption<Box<dyn Error + Send + 'static>>,
+        i32,
+    ),
     UnnamedExplicitNoSourceRedundant(
         #[error(not(source))] i32,
         #[error(not(source))] i32,
@@ -100,11 +142,32 @@ fn named_implicit_source() {
     assert!(err.source().unwrap().is::<SimpleErr>());
 }
 
-#[cfg(feature = "std")]
+#[test]
+fn named_implicit_optional_source() {
+    let err = TestErr::NamedImplicitOptionalSource {
+        source: Some(SimpleErr),
+        field: 0,
+    };
+
+    assert!(err.source().is_some());
+    assert!(err.source().unwrap().is::<SimpleErr>());
+}
+
 #[test]
 fn named_implicit_boxed_source() {
     let err = TestErr::NamedImplicitBoxedSource {
         source: Box::new(SimpleErr),
+        field: 0,
+    };
+
+    assert!(err.source().is_some());
+    assert!(err.source().unwrap().is::<SimpleErr>());
+}
+
+#[test]
+fn named_implicit_optional_boxed_source() {
+    let err = TestErr::NamedImplicitOptionalBoxedSource {
+        source: Some(Box::new(SimpleErr)),
         field: 0,
     };
 
@@ -126,6 +189,39 @@ fn named_explicit_no_source() {
 fn named_explicit_source() {
     let err = TestErr::NamedExplicitSource {
         explicit_source: SimpleErr,
+        field: 0,
+    };
+
+    assert!(err.source().is_some());
+    assert!(err.source().unwrap().is::<SimpleErr>());
+}
+
+#[test]
+fn named_explicit_optional_source() {
+    let err = TestErr::NamedExplicitOptionalSource {
+        explicit_source: Some(SimpleErr),
+        field: 0,
+    };
+
+    assert!(err.source().is_some());
+    assert!(err.source().unwrap().is::<SimpleErr>());
+}
+
+#[test]
+fn named_explicit_renamed_optional_source() {
+    let err = TestErr::NamedExplicitRenamedOptionalSource {
+        explicit_source: Some(SimpleErr),
+        field: 0,
+    };
+
+    assert!(err.source().is_some());
+    assert!(err.source().unwrap().is::<SimpleErr>());
+}
+
+#[test]
+fn named_explicit_renamed_optional_boxed_source() {
+    let err = TestErr::NamedExplicitRenamedOptionalBoxedSource {
+        explicit_source: Some(Box::new(SimpleErr)),
         field: 0,
     };
 
@@ -163,6 +259,17 @@ fn named_explicit_suppresses_implicit() {
 }
 
 #[test]
+fn named_explicit_optional_suppresses_implicit() {
+    let err = TestErr::NamedExplicitOptionalSuppressesImplicit {
+        source: 0,
+        field: Some(SimpleErr),
+    };
+
+    assert!(err.source().is_some());
+    assert!(err.source().unwrap().is::<SimpleErr>());
+}
+
+#[test]
 fn unnamed_implicit_no_source() {
     assert!(TestErr::UnnamedImplicitNoSource(0, 0).source().is_none());
 }
@@ -170,6 +277,14 @@ fn unnamed_implicit_no_source() {
 #[test]
 fn unnamed_implicit_source() {
     let err = TestErr::UnnamedImplicitSource(SimpleErr);
+
+    assert!(err.source().is_some());
+    assert!(err.source().unwrap().is::<SimpleErr>());
+}
+
+#[test]
+fn unnamed_implicit_optional_source() {
+    let err = TestErr::UnnamedImplicitOptionalSource(Some(SimpleErr));
 
     assert!(err.source().is_some());
     assert!(err.source().unwrap().is::<SimpleErr>());
@@ -185,6 +300,33 @@ fn unnamed_explicit_no_source() {
 #[test]
 fn unnamed_explicit_source() {
     let err = TestErr::UnnamedExplicitSource(SimpleErr, 0);
+
+    assert!(err.source().is_some());
+    assert!(err.source().unwrap().is::<SimpleErr>());
+}
+
+#[test]
+fn unnamed_explicit_optional_source() {
+    let err = TestErr::UnnamedExplicitOptionalSource(Some(SimpleErr), 0);
+
+    assert!(err.source().is_some());
+    assert!(err.source().unwrap().is::<SimpleErr>());
+}
+
+#[test]
+fn unnamed_explicit_renamed_optional_source() {
+    let err = TestErr::UnnamedExplicitRenamedOptionalSource(Some(SimpleErr), 0);
+
+    assert!(err.source().is_some());
+    assert!(err.source().unwrap().is::<SimpleErr>());
+}
+
+#[test]
+fn unnamed_explicit_renamed_optional_boxed_source() {
+    let err = TestErr::UnnamedExplicitRenamedOptionalBoxedSource(
+        Some(Box::new(SimpleErr)),
+        0,
+    );
 
     assert!(err.source().is_some());
     assert!(err.source().unwrap().is::<SimpleErr>());

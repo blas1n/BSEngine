@@ -18,11 +18,15 @@ use syn::{
 
 use crate::utils::{
     attr::{self, ParseMultiple as _},
-    polyfill, Either, FieldsExt, Spanning,
+    polyfill,
+    replace_self::DeriveInputExt as _,
+    Either, FieldsExt, Spanning,
 };
 
 /// Expands an [`Into`] derive macro.
 pub fn expand(input: &syn::DeriveInput, _: &'static str) -> syn::Result<TokenStream> {
+    let input = &input.replace_self_type();
+
     let attr_name = format_ident!("into");
 
     let data = match &input.data {
@@ -123,7 +127,7 @@ struct Expansion<'a> {
     convs: ConversionsAttribute,
 }
 
-impl<'a> Expansion<'a> {
+impl Expansion<'_> {
     fn expand(self) -> syn::Result<TokenStream> {
         let Self {
             input_ident,
@@ -179,6 +183,7 @@ impl<'a> Expansion<'a> {
 
                 Ok(quote! {
                     #[allow(clippy::unused_unit)]
+                    #[allow(deprecated)] // omit warnings on deprecated fields/variants
                     #[automatically_derived]
                     impl #impl_gens derive_more::core::convert::From<#r #lf #m #input_ident #ty_gens>
                      for ( #( #r #lf #m #tys ),* ) #where_clause
@@ -576,7 +581,7 @@ where
             .filter(|(top_level, owned, ref_, ref_mut)| {
                 [top_level, owned, ref_, ref_mut]
                     .into_iter()
-                    .any(|l| l.as_ref().map_or(false, |l| !l.is_empty()))
+                    .any(|l| l.as_ref().is_some_and(|l| !l.is_empty()))
             })
         else {
             return Ok(());

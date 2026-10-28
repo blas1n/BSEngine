@@ -641,7 +641,11 @@ fn read_scene(path: &str) -> Option<SceneDescriptor> {
 /// because a `prefab:` entry spawns a subtree whose children the spawner never
 /// names -- see [`LoadedScenes`].
 fn spawn_and_record(world: &mut World, path: &str, scene: &SceneDescriptor) {
-    let before: std::collections::HashSet<Entity> = world.iter_entities().map(|e| e.id()).collect();
+    let before: std::collections::HashSet<Entity> = world
+        .query::<bevy_ecs::world::EntityRef>()
+        .iter(world)
+        .map(|e| e.id())
+        .collect();
     spawn_scene_entities(world, &scene.entities);
     // A changed-to or streamed-in scene gets its baked lightmaps exactly as the
     // entry scene does (`ScenePlugin`). The text again rather than threading it
@@ -651,7 +655,8 @@ fn spawn_and_record(world: &mut World, path: &str, scene: &SceneDescriptor) {
         bsengine_scene::lightmaps::apply(world, path, &text);
     }
     let added: Vec<Entity> = world
-        .iter_entities()
+        .query::<bevy_ecs::world::EntityRef>()
+        .iter(world)
         .map(|e| e.id())
         .filter(|e| !before.contains(e))
         .collect();

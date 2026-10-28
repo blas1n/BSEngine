@@ -25,7 +25,7 @@ pub struct PhysicsPlugin;
 impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(PhysicsWorld::default());
-        app.add_event::<CollisionEvent>();
+        app.add_message::<CollisionEvent>();
         // Reflection registration lives here rather than in
         // `bsengine_scene::register_gameplay_reflect_types` because
         // `bsengine-scene` does not (and must not) depend on this crate, and
@@ -745,7 +745,7 @@ fn isolate_ragdoll_bones(
 fn step_world(
     mut world: ResMut<PhysicsWorld>,
     query: Query<(&PhysicsHandles, &PhysicsInput), With<RigidBody>>,
-    mut collision_events: EventWriter<CollisionEvent>,
+    mut collision_events: MessageWriter<CollisionEvent>,
 ) {
     for (handles, input) in query.iter() {
         if let Some(body) = world.rigid_body_set.get_mut(handles.body_handle) {

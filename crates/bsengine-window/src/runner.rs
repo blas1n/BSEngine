@@ -1,5 +1,5 @@
 use bevy_app::{App, AppExit};
-use bevy_ecs::event::Events;
+use bevy_ecs::message::Messages;
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::{DeviceEvent, DeviceId, WindowEvent};
@@ -87,8 +87,8 @@ impl ApplicationHandler for BsWinitApp {
             let mut events = self
                 .ecs_app
                 .world_mut()
-                .resource_mut::<Events<WindowCreated>>();
-            events.send(WindowCreated);
+                .resource_mut::<Messages<WindowCreated>>();
+            events.write(WindowCreated);
         }
     }
 
@@ -99,8 +99,8 @@ impl ApplicationHandler for BsWinitApp {
                     let mut events = self
                         .ecs_app
                         .world_mut()
-                        .resource_mut::<Events<WindowClosed>>();
-                    events.send(WindowClosed);
+                        .resource_mut::<Messages<WindowClosed>>();
+                    events.write(WindowClosed);
                 }
                 event_loop.exit();
             }
@@ -109,8 +109,8 @@ impl ApplicationHandler for BsWinitApp {
                     let mut events = self
                         .ecs_app
                         .world_mut()
-                        .resource_mut::<Events<WindowResized>>();
-                    events.send(WindowResized {
+                        .resource_mut::<Messages<WindowResized>>();
+                    events.write(WindowResized {
                         width: size.width,
                         height: size.height,
                     });
@@ -121,7 +121,7 @@ impl ApplicationHandler for BsWinitApp {
                 }
             }
             WindowEvent::KeyboardInput { event, .. } => {
-                use bevy_ecs::event::Events;
+                use bevy_ecs::message::Messages;
                 use bsengine_input::convert::{convert_element_state, convert_key_code};
                 use bsengine_input::KeyInput;
                 let key_code = convert_key_code(event.physical_key);
@@ -130,9 +130,9 @@ impl ApplicationHandler for BsWinitApp {
                 if let Some(mut events) = self
                     .ecs_app
                     .world_mut()
-                    .get_resource_mut::<Events<KeyInput>>()
+                    .get_resource_mut::<Messages<KeyInput>>()
                 {
-                    events.send(KeyInput {
+                    events.write(KeyInput {
                         key_code,
                         state,
                         text,
@@ -140,7 +140,7 @@ impl ApplicationHandler for BsWinitApp {
                 }
             }
             WindowEvent::MouseInput { button, state, .. } => {
-                use bevy_ecs::event::Events;
+                use bevy_ecs::message::Messages;
                 use bsengine_input::convert::convert_element_state;
                 use bsengine_input::{MouseButton, MouseInput};
                 use winit::event::MouseButton as WinitBtn;
@@ -155,20 +155,20 @@ impl ApplicationHandler for BsWinitApp {
                 if let Some(mut events) = self
                     .ecs_app
                     .world_mut()
-                    .get_resource_mut::<Events<MouseInput>>()
+                    .get_resource_mut::<Messages<MouseInput>>()
                 {
-                    events.send(MouseInput { button: btn, state });
+                    events.write(MouseInput { button: btn, state });
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
-                use bevy_ecs::event::Events;
+                use bevy_ecs::message::Messages;
                 use bsengine_input::CursorMoved;
                 if let Some(mut events) = self
                     .ecs_app
                     .world_mut()
-                    .get_resource_mut::<Events<CursorMoved>>()
+                    .get_resource_mut::<Messages<CursorMoved>>()
                 {
-                    events.send(CursorMoved {
+                    events.write(CursorMoved {
                         x: position.x,
                         y: position.y,
                     });
@@ -179,7 +179,7 @@ impl ApplicationHandler for BsWinitApp {
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                use bevy_ecs::event::Events;
+                use bevy_ecs::message::Messages;
                 use bsengine_input::MouseWheel;
                 let scroll = match delta {
                     winit::event::MouseScrollDelta::LineDelta(_, y) => y as f64,
@@ -188,9 +188,9 @@ impl ApplicationHandler for BsWinitApp {
                 if let Some(mut events) = self
                     .ecs_app
                     .world_mut()
-                    .get_resource_mut::<Events<MouseWheel>>()
+                    .get_resource_mut::<Messages<MouseWheel>>()
                 {
-                    events.send(MouseWheel { delta: scroll });
+                    events.write(MouseWheel { delta: scroll });
                 }
             }
             WindowEvent::RedrawRequested => {
@@ -205,8 +205,8 @@ impl ApplicationHandler for BsWinitApp {
                 let quit_requested = self
                     .ecs_app
                     .world()
-                    .get_resource::<Events<AppExit>>()
-                    .map(|events| events.iter_current_update_events().next().is_some())
+                    .get_resource::<Messages<AppExit>>()
+                    .map(|events| events.iter_current_update_messages().next().is_some())
                     .unwrap_or(false);
                 if quit_requested {
                     event_loop.exit();
@@ -232,9 +232,9 @@ impl ApplicationHandler for BsWinitApp {
             if let Some(mut events) = self
                 .ecs_app
                 .world_mut()
-                .get_resource_mut::<Events<MouseMotion>>()
+                .get_resource_mut::<Messages<MouseMotion>>()
             {
-                events.send(MouseMotion { dx, dy });
+                events.write(MouseMotion { dx, dy });
             }
         }
     }

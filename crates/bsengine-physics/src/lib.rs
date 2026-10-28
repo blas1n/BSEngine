@@ -141,7 +141,7 @@ mod tests {
 
     #[test]
     fn collision_event_fires_when_bodies_touch() {
-        use bevy_ecs::event::Events;
+        use bevy_ecs::message::Messages;
 
         let mut app = new_app();
 
@@ -166,7 +166,7 @@ mod tests {
         let mut received = false;
         for _ in 0..200 {
             app.update();
-            let events = app.world().resource::<Events<CollisionEvent>>();
+            let events = app.world().resource::<Messages<CollisionEvent>>();
             let mut reader = events.get_cursor();
             if reader.read(events).next().is_some() {
                 received = true;

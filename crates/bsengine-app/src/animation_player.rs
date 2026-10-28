@@ -1,5 +1,5 @@
 use bevy_app::{App, Plugin, Update};
-use bevy_ecs::prelude::{Entity, EventWriter};
+use bevy_ecs::prelude::{Entity, MessageWriter};
 use bsengine_core::{
     AnimationEventFired, AnimationEvents, AnimationPlayer, AnimationSystems, Time,
 };
@@ -12,7 +12,7 @@ pub struct AnimationPlugin;
 
 impl Plugin for AnimationPlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<AnimationEventFired>()
+        app.add_message::<AnimationEventFired>()
             .add_systems(Update, advance_animations.in_set(AnimationSystems));
     }
 }
@@ -20,7 +20,7 @@ impl Plugin for AnimationPlugin {
 fn advance_animations(
     mut query: Query<(Entity, &mut AnimationPlayer, Option<&AnimationEvents>)>,
     time: Res<Time>,
-    mut fired: EventWriter<AnimationEventFired>,
+    mut fired: MessageWriter<AnimationEventFired>,
 ) {
     let dt = time.delta_seconds;
     for (entity, mut player, events) in query.iter_mut() {
@@ -79,7 +79,7 @@ mod tests {
     fn fired(app: &mut bevy_app::App) -> Vec<String> {
         let events = app
             .world()
-            .resource::<bevy_ecs::event::Events<bsengine_core::AnimationEventFired>>();
+            .resource::<bevy_ecs::message::Messages<bsengine_core::AnimationEventFired>>();
         let mut reader = events.get_cursor();
         reader.read(events).map(|e| e.name.clone()).collect()
     }
@@ -109,7 +109,7 @@ mod tests {
             app.update();
             let names = fired(&mut app);
             app.world_mut()
-                .resource_mut::<bevy_ecs::event::Events<bsengine_core::AnimationEventFired>>()
+                .resource_mut::<bevy_ecs::message::Messages<bsengine_core::AnimationEventFired>>()
                 .clear();
             per_frame.push(names);
         }

@@ -80,7 +80,7 @@ impl Transform {
 /// a frame old, which propagation corrects as it always has.
 fn fill_global_transform(
     mut world: bevy_ecs::world::DeferredWorld,
-    context: bevy_ecs::component::HookContext,
+    context: bevy_ecs::lifecycle::HookContext,
 ) {
     let entity = context.entity;
     let Some(local) = world.get::<Transform>(entity).map(Transform::to_matrix) else {

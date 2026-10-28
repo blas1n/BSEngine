@@ -67,11 +67,16 @@ ron               = "0.8"
 # (bsengine-scene `parse`): serde otherwise drops them without a word.
 serde_ignored     = "0.1"
 serde             = { version = "1.0", features = ["derive"] }
-bevy_app          = { version = "0.15", default-features = false, features = ["bevy_reflect"] }
-bevy_ecs          = { version = "0.15", default-features = false, features = ["bevy_reflect"] }
-bevy_reflect      = { version = "0.15", default-features = false }
-bevy_asset        = { version = "0.15", default-features = false }
-bevy_tasks        = { version = "0.15", default-features = false }
+# `std` named explicitly: since 0.16 (no_std support) it gates the reflection
+# of std's HashMap/HashSet, the system clock and more, and default features are
+# off. The workspace build never noticed -- bevy_asset turns `std` on for
+# everyone through feature unification -- but `cargo test -p bsengine-core` on
+# its own failed to compile AnimationStateMachine's maps.
+bevy_app          = { version = "0.16", default-features = false, features = ["bevy_reflect", "std"] }
+bevy_ecs          = { version = "0.16", default-features = false, features = ["bevy_reflect", "std"] }
+bevy_reflect      = { version = "0.16", default-features = false, features = ["std"] }
+bevy_asset        = { version = "0.16", default-features = false }
+bevy_tasks        = { version = "0.16", default-features = false, features = ["std"] }
 tracing           = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 winit             = "0.30"

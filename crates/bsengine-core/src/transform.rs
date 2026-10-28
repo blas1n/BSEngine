@@ -80,14 +80,14 @@ impl Transform {
 /// a frame old, which propagation corrects as it always has.
 fn fill_global_transform(
     mut world: bevy_ecs::world::DeferredWorld,
-    entity: bevy_ecs::entity::Entity,
-    _: bevy_ecs::component::ComponentId,
+    context: bevy_ecs::component::HookContext,
 ) {
+    let entity = context.entity;
     let Some(local) = world.get::<Transform>(entity).map(Transform::to_matrix) else {
         return;
     };
     let parent_world = world
-        .get::<crate::Parent>(entity)
+        .get::<crate::ChildOf>(entity)
         .and_then(|p| world.get::<crate::GlobalTransform>(p.0))
         .map(|g| g.0 .0);
     let matrix = parent_world.map_or(local, |p| p * local);
@@ -154,7 +154,7 @@ mod tests {
         let child = world
             .spawn((
                 Transform::from_position(Vec3::new(0.0, 1.0, 0.0)),
-                crate::Parent(parent),
+                crate::ChildOf(parent),
             ))
             .id();
         let pos = world

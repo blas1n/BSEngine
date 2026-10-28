@@ -35,22 +35,46 @@
 //! [`World::despawn`]: crate::world::World::despawn
 //! [`EntityWorldMut::insert`]: crate::world::EntityWorldMut::insert
 //! [`EntityWorldMut::remove`]: crate::world::EntityWorldMut::remove
+
+mod clone_entities;
+mod entity_set;
 mod map_entities;
-mod visit_entities;
 #[cfg(feature = "bevy_reflect")]
 use bevy_reflect::Reflect;
 #[cfg(all(feature = "bevy_reflect", feature = "serialize"))]
 use bevy_reflect::{ReflectDeserialize, ReflectSerialize};
+
+pub use clone_entities::*;
+pub use entity_set::*;
 pub use map_entities::*;
-pub use visit_entities::*;
 
 mod hash;
 pub use hash::*;
 
-use bevy_utils::tracing::warn;
+pub mod hash_map;
+pub mod hash_set;
+
+pub use hash_map::EntityHashMap;
+pub use hash_set::EntityHashSet;
+
+pub mod index_map;
+pub mod index_set;
+
+pub use index_map::EntityIndexMap;
+pub use index_set::EntityIndexSet;
+
+pub mod unique_array;
+pub mod unique_slice;
+pub mod unique_vec;
+
+pub use unique_array::{UniqueEntityArray, UniqueEntityEquivalentArray};
+pub use unique_slice::{UniqueEntityEquivalentSlice, UniqueEntitySlice};
+pub use unique_vec::{UniqueEntityEquivalentVec, UniqueEntityVec};
 
 use crate::{
     archetype::{ArchetypeId, ArchetypeRow},
+    change_detection::MaybeLocation,
+    component::Tick,
     identifier::{
         error::IdentifierError,
         kinds::IdKind,
@@ -59,12 +83,22 @@ use crate::{
     },
     storage::{SparseSetIndex, TableId, TableRow},
 };
-use core::{fmt, hash::Hash, mem, num::NonZero, sync::atomic::Ordering};
+use alloc::vec::Vec;
+use bevy_platform::sync::atomic::Ordering;
+use core::{
+    fmt,
+    hash::Hash,
+    mem::{self},
+    num::NonZero,
+    panic::Location,
+};
+use log::warn;
+
 #[cfg(feature = "serialize")]
 use serde::{Deserialize, Serialize};
 
 #[cfg(target_has_atomic = "64")]
-use core::sync::atomic::AtomicI64 as AtomicIdCursor;
+use bevy_platform::sync::atomic::AtomicI64 as AtomicIdCursor;
 #[cfg(target_has_atomic = "64")]
 type IdCursor = i64;
 
@@ -72,7 +106,7 @@ type IdCursor = i64;
 /// do not. This fallback allows compilation using a 32-bit cursor instead, with
 /// the caveat that some conversions may fail (and panic) at runtime.
 #[cfg(not(target_has_atomic = "64"))]
-use core::sync::atomic::AtomicIsize as AtomicIdCursor;
+use bevy_platform::sync::atomic::AtomicIsize as AtomicIdCursor;
 #[cfg(not(target_has_atomic = "64"))]
 type IdCursor = isize;
 
@@ -147,7 +181,7 @@ type IdCursor = isize;
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "bevy_reflect", derive(Reflect))]
 #[cfg_attr(feature = "bevy_reflect", reflect(opaque))]
-#[cfg_attr(feature = "bevy_reflect", reflect(Hash, PartialEq, Debug))]
+#[cfg_attr(feature = "bevy_reflect", reflect(Hash, PartialEq, Debug, Clone))]
 #[cfg_attr(
     all(feature = "bevy_reflect", feature = "serialize"),
     reflect(Serialize, Deserialize)
@@ -216,6 +250,10 @@ impl Hash for Entity {
     }
 }
 
+#[deprecated(
+    since = "0.16.0",
+    note = "This is exclusively used with the now deprecated `Entities::alloc_at_without_replacement`."
+)]
 pub(crate) enum AllocAtWithoutReplacement {
     Exists(EntityLocation),
     DidNotExist,
@@ -492,6 +530,9 @@ impl<'a> Iterator for ReserveEntitiesIterator<'a> {
 impl<'a> ExactSizeIterator for ReserveEntitiesIterator<'a> {}
 impl<'a> core::iter::FusedIterator for ReserveEntitiesIterator<'a> {}
 
+// SAFETY: Newly reserved entity values are unique.
+unsafe impl EntitySetIterator for ReserveEntitiesIterator<'_> {}
+
 /// A [`World`]'s internal metadata store on all of its entities.
 ///
 /// Contains metadata on:
@@ -546,8 +587,6 @@ pub struct Entities {
     /// [`flush`]: Entities::flush
     pending: Vec<u32>,
     free_cursor: AtomicIdCursor,
-    /// Stores the number of free entities for [`len`](Entities::len)
-    len: u32,
 }
 
 impl Entities {
@@ -556,14 +595,20 @@ impl Entities {
             meta: Vec::new(),
             pending: Vec::new(),
             free_cursor: AtomicIdCursor::new(0),
-            len: 0,
         }
     }
 
     /// Reserve entity IDs concurrently.
     ///
     /// Storage for entity generation and location is lazily allocated by calling [`flush`](Entities::flush).
-    #[allow(clippy::unnecessary_fallible_conversions)] // Because `IdCursor::try_from` may fail on 32-bit platforms.
+    #[expect(
+        clippy::allow_attributes,
+        reason = "`clippy::unnecessary_fallible_conversions` may not always lint."
+    )]
+    #[allow(
+        clippy::unnecessary_fallible_conversions,
+        reason = "`IdCursor::try_from` may fail on 32-bit platforms."
+    )]
     pub fn reserve_entities(&self, count: u32) -> ReserveEntitiesIterator {
         // Use one atomic subtract to grab a range of new IDs. The range might be
         // entirely nonnegative, meaning all IDs come from the freelist, or entirely
@@ -641,7 +686,6 @@ impl Entities {
     /// Allocate an entity ID directly.
     pub fn alloc(&mut self) -> Entity {
         self.verify_flushed();
-        self.len += 1;
         if let Some(index) = self.pending.pop() {
             let new_free_cursor = self.pending.len() as IdCursor;
             *self.free_cursor.get_mut() = new_free_cursor;
@@ -657,6 +701,10 @@ impl Entities {
     ///
     /// Returns the location of the entity currently using the given ID, if any. Location should be
     /// written immediately.
+    #[deprecated(
+        since = "0.16.0",
+        note = "This can cause extreme performance problems when used after freeing a large number of entities and requesting an arbitrary entity. See #18054 on GitHub."
+    )]
     pub fn alloc_at(&mut self, entity: Entity) -> Option<EntityLocation> {
         self.verify_flushed();
 
@@ -667,13 +715,11 @@ impl Entities {
             *self.free_cursor.get_mut() = new_free_cursor;
             self.meta
                 .resize(entity.index() as usize + 1, EntityMeta::EMPTY);
-            self.len += 1;
             None
         } else if let Some(index) = self.pending.iter().position(|item| *item == entity.index()) {
             self.pending.swap_remove(index);
             let new_free_cursor = self.pending.len() as IdCursor;
             *self.free_cursor.get_mut() = new_free_cursor;
-            self.len += 1;
             None
         } else {
             Some(mem::replace(
@@ -690,6 +736,14 @@ impl Entities {
     /// Allocate a specific entity ID, overwriting its generation.
     ///
     /// Returns the location of the entity currently using the given ID, if any.
+    #[deprecated(
+        since = "0.16.0",
+        note = "This can cause extreme performance problems when used after freeing a large number of entities and requesting an arbitrary entity. See #18054 on GitHub."
+    )]
+    #[expect(
+        deprecated,
+        reason = "We need to support `AllocAtWithoutReplacement` for now."
+    )]
     pub(crate) fn alloc_at_without_replacement(
         &mut self,
         entity: Entity,
@@ -703,13 +757,11 @@ impl Entities {
             *self.free_cursor.get_mut() = new_free_cursor;
             self.meta
                 .resize(entity.index() as usize + 1, EntityMeta::EMPTY);
-            self.len += 1;
             AllocAtWithoutReplacement::DidNotExist
         } else if let Some(index) = self.pending.iter().position(|item| *item == entity.index()) {
             self.pending.swap_remove(index);
             let new_free_cursor = self.pending.len() as IdCursor;
             *self.free_cursor.get_mut() = new_free_cursor;
-            self.len += 1;
             AllocAtWithoutReplacement::DidNotExist
         } else {
             let current_meta = &self.meta[entity.index() as usize];
@@ -752,12 +804,18 @@ impl Entities {
 
         let new_free_cursor = self.pending.len() as IdCursor;
         *self.free_cursor.get_mut() = new_free_cursor;
-        self.len -= 1;
         Some(loc)
     }
 
     /// Ensure at least `n` allocations can succeed without reallocating.
-    #[allow(clippy::unnecessary_fallible_conversions)] // Because `IdCursor::try_from` may fail on 32-bit platforms.
+    #[expect(
+        clippy::allow_attributes,
+        reason = "`clippy::unnecessary_fallible_conversions` may not always lint."
+    )]
+    #[allow(
+        clippy::unnecessary_fallible_conversions,
+        reason = "`IdCursor::try_from` may fail on 32-bit platforms."
+    )]
     pub fn reserve(&mut self, additional: u32) {
         self.verify_flushed();
 
@@ -775,7 +833,7 @@ impl Entities {
     // not reallocated since the generation is incremented in `free`
     pub fn contains(&self, entity: Entity) -> bool {
         self.resolve_from_id(entity.index())
-            .map_or(false, |e| e.generation() == entity.generation())
+            .is_some_and(|e| e.generation() == entity.generation())
     }
 
     /// Clears all [`Entity`] from the World.
@@ -783,11 +841,10 @@ impl Entities {
         self.meta.clear();
         self.pending.clear();
         *self.free_cursor.get_mut() = 0;
-        self.len = 0;
     }
 
     /// Returns the location of an [`Entity`].
-    /// Note: for pending entities, returns `Some(EntityLocation::INVALID)`.
+    /// Note: for pending entities, returns `None`.
     #[inline]
     pub fn get(&self, entity: Entity) -> Option<EntityLocation> {
         if let Some(meta) = self.meta.get(entity.index() as usize) {
@@ -814,6 +871,20 @@ impl Entities {
         // SAFETY: Caller guarantees that `index` a valid entity index
         let meta = unsafe { self.meta.get_unchecked_mut(index as usize) };
         meta.location = location;
+    }
+
+    /// # Safety
+    ///  - `index` must be a valid entity index.
+    #[inline]
+    pub(crate) unsafe fn mark_spawn_despawn(&mut self, index: u32, by: MaybeLocation, _at: Tick) {
+        // // SAFETY: Caller guarantees that `index` a valid entity index
+        // let meta = unsafe { self.meta.get_unchecked_mut(index as usize) };
+        // meta.spawned_or_despawned_by = MaybeUninit::new(SpawnedOrDespawned { by, at });
+        by.map(|caller| {
+            // SAFETY: Caller guarantees that `index` a valid entity index
+            let meta = unsafe { self.meta.get_unchecked_mut(index as usize) };
+            meta.spawned_or_despawned_by = MaybeLocation::new(Some(caller));
+        });
     }
 
     /// Increments the `generation` of a freed [`Entity`]. The next entity ID allocated with this
@@ -879,7 +950,6 @@ impl Entities {
             let old_meta_len = self.meta.len();
             let new_meta_len = old_meta_len + -current_free_cursor as usize;
             self.meta.resize(new_meta_len, EntityMeta::EMPTY);
-            self.len += -current_free_cursor as u32;
             for (index, meta) in self.meta.iter_mut().enumerate().skip(old_meta_len) {
                 init(
                     Entity::from_raw_and_generation(index as u32, meta.generation),
@@ -891,7 +961,6 @@ impl Entities {
             0
         };
 
-        self.len += (self.pending.len() - new_free_cursor) as u32;
         for index in self.pending.drain(new_free_cursor..) {
             let meta = &mut self.meta[index as usize];
             init(
@@ -913,25 +982,6 @@ impl Entities {
         }
     }
 
-    /// # Safety
-    ///
-    /// This function is safe if and only if the world this Entities is on has no entities.
-    pub unsafe fn flush_and_reserve_invalid_assuming_no_entities(&mut self, count: usize) {
-        let free_cursor = self.free_cursor.get_mut();
-        *free_cursor = 0;
-        self.meta.reserve(count);
-        // SAFETY: The EntityMeta struct only contains integers, and it is valid to have all bytes set to u8::MAX
-        unsafe {
-            self.meta.as_mut_ptr().write_bytes(u8::MAX, count);
-        }
-        // SAFETY: We have reserved `count` elements above and we have initialized values from index 0 to `count`.
-        unsafe {
-            self.meta.set_len(count);
-        }
-
-        self.len = count as u32;
-    }
-
     /// The count of all entities in the [`World`] that have ever been allocated
     /// including the entities that are currently freed.
     ///
@@ -944,31 +994,131 @@ impl Entities {
         self.meta.len()
     }
 
+    /// The count of all entities in the [`World`] that are used,
+    /// including both those allocated and those reserved, but not those freed.
+    ///
+    /// [`World`]: crate::world::World
+    #[inline]
+    pub fn used_count(&self) -> usize {
+        (self.meta.len() as isize - self.free_cursor.load(Ordering::Relaxed) as isize) as usize
+    }
+
+    /// The count of all entities in the [`World`] that have ever been allocated or reserved, including those that are freed.
+    /// This is the value that [`Self::total_count()`] would return if [`Self::flush()`] were called right now.
+    ///
+    /// [`World`]: crate::world::World
+    #[inline]
+    pub fn total_prospective_count(&self) -> usize {
+        self.meta.len() + (-self.free_cursor.load(Ordering::Relaxed)).min(0) as usize
+    }
+
     /// The count of currently allocated entities.
     #[inline]
     pub fn len(&self) -> u32 {
-        self.len
+        // `pending`, by definition, can't be bigger than `meta`.
+        (self.meta.len() - self.pending.len()) as u32
     }
 
     /// Checks if any entity is currently active.
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.len == 0
+        self.len() == 0
+    }
+
+    /// Sets the source code location from which this entity has last been spawned
+    /// or despawned.
+    #[inline]
+    pub(crate) fn set_spawned_or_despawned_by(&mut self, index: u32, caller: MaybeLocation) {
+        caller.map(|caller| {
+            let meta = self
+                .meta
+                .get_mut(index as usize)
+                .expect("Entity index invalid");
+            meta.spawned_or_despawned_by = MaybeLocation::new(Some(caller));
+        });
+    }
+
+    /// Returns the source code location from which this entity has last been spawned
+    /// or despawned. Returns `None` if its index has been reused by another entity
+    /// or if this entity has never existed.
+    pub fn entity_get_spawned_or_despawned_by(
+        &self,
+        entity: Entity,
+    ) -> MaybeLocation<Option<&'static Location<'static>>> {
+        MaybeLocation::new_with_flattened(|| {
+            self.meta
+                .get(entity.index() as usize)
+                .filter(|meta|
+                // Generation is incremented immediately upon despawn
+                (meta.generation == entity.generation)
+                || (meta.location.archetype_id == ArchetypeId::INVALID)
+                && (meta.generation == IdentifierMask::inc_masked_high_by(entity.generation, 1)))
+                .map(|meta| meta.spawned_or_despawned_by)
+        })
+        .map(Option::flatten)
+    }
+
+    /// Constructs a message explaining why an entity does not exist, if known.
+    pub(crate) fn entity_does_not_exist_error_details(
+        &self,
+        entity: Entity,
+    ) -> EntityDoesNotExistDetails {
+        EntityDoesNotExistDetails {
+            location: self.entity_get_spawned_or_despawned_by(entity),
+        }
     }
 }
 
-// This type is repr(C) to ensure that the layout and values within it can be safe to fully fill
-// with u8::MAX, as required by [`Entities::flush_and_reserve_invalid_assuming_no_entities`].
-// Safety:
-// This type must not contain any pointers at any level, and be safe to fully fill with u8::MAX.
-/// Metadata for an [`Entity`].
+/// An error that occurs when a specified [`Entity`] does not exist.
+#[derive(thiserror::Error, Debug, Clone, Copy, PartialEq, Eq)]
+#[error("The entity with ID {entity} {details}")]
+pub struct EntityDoesNotExistError {
+    /// The entity's ID.
+    pub entity: Entity,
+    /// Details on why the entity does not exist, if available.
+    pub details: EntityDoesNotExistDetails,
+}
+
+impl EntityDoesNotExistError {
+    pub(crate) fn new(entity: Entity, entities: &Entities) -> Self {
+        Self {
+            entity,
+            details: entities.entity_does_not_exist_error_details(entity),
+        }
+    }
+}
+
+/// Helper struct that, when printed, will write the appropriate details
+/// regarding an entity that did not exist.
+#[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct EntityDoesNotExistDetails {
+    location: MaybeLocation<Option<&'static Location<'static>>>,
+}
+
+impl fmt::Display for EntityDoesNotExistDetails {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.location.into_option() {
+            Some(Some(location)) => write!(f, "was despawned by {location}"),
+            Some(None) => write!(
+                f,
+                "does not exist (index has been reused or was never spawned)"
+            ),
+            None => write!(
+                f,
+                "does not exist (enable `track_location` feature for more details)"
+            ),
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
-#[repr(C)]
 struct EntityMeta {
     /// The current generation of the [`Entity`].
     pub generation: NonZero<u32>,
     /// The current location of the [`Entity`]
     pub location: EntityLocation,
+    /// Location of the last spawn or despawn of this entity
+    spawned_or_despawned_by: MaybeLocation<Option<&'static Location<'static>>>,
 }
 
 impl EntityMeta {
@@ -976,16 +1126,12 @@ impl EntityMeta {
     const EMPTY: EntityMeta = EntityMeta {
         generation: NonZero::<u32>::MIN,
         location: EntityLocation::INVALID,
+        spawned_or_despawned_by: MaybeLocation::new(None),
     };
 }
 
-// This type is repr(C) to ensure that the layout and values within it can be safe to fully fill
-// with u8::MAX, as required by [`Entities::flush_and_reserve_invalid_assuming_no_entities`].
-// SAFETY:
-// This type must not contain any pointers at any level, and be safe to fully fill with u8::MAX.
 /// A location of an entity in an archetype.
 #[derive(Copy, Clone, Debug, PartialEq)]
-#[repr(C)]
 pub struct EntityLocation {
     /// The ID of the [`Archetype`] the [`Entity`] belongs to.
     ///
@@ -1010,7 +1156,7 @@ pub struct EntityLocation {
 
 impl EntityLocation {
     /// location for **pending entity** and **invalid entity**
-    const INVALID: EntityLocation = EntityLocation {
+    pub(crate) const INVALID: EntityLocation = EntityLocation {
         archetype_id: ArchetypeId::INVALID,
         archetype_row: ArchetypeRow::INVALID,
         table_id: TableId::INVALID,
@@ -1021,6 +1167,7 @@ impl EntityLocation {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::format;
 
     #[test]
     fn entity_niche_optimization() {
@@ -1105,7 +1252,10 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::nonminimal_bool)] // This is intentionally testing `lt` and `ge` as separate functions.
+    #[expect(
+        clippy::nonminimal_bool,
+        reason = "This intentionally tests all possible comparison operators as separate functions; thus, we don't want to rewrite these comparisons to use different operators."
+    )]
     fn entity_comparison() {
         assert_eq!(
             Entity::from_raw_and_generation(123, NonZero::<u32>::new(456).unwrap()),

@@ -19,7 +19,9 @@ fn tick_lifetimes(
     for (entity, mut lifetime) in query.iter_mut() {
         lifetime.remaining -= time.delta_seconds;
         if lifetime.remaining <= 0.0 {
-            commands.entity(entity).despawn();
+            // `try_`: a child that expires in the same frame as its parent is
+            // already gone with it by the time its own command runs.
+            commands.entity(entity).try_despawn();
         }
     }
 }
@@ -53,6 +55,32 @@ mod tests {
         app.update();
 
         assert!(app.world().get_entity(entity).is_err());
+    }
+
+    #[test]
+    fn an_expired_entity_takes_its_children_with_it() {
+        // A projectile's trail, a pickup's glow: what is parented to a timed
+        // entity goes when it does, as Unity's Destroy and Godot's queue_free
+        // take the children. A sibling root with no Lifetime stays.
+        let mut app = make_app_with_delta(1.0);
+        let parent = app.world_mut().spawn(Lifetime::from_seconds(0.5)).id();
+        let child = app.world_mut().spawn(bsengine_core::ChildOf(parent)).id();
+        let bystander = app.world_mut().spawn_empty().id();
+
+        app.update();
+
+        assert!(
+            app.world().get_entity(parent).is_err(),
+            "premise: it expired"
+        );
+        assert!(
+            app.world().get_entity(child).is_err(),
+            "and its child with it"
+        );
+        assert!(
+            app.world().get_entity(bystander).is_ok(),
+            "but not a stranger"
+        );
     }
 
     #[test]

@@ -1,4 +1,8 @@
 use crate::io::AssetSourceId;
+use alloc::{
+    borrow::ToOwned,
+    string::{String, ToString},
+};
 use atomicow::CowArc;
 use bevy_reflect::{Reflect, ReflectDeserialize, ReflectSerialize};
 use core::{
@@ -6,18 +10,18 @@ use core::{
     hash::Hash,
     ops::Deref,
 };
-use derive_more::derive::{Display, Error};
 use serde::{de::Visitor, Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use thiserror::Error;
 
 /// Represents a path to an asset in a "virtual filesystem".
 ///
 /// Asset paths consist of three main parts:
 /// * [`AssetPath::source`]: The name of the [`AssetSource`](crate::io::AssetSource) to load the asset from.
-///     This is optional. If one is not set the default source will be used (which is the `assets` folder by default).
+///   This is optional. If one is not set the default source will be used (which is the `assets` folder by default).
 /// * [`AssetPath::path`]: The "virtual filesystem path" pointing to an asset source file.
 /// * [`AssetPath::label`]: An optional "named sub asset". When assets are loaded, they are
-///     allowed to load "sub assets" of any type, which are identified by a named "label".
+///   allowed to load "sub assets" of any type, which are identified by a named "label".
 ///
 /// Asset paths are generally constructed (and visualized) as strings:
 ///
@@ -49,7 +53,7 @@ use std::path::{Path, PathBuf};
 /// This also means that you should use [`AssetPath::parse`] in cases where `&str` is the explicit type.
 #[derive(Eq, PartialEq, Hash, Clone, Default, Reflect)]
 #[reflect(opaque)]
-#[reflect(Debug, PartialEq, Hash, Serialize, Deserialize)]
+#[reflect(Debug, PartialEq, Hash, Clone, Serialize, Deserialize)]
 pub struct AssetPath<'a> {
     source: AssetSourceId<'a>,
     path: CowArc<'a, Path>,
@@ -76,19 +80,19 @@ impl<'a> Display for AssetPath<'a> {
 }
 
 /// An error that occurs when parsing a string type to create an [`AssetPath`] fails, such as during [`AssetPath::parse`].
-#[derive(Error, Display, Debug, PartialEq, Eq)]
+#[derive(Error, Debug, PartialEq, Eq)]
 pub enum ParseAssetPathError {
     /// Error that occurs when the [`AssetPath::source`] section of a path string contains the [`AssetPath::label`] delimiter `#`. E.g. `bad#source://file.test`.
-    #[display("Asset source must not contain a `#` character")]
+    #[error("Asset source must not contain a `#` character")]
     InvalidSourceSyntax,
     /// Error that occurs when the [`AssetPath::label`] section of a path string contains the [`AssetPath::source`] delimiter `://`. E.g. `source://file.test#bad://label`.
-    #[display("Asset label must not contain a `://` substring")]
+    #[error("Asset label must not contain a `://` substring")]
     InvalidLabelSyntax,
     /// Error that occurs when a path string has an [`AssetPath::source`] delimiter `://` with no characters preceding it. E.g. `://file.test`.
-    #[display("Asset source must be at least one character. Either specify the source before the '://' or remove the `://`")]
+    #[error("Asset source must be at least one character. Either specify the source before the '://' or remove the `://`")]
     MissingSource,
     /// Error that occurs when a path string has an [`AssetPath::label`] delimiter `#` with no characters succeeding it. E.g. `file.test#`
-    #[display("Asset label must be at least one character. Either specify the label after the '#' or remove the '#'")]
+    #[error("Asset label must be at least one character. Either specify the label after the '#' or remove the '#'")]
     MissingLabel,
 }
 
@@ -316,7 +320,7 @@ impl<'a> AssetPath<'a> {
     /// If internally a value is a static reference, the static reference will be used unchanged.
     /// If internally a value is an "owned [`Arc`]", it will remain unchanged.
     ///
-    /// [`Arc`]: std::sync::Arc
+    /// [`Arc`]: alloc::sync::Arc
     pub fn into_owned(self) -> AssetPath<'static> {
         AssetPath {
             source: self.source.into_owned(),
@@ -329,7 +333,7 @@ impl<'a> AssetPath<'a> {
     /// If internally a value is a static reference, the static reference will be used unchanged.
     /// If internally a value is an "owned [`Arc`]", the [`Arc`] will be cloned.
     ///
-    /// [`Arc`]: std::sync::Arc
+    /// [`Arc`]: alloc::sync::Arc
     #[inline]
     pub fn clone_owned(&self) -> AssetPath<'static> {
         self.clone().into_owned()
@@ -454,7 +458,7 @@ impl<'a> AssetPath<'a> {
     pub fn get_full_extension(&self) -> Option<String> {
         let file_name = self.path().file_name()?.to_str()?;
         let index = file_name.find('.')?;
-        let mut extension = file_name[index + 1..].to_lowercase();
+        let mut extension = file_name[index + 1..].to_owned();
 
         // Strip off any query parameters
         let query = extension.find('?');
@@ -473,6 +477,51 @@ impl<'a> AssetPath<'a> {
                 None
             }
         })
+    }
+
+    /// Returns `true` if this [`AssetPath`] points to a file that is
+    /// outside of it's [`AssetSource`](crate::io::AssetSource) folder.
+    ///
+    /// ## Example
+    /// ```
+    /// # use bevy_asset::AssetPath;
+    /// // Inside the default AssetSource.
+    /// let path = AssetPath::parse("thingy.png");
+    /// assert!( ! path.is_unapproved());
+    /// let path = AssetPath::parse("gui/thingy.png");
+    /// assert!( ! path.is_unapproved());
+    ///
+    /// // Inside a different AssetSource.
+    /// let path = AssetPath::parse("embedded://thingy.png");
+    /// assert!( ! path.is_unapproved());
+    ///
+    /// // Exits the `AssetSource`s directory.
+    /// let path = AssetPath::parse("../thingy.png");
+    /// assert!(path.is_unapproved());
+    /// let path = AssetPath::parse("folder/../../thingy.png");
+    /// assert!(path.is_unapproved());
+    ///
+    /// // This references the linux root directory.
+    /// let path = AssetPath::parse("/home/thingy.png");
+    /// assert!(path.is_unapproved());
+    /// ```
+    pub fn is_unapproved(&self) -> bool {
+        use std::path::Component;
+        let mut simplified = PathBuf::new();
+        for component in self.path.components() {
+            match component {
+                Component::Prefix(_) | Component::RootDir => return true,
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    if !simplified.pop() {
+                        return true;
+                    }
+                }
+                Component::Normal(os_str) => simplified.push(os_str),
+            }
+        }
+
+        false
     }
 }
 
@@ -629,6 +678,7 @@ pub(crate) fn normalize_path(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use crate::AssetPath;
+    use alloc::string::ToString;
     use std::path::Path;
 
     #[test]
@@ -972,5 +1022,8 @@ mod tests {
 
         let result = AssetPath::from("http://a.tar.bz2?foo=bar#Baz");
         assert_eq!(result.get_full_extension(), Some("tar.bz2".to_string()));
+
+        let result = AssetPath::from("asset.Custom");
+        assert_eq!(result.get_full_extension(), Some("Custom".to_string()));
     }
 }

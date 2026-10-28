@@ -1,7 +1,6 @@
 {
   "git": {
-    "sha1": "6390fd65591e5db762d49700f1d965929f7204fd",
-    "dirty": true
+    "sha1": "383b3510455c431f34cf3f2c6e3c2d40eddce744"
   },
   "path_in_vcs": "crates/bevy_tasks"
 }

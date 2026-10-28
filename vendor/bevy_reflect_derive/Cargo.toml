@@ -10,9 +10,9 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2021"
+edition = "2024"
 name = "bevy_reflect_derive"
-version = "0.15.1"
+version = "0.16.1"
 build = false
 autolib = false
 autobins = false
@@ -25,6 +25,7 @@ readme = false
 keywords = ["bevy"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/bevyengine/bevy"
+resolver = "2"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -33,13 +34,18 @@ rustdoc-args = [
     "--generate-link-to-definition",
 ]
 
+[features]
+default = []
+documentation = []
+functions = []
+
 [lib]
 name = "bevy_reflect_derive"
 path = "src/lib.rs"
 proc-macro = true
 
 [dependencies.bevy_macro_utils]
-version = "0.15.1"
+version = "0.16.1"
 
 [dependencies.proc-macro2]
 version = "1.0"
@@ -52,19 +58,25 @@ version = "2.0"
 features = ["full"]
 
 [dependencies.uuid]
-version = "1.1"
+version = "1.13.1"
 features = ["v4"]
 
-[features]
-default = []
-documentation = []
-functions = []
+[target.'cfg(target_arch = "wasm32")'.dependencies.uuid]
+version = "1.13.1"
+features = ["js"]
+default-features = false
 
 [lints.clippy]
 alloc_instead_of_core = "warn"
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
 doc_markdown = "warn"
 manual_let_else = "warn"
 match_same_arms = "warn"
+needless_lifetimes = "allow"
+nonstandard_macro_braces = "warn"
+print_stderr = "warn"
+print_stdout = "warn"
 ptr_as_ptr = "warn"
 ptr_cast_constness = "warn"
 redundant_closure_for_method_calls = "warn"
@@ -74,6 +86,7 @@ semicolon_if_nothing_returned = "warn"
 std_instead_of_alloc = "warn"
 std_instead_of_core = "warn"
 too_long_first_doc_paragraph = "allow"
+too_many_arguments = "allow"
 type_complexity = "allow"
 undocumented_unsafe_blocks = "warn"
 unwrap_or_default = "warn"

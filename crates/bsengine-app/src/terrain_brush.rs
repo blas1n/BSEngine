@@ -10,7 +10,7 @@ use crate::terrain::{Terrain, TerrainChunkOf, TerrainChunksGenerated};
 use bevy_app::{App, Plugin, Update};
 use bevy_ecs::prelude::{Local, Resource};
 use bsengine_core::{InspectorState, TerrainBrushKind, TerrainBrushStroke, Transform};
-use bsengine_ecs::{Entity, IntoSystemConfigs, Query, Res, ResMut, With};
+use bsengine_ecs::{Entity, IntoScheduleConfigs, Query, Res, ResMut, With};
 use bsengine_input::MouseState;
 use bsengine_physics::{Collider, ColliderShape, PhysicsWorld};
 use bsengine_render::components::TerrainSplat;

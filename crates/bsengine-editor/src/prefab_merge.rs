@@ -845,10 +845,12 @@ fn apply_merged_components(
                 match serde::de::DeserializeSeed::deserialize(de, &mut deserializer) {
                     Ok(value) => {
                         let mut entity_mut = world.entity_mut(entity);
-                        reflect_component.apply_or_insert(
+                        reflect_component.apply_or_insert_mapped(
                             &mut entity_mut,
                             value.as_ref(),
                             registry,
+                            &mut (),
+                            bevy_ecs::relationship::RelationshipHookMode::Run,
                         );
                     }
                     Err(e) => tracing::warn!(
@@ -898,7 +900,7 @@ fn apply_merged_components(
 /// structural reason despite also never writing through it until its own
 /// final despawn pass.
 fn collect_own_descendants(world: &mut World, root: Entity) -> Vec<Entity> {
-    let mut children_q = world.query::<(Entity, &bsengine_core::Parent)>();
+    let mut children_q = world.query::<(Entity, &bsengine_core::ChildOf)>();
     let mut visited = std::collections::HashSet::new();
     let mut result = Vec::new();
     let mut frontier = vec![root];
@@ -1233,9 +1235,11 @@ pub(crate) fn resync_instance(
         if let Some(&parent_entity) = resolved_by_raw_name.get(parent_raw_name.as_str()) {
             world
                 .entity_mut(entity)
-                .insert(bsengine_core::Parent(parent_entity));
+                .insert(bsengine_core::ChildOf(parent_entity));
         } else if parent_raw_name == new_root.name {
-            world.entity_mut(entity).insert(bsengine_core::Parent(root));
+            world
+                .entity_mut(entity)
+                .insert(bsengine_core::ChildOf(root));
         } else {
             tracing::warn!(
                 "prefab live-sync: freshly-spawned entity names parent '{parent_raw_name}', \
@@ -2835,7 +2839,7 @@ mod tests {
             .world_mut()
             .spawn((
                 bsengine_scene::Name("Flag".to_string()),
-                bsengine_core::Parent(root),
+                bsengine_core::ChildOf(root),
             ))
             .id();
 
@@ -2893,7 +2897,7 @@ mod tests {
             .world_mut()
             .spawn((
                 bsengine_scene::Name("Flag".to_string()),
-                bsengine_core::Parent(barrel),
+                bsengine_core::ChildOf(barrel),
             ))
             .id();
 
@@ -3053,7 +3057,7 @@ mod tests {
         );
         assert_eq!(
             app.world()
-                .get::<bsengine_core::Parent>(scope.unwrap())
+                .get::<bsengine_core::ChildOf>(scope.unwrap())
                 .map(|p| p.0),
             Some(root),
             "the new entity must be parented correctly"

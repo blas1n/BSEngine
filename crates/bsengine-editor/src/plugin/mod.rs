@@ -6,12 +6,11 @@ use crate::snapshot::{
     SharedReflectCommandQueue, SharedSelection, SharedSnapshot, Tags,
 };
 use bevy_app::{App, Plugin, Update};
-use bevy_ecs::prelude::{Commands, Entity, IntoSystemConfigs, ParamSet, Query, ResMut, World};
+use bevy_ecs::prelude::{Commands, Entity, IntoScheduleConfigs, ParamSet, Query, ResMut, World};
 use bevy_ecs::reflect::ReflectCommandExt;
 use bsengine_core::{
-    Camera, DirectionalLight, EditorPanelRegistry, GlobalTransform, InspectorCmd,
-    InspectorEntityInfo, InspectorState, Material, Parent, PointLight, SpotLight, Transform,
-    Visible,
+    Camera, ChildOf, DirectionalLight, EditorPanelRegistry, GlobalTransform, InspectorCmd,
+    InspectorEntityInfo, InspectorState, Material, PointLight, SpotLight, Transform, Visible,
 };
 use bsengine_ecs::Res;
 use bsengine_mcp::{McpRegistryResource, McpTool, McpToolOutput};

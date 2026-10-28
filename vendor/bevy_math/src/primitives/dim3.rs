@@ -1,7 +1,10 @@
 use core::f32::consts::{FRAC_PI_3, PI};
 
 use super::{Circle, Measured2d, Measured3d, Primitive2d, Primitive3d};
-use crate::{ops, ops::FloatPow, Dir3, InvalidDirectionError, Isometry3d, Mat3, Vec2, Vec3};
+use crate::{
+    ops::{self, FloatPow},
+    Dir3, InvalidDirectionError, Isometry3d, Mat3, Ray3d, Vec2, Vec3,
+};
 
 #[cfg(feature = "bevy_reflect")]
 use bevy_reflect::{std_traits::ReflectDefault, Reflect};
@@ -9,13 +12,16 @@ use bevy_reflect::{std_traits::ReflectDefault, Reflect};
 use bevy_reflect::{ReflectDeserialize, ReflectSerialize};
 use glam::Quat;
 
+#[cfg(feature = "alloc")]
+use alloc::{boxed::Box, vec::Vec};
+
 /// A sphere primitive, representing the set of all points some distance from the origin
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(
     feature = "bevy_reflect",
     derive(Reflect),
-    reflect(Debug, PartialEq, Default)
+    reflect(Debug, PartialEq, Default, Clone)
 )]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
@@ -61,7 +67,7 @@ impl Sphere {
         } else {
             // The point is outside the sphere.
             // Find the closest point on the surface of the sphere.
-            let dir_to_point = point / distance_squared.sqrt();
+            let dir_to_point = point / ops::sqrt(distance_squared);
             self.radius * dir_to_point
         }
     }
@@ -87,7 +93,7 @@ impl Measured3d for Sphere {
 #[cfg_attr(
     feature = "bevy_reflect",
     derive(Reflect),
-    reflect(Debug, PartialEq, Default)
+    reflect(Debug, PartialEq, Default, Clone)
 )]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
@@ -159,7 +165,7 @@ impl Plane3d {
 #[cfg_attr(
     feature = "bevy_reflect",
     derive(Reflect),
-    reflect(Debug, PartialEq, Default)
+    reflect(Debug, PartialEq, Default, Clone)
 )]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
@@ -332,7 +338,11 @@ impl InfinitePlane3d {
 /// For a finite line: [`Segment3d`]
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "bevy_reflect", derive(Reflect), reflect(Debug, PartialEq))]
+#[cfg_attr(
+    feature = "bevy_reflect",
+    derive(Reflect),
+    reflect(Debug, PartialEq, Clone)
+)]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
     reflect(Serialize, Deserialize)
@@ -343,61 +353,216 @@ pub struct Line3d {
 }
 impl Primitive3d for Line3d {}
 
-/// A segment of a line going through the origin along a direction in 3D space.
-#[doc(alias = "LineSegment3d")]
+/// A line segment defined by two endpoints in 3D space.
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "bevy_reflect", derive(Reflect), reflect(Debug, PartialEq))]
+#[cfg_attr(
+    feature = "bevy_reflect",
+    derive(Reflect),
+    reflect(Debug, PartialEq, Clone)
+)]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
     reflect(Serialize, Deserialize)
 )]
+#[doc(alias = "LineSegment3d")]
 pub struct Segment3d {
-    /// The direction of the line
-    pub direction: Dir3,
-    /// Half the length of the line segment. The segment extends by this amount in both
-    /// the given direction and its opposite direction
-    pub half_length: f32,
+    /// The endpoints of the line segment.
+    pub vertices: [Vec3; 2],
 }
 impl Primitive3d for Segment3d {}
 
 impl Segment3d {
-    /// Create a new `Segment3d` from a direction and full length of the segment
+    /// Create a new `Segment3d` from its endpoints.
     #[inline(always)]
-    pub fn new(direction: Dir3, length: f32) -> Self {
+    pub const fn new(point1: Vec3, point2: Vec3) -> Self {
         Self {
-            direction,
-            half_length: length / 2.0,
+            vertices: [point1, point2],
         }
     }
 
-    /// Create a new `Segment3d` from its endpoints and compute its geometric center
+    /// Create a new `Segment3d` from its endpoints and compute its geometric center.
+    #[inline(always)]
+    #[deprecated(since = "0.16.0", note = "Use the `new` constructor instead")]
+    pub fn from_points(point1: Vec3, point2: Vec3) -> (Self, Vec3) {
+        (Self::new(point1, point2), (point1 + point2) / 2.)
+    }
+
+    /// Create a new `Segment3d` centered at the origin with the given direction and length.
+    ///
+    /// The endpoints will be at `-direction * length / 2.0` and `direction * length / 2.0`.
+    #[inline(always)]
+    pub fn from_direction_and_length(direction: Dir3, length: f32) -> Self {
+        let endpoint = 0.5 * length * direction;
+        Self {
+            vertices: [-endpoint, endpoint],
+        }
+    }
+
+    /// Create a new `Segment3d` centered at the origin from a vector representing
+    /// the direction and length of the line segment.
+    ///
+    /// The endpoints will be at `-scaled_direction / 2.0` and `scaled_direction / 2.0`.
+    #[inline(always)]
+    pub fn from_scaled_direction(scaled_direction: Vec3) -> Self {
+        let endpoint = 0.5 * scaled_direction;
+        Self {
+            vertices: [-endpoint, endpoint],
+        }
+    }
+
+    /// Create a new `Segment3d` starting from the origin of the given `ray`,
+    /// going in the direction of the ray for the given `length`.
+    ///
+    /// The endpoints will be at `ray.origin` and `ray.origin + length * ray.direction`.
+    #[inline(always)]
+    pub fn from_ray_and_length(ray: Ray3d, length: f32) -> Self {
+        Self {
+            vertices: [ray.origin, ray.get_point(length)],
+        }
+    }
+
+    /// Get the position of the first endpoint of the line segment.
+    #[inline(always)]
+    pub fn point1(&self) -> Vec3 {
+        self.vertices[0]
+    }
+
+    /// Get the position of the second endpoint of the line segment.
+    #[inline(always)]
+    pub fn point2(&self) -> Vec3 {
+        self.vertices[1]
+    }
+
+    /// Compute the midpoint between the two endpoints of the line segment.
+    #[inline(always)]
+    #[doc(alias = "midpoint")]
+    pub fn center(&self) -> Vec3 {
+        self.point1().midpoint(self.point2())
+    }
+
+    /// Compute the length of the line segment.
+    #[inline(always)]
+    pub fn length(&self) -> f32 {
+        self.point1().distance(self.point2())
+    }
+
+    /// Compute the squared length of the line segment.
+    #[inline(always)]
+    pub fn length_squared(&self) -> f32 {
+        self.point1().distance_squared(self.point2())
+    }
+
+    /// Compute the normalized direction pointing from the first endpoint to the second endpoint.
+    ///
+    /// For the non-panicking version, see [`Segment3d::try_direction`].
     ///
     /// # Panics
     ///
-    /// Panics if `point1 == point2`
+    /// Panics if a valid direction could not be computed, for example when the endpoints are coincident, NaN, or infinite.
     #[inline(always)]
-    pub fn from_points(point1: Vec3, point2: Vec3) -> (Self, Vec3) {
-        let diff = point2 - point1;
-        let length = diff.length();
+    pub fn direction(&self) -> Dir3 {
+        self.try_direction().unwrap_or_else(|err| {
+            panic!("Failed to compute the direction of a line segment: {err}")
+        })
+    }
 
-        (
-            // We are dividing by the length here, so the vector is normalized.
-            Self::new(Dir3::new_unchecked(diff / length), length),
-            (point1 + point2) / 2.,
+    /// Try to compute the normalized direction pointing from the first endpoint to the second endpoint.
+    ///
+    /// Returns [`Err(InvalidDirectionError)`](InvalidDirectionError) if a valid direction could not be computed,
+    /// for example when the endpoints are coincident, NaN, or infinite.
+    #[inline(always)]
+    pub fn try_direction(&self) -> Result<Dir3, InvalidDirectionError> {
+        Dir3::new(self.scaled_direction())
+    }
+
+    /// Compute the vector from the first endpoint to the second endpoint.
+    #[inline(always)]
+    pub fn scaled_direction(&self) -> Vec3 {
+        self.point2() - self.point1()
+    }
+
+    /// Compute the segment transformed by the given [`Isometry3d`].
+    #[inline(always)]
+    pub fn transformed(&self, isometry: impl Into<Isometry3d>) -> Self {
+        let isometry: Isometry3d = isometry.into();
+        Self::new(
+            isometry.transform_point(self.point1()).into(),
+            isometry.transform_point(self.point2()).into(),
         )
     }
 
-    /// Get the position of the first point on the line segment
+    /// Compute the segment translated by the given vector.
     #[inline(always)]
-    pub fn point1(&self) -> Vec3 {
-        *self.direction * -self.half_length
+    pub fn translated(&self, translation: Vec3) -> Segment3d {
+        Self::new(self.point1() + translation, self.point2() + translation)
     }
 
-    /// Get the position of the second point on the line segment
+    /// Compute the segment rotated around the origin by the given rotation.
     #[inline(always)]
-    pub fn point2(&self) -> Vec3 {
-        *self.direction * self.half_length
+    pub fn rotated(&self, rotation: Quat) -> Segment3d {
+        Segment3d::new(rotation * self.point1(), rotation * self.point2())
+    }
+
+    /// Compute the segment rotated around the given point by the given rotation.
+    #[inline(always)]
+    pub fn rotated_around(&self, rotation: Quat, point: Vec3) -> Segment3d {
+        // We offset our segment so that our segment is rotated as if from the origin, then we can apply the offset back
+        let offset = self.translated(-point);
+        let rotated = offset.rotated(rotation);
+        rotated.translated(point)
+    }
+
+    /// Compute the segment rotated around its own center.
+    #[inline(always)]
+    pub fn rotated_around_center(&self, rotation: Quat) -> Segment3d {
+        self.rotated_around(rotation, self.center())
+    }
+
+    /// Compute the segment with its center at the origin, keeping the same direction and length.
+    #[inline(always)]
+    pub fn centered(&self) -> Segment3d {
+        let center = self.center();
+        self.translated(-center)
+    }
+
+    /// Compute the segment with a new length, keeping the same direction and center.
+    #[inline(always)]
+    pub fn resized(&self, length: f32) -> Segment3d {
+        let offset_from_origin = self.center();
+        let centered = self.translated(-offset_from_origin);
+        let ratio = length / self.length();
+        let segment = Segment3d::new(centered.point1() * ratio, centered.point2() * ratio);
+        segment.translated(offset_from_origin)
+    }
+
+    /// Reverses the direction of the line segment by swapping the endpoints.
+    #[inline(always)]
+    pub fn reverse(&mut self) {
+        let [point1, point2] = &mut self.vertices;
+        core::mem::swap(point1, point2);
+    }
+
+    /// Returns the line segment with its direction reversed by swapping the endpoints.
+    #[inline(always)]
+    #[must_use]
+    pub fn reversed(mut self) -> Self {
+        self.reverse();
+        self
+    }
+}
+
+impl From<[Vec3; 2]> for Segment3d {
+    #[inline(always)]
+    fn from(vertices: [Vec3; 2]) -> Self {
+        Self { vertices }
+    }
+}
+
+impl From<(Vec3, Vec3)> for Segment3d {
+    #[inline(always)]
+    fn from((point1, point2): (Vec3, Vec3)) -> Self {
+        Self::new(point1, point2)
     }
 }
 
@@ -406,7 +571,11 @@ impl Segment3d {
 /// For a version without generics: [`BoxedPolyline3d`]
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "bevy_reflect", derive(Reflect), reflect(Debug, PartialEq))]
+#[cfg_attr(
+    feature = "bevy_reflect",
+    derive(Reflect),
+    reflect(Debug, PartialEq, Clone)
+)]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
     reflect(Serialize, Deserialize)
@@ -440,14 +609,18 @@ impl<const N: usize> Polyline3d<N> {
 /// in a `Box<[Vec3]>`.
 ///
 /// For a version without alloc: [`Polyline3d`]
+#[cfg(feature = "alloc")]
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 pub struct BoxedPolyline3d {
     /// The vertices of the polyline
     pub vertices: Box<[Vec3]>,
 }
+
+#[cfg(feature = "alloc")]
 impl Primitive3d for BoxedPolyline3d {}
 
+#[cfg(feature = "alloc")]
 impl FromIterator<Vec3> for BoxedPolyline3d {
     fn from_iter<I: IntoIterator<Item = Vec3>>(iter: I) -> Self {
         let vertices: Vec<Vec3> = iter.into_iter().collect();
@@ -457,6 +630,7 @@ impl FromIterator<Vec3> for BoxedPolyline3d {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl BoxedPolyline3d {
     /// Create a new `BoxedPolyline3d` from its vertices
     pub fn new(vertices: impl IntoIterator<Item = Vec3>) -> Self {
@@ -471,7 +645,7 @@ impl BoxedPolyline3d {
 #[cfg_attr(
     feature = "bevy_reflect",
     derive(Reflect),
-    reflect(Debug, PartialEq, Default)
+    reflect(Debug, PartialEq, Default, Clone)
 )]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
@@ -563,7 +737,7 @@ impl Measured3d for Cuboid {
 #[cfg_attr(
     feature = "bevy_reflect",
     derive(Reflect),
-    reflect(Debug, PartialEq, Default)
+    reflect(Debug, PartialEq, Default, Clone)
 )]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
@@ -641,7 +815,7 @@ impl Measured3d for Cylinder {
 #[cfg_attr(
     feature = "bevy_reflect",
     derive(Reflect),
-    reflect(Debug, PartialEq, Default)
+    reflect(Debug, PartialEq, Default, Clone)
 )]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
@@ -711,7 +885,7 @@ impl Measured3d for Capsule3d {
 #[cfg_attr(
     feature = "bevy_reflect",
     derive(Reflect),
-    reflect(Debug, PartialEq, Default)
+    reflect(Debug, PartialEq, Default, Clone)
 )]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
@@ -793,7 +967,7 @@ impl Measured3d for Cone {
 #[cfg_attr(
     feature = "bevy_reflect",
     derive(Reflect),
-    reflect(Debug, PartialEq, Default)
+    reflect(Debug, PartialEq, Default, Clone)
 )]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
@@ -845,7 +1019,7 @@ pub enum TorusKind {
 #[cfg_attr(
     feature = "bevy_reflect",
     derive(Reflect),
-    reflect(Debug, PartialEq, Default)
+    reflect(Debug, PartialEq, Default, Clone)
 )]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
@@ -956,7 +1130,7 @@ impl Measured3d for Torus {
 #[cfg_attr(
     feature = "bevy_reflect",
     derive(Reflect),
-    reflect(Debug, PartialEq, Default)
+    reflect(Debug, PartialEq, Default, Clone)
 )]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
@@ -1149,7 +1323,7 @@ impl Measured2d for Triangle3d {
 #[cfg_attr(
     feature = "bevy_reflect",
     derive(Reflect),
-    reflect(Debug, PartialEq, Default)
+    reflect(Debug, PartialEq, Default, Clone)
 )]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
@@ -1246,7 +1420,7 @@ impl Measured3d for Tetrahedron {
     /// Get the volume of the tetrahedron.
     #[inline(always)]
     fn volume(&self) -> f32 {
-        self.signed_volume().abs()
+        ops::abs(self.signed_volume())
     }
 }
 
@@ -1573,7 +1747,7 @@ mod tests {
         assert_eq!(default_triangle.area(), 0.5, "incorrect area");
         assert_relative_eq!(
             default_triangle.perimeter(),
-            1.0 + 2.0 * 1.25_f32.sqrt(),
+            1.0 + 2.0 * ops::sqrt(1.25_f32),
             epsilon = 10e-9
         );
         assert_eq!(default_triangle.normal(), Ok(Dir3::Z), "incorrect normal");

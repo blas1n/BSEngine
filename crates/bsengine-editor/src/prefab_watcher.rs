@@ -18,10 +18,8 @@
 //! involved.
 
 use bevy_app::{App, Plugin, Startup, Update};
-use bevy_ecs::prelude::{Commands, Entity, IntoSystemConfigs, Res, Resource, World};
-#[cfg(test)]
-use bsengine_core::Transform;
-use bsengine_core::{Parent, PrefabInstance};
+use bevy_ecs::prelude::{Commands, Entity, IntoScheduleConfigs, Res, Resource, World};
+use bsengine_core::{ChildOf, Children, PrefabInstance, Transform};
 #[cfg(test)]
 use bsengine_scene::{Name, TransformDescriptor};
 use notify_debouncer_full::{
@@ -119,16 +117,18 @@ fn collect_nested_prefab_source_paths(
     }
 }
 
-/// Despawns `root` and every entity transitively parented under it (via a
-/// live [`Parent`] component chain), so a resync can safely re-instantiate a
-/// fresh subtree in its place without leaving orphaned children behind.
+/// Despawns `root` and every entity transitively parented under it (via its
+/// [`Children`]), so a resync can safely re-instantiate a fresh subtree in its
+/// place without leaving orphaned children behind.
 ///
-/// Guards against a `Parent` cycle exactly like `save_entities_as_prefab`'s
-/// BFS does (`crates/bsengine-editor/src/plugin.rs`): nothing that writes
-/// `Parent` today checks for cycles, so a malformed live hierarchy reaching
-/// this function must still terminate rather than loop forever.
+/// Since Bevy 0.16 the hierarchy is the `ChildOf`/`Children` relationship and
+/// despawning `root` takes its whole subtree; this walk exists only to find
+/// what must *not* go with it. `Children` is kept by the relationship's hooks
+/// and cannot form a cycle the way a hand-written `Parent` could, but the
+/// `visited` set stays: it costs nothing and a malformed world must still
+/// terminate.
 ///
-/// Also stops at (and does not despawn) any descendant carrying its own
+/// Stops at (and does not despawn) any descendant carrying its own
 /// [`PrefabInstance`] whose source path is not in `own_source_paths` -- that
 /// entity isn't part of this resync and isn't ours to destroy just because it
 /// happened to get reparented here (this codebase's `SetParent`/MCP
@@ -136,53 +136,63 @@ fn collect_nested_prefab_source_paths(
 /// the resync's own source path plus every nested prefab reference the file
 /// itself authors (see [`nested_prefab_source_paths`]) -- without that
 /// second part, a legitimate nested `prefab:` reference (which produces the
-/// exact same `Parent` + differently-sourced-`PrefabInstance` shape as a
+/// exact same `ChildOf` + differently-sourced-`PrefabInstance` shape as a
 /// reparented stranger) would be wrongly protected too, breaking the
 /// intentional cascade a resync of the *outer* file is supposed to have on
 /// its own nested instances.
 ///
-/// A protected descendant's own ancestor chain up to (but not including) it
-/// still gets despawned as normal; the foreign instance survives as an
-/// entity, now with a stale `Parent` pointing at a despawned entity -- an
-/// already-tolerated state elsewhere in this codebase (plain
-/// `EditorCommand::Despawn` doesn't cascade to children either) -- and a
-/// warning is logged so this is never silent.
+/// Sparing it means taking it out of the hierarchy before the cascade runs:
+/// it is detached to the scene root with its current world pose written into
+/// its `Transform` (a child's `Transform` is relative to its parent, so
+/// detaching alone would move it), the way Unreal detaches an actor whose
+/// parent is destroyed -- and a warning is logged so this is never silent.
 pub(crate) fn despawn_subtree(
     world: &mut World,
     root: Entity,
     own_source_paths: &std::collections::HashSet<String>,
 ) {
-    let mut children_q = world.query::<(Entity, &Parent)>();
     let mut visited: std::collections::HashSet<Entity> = std::collections::HashSet::new();
-    let mut to_despawn = Vec::new();
+    let mut strangers = Vec::new();
     let mut frontier = vec![root];
     while let Some(cur) = frontier.pop() {
         if !visited.insert(cur) {
             continue;
         }
-        to_despawn.push(cur);
-        for (child, parent) in children_q.iter(world) {
-            if parent.0 == cur {
-                if let Some(instance) = world.get::<PrefabInstance>(child) {
-                    if !own_source_paths.contains(&instance.source_path) {
-                        tracing::warn!(
-                            "prefab live-sync: entity carrying its own PrefabInstance \
-                             (source '{}') was found reparented underneath a subtree being \
-                             resynced; leaving it and its subtree untouched rather than \
-                             despawning it as collateral damage -- it is now parented under \
-                             a despawned entity and will need to be re-parented manually",
-                            instance.source_path
-                        );
-                        continue;
-                    }
+        let Some(children) = world.get::<Children>(cur) else {
+            continue;
+        };
+        for &child in children.iter() {
+            if let Some(instance) = world.get::<PrefabInstance>(child) {
+                if !own_source_paths.contains(&instance.source_path) {
+                    tracing::warn!(
+                        "prefab live-sync: entity carrying its own PrefabInstance \
+                         (source '{}') was found reparented underneath a subtree being \
+                         resynced; detaching it to the scene root where it stands rather \
+                         than despawning it as collateral damage",
+                        instance.source_path
+                    );
+                    strangers.push(child);
+                    continue;
                 }
-                frontier.push(child);
             }
+            frontier.push(child);
         }
     }
-    for entity in to_despawn {
-        world.despawn(entity);
+    for stranger in strangers {
+        let world_pose = world
+            .get::<bsengine_core::GlobalTransform>(stranger)
+            .map(|g| g.0 .0.to_scale_rotation_translation());
+        let mut entity = world.entity_mut(stranger);
+        entity.remove::<ChildOf>();
+        if let Some((scale, rotation, position)) = world_pose {
+            entity.insert(Transform {
+                position: position.into(),
+                rotation: rotation.into(),
+                scale: scale.into(),
+            });
+        }
     }
+    world.despawn(root);
 }
 
 /// Resyncs every live [`PrefabInstance`] root whose `source_path` matches
@@ -531,7 +541,7 @@ mod tests {
         app.register_type::<PrefabInstance>();
         app.register_type::<Transform>();
         app.register_type::<bsengine_core::GlobalTransform>();
-        app.register_type::<Parent>();
+        app.register_type::<ChildOf>();
     }
 
     /// Writes `<dir>/assets/prefabs/<name>.ron` and returns the
@@ -598,7 +608,7 @@ mod tests {
         assert!((transform.position.0.y - 2.0).abs() < 1e-5);
         assert!((transform.position.0.z - 3.0).abs() < 1e-5);
 
-        let parent = app.world().get::<Parent>(new_root).unwrap();
+        let parent = app.world().get::<ChildOf>(new_root).unwrap();
         assert_eq!(
             parent.0, anchor,
             "resync must keep the instance parented where it was"
@@ -861,8 +871,8 @@ mod tests {
              rather than respawn"
         );
         assert_eq!(
-            app.world().get::<Parent>(nested_root_after).map(|p| p.0),
-            app.world().get::<Parent>(sibling_before).map(|p| p.0),
+            app.world().get::<ChildOf>(nested_root_after).map(|p| p.0),
+            app.world().get::<ChildOf>(sibling_before).map(|p| p.0),
             "the resynced nested instance must be reparented back under the same outer entity"
         );
 
@@ -1037,6 +1047,70 @@ mod tests {
     }
 
     #[test]
+    fn despawn_subtree_spares_a_foreign_instance_below_a_despawned_entity_where_it_stands() {
+        // The case the resync test above cannot reach: its stranger sits
+        // under the instance *root*, which a resync keeps. Here it is under a
+        // node that goes. Despawn cascades through `Children`, so sparing it
+        // means taking it out of the hierarchy first -- and a child's
+        // Transform is relative to its parent, so it keeps its world pose by
+        // being given that pose as its own, the way Unreal detaches an actor.
+        use bsengine_core::{ChildOf, GlobalTransform, PrefabInstance, Transform};
+        let mut app = new_app();
+        let world = app.world_mut();
+        let root = world
+            .spawn((
+                Transform::from_position(glam::Vec3::new(10.0, 0.0, 0.0)),
+                PrefabInstance {
+                    source_path: "assets/prefabs/turret.ron".into(),
+                },
+            ))
+            .id();
+        let barrel = world
+            .spawn((
+                Transform::from_position(glam::Vec3::new(0.0, 2.0, 0.0)),
+                ChildOf(root),
+            ))
+            .id();
+        let stranger = world
+            .spawn((
+                Transform::from_position(glam::Vec3::new(0.0, 0.0, 3.0)),
+                ChildOf(barrel),
+                PrefabInstance {
+                    source_path: "assets/prefabs/widget.ron".into(),
+                },
+            ))
+            .id();
+        let strangers_child = world.spawn((Transform::default(), ChildOf(stranger))).id();
+        let world_pos =
+            |world: &World, e| world.get::<GlobalTransform>(e).unwrap().0.w_axis.truncate();
+        let before = world_pos(world, stranger);
+        assert!(
+            (before - glam::Vec3::new(10.0, 2.0, 3.0)).length() < 1e-5,
+            "premise: the stranger stands in its parents' space: {before}"
+        );
+
+        let own: std::collections::HashSet<String> =
+            ["assets/prefabs/turret.ron".to_string()].into();
+        despawn_subtree(world, root, &own);
+
+        assert!(world.get_entity(root).is_err() && world.get_entity(barrel).is_err());
+        assert!(world.get_entity(stranger).is_ok(), "the stranger survives");
+        assert!(
+            world.get_entity(strangers_child).is_ok(),
+            "with its own subtree"
+        );
+        assert!(
+            world.get::<ChildOf>(stranger).is_none(),
+            "detached, not dangling"
+        );
+        let local = world.get::<Transform>(stranger).unwrap().position.0;
+        assert!(
+            (local - glam::Vec3::new(10.0, 2.0, 3.0)).length() < 1e-5,
+            "and where it stood: {local}"
+        );
+    }
+
+    #[test]
     fn resync_does_not_destroy_an_unrelated_prefab_instance_reparented_underneath_it() {
         let dir = tempfile::tempdir().unwrap();
         let project_dir = ProjectDir(dir.path().to_string_lossy().to_string());
@@ -1079,7 +1153,7 @@ mod tests {
         // to construct this state in a unit test.
         app.world_mut()
             .entity_mut(instance_b_root)
-            .insert(Parent(instance_a_root));
+            .insert(ChildOf(instance_a_root));
 
         write_prefab(dir.path(), "turret", TURRET_V2);
         resync_prefab_instances(app.world_mut(), &source_path_a);
@@ -1159,7 +1233,7 @@ mod tests {
         // independently too, picking up the same file change A did.
         app.world_mut()
             .entity_mut(instance_b_root)
-            .insert(Parent(instance_a_root));
+            .insert(ChildOf(instance_a_root));
 
         write_prefab(dir.path(), "turret", TURRET_V2);
         resync_prefab_instances(app.world_mut(), &source_path);

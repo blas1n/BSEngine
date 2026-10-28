@@ -95,7 +95,7 @@ mod tests {
     fn reflect_mat4_clone_value_round_trips() {
         let v: ReflectMat4 = glam::Mat4::from_scale(glam::Vec3::new(2.0, 3.0, 4.0)).into();
         let reflected: &dyn Reflect = &v;
-        let cloned = reflected.clone_value();
+        let cloned = reflected.to_dynamic();
         let back = cloned
             .try_downcast::<ReflectMat4>()
             .expect("downcast failed");

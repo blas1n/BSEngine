@@ -1,14 +1,14 @@
 use core::fmt::{Debug, Formatter};
 
+use bevy_platform::collections::HashTable;
 use bevy_reflect_derive::impl_type_path;
-use bevy_utils::hashbrown::HashTable;
 
-use crate::generics::impl_generic_info_methods;
 use crate::{
-    self as bevy_reflect, type_info::impl_type_methods, ApplyError, Generics, MaybeTyped,
-    PartialReflect, Reflect, ReflectKind, ReflectMut, ReflectOwned, ReflectRef, Type, TypeInfo,
-    TypePath,
+    generics::impl_generic_info_methods, type_info::impl_type_methods, ApplyError, Generics,
+    MaybeTyped, PartialReflect, Reflect, ReflectKind, ReflectMut, ReflectOwned, ReflectRef, Type,
+    TypeInfo, TypePath,
 };
+use alloc::{boxed::Box, format, vec::Vec};
 
 /// A trait used to power [map-like] operations via [reflection].
 ///
@@ -30,7 +30,7 @@ use crate::{
 ///
 /// ```
 /// use bevy_reflect::{PartialReflect, Reflect, Map};
-/// use bevy_utils::HashMap;
+/// use std::collections::HashMap;
 ///
 ///
 /// let foo: &mut dyn Map = &mut HashMap::<u32, bool>::new();
@@ -42,7 +42,7 @@ use crate::{
 /// ```
 ///
 /// [`HashMap`]: std::collections::HashMap
-/// [`BTreeMap`]: std::collections::BTreeMap
+/// [`BTreeMap`]: alloc::collections::BTreeMap
 /// [map-like]: https://doc.rust-lang.org/book/ch08-03-hash-maps.html
 /// [reflection]: crate
 pub trait Map: PartialReflect {
@@ -82,7 +82,20 @@ pub trait Map: PartialReflect {
     fn drain(&mut self) -> Vec<(Box<dyn PartialReflect>, Box<dyn PartialReflect>)>;
 
     /// Clones the map, producing a [`DynamicMap`].
-    fn clone_dynamic(&self) -> DynamicMap;
+    #[deprecated(since = "0.16.0", note = "use `to_dynamic_map` instead")]
+    fn clone_dynamic(&self) -> DynamicMap {
+        self.to_dynamic_map()
+    }
+
+    /// Creates a new [`DynamicMap`] from this map.
+    fn to_dynamic_map(&self) -> DynamicMap {
+        let mut map = DynamicMap::default();
+        map.set_represented_type(self.get_represented_type_info());
+        for (key, value) in self.iter() {
+            map.insert_boxed(key.to_dynamic(), value.to_dynamic());
+        }
+        map
+    }
 
     /// Inserts a key-value pair into the map.
     ///
@@ -206,7 +219,6 @@ macro_rules! hash_error {
                 ),
             }
         }
-        .as_str()
     }}
 }
 
@@ -244,7 +256,7 @@ impl DynamicMap {
     }
 
     fn internal_hash(value: &dyn PartialReflect) -> u64 {
-        value.reflect_hash().expect(hash_error!(value))
+        value.reflect_hash().expect(&hash_error!(value))
     }
 
     fn internal_eq<'a>(
@@ -301,18 +313,6 @@ impl Map for DynamicMap {
 
     fn drain(&mut self) -> Vec<(Box<dyn PartialReflect>, Box<dyn PartialReflect>)> {
         self.values.drain(..).collect()
-    }
-
-    fn clone_dynamic(&self) -> DynamicMap {
-        DynamicMap {
-            represented_type: self.represented_type,
-            values: self
-                .values
-                .iter()
-                .map(|(key, value)| (key.clone_value(), value.clone_value()))
-                .collect(),
-            indices: self.indices.clone(),
-        }
     }
 
     fn insert_boxed(
@@ -430,10 +430,6 @@ impl PartialReflect for DynamicMap {
 
     fn reflect_owned(self: Box<Self>) -> ReflectOwned {
         ReflectOwned::Map(self)
-    }
-
-    fn clone_value(&self) -> Box<dyn PartialReflect> {
-        Box::new(self.clone_dynamic())
     }
 
     fn reflect_partial_eq(&self, value: &dyn PartialReflect) -> Option<bool> {
@@ -568,7 +564,7 @@ pub fn map_partial_eq<M: Map + ?Sized>(a: &M, b: &dyn PartialReflect) -> Option<
 ///
 /// # Example
 /// ```
-/// # use bevy_utils::HashMap;
+/// # use std::collections::HashMap;
 /// use bevy_reflect::Reflect;
 ///
 /// let mut my_map = HashMap::new();
@@ -621,7 +617,7 @@ pub fn map_try_apply<M: Map>(a: &mut M, b: &dyn PartialReflect) -> Result<(), Ap
         if let Some(a_value) = a.get_mut(key) {
             a_value.try_apply(b_value)?;
         } else {
-            a.insert_boxed(key.clone_value(), b_value.clone_value());
+            a.insert_boxed(key.to_dynamic(), b_value.to_dynamic());
         }
     }
 
@@ -631,6 +627,10 @@ pub fn map_try_apply<M: Map>(a: &mut M, b: &dyn PartialReflect) -> Result<(), Ap
 #[cfg(test)]
 mod tests {
     use super::{DynamicMap, Map};
+    use alloc::{
+        borrow::ToOwned,
+        string::{String, ToString},
+    };
 
     #[test]
     fn test_into_iter() {

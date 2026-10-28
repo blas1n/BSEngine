@@ -165,7 +165,7 @@ fn populate_inspector_copies_parent_tags_script_primitive() {
         .world_mut()
         .spawn((
             Name("Child".to_string()),
-            bsengine_core::Parent(parent),
+            bsengine_core::ChildOf(parent),
             crate::snapshot::Tags(vec!["enemy".to_string(), "boss".to_string()]),
             bsengine_scene::ScriptPath("assets/scripts/child.js".to_string()),
             bsengine_scene::PrimitiveMesh(bsengine_scene::Primitive::Sphere),
@@ -1132,10 +1132,10 @@ fn undo_restores_a_deleted_lights_cookie_and_cone() {
     app.update();
 
     let mut points = app.world_mut().query::<&bsengine_core::PointLight>();
-    let pl = points.single(app.world());
+    let pl = points.single(app.world()).unwrap();
     assert_eq!(pl.cookie, "lights/lantern.png");
     let mut spots = app.world_mut().query::<&bsengine_core::SpotLight>();
-    let sl = spots.single(app.world());
+    let sl = spots.single(app.world()).unwrap();
     assert_eq!(sl.cookie, "lights/window.png");
     assert!(
         (sl.inner_angle_degrees.0 - 15.0).abs() < 1e-4,
@@ -1223,13 +1223,19 @@ fn undo_restores_a_deleted_lights_bake_mode() {
 
     let mut points = app.world_mut().query::<&bsengine_core::PointLight>();
     assert_eq!(
-        points.single(app.world()).bake_mode,
+        points.single(app.world()).unwrap().bake_mode,
         LightBakeMode::Realtime
     );
     let mut spots = app.world_mut().query::<&bsengine_core::SpotLight>();
-    assert_eq!(spots.single(app.world()).bake_mode, LightBakeMode::Baked);
+    assert_eq!(
+        spots.single(app.world()).unwrap().bake_mode,
+        LightBakeMode::Baked
+    );
     let mut suns = app.world_mut().query::<&bsengine_core::DirectionalLight>();
-    assert_eq!(suns.single(app.world()).bake_mode, LightBakeMode::Baked);
+    assert_eq!(
+        suns.single(app.world()).unwrap().bake_mode,
+        LightBakeMode::Baked
+    );
 }
 
 #[test]

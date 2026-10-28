@@ -1,5 +1,5 @@
 use bevy_app::{App, Plugin, PostUpdate, Startup, Update};
-use bevy_ecs::prelude::{Entity, EventReader, IntoSystemConfigs, Local, ParamSet, Query, ResMut};
+use bevy_ecs::prelude::{Entity, EventReader, IntoScheduleConfigs, Local, ParamSet, Query, ResMut};
 use bsengine_core::{
     AmbientOcclusion, Bloom, Camera, CustomShader, DirectionalLight, EditorPanelRegistry,
     EditorPlayState, GlobalTransform, HudTexts, InspectorState, Material, PointLight, SkyboxPath,
@@ -1551,7 +1551,7 @@ mod tests {
     };
     use crate::components::{LodLevels, MeshRenderer, Occluder};
     use bsengine_app::new_app;
-    use bsengine_core::{Camera, GlobalTransform, Material, Parent, PointLight, Transform};
+    use bsengine_core::{Camera, ChildOf, GlobalTransform, Material, PointLight, Transform};
     use bsengine_rhi_wgpu::{GpuMeshRegistry, Vertex, WgpuRHIPlugin};
     use bsengine_window::WindowResized;
     use glam::Vec3;
@@ -1695,7 +1695,7 @@ mod tests {
             .spawn((
                 Transform::from_position(Vec3::new(0.0, 1.0, 0.0)),
                 GlobalTransform::default(),
-                Parent(grandparent),
+                ChildOf(grandparent),
             ))
             .id();
         let child = app
@@ -1703,7 +1703,7 @@ mod tests {
             .spawn((
                 Transform::from_position(Vec3::new(0.0, 0.0, 1.0)),
                 GlobalTransform::default(),
-                Parent(parent),
+                ChildOf(parent),
             ))
             .id();
 
@@ -3534,7 +3534,7 @@ mod tests {
             bsengine_core::ReflectionProbe::default(),
             Transform::from_position(Vec3::new(1.0, 1.0, 1.0)),
             GlobalTransform::default(),
-            Parent(parent),
+            ChildOf(parent),
         ));
         app.update();
 

@@ -14,7 +14,7 @@ pub(super) fn update_editor_snapshot(
         Option<&DirectionalLight>,
         Option<&SpotLight>,
         Option<&Camera>,
-        Option<&Parent>,
+        Option<&ChildOf>,
         Option<&Tags>,
         Option<&Visible>,
         Option<&Material>,
@@ -169,7 +169,7 @@ pub(super) fn populate_reflected_component_snapshot(world: &mut World) {
                 // `ReflectFromReflect` (auto-registered by `derive(Reflect)`
                 // via `FromReflect`, unless a type explicitly opts out) does
                 // produce a real `Box<Camera>` boxed as `dyn Reflect`, so
-                // prefer it. Since Bevy 0.15 the `clone_value()` fallback is a
+                // prefer it. Since Bevy 0.15 the `clone_value()` (0.16: `to_dynamic()`) fallback is a
                 // `dyn PartialReflect`, and a dynamic proxy is not `Reflect` at
                 // all, so a type without `FromReflect` (none today: nothing
                 // sets `from_reflect = false`) is skipped with a warning rather
@@ -177,7 +177,7 @@ pub(super) fn populate_reflected_component_snapshot(world: &mut World) {
                 let Some(cloned_value) = registration
                     .data::<bevy_reflect::ReflectFromReflect>()
                     .and_then(|rfr| rfr.from_reflect(value.as_partial_reflect()))
-                    .or_else(|| value.clone_value().try_into_reflect().ok())
+                    .or_else(|| value.to_dynamic().try_into_reflect().ok())
                 else {
                     tracing::warn!(
                         "inspector: '{}' has no FromReflect, so it cannot be shown",
@@ -369,7 +369,12 @@ pub(crate) fn excluded_from_extra_components() -> std::collections::HashSet<std:
         std::any::TypeId::of::<DirectionalLight>(),
         std::any::TypeId::of::<SpotLight>(),
         std::any::TypeId::of::<Material>(),
-        std::any::TypeId::of::<Parent>(),
+        std::any::TypeId::of::<ChildOf>(),
+        // The other half of the relationship. Its entity list is the live
+        // world's, written by `ChildOf`'s hooks -- never authored, and not
+        // serializable (`Entity` has no ReflectSerialize), so leaving it in
+        // logged a failed snapshot for every parent, every frame.
+        std::any::TypeId::of::<bsengine_core::Children>(),
         std::any::TypeId::of::<bsengine_core::Follow>(),
         std::any::TypeId::of::<bsengine_core::LookAt>(),
         std::any::TypeId::of::<Visible>(),

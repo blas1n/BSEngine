@@ -1,6 +1,6 @@
 use bevy_app::{App, Plugin, PostUpdate, Update};
 use bevy_ecs::prelude::{Component, Query, ReflectComponent, Res, ResMut};
-use bevy_ecs::schedule::{IntoSystemConfigs, IntoSystemSetConfigs};
+use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_reflect::prelude::ReflectDefault;
 
 use crate::animation::{AnimationChannel, AnimationClip, Interpolation, KeyframeValues};
@@ -2520,7 +2520,13 @@ mod tests {
         let mut patch = bevy_reflect::DynamicStruct::default();
         patch.insert("mesh_id", 42u64);
         let mut entity_mut = world.entity_mut(entity);
-        reflect_component.apply_or_insert(&mut entity_mut, &patch, &registry);
+        reflect_component.apply_or_insert_mapped(
+            &mut entity_mut,
+            &patch,
+            &registry,
+            &mut (),
+            bevy_ecs::relationship::RelationshipHookMode::Run,
+        );
 
         let after = world
             .get::<SkinnedMesh>(entity)

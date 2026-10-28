@@ -10,10 +10,10 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2021"
-rust-version = "1.68.2"
+edition = "2024"
+rust-version = "1.85.0"
 name = "bevy_math"
-version = "0.15.1"
+version = "0.16.1"
 build = false
 autolib = false
 autobins = false
@@ -26,12 +26,66 @@ readme = "README.md"
 keywords = ["bevy"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/bevyengine/bevy"
+resolver = "2"
 
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = [
     "-Zunstable-options",
     "--generate-link-to-definition",
+]
+
+[features]
+alloc = [
+    "itertools/use_alloc",
+    "serde?/alloc",
+    "rand?/alloc",
+    "rand_distr?/alloc",
+]
+approx = [
+    "dep:approx",
+    "glam/approx",
+]
+bevy_reflect = [
+    "dep:bevy_reflect",
+    "alloc",
+]
+curve = []
+debug_glam_assert = ["glam/debug-glam-assert"]
+default = [
+    "std",
+    "rand",
+    "curve",
+]
+glam_assert = ["glam/glam-assert"]
+libm = [
+    "dep:libm",
+    "glam/libm",
+]
+mint = ["glam/mint"]
+nostd-libm = [
+    "dep:libm",
+    "glam/nostd-libm",
+]
+rand = [
+    "dep:rand",
+    "dep:rand_distr",
+    "glam/rand",
+]
+serialize = [
+    "dep:serde",
+    "glam/serde",
+]
+std = [
+    "alloc",
+    "glam/std",
+    "derive_more/std",
+    "itertools/use_std",
+    "serde?/std",
+    "approx?/std",
+    "rand?/std",
+    "rand_distr?/std",
+    "bevy_reflect?/std",
 ]
 
 [lib]
@@ -41,28 +95,30 @@ path = "src/lib.rs"
 [dependencies.approx]
 version = "0.5"
 optional = true
+default-features = false
 
 [dependencies.bevy_reflect]
-version = "0.15.1"
+version = "0.16.1"
 features = ["glam"]
 optional = true
+default-features = false
 
 [dependencies.derive_more]
 version = "1"
 features = [
-    "error",
     "from",
-    "display",
     "into",
 ]
 default-features = false
 
 [dependencies.glam]
-version = "0.29"
+version = "0.29.3"
 features = ["bytemuck"]
+default-features = false
 
 [dependencies.itertools]
-version = "0.13.0"
+version = "0.14.0"
+default-features = false
 
 [dependencies.libm]
 version = "0.2"
@@ -70,7 +126,6 @@ optional = true
 
 [dependencies.rand]
 version = "0.8"
-features = ["alloc"]
 optional = true
 default-features = false
 
@@ -82,20 +137,25 @@ optional = true
 version = "1"
 features = ["derive"]
 optional = true
+default-features = false
 
 [dependencies.smallvec]
 version = "1.11"
 
+[dependencies.thiserror]
+version = "2"
+default-features = false
+
+[dependencies.variadics_please]
+version = "1.1"
+
 [dev-dependencies.approx]
 version = "0.5"
 
-[dev-dependencies.bevy_math]
-version = "0.15.1"
-features = ["approx"]
-
 [dev-dependencies.glam]
-version = "0.29"
+version = "0.29.3"
 features = ["approx"]
+default-features = false
 
 [dev-dependencies.rand]
 version = "0.8"
@@ -103,39 +163,17 @@ version = "0.8"
 [dev-dependencies.rand_chacha]
 version = "0.3"
 
-[features]
-approx = [
-    "dep:approx",
-    "glam/approx",
-]
-curve = []
-debug_glam_assert = ["glam/debug-glam-assert"]
-default = [
-    "rand",
-    "bevy_reflect",
-    "curve",
-]
-glam_assert = ["glam/glam-assert"]
-libm = [
-    "dep:libm",
-    "glam/libm",
-]
-mint = ["glam/mint"]
-rand = [
-    "dep:rand",
-    "dep:rand_distr",
-    "glam/rand",
-]
-serialize = [
-    "dep:serde",
-    "glam/serde",
-]
-
 [lints.clippy]
 alloc_instead_of_core = "warn"
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
 doc_markdown = "warn"
 manual_let_else = "warn"
 match_same_arms = "warn"
+needless_lifetimes = "allow"
+nonstandard_macro_braces = "warn"
+print_stderr = "warn"
+print_stdout = "warn"
 ptr_as_ptr = "warn"
 ptr_cast_constness = "warn"
 redundant_closure_for_method_calls = "warn"
@@ -145,6 +183,7 @@ semicolon_if_nothing_returned = "warn"
 std_instead_of_alloc = "warn"
 std_instead_of_core = "warn"
 too_long_first_doc_paragraph = "allow"
+too_many_arguments = "allow"
 type_complexity = "allow"
 undocumented_unsafe_blocks = "warn"
 unwrap_or_default = "warn"

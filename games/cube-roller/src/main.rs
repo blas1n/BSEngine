@@ -9,7 +9,7 @@
 use bevy_ecs::system::Local;
 use bsengine_app::{new_app, Startup, Update};
 use bsengine_core::{Camera, DirectionalLight, Time, Transform};
-use bsengine_ecs::{Commands, Component, Entity, IntoSystemConfigs, Query, Res, ResMut, With};
+use bsengine_ecs::{Commands, Component, Entity, IntoScheduleConfigs, Query, Res, ResMut, With};
 use bsengine_input::{Input, InputPlugin, KeyCode};
 use bsengine_physics::{
     Collider, PhysicsInput, PhysicsPlugin, PhysicsTransform, PhysicsWorld, RigidBody,
@@ -137,7 +137,7 @@ fn player_control(
     mut physics: ResMut<PhysicsWorld>,
     time: Res<Time>,
 ) {
-    let Ok(entity) = query.get_single() else {
+    let Ok(entity) = query.single() else {
         return;
     };
     let Some(mut linvel) = physics.get_linvel(entity) else {
@@ -184,7 +184,7 @@ fn collect_items(
     mut commands: Commands,
     mut score: Local<u32>,
 ) {
-    let Ok(player_t) = player.get_single() else {
+    let Ok(player_t) = player.single() else {
         return;
     };
 
@@ -198,7 +198,7 @@ fn collect_items(
 }
 
 fn respawn(query: Query<(Entity, &Transform), With<Player>>, mut physics: ResMut<PhysicsWorld>) {
-    let Ok((entity, t)) = query.get_single() else {
+    let Ok((entity, t)) = query.single() else {
         return;
     };
     if t.position.y < RESPAWN_Y {

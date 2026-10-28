@@ -105,7 +105,7 @@ fn inspector_cmd_set_and_remove_parent_reparents_via_existing_pipeline() {
     }
     app.update();
     assert_eq!(
-        app.world().get::<Parent>(child).map(|p| p.0),
+        app.world().get::<ChildOf>(child).map(|p| p.0),
         Some(parent),
         "child should be parented after SetParent"
     );
@@ -118,7 +118,7 @@ fn inspector_cmd_set_and_remove_parent_reparents_via_existing_pipeline() {
     }
     app.update();
     assert!(
-        app.world().get::<Parent>(child).is_none(),
+        app.world().get::<ChildOf>(child).is_none(),
         "child should be unparented after RemoveParent"
     );
 }

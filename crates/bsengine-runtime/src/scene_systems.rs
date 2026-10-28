@@ -3,7 +3,7 @@
 //! scene-load and physics-resolution behavior.
 
 use bevy_app::{App, PostStartup, Update};
-use bevy_ecs::prelude::{IntoSystemConfigs, World};
+use bevy_ecs::prelude::{IntoScheduleConfigs, World};
 use bsengine_core::{GlobalTransform, HudTexts, Transform};
 use bsengine_ecs::{Added, Commands, Entity, Query, ResMut, With};
 use bsengine_physics::{Collider, PhysicsInput, RigidBody};
@@ -763,8 +763,10 @@ pub fn handle_scene_stream(world: &mut World) {
                 };
                 for entity in entities {
                     // Already gone is not an error: a script may despawn
-                    // anything a scene brought in.
-                    world.despawn(entity);
+                    // anything a scene brought in, and since the hierarchy
+                    // became Bevy's `ChildOf`, despawning a parent earlier in
+                    // this same list takes its children with it.
+                    let _ = world.try_despawn(entity);
                 }
             }
         }
@@ -801,7 +803,9 @@ pub fn handle_scene_load(world: &mut World) {
         q.iter(world).map(|(e, _)| e).collect()
     };
     for e in named {
-        world.despawn(e);
+        // A named child is usually gone already: its named parent's despawn
+        // took it.
+        let _ = world.try_despawn(e);
     }
 
     // Clear HUD

@@ -3,7 +3,7 @@ use crate::types::{
     TransformDescriptor,
 };
 use bevy_app::{App, Plugin, Startup};
-use bevy_ecs::prelude::{Component, Entity, IntoSystemConfigs, ReflectComponent, World};
+use bevy_ecs::prelude::{Component, Entity, IntoScheduleConfigs, ReflectComponent, World};
 use bevy_reflect::prelude::ReflectDefault;
 use bevy_reflect::Reflect;
 use bsengine_asset::{AssetGuid, AssetIndex};
@@ -816,11 +816,13 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                                             }
                                         }
                                     }
-                                    reflect_component.apply_or_insert(
-                                        &mut builder,
-                                        value.as_ref(),
-                                        &registry,
-                                    );
+                                    reflect_component.apply_or_insert_mapped(
+&mut builder,
+value.as_ref(),
+&registry,
+&mut (),
+bevy_ecs::relationship::RelationshipHookMode::Run,
+);
                                 }
                                 Err(e) => tracing::warn!(
                                     "scene: entity '{}' component '{type_path}' RON value doesn't match its shape: {e}",
@@ -869,7 +871,7 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                     Some(&parent_entity) => {
                         world
                             .entity_mut(spawned_entity)
-                            .insert(bsengine_core::Parent(parent_entity));
+                            .insert(bsengine_core::ChildOf(parent_entity));
                     }
                     None => {
                         tracing::warn!(
@@ -1030,7 +1032,7 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     app.register_type::<Option<f32>>();
     app.register_type::<bsengine_core::Transform>();
     app.register_type::<bsengine_core::GlobalTransform>();
-    app.register_type::<bsengine_core::Parent>();
+    app.register_type::<bsengine_core::ChildOf>();
     app.register_type::<bsengine_core::AnimationStateMachine>();
     // `AsmState` holds an `Option<BlendTree1D>`, and a field type the registry
     // does not know does not make deserialization *fail* — the containing map
@@ -1903,7 +1905,7 @@ mod tests {
         let mut query = app.world_mut().query::<(
             bevy_ecs::prelude::Entity,
             &Name,
-            Option<&bsengine_core::Parent>,
+            Option<&bsengine_core::ChildOf>,
         )>();
         let rows: Vec<(
             bevy_ecs::prelude::Entity,
@@ -2293,7 +2295,7 @@ mod tests {
 
         let mut query = app
             .world_mut()
-            .query::<(&Name, Option<&bsengine_core::Parent>)>();
+            .query::<(&Name, Option<&bsengine_core::ChildOf>)>();
         for (name, parent) in query.iter(app.world()) {
             assert!(
                 parent.is_none(),

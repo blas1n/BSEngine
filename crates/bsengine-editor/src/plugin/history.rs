@@ -31,7 +31,9 @@ pub(super) fn reconcile_to_snapshot(
     for info in &current.entities {
         if !target_ids.contains(&info.id) {
             if let Some(e) = live_by_id.remove(&info.id) {
-                world.despawn(e);
+                // The parent of a removed child may be removed in this same
+                // pass, and its despawn takes the child first.
+                let _ = world.try_despawn(e);
             }
         }
     }
@@ -53,10 +55,10 @@ pub(super) fn reconcile_to_snapshot(
         };
         match info.parent_id.and_then(|pid| live_by_id.get(&pid).copied()) {
             Some(parent) => {
-                world.entity_mut(child).insert(Parent(parent));
+                world.entity_mut(child).insert(ChildOf(parent));
             }
             None => {
-                world.entity_mut(child).remove::<Parent>();
+                world.entity_mut(child).remove::<ChildOf>();
             }
         }
     }

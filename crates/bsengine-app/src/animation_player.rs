@@ -3,7 +3,7 @@ use bevy_ecs::prelude::{Entity, EventWriter};
 use bsengine_core::{
     AnimationEventFired, AnimationEvents, AnimationPlayer, AnimationSystems, Time,
 };
-use bsengine_ecs::{IntoSystemConfigs, Query, Res};
+use bsengine_ecs::{IntoScheduleConfigs, Query, Res};
 
 /// Advances every `AnimationPlayer`'s clip time each frame by
 /// `Time::delta_seconds`, and sends an [`AnimationEventFired`] for each of the
@@ -43,7 +43,7 @@ fn advance_animations(
                 crossed.reverse();
             }
             for e in crossed {
-                fired.send(AnimationEventFired {
+                fired.write(AnimationEventFired {
                     entity,
                     clip: player.clip.clone(),
                     name: e.name.clone(),

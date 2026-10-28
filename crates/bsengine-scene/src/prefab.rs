@@ -161,7 +161,7 @@ pub fn instantiate_prefab(
     if let Some(parent_entity) = parent {
         world
             .entity_mut(root_entity)
-            .insert(bsengine_core::Parent(parent_entity));
+            .insert(bsengine_core::ChildOf(parent_entity));
     }
     world
         .entity_mut(root_entity)
@@ -205,7 +205,7 @@ mod tests {
 
         let mut q = app
             .world_mut()
-            .query::<(&crate::plugin::Name, Option<&bsengine_core::Parent>)>();
+            .query::<(&crate::plugin::Name, Option<&bsengine_core::ChildOf>)>();
         let rows: Vec<(String, Option<Entity>)> = q
             .iter(app.world())
             .map(|(n, p)| (n.0.clone(), p.map(|p| p.0)))
@@ -285,7 +285,7 @@ mod tests {
         )
         .expect("instantiation should succeed");
 
-        let parent = app.world().get::<bsengine_core::Parent>(root);
+        let parent = app.world().get::<bsengine_core::ChildOf>(root);
         assert_eq!(
             parent.map(|p| p.0),
             Some(anchor),

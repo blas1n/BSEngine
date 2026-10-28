@@ -1,5 +1,5 @@
 use bsengine_app::{new_app, App, BsPlugin, Update};
-use bsengine_ecs::{IntoSystemConfigs, IntoSystemSetConfigs, ResMut, Resource, SystemSet};
+use bsengine_ecs::{IntoScheduleConfigs, ResMut, Resource, SystemSet};
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 enum GameSet {

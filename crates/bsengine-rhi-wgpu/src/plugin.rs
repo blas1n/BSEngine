@@ -80,7 +80,7 @@ impl Plugin for WgpuRHIPlugin {
         if let SurfaceMode::Windowed = mode {
             let mut gate = app
                 .world_mut()
-                .remove_non_send_resource::<bsengine_window::FirstFrameGate>()
+                .remove_non_send::<bsengine_window::FirstFrameGate>()
                 .unwrap_or_default();
             gate.on_window.push(Box::new(|window| {
                 wasm_bindgen_futures::spawn_local(async move {

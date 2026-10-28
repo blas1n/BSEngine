@@ -13,15 +13,26 @@
 edition = "2021"
 rust-version = "1.68.2"
 name = "glam"
-version = "0.33.1"
-authors = ["Cameron Hart <cameron.hart@gmail.com>"]
+version = "0.33.12"
 build = false
+include = [
+    "/src/**/*.rs",
+    "/tests/**",
+    "/benches/*.rs",
+    "/benches/support/*.rs",
+    "/ATTRIBUTION.md",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/LICENSE-APACHE",
+    "/LICENSE-MIT",
+]
 autolib = false
 autobins = false
 autoexamples = false
 autotests = false
 autobenches = false
 description = "A simple and fast 3D math library for games and graphics"
+documentation = "https://docs.rs/glam"
 readme = "README.md"
 keywords = [
     "gamedev",
@@ -46,7 +57,9 @@ all-types = [
     "integer-types",
     "size-types",
 ]
-bytecheck = ["rkyv/bytecheck"]
+approx = ["approx-05"]
+approx-05 = ["dep:approx-05"]
+bytecheck = ["rkyv-08?/bytecheck"]
 core-simd = ["bytemuck?/nightly_portable_simd"]
 cuda = []
 debug-glam-assert = []
@@ -54,6 +67,9 @@ default = [
     "std",
     "all-types",
 ]
+encase = ["encase-012"]
+encase-012 = ["dep:encase-012"]
+encase-013 = ["dep:encase-013"]
 f64 = []
 fast-math = []
 float-types = ["f64"]
@@ -74,22 +90,31 @@ integer-types = [
 ]
 isize = []
 libm = ["dep:libm"]
+mint = ["mint-05"]
+mint-05 = ["dep:mint-05"]
 nostd-libm = ["dep:libm"]
+rand = ["rand-010"]
+rand-010 = ["dep:rand-010"]
+rkyv = ["dep:rkyv-08"]
+rkyv-08 = ["dep:rkyv-08"]
 scalar-math = []
 serde = ["dep:serde_core"]
 size-types = [
     "isize",
     "usize",
 ]
+speedy = ["speedy-08"]
+speedy-08 = ["dep:speedy-08"]
 std = []
 u16 = []
 u32 = []
 u64 = []
 u8 = []
 usize = []
-zerocopy = [
-    "dep:zerocopy",
-    "dep:zerocopy-derive",
+zerocopy = ["zerocopy-08"]
+zerocopy-08 = [
+    "dep:zerocopy-08",
+    "dep:zerocopy-derive-08",
 ]
 
 [lib]
@@ -104,6 +129,10 @@ path = "tests/affine2.rs"
 [[test]]
 name = "affine3"
 path = "tests/affine3.rs"
+
+[[test]]
+name = "camera"
+path = "tests/camera.rs"
 
 [[test]]
 name = "euler"
@@ -124,6 +153,10 @@ path = "tests/mat3.rs"
 [[test]]
 name = "mat4"
 path = "tests/mat4.rs"
+
+[[test]]
+name = "panic_location"
+path = "tests/panic_location.rs"
 
 [[test]]
 name = "quat"
@@ -258,13 +291,14 @@ name = "vec4"
 path = "benches/vec4.rs"
 harness = false
 
-[dependencies.approx]
+[dependencies.approx-05]
 version = "0.5"
 optional = true
 default-features = false
+package = "approx"
 
 [dependencies.arbitrary]
-version = "1.4.2"
+version = "1"
 optional = true
 default-features = false
 
@@ -278,8 +312,20 @@ features = [
 optional = true
 default-features = false
 
-[dependencies.encase]
+[dependencies.encase-012]
 version = "0.12"
+optional = true
+default-features = false
+package = "encase"
+
+[dependencies.encase-013]
+version = "0.13"
+optional = true
+default-features = false
+package = "encase"
+
+[dependencies.float_eq]
+version = "1"
 optional = true
 default-features = false
 
@@ -288,59 +334,66 @@ version = "0.2"
 optional = true
 default-features = false
 
-[dependencies.mint]
-version = "0.5.8"
+[dependencies.mint-05]
+version = "0.5"
 optional = true
 default-features = false
+package = "mint"
 
-[dependencies.rand]
+[dependencies.rand-010]
 version = "0.10"
 optional = true
 default-features = false
+package = "rand"
 
-[dependencies.rkyv]
+[dependencies.rkyv-08]
 version = "0.8"
 optional = true
 default-features = false
+package = "rkyv"
 
 [dependencies.serde_core]
-version = "1.0"
+version = "1"
 optional = true
 default-features = false
 
-[dependencies.speedy]
+[dependencies.speedy-08]
 version = "0.8"
 optional = true
 default-features = false
+package = "speedy"
 
-[dependencies.zerocopy]
+[dependencies.zerocopy-08]
 version = "0.8"
 features = ["simd"]
 optional = true
 default-features = false
+package = "zerocopy"
 
-[dependencies.zerocopy-derive]
+[dependencies.zerocopy-derive-08]
 version = "0.8"
 optional = true
 default-features = false
+package = "zerocopy-derive"
 
 [dev-dependencies.rand_xoshiro]
 version = "0.8"
 
-[dev-dependencies.rkyv]
+[dev-dependencies.rkyv-08]
 version = "0.8"
 features = ["alloc"]
 default-features = false
+package = "rkyv"
 
 [dev-dependencies.serde_json]
-version = "1.0"
+version = "1"
 
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies.criterion]
 version = "0.8"
 features = ["html_reports"]
 
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies.gungraun]
-version = "0.19"
+version = "0.20"
 
 [target.'cfg(target_family = "wasm")'.dev-dependencies.wasm-bindgen-test]
 version = "0.3.0"

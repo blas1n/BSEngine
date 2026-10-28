@@ -90,6 +90,13 @@ bench_from_ypr!(
     ty => Mat4
 );
 
+bench_unop!(
+    mat4_to_srt,
+    "mat4 to srt",
+    op => to_scale_rotation_translation,
+    from => random_srt_mat4
+);
+
 pub fn mat4_from_srt(c: &mut Criterion) {
     use glam::{Quat, Vec3};
     const SIZE: usize = 1 << 13;
@@ -123,6 +130,7 @@ criterion_group!(
     benches,
     mat4_determinant,
     mat4_from_srt,
+    mat4_to_srt,
     mat4_from_ypr,
     mat4_inverse,
     mat4_mul_mat4,

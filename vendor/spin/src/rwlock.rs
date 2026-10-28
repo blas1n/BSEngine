@@ -16,7 +16,7 @@ use core::{
 /// A lock that provides data access to either one writer or many readers.
 ///
 /// This lock behaves in a similar manner to its namesake `std::sync::RwLock` but uses
-/// spinning for synchronisation instead. Unlike its namespace, this lock does not
+/// spinning for synchronisation instead. Unlike its namesake, this lock does not
 /// track lock poisoning.
 ///
 /// This type of lock allows a number of readers or at most one writer at any
@@ -30,11 +30,10 @@ use core::{
 /// locking methods implement `Deref` (and `DerefMut` for the `write` methods)
 /// to allow access to the contained of the lock.
 ///
-/// An [`RwLockUpgradableGuard`](RwLockUpgradableGuard) can be upgraded to a
-/// writable guard through the [`RwLockUpgradableGuard::upgrade`](RwLockUpgradableGuard::upgrade)
-/// [`RwLockUpgradableGuard::try_upgrade`](RwLockUpgradableGuard::try_upgrade) functions.
-/// Writable or upgradeable guards can be downgraded through their respective `downgrade`
-/// functions.
+/// An [`RwLockUpgradableGuard`] can be upgraded to a writable guard through
+/// the [`RwLockUpgradableGuard::upgrade`] and [`RwLockUpgradableGuard::try_upgrade`]
+/// functions. Writable or upgradeable  guards can be downgraded through their
+/// respective `downgrade` functions.
 ///
 /// Based on Facebook's
 /// [`folly/RWSpinLock.h`](https://github.com/facebook/folly/blob/a0394d84f2d5c3e50ebfd0566f9d3acb52cfab5a/folly/synchronization/RWSpinLock.h).
@@ -80,18 +79,15 @@ const WRITER: usize = 1;
 ///
 /// When the guard falls out of scope it will decrement the read count,
 /// potentially releasing the lock.
-pub struct RwLockReadGuard<'a, T: 'a + ?Sized> {
-    lock: &'a AtomicUsize,
-    data: *const T,
+pub struct RwLockReadGuard<'a, T: 'a + ?Sized, R = Spin> {
+    inner: &'a RwLock<T, R>,
 }
 
 /// A guard that provides mutable data access.
 ///
 /// When the guard falls out of scope it will release the lock.
 pub struct RwLockWriteGuard<'a, T: 'a + ?Sized, R = Spin> {
-    phantom: PhantomData<R>,
     inner: &'a RwLock<T, R>,
-    data: *mut T,
 }
 
 /// A guard that provides immutable data access but can be upgraded to [`RwLockWriteGuard`].
@@ -102,23 +98,31 @@ pub struct RwLockWriteGuard<'a, T: 'a + ?Sized, R = Spin> {
 ///
 /// When the guard falls out of scope it will release the lock.
 pub struct RwLockUpgradableGuard<'a, T: 'a + ?Sized, R = Spin> {
-    phantom: PhantomData<R>,
     inner: &'a RwLock<T, R>,
-    data: *const T,
 }
 
-// Same unsafe impls as `std::sync::RwLock`
+// SAFETY: Same unsafe impls as `std::sync::RwLock`
 unsafe impl<T: ?Sized + Send, R> Send for RwLock<T, R> {}
 unsafe impl<T: ?Sized + Send + Sync, R> Sync for RwLock<T, R> {}
 
-unsafe impl<T: ?Sized + Send + Sync, R> Send for RwLockWriteGuard<'_, T, R> {}
-unsafe impl<T: ?Sized + Send + Sync, R> Sync for RwLockWriteGuard<'_, T, R> {}
+// SAFETY: Write guards can be thought of as mutable reference to the inner data. In fact, this
+// would be their ideal representation if it were not for the need for the critical section to end
+// *after* the reference is no longer live.
+unsafe impl<T: ?Sized, R> Sync for RwLockWriteGuard<'_, T, R> where for<'a> &'a mut T: Sync {}
+unsafe impl<T: ?Sized, R> Send for RwLockWriteGuard<'_, T, R> where for<'a> &'a mut T: Send {}
 
-unsafe impl<T: ?Sized + Sync> Send for RwLockReadGuard<'_, T> {}
-unsafe impl<T: ?Sized + Sync> Sync for RwLockReadGuard<'_, T> {}
+// SAFETY: Read guards can be thought of as immutable reference to the inner data. In fact, this
+// would be their ideal representation if it were not for the need for the critical section to end
+// *after* the reference is no longer live.
+unsafe impl<T: ?Sized, R> Sync for RwLockReadGuard<'_, T, R> where for<'a> &'a T: Sync {}
+unsafe impl<T: ?Sized, R> Send for RwLockReadGuard<'_, T, R> where for<'a> &'a T: Send {}
 
-unsafe impl<T: ?Sized + Send + Sync, R> Send for RwLockUpgradableGuard<'_, T, R> {}
-unsafe impl<T: ?Sized + Send + Sync, R> Sync for RwLockUpgradableGuard<'_, T, R> {}
+// SAFETY: Read guards can be thought of as immutable reference to the inner data. In fact, this
+// would be their ideal representation if it were not for the need for the critical section to end
+// *after* the reference is no longer live. Note that the ability to upgrade the lock does not
+// result in extra requirements: those are already assured by `RwLockWriteGuard` on upgrade.
+unsafe impl<T: ?Sized> Sync for RwLockUpgradableGuard<'_, T> where for<'a> &'a T: Sync {}
+unsafe impl<T: ?Sized> Send for RwLockUpgradableGuard<'_, T> where for<'a> &'a T: Send {}
 
 impl<T, R> RwLock<T, R> {
     /// Creates a new spinlock wrapping the supplied data.
@@ -153,7 +157,7 @@ impl<T, R> RwLock<T, R> {
         let RwLock { data, .. } = self;
         data.into_inner()
     }
-    /// Returns a mutable pointer to the underying data.
+    /// Returns a mutable pointer to the underlying data.
     ///
     /// This is mostly meant to be used for applications which require manual unlocking, but where
     /// storing both the lock and the pointer to the inner data gets inefficient.
@@ -206,7 +210,7 @@ impl<T: ?Sized, R: RelaxStrategy> RwLock<T, R> {
     /// }
     /// ```
     #[inline]
-    pub fn read(&self) -> RwLockReadGuard<T> {
+    pub fn read(&self) -> RwLockReadGuard<'_, T, R> {
         loop {
             match self.try_read() {
                 Some(guard) => return guard,
@@ -234,7 +238,7 @@ impl<T: ?Sized, R: RelaxStrategy> RwLock<T, R> {
     /// }
     /// ```
     #[inline]
-    pub fn write(&self) -> RwLockWriteGuard<T, R> {
+    pub fn write(&self) -> RwLockWriteGuard<'_, T, R> {
         loop {
             match self.try_write_internal(false) {
                 Some(guard) => return guard,
@@ -246,7 +250,7 @@ impl<T: ?Sized, R: RelaxStrategy> RwLock<T, R> {
     /// Obtain a readable lock guard that can later be upgraded to a writable lock guard.
     /// Upgrades can be done through the [`RwLockUpgradableGuard::upgrade`](RwLockUpgradableGuard::upgrade) method.
     #[inline]
-    pub fn upgradeable_read(&self) -> RwLockUpgradableGuard<T, R> {
+    pub fn upgradeable_read(&self) -> RwLockUpgradableGuard<'_, T, R> {
         loop {
             match self.try_upgradeable_read() {
                 Some(guard) => return guard,
@@ -260,7 +264,7 @@ impl<T: ?Sized, R> RwLock<T, R> {
     // Acquire a read lock, returning the new lock value.
     fn acquire_reader(&self) -> usize {
         // An arbitrary cap that allows us to catch overflows long before they happen
-        const MAX_READERS: usize = core::usize::MAX / READER / 2;
+        const MAX_READERS: usize = usize::MAX / READER / 2;
 
         let value = self.lock.fetch_add(READER, Ordering::Acquire);
 
@@ -295,7 +299,7 @@ impl<T: ?Sized, R> RwLock<T, R> {
     /// }
     /// ```
     #[inline]
-    pub fn try_read(&self) -> Option<RwLockReadGuard<T>> {
+    pub fn try_read(&self) -> Option<RwLockReadGuard<'_, T, R>> {
         let value = self.acquire_reader();
 
         // We check the UPGRADED bit here so that new readers are prevented when an UPGRADED lock is held.
@@ -305,10 +309,7 @@ impl<T: ?Sized, R> RwLock<T, R> {
             self.lock.fetch_sub(READER, Ordering::Release);
             None
         } else {
-            Some(RwLockReadGuard {
-                lock: &self.lock,
-                data: unsafe { &*self.data.get() },
-            })
+            Some(RwLockReadGuard { inner: self })
         }
     }
 
@@ -364,7 +365,7 @@ impl<T: ?Sized, R> RwLock<T, R> {
     }
 
     #[inline(always)]
-    fn try_write_internal(&self, strong: bool) -> Option<RwLockWriteGuard<T, R>> {
+    fn try_write_internal(&self, strong: bool) -> Option<RwLockWriteGuard<'_, T, R>> {
         if compare_exchange(
             &self.lock,
             0,
@@ -375,11 +376,7 @@ impl<T: ?Sized, R> RwLock<T, R> {
         )
         .is_ok()
         {
-            Some(RwLockWriteGuard {
-                phantom: PhantomData,
-                inner: self,
-                data: unsafe { &mut *self.data.get() },
-            })
+            Some(RwLockWriteGuard { inner: self })
         } else {
             None
         }
@@ -405,7 +402,7 @@ impl<T: ?Sized, R> RwLock<T, R> {
     /// }
     /// ```
     #[inline]
-    pub fn try_write(&self) -> Option<RwLockWriteGuard<T, R>> {
+    pub fn try_write(&self) -> Option<RwLockWriteGuard<'_, T, R>> {
         self.try_write_internal(true)
     }
 
@@ -414,19 +411,15 @@ impl<T: ?Sized, R> RwLock<T, R> {
     /// Unlike [`RwLock::try_write`], this function is allowed to spuriously fail even when acquiring exclusive write access
     /// would otherwise succeed, which can result in more efficient code on some platforms.
     #[inline]
-    pub fn try_write_weak(&self) -> Option<RwLockWriteGuard<T, R>> {
+    pub fn try_write_weak(&self) -> Option<RwLockWriteGuard<'_, T, R>> {
         self.try_write_internal(false)
     }
 
     /// Tries to obtain an upgradeable lock guard.
     #[inline]
-    pub fn try_upgradeable_read(&self) -> Option<RwLockUpgradableGuard<T, R>> {
+    pub fn try_upgradeable_read(&self) -> Option<RwLockUpgradableGuard<'_, T, R>> {
         if self.lock.fetch_or(UPGRADED, Ordering::Acquire) & (WRITER | UPGRADED) == 0 {
-            Some(RwLockUpgradableGuard {
-                phantom: PhantomData,
-                inner: self,
-                data: unsafe { &*self.data.get() },
-            })
+            Some(RwLockUpgradableGuard { inner: self })
         } else {
             // We can't unflip the UPGRADED bit back just yet as there is another upgradeable or write lock.
             // When they unlock, they will clear the bit.
@@ -457,14 +450,14 @@ impl<T: ?Sized + fmt::Debug, R> fmt::Debug for RwLock<T, R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.try_read() {
             Some(guard) => write!(f, "RwLock {{ data: ")
-                .and_then(|()| (&*guard).fmt(f))
+                .and_then(|()| (*guard).fmt(f))
                 .and_then(|()| write!(f, " }}")),
             None => write!(f, "RwLock {{ <locked> }}"),
         }
     }
 }
 
-impl<T: ?Sized + Default, R> Default for RwLock<T, R> {
+impl<T: Default, R> Default for RwLock<T, R> {
     fn default() -> Self {
         Self::new(Default::default())
     }
@@ -476,7 +469,7 @@ impl<T, R> From<T> for RwLock<T, R> {
     }
 }
 
-impl<'rwlock, T: ?Sized> RwLockReadGuard<'rwlock, T> {
+impl<'rwlock, T: ?Sized, R> RwLockReadGuard<'rwlock, T, R> {
     /// Leak the lock guard, yielding a reference to the underlying data.
     ///
     /// Note that this function will permanently lock the original lock for all but reading locks.
@@ -492,17 +485,17 @@ impl<'rwlock, T: ?Sized> RwLockReadGuard<'rwlock, T> {
     pub fn leak(this: Self) -> &'rwlock T {
         let this = ManuallyDrop::new(this);
         // Safety: We know statically that only we are referencing data
-        unsafe { &*this.data }
+        unsafe { &*this.inner.data.get() }
     }
 }
 
-impl<'rwlock, T: ?Sized + fmt::Debug> fmt::Debug for RwLockReadGuard<'rwlock, T> {
+impl<'rwlock, T: ?Sized + fmt::Debug, R> fmt::Debug for RwLockReadGuard<'rwlock, T, R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
     }
 }
 
-impl<'rwlock, T: ?Sized + fmt::Display> fmt::Display for RwLockReadGuard<'rwlock, T> {
+impl<'rwlock, T: ?Sized + fmt::Display, R> fmt::Display for RwLockReadGuard<'rwlock, T, R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(&**self, f)
     }
@@ -549,11 +542,7 @@ impl<'rwlock, T: ?Sized, R> RwLockUpgradableGuard<'rwlock, T, R> {
             mem::forget(self);
 
             // Upgrade successful
-            Ok(RwLockWriteGuard {
-                phantom: PhantomData,
-                inner,
-                data: unsafe { &mut *inner.data.get() },
-            })
+            Ok(RwLockWriteGuard { inner })
         } else {
             Err(self)
         }
@@ -598,7 +587,7 @@ impl<'rwlock, T: ?Sized, R> RwLockUpgradableGuard<'rwlock, T, R> {
     /// assert!(mylock.try_read().is_some());
     /// assert_eq!(*readable, 1);
     /// ```
-    pub fn downgrade(self) -> RwLockReadGuard<'rwlock, T> {
+    pub fn downgrade(self) -> RwLockReadGuard<'rwlock, T, R> {
         // Reserve the read guard for ourselves
         self.inner.acquire_reader();
 
@@ -607,10 +596,7 @@ impl<'rwlock, T: ?Sized, R> RwLockUpgradableGuard<'rwlock, T, R> {
         // Dropping self removes the UPGRADED bit
         mem::drop(self);
 
-        RwLockReadGuard {
-            lock: &inner.lock,
-            data: unsafe { &*inner.data.get() },
-        }
+        RwLockReadGuard { inner }
     }
 
     /// Leak the lock guard, yielding a reference to the underlying data.
@@ -628,7 +614,7 @@ impl<'rwlock, T: ?Sized, R> RwLockUpgradableGuard<'rwlock, T, R> {
     pub fn leak(this: Self) -> &'rwlock T {
         let this = ManuallyDrop::new(this);
         // Safety: We know statically that only we are referencing data
-        unsafe { &*this.data }
+        unsafe { &*this.inner.data.get() }
     }
 }
 
@@ -658,7 +644,7 @@ impl<'rwlock, T: ?Sized, R> RwLockWriteGuard<'rwlock, T, R> {
     /// assert_eq!(*readable, 1);
     /// ```
     #[inline]
-    pub fn downgrade(self) -> RwLockReadGuard<'rwlock, T> {
+    pub fn downgrade(self) -> RwLockReadGuard<'rwlock, T, R> {
         // Reserve the read guard for ourselves
         self.inner.acquire_reader();
 
@@ -667,10 +653,7 @@ impl<'rwlock, T: ?Sized, R> RwLockWriteGuard<'rwlock, T, R> {
         // Dropping self removes the UPGRADED bit
         mem::drop(self);
 
-        RwLockReadGuard {
-            lock: &inner.lock,
-            data: unsafe { &*inner.data.get() },
-        }
+        RwLockReadGuard { inner }
     }
 
     /// Downgrades the writable lock guard to an upgradable, shared lock guard. Cannot fail and is guaranteed not to spin.
@@ -699,11 +682,7 @@ impl<'rwlock, T: ?Sized, R> RwLockWriteGuard<'rwlock, T, R> {
         // Dropping self removes the UPGRADED bit
         mem::forget(self);
 
-        RwLockUpgradableGuard {
-            phantom: PhantomData,
-            inner,
-            data: unsafe { &*inner.data.get() },
-        }
+        RwLockUpgradableGuard { inner }
     }
 
     /// Leak the lock guard, yielding a mutable reference to the underlying data.
@@ -720,9 +699,9 @@ impl<'rwlock, T: ?Sized, R> RwLockWriteGuard<'rwlock, T, R> {
     /// ```
     #[inline]
     pub fn leak(this: Self) -> &'rwlock mut T {
-        let mut this = ManuallyDrop::new(this);
+        let this = ManuallyDrop::new(this);
         // Safety: We know statically that only we are referencing data
-        unsafe { &mut *this.data }
+        unsafe { &mut *this.inner.data.get() }
     }
 }
 
@@ -738,12 +717,12 @@ impl<'rwlock, T: ?Sized + fmt::Display, R> fmt::Display for RwLockWriteGuard<'rw
     }
 }
 
-impl<'rwlock, T: ?Sized> Deref for RwLockReadGuard<'rwlock, T> {
+impl<'rwlock, T: ?Sized, R> Deref for RwLockReadGuard<'rwlock, T, R> {
     type Target = T;
 
     fn deref(&self) -> &T {
         // Safety: We know statically that only we are referencing data
-        unsafe { &*self.data }
+        unsafe { &*self.inner.data.get() }
     }
 }
 
@@ -752,7 +731,7 @@ impl<'rwlock, T: ?Sized, R> Deref for RwLockUpgradableGuard<'rwlock, T, R> {
 
     fn deref(&self) -> &T {
         // Safety: We know statically that only we are referencing data
-        unsafe { &*self.data }
+        unsafe { &*self.inner.data.get() }
     }
 }
 
@@ -761,21 +740,21 @@ impl<'rwlock, T: ?Sized, R> Deref for RwLockWriteGuard<'rwlock, T, R> {
 
     fn deref(&self) -> &T {
         // Safety: We know statically that only we are referencing data
-        unsafe { &*self.data }
+        unsafe { &*self.inner.data.get() }
     }
 }
 
 impl<'rwlock, T: ?Sized, R> DerefMut for RwLockWriteGuard<'rwlock, T, R> {
     fn deref_mut(&mut self) -> &mut T {
         // Safety: We know statically that only we are referencing data
-        unsafe { &mut *self.data }
+        unsafe { &mut *self.inner.data.get() }
     }
 }
 
-impl<'rwlock, T: ?Sized> Drop for RwLockReadGuard<'rwlock, T> {
+impl<'rwlock, T: ?Sized, R> Drop for RwLockReadGuard<'rwlock, T, R> {
     fn drop(&mut self) {
-        debug_assert!(self.lock.load(Ordering::Relaxed) & !(WRITER | UPGRADED) > 0);
-        self.lock.fetch_sub(READER, Ordering::Release);
+        debug_assert!(self.inner.lock.load(Ordering::Relaxed) & !(WRITER | UPGRADED) > 0);
+        self.inner.lock.fetch_sub(READER, Ordering::Release);
     }
 }
 
@@ -832,16 +811,12 @@ unsafe impl<R: RelaxStrategy> lock_api_crate::RawRwLock for RwLock<(), R> {
     #[inline(always)]
     fn try_lock_exclusive(&self) -> bool {
         // Prevent guard destructor running
-        self.try_write().map(|g| core::mem::forget(g)).is_some()
+        self.try_write().map(core::mem::forget).is_some()
     }
 
     #[inline(always)]
     unsafe fn unlock_exclusive(&self) {
-        drop(RwLockWriteGuard {
-            inner: self,
-            data: &mut (),
-            phantom: PhantomData,
-        });
+        drop(RwLockWriteGuard { inner: self });
     }
 
     #[inline(always)]
@@ -853,15 +828,12 @@ unsafe impl<R: RelaxStrategy> lock_api_crate::RawRwLock for RwLock<(), R> {
     #[inline(always)]
     fn try_lock_shared(&self) -> bool {
         // Prevent guard destructor running
-        self.try_read().map(|g| core::mem::forget(g)).is_some()
+        self.try_read().map(core::mem::forget).is_some()
     }
 
     #[inline(always)]
     unsafe fn unlock_shared(&self) {
-        drop(RwLockReadGuard {
-            lock: &self.lock,
-            data: &(),
-        });
+        drop(RwLockReadGuard { inner: self });
     }
 
     #[inline(always)]
@@ -881,73 +853,48 @@ unsafe impl<R: RelaxStrategy> lock_api_crate::RawRwLockUpgrade for RwLock<(), R>
     #[inline(always)]
     fn try_lock_upgradable(&self) -> bool {
         // Prevent guard destructor running
-        self.try_upgradeable_read()
-            .map(|g| core::mem::forget(g))
-            .is_some()
+        self.try_upgradeable_read().map(core::mem::forget).is_some()
     }
 
     #[inline(always)]
     unsafe fn unlock_upgradable(&self) {
-        drop(RwLockUpgradableGuard {
-            inner: self,
-            data: &(),
-            phantom: PhantomData,
-        });
+        drop(RwLockUpgradableGuard { inner: self });
     }
 
     #[inline(always)]
     unsafe fn upgrade(&self) {
-        let tmp_guard = RwLockUpgradableGuard {
-            inner: self,
-            data: &(),
-            phantom: PhantomData,
-        };
+        let tmp_guard = RwLockUpgradableGuard { inner: self };
         core::mem::forget(tmp_guard.upgrade());
     }
 
     #[inline(always)]
     unsafe fn try_upgrade(&self) -> bool {
-        let tmp_guard = RwLockUpgradableGuard {
-            inner: self,
-            data: &(),
-            phantom: PhantomData,
-        };
-        tmp_guard
-            .try_upgrade()
-            .map(|g| core::mem::forget(g))
-            .is_ok()
+        let tmp_guard = RwLockUpgradableGuard { inner: self };
+        let res = tmp_guard.try_upgrade();
+        let success = res.is_ok();
+        // We act 'as if' the guards still exist to maintain the lock state
+        core::mem::forget(res);
+        success
     }
 }
 
 #[cfg(feature = "lock_api")]
 unsafe impl<R: RelaxStrategy> lock_api_crate::RawRwLockDowngrade for RwLock<(), R> {
     unsafe fn downgrade(&self) {
-        let tmp_guard = RwLockWriteGuard {
-            inner: self,
-            data: &mut (),
-            phantom: PhantomData,
-        };
+        let tmp_guard = RwLockWriteGuard { inner: self };
         core::mem::forget(tmp_guard.downgrade());
     }
 }
 
-#[cfg(feature = "lock_api1")]
-unsafe impl lock_api::RawRwLockUpgradeDowngrade for RwLock<()> {
+#[cfg(feature = "lock_api")]
+unsafe impl<R: RelaxStrategy> lock_api_crate::RawRwLockUpgradeDowngrade for RwLock<(), R> {
     unsafe fn downgrade_upgradable(&self) {
-        let tmp_guard = RwLockUpgradableGuard {
-            inner: self,
-            data: &(),
-            phantom: PhantomData,
-        };
+        let tmp_guard = RwLockUpgradableGuard { inner: self };
         core::mem::forget(tmp_guard.downgrade());
     }
 
     unsafe fn downgrade_to_upgradable(&self) {
-        let tmp_guard = RwLockWriteGuard {
-            inner: self,
-            data: &mut (),
-            phantom: PhantomData,
-        };
+        let tmp_guard = RwLockWriteGuard { inner: self };
         core::mem::forget(tmp_guard.downgrade_to_upgradeable());
     }
 }
@@ -1083,13 +1030,8 @@ mod tests {
         let lock = RwLock::new(0isize);
         let read_guard = lock.read();
 
-        let write_result = lock.try_write();
-        match write_result {
-            None => (),
-            Some(_) => assert!(
-                false,
-                "try_write should not succeed while read_guard is in scope"
-            ),
+        if lock.try_write().is_some() {
+            panic!("try_write should not succeed while read_guard is in scope");
         }
 
         drop(read_guard);
@@ -1179,5 +1121,39 @@ mod tests {
         }
 
         assert!(m.try_upgradeable_read().unwrap().try_upgrade().is_ok());
+    }
+
+    #[test]
+    fn no_premature_upgrade_drop_on_failure() {
+        type RwLock<T> = lock_api_crate::RwLock<crate::rwlock::RwLock<()>, T>;
+
+        let lock = Arc::new(RwLock::new(42));
+        std::thread::scope(|s| {
+            let shared = lock.try_read().expect("shared read should succeed");
+            let upgradable = lock.upgradable_read();
+
+            // Previously, UB occurred here: `try_upgrade` failure resulted in a temporary guard
+            // being dropped, resulting in the UPGRADED bit being unset, leaving the lock unguarded.
+            // This is not correct because upgrade failure shouldn't leave the lock open for writers
+            let upgradable =
+                match lock_api_crate::RwLockUpgradableReadGuard::try_upgrade(upgradable) {
+                    Ok(_) => panic!("upgrade unexpectedly succeeded"),
+                    Err(g) => g,
+                };
+
+            drop(shared);
+
+            s.spawn(|| {
+                if lock.try_write().is_some() {
+                    panic!("try_write should not succeed because lock is held");
+                }
+            })
+            .join()
+            .unwrap();
+
+            std::hint::black_box(*upgradable);
+
+            core::mem::forget(upgradable);
+        });
     }
 }

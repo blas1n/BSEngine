@@ -4,10 +4,10 @@ use crate::{f32::math, BVec2, Vec3};
 
 use core::fmt;
 use core::iter::{Product, Sum};
-use core::{f32, ops::*};
+use core::ops::*;
 
-#[cfg(feature = "zerocopy")]
-use zerocopy_derive::*;
+#[cfg(feature = "zerocopy-08")]
+use zerocopy_derive_08::*;
 
 /// Creates a 2-dimensional vector.
 #[inline(always)]
@@ -20,7 +20,7 @@ pub const fn vec2(x: f32, y: f32) -> Vec2 {
 #[derive(Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Pod, bytemuck::Zeroable))]
 #[cfg_attr(
-    feature = "zerocopy",
+    feature = "zerocopy-08",
     derive(FromBytes, Immutable, IntoBytes, KnownLayout)
 )]
 #[cfg_attr(feature = "cuda", repr(align(8)))]
@@ -95,7 +95,7 @@ impl Vec2 {
     #[inline]
     #[must_use]
     pub const fn splat(v: f32) -> Self {
-        Self { x: v, y: v }
+        Self::new(v, v)
     }
 
     /// Returns a vector containing each element of `self` modified by a mapping function `f`.
@@ -116,10 +116,10 @@ impl Vec2 {
     #[inline]
     #[must_use]
     pub fn select(mask: BVec2, if_true: Self, if_false: Self) -> Self {
-        Self {
-            x: if mask.test(0) { if_true.x } else { if_false.x },
-            y: if mask.test(1) { if_true.y } else { if_false.y },
-        }
+        Self::new(
+            if mask.test(0) { if_true.x } else { if_false.x },
+            if mask.test(1) { if_true.y } else { if_false.y },
+        )
     }
 
     /// Creates a new vector from an array.
@@ -143,6 +143,7 @@ impl Vec2 {
     /// Panics if `slice` is less than 2 elements long.
     #[inline]
     #[must_use]
+    #[track_caller]
     pub const fn from_slice(slice: &[f32]) -> Self {
         assert!(slice.len() >= 2);
         Self::new(slice[0], slice[1])
@@ -154,6 +155,7 @@ impl Vec2 {
     ///
     /// Panics if `slice` is less than 2 elements long.
     #[inline]
+    #[track_caller]
     pub fn write_to_slice(self, slice: &mut [f32]) {
         slice[..2].copy_from_slice(&self.to_array());
     }
@@ -204,10 +206,10 @@ impl Vec2 {
     #[inline]
     #[must_use]
     pub fn min(self, rhs: Self) -> Self {
-        Self {
-            x: if self.x < rhs.x { self.x } else { rhs.x },
-            y: if self.y < rhs.y { self.y } else { rhs.y },
-        }
+        Self::new(
+            if self.x < rhs.x { self.x } else { rhs.x },
+            if self.y < rhs.y { self.y } else { rhs.y },
+        )
     }
 
     /// Returns a vector containing the maximum values for each element of `self` and `rhs`.
@@ -219,10 +221,10 @@ impl Vec2 {
     #[inline]
     #[must_use]
     pub fn max(self, rhs: Self) -> Self {
-        Self {
-            x: if self.x > rhs.x { self.x } else { rhs.x },
-            y: if self.y > rhs.y { self.y } else { rhs.y },
-        }
+        Self::new(
+            if self.x > rhs.x { self.x } else { rhs.x },
+            if self.y > rhs.y { self.y } else { rhs.y },
+        )
     }
 
     /// Component-wise clamping of values, similar to [`f32::clamp`].
@@ -237,6 +239,7 @@ impl Vec2 {
     /// Will panic if `min` is greater than `max` when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn clamp(self, min: Self, max: Self) -> Self {
         glam_assert!(min.cmple(max).all(), "clamp: expected min <= max");
         self.max(min).min(max)
@@ -380,10 +383,7 @@ impl Vec2 {
     #[inline]
     #[must_use]
     pub fn abs(self) -> Self {
-        Self {
-            x: math::abs(self.x),
-            y: math::abs(self.y),
-        }
+        Self::new(math::abs(self.x), math::abs(self.y))
     }
 
     /// Returns a vector with elements representing the sign of `self`.
@@ -394,20 +394,14 @@ impl Vec2 {
     #[inline]
     #[must_use]
     pub fn signum(self) -> Self {
-        Self {
-            x: math::signum(self.x),
-            y: math::signum(self.y),
-        }
+        Self::new(math::signum(self.x), math::signum(self.y))
     }
 
     /// Returns a vector with signs of `rhs` and the magnitudes of `self`.
     #[inline]
     #[must_use]
     pub fn copysign(self, rhs: Self) -> Self {
-        Self {
-            x: math::copysign(self.x, rhs.x),
-            y: math::copysign(self.y, rhs.y),
-        }
+        Self::new(math::copysign(self.x, rhs.x), math::copysign(self.y, rhs.y))
     }
 
     /// Returns a bitmask with the lowest 2 bits set to the sign bits from the elements of `self`.
@@ -421,6 +415,16 @@ impl Vec2 {
     #[must_use]
     pub fn is_negative_bitmask(self) -> u32 {
         (self.x.is_sign_negative() as u32) | ((self.y.is_sign_negative() as u32) << 1)
+    }
+
+    /// Returns a mask indicating which components are negative.
+    ///
+    /// An element is negative if it has a negative sign, including -0.0, NaNs with negative sign
+    /// bit and negative infinity.
+    #[inline]
+    #[must_use]
+    pub fn is_negative_mask(self) -> BVec2 {
+        BVec2::new(self.x.is_sign_negative(), self.y.is_sign_negative())
     }
 
     /// Returns `true` if, and only if, all elements are finite.  If any element is either
@@ -464,6 +468,12 @@ impl Vec2 {
         math::sqrt(self.dot(self))
     }
 
+    /// Returns `true` if the vector is not the zero vector (also rejects NaN).
+    #[allow(dead_code)]
+    fn is_non_zero(self) -> bool {
+        self.length_squared() > 0.0
+    }
+
     /// Computes the squared length of `self`.
     ///
     /// This is faster than `length()` as it avoids a square root operation.
@@ -480,7 +490,7 @@ impl Vec2 {
     #[inline]
     #[must_use]
     pub fn length_recip(self) -> f32 {
-        self.length().recip()
+        1.0 / self.length()
     }
 
     /// Computes the Euclidean distance between two points in space.
@@ -530,6 +540,7 @@ impl Vec2 {
     /// Will panic if the resulting normalized vector is not finite when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn normalize(self) -> Self {
         #[allow(clippy::let_and_return)]
         let normalized = self.mul(self.length_recip());
@@ -617,10 +628,11 @@ impl Vec2 {
     /// Will panic if `rhs` is zero length when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn project_onto(self, rhs: Self) -> Self {
-        let other_len_sq_rcp = rhs.dot(rhs).recip();
-        glam_assert!(other_len_sq_rcp.is_finite());
-        rhs * self.dot(rhs) * other_len_sq_rcp
+        let rhs_len_sq = rhs.dot(rhs);
+        glam_assert!(rhs_len_sq != 0.0);
+        rhs * (self.dot(rhs) / rhs_len_sq)
     }
 
     /// Returns the vector rejection of `self` from `rhs`.
@@ -636,6 +648,7 @@ impl Vec2 {
     #[doc(alias("plane"))]
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn reject_from(self, rhs: Self) -> Self {
         self - self.project_onto(rhs)
     }
@@ -649,6 +662,7 @@ impl Vec2 {
     /// Will panic if `rhs` is not normalized when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn project_onto_normalized(self, rhs: Self) -> Self {
         glam_assert!(rhs.is_normalized());
         rhs * self.dot(rhs)
@@ -667,6 +681,7 @@ impl Vec2 {
     #[doc(alias("plane"))]
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn reject_from_normalized(self, rhs: Self) -> Self {
         self - self.project_onto_normalized(rhs)
     }
@@ -676,10 +691,7 @@ impl Vec2 {
     #[inline]
     #[must_use]
     pub fn round(self) -> Self {
-        Self {
-            x: math::round(self.x),
-            y: math::round(self.y),
-        }
+        Self::new(math::round(self.x), math::round(self.y))
     }
 
     /// Returns a vector containing the largest integer less than or equal to a number for each
@@ -687,10 +699,7 @@ impl Vec2 {
     #[inline]
     #[must_use]
     pub fn floor(self) -> Self {
-        Self {
-            x: math::floor(self.x),
-            y: math::floor(self.y),
-        }
+        Self::new(math::floor(self.x), math::floor(self.y))
     }
 
     /// Returns a vector containing the smallest integer greater than or equal to a number for
@@ -698,10 +707,7 @@ impl Vec2 {
     #[inline]
     #[must_use]
     pub fn ceil(self) -> Self {
-        Self {
-            x: math::ceil(self.x),
-            y: math::ceil(self.y),
-        }
+        Self::new(math::ceil(self.x), math::ceil(self.y))
     }
 
     /// Returns a vector containing the integer part each element of `self`. This means numbers are
@@ -709,10 +715,7 @@ impl Vec2 {
     #[inline]
     #[must_use]
     pub fn trunc(self) -> Self {
-        Self {
-            x: math::trunc(self.x),
-            y: math::trunc(self.y),
-        }
+        Self::new(math::trunc(self.x), math::trunc(self.y))
     }
 
     /// Returns a vector containing `0.0` if `rhs < self` and 1.0 otherwise.
@@ -722,6 +725,25 @@ impl Vec2 {
     #[must_use]
     pub fn step(self, rhs: Self) -> Self {
         Self::select(rhs.cmplt(self), Self::ZERO, Self::ONE)
+    }
+
+    /// Performs Hermite interpolation between `0.0` and `1.0` using `x` normalized to `[edge0, edge1]`.
+    ///
+    /// This is equivalent to `t * t * (3.0 - 2.0 * t)`, where `t` is clamped to `[0.0, 1.0]`.
+    /// Results are undefined if any element of `edge0` is greater than or equal to the corresponding
+    /// element of `edge1`.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if any element of `edge0` is greater than or equal to the corresponding element
+    /// of `edge1`, when `glam_assert` is enabled.
+    #[inline]
+    #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
+    pub fn smoothstep(self, edge0: Self, edge1: Self) -> Self {
+        glam_assert!(edge0.cmplt(edge1).all());
+        let t = ((self - edge0) / (edge1 - edge0)).saturate();
+        t * t * (Self::splat(3.0) - Self::splat(2.0) * t)
     }
 
     /// Returns a vector containing all elements of `self` clamped to the range of `[0, 1]`.
@@ -829,22 +851,48 @@ impl Vec2 {
     #[inline]
     #[must_use]
     pub fn recip(self) -> Self {
-        Self {
-            x: 1.0 / self.x,
-            y: 1.0 / self.y,
-        }
+        Self::new(1.0 / self.x, 1.0 / self.y)
     }
 
-    /// Performs a linear interpolation between `self` and `rhs` based on the value `s`.
+    /// Performs a linear interpolation between `self` and `rhs` based on the value `s`, using the
+    /// form `self * (1.0 - s) + rhs * s`.
     ///
-    /// When `s` is `0.0`, the result will be equal to `self`.  When `s` is `1.0`, the result
-    /// will be equal to `rhs`. When `s` is outside of range `[0, 1]`, the result is linearly
+    /// When `s` is `0.0`, the result will be equal to `self`. When `s` is `1.0`, the result will
+    /// be equal to `rhs`. When `s` is outside of the range `[0, 1]`, the result is linearly
     /// extrapolated.
+    ///
+    /// The result is guaranteed to be `self` at `s == 0.0` and `rhs` at `s == 1.0`, even when the
+    /// values differ greatly in magnitude, but it is not monotonic in `s` for nearly equal inputs
+    /// and may not preserve equal inputs exactly. Consider [`lerp_monotonic`](Self::lerp_monotonic)
+    /// instead when interpolating between values that may be equal or nearly equal.
     #[doc(alias = "mix")]
     #[inline]
     #[must_use]
     pub fn lerp(self, rhs: Self, s: f32) -> Self {
         self * (1.0 - s) + rhs * s
+    }
+
+    /// Performs a linear interpolation between `self` and `rhs` based on the value `s`, using the
+    /// monotonic form `self + (rhs - self) * s`.
+    ///
+    /// When `s` is `0.0`, the result will be equal to `self`. When `s` is `1.0`, the result will
+    /// be equal to `rhs`. When `s` is outside of the range `[0, 1]`, the result is linearly
+    /// extrapolated.
+    ///
+    /// Prefer this over [`lerp`](Self::lerp) when interpolating between values that may be equal or
+    /// nearly equal: the result is monotonic in `s` and equal inputs are preserved exactly, avoiding
+    /// the rounding jitter that [`lerp`](Self::lerp) can introduce. The tradeoff is that
+    /// `rhs - self` is evaluated first, so this is less accurate than [`lerp`](Self::lerp) when
+    /// `self` and `rhs` differ greatly in magnitude, and overflows to infinity when they have
+    /// opposite signs and large magnitudes.
+    ///
+    /// On SIMD back-ends the multiply and add are fused when the target supports it, which has a
+    /// single rounding step and can be more accurate than a separate multiply and add.
+    #[doc(alias = "mix")]
+    #[inline]
+    #[must_use]
+    pub fn lerp_monotonic(self, rhs: Self, s: f32) -> Self {
+        self + (rhs - self) * s
     }
 
     /// Moves towards `rhs` based on the value `d`.
@@ -894,6 +942,7 @@ impl Vec2 {
     /// Will panic if `min` is greater than `max`, or if either `min` or `max` is negative, when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn clamp_length(self, min: f32, max: f32) -> Self {
         glam_assert!(0.0 <= min);
         glam_assert!(min <= max);
@@ -914,6 +963,7 @@ impl Vec2 {
     /// Will panic if `max` is negative when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn clamp_length_max(self, max: f32) -> Self {
         glam_assert!(0.0 <= max);
         let length_sq = self.length_squared();
@@ -931,6 +981,7 @@ impl Vec2 {
     /// Will panic if `min` is negative when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn clamp_length_min(self, min: f32) -> Self {
         glam_assert!(0.0 <= min);
         let length_sq = self.length_squared();
@@ -967,6 +1018,7 @@ impl Vec2 {
     /// Will panic if `normal` is not normalized when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn reflect(self, normal: Self) -> Self {
         glam_assert!(normal.is_normalized());
         self - 2.0 * self.dot(normal) * normal
@@ -983,6 +1035,7 @@ impl Vec2 {
     /// Will panic if `self` or `normal` is not normalized when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn refract(self, normal: Self, eta: f32) -> Self {
         glam_assert!(self.is_normalized());
         glam_assert!(normal.is_normalized());
@@ -1003,7 +1056,7 @@ impl Vec2 {
     #[must_use]
     pub fn from_angle(angle: f32) -> Self {
         let (sin, cos) = math::sin_cos(angle);
-        Self { x: cos, y: sin }
+        Self::new(cos, sin)
     }
 
     /// Returns the angle (in radians) of this vector in the range `[-π, +π]`.
@@ -1018,9 +1071,19 @@ impl Vec2 {
     /// Returns the angle of rotation (in radians) from `self` to `rhs` in the range `[-π, +π]`.
     ///
     /// The inputs do not need to be unit vectors however they must be non-zero.
+    ///
+    /// The returned angle can be used with [`rotate_angle()`][Self::rotate_angle], e.g.
+    /// `self.rotate_angle(self.angle_to(rhs))` will be equal to `rhs`.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if `self` or `rhs` has zero length when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn angle_to(self, rhs: Self) -> f32 {
+        glam_assert!(self.is_non_zero());
+        glam_assert!(rhs.is_non_zero());
         let angle = math::acos_approx(
             self.dot(rhs) / math::sqrt(self.length_squared() * rhs.length_squared()),
         );
@@ -1032,10 +1095,7 @@ impl Vec2 {
     #[inline]
     #[must_use]
     pub fn perp(self) -> Self {
-        Self {
-            x: -self.y,
-            y: self.x,
-        }
+        Self::new(-self.y, self.x)
     }
 
     /// The perpendicular dot product of `self` and `rhs`.
@@ -1059,10 +1119,18 @@ impl Vec2 {
     #[inline]
     #[must_use]
     pub fn rotate(self, rhs: Self) -> Self {
-        Self {
-            x: self.x * rhs.x - self.y * rhs.y,
-            y: self.y * rhs.x + self.x * rhs.y,
-        }
+        Self::new(
+            self.x * rhs.x - self.y * rhs.y,
+            self.y * rhs.x + self.x * rhs.y,
+        )
+    }
+
+    /// Rotates `self` by `angle` (in radians), equivalent to
+    /// `self.rotate(Vec2::from_angle(angle))`.
+    #[inline]
+    #[must_use]
+    pub fn rotate_angle(self, angle: f32) -> Self {
+        self.rotate(Self::from_angle(angle))
     }
 
     /// Rotates towards `rhs` up to `max_angle` (in radians).
@@ -1070,8 +1138,13 @@ impl Vec2 {
     /// When `max_angle` is `0.0`, the result will be equal to `self`. When `max_angle` is equal to
     /// `self.angle_between(rhs)`, the result will be parallel to `rhs`. If `max_angle` is negative,
     /// rotates towards the exact opposite of `rhs`. Will not go past the target.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if `self` or `rhs` are zero length when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn rotate_towards(self, rhs: Self, max_angle: f32) -> Self {
         let a = self.angle_to(rhs);
         let abs_a = math::abs(a);
@@ -1180,10 +1253,7 @@ impl Div for Vec2 {
     type Output = Self;
     #[inline]
     fn div(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.div(rhs.x),
-            y: self.y.div(rhs.y),
-        }
+        Self::new(self.x.div(rhs.x), self.y.div(rhs.y))
     }
 }
 
@@ -1230,10 +1300,7 @@ impl Div<f32> for Vec2 {
     type Output = Self;
     #[inline]
     fn div(self, rhs: f32) -> Self {
-        Self {
-            x: self.x.div(rhs),
-            y: self.y.div(rhs),
-        }
+        Self::new(self.x.div(rhs), self.y.div(rhs))
     }
 }
 
@@ -1280,10 +1347,7 @@ impl Div<Vec2> for f32 {
     type Output = Vec2;
     #[inline]
     fn div(self, rhs: Vec2) -> Vec2 {
-        Vec2 {
-            x: self.div(rhs.x),
-            y: self.div(rhs.y),
-        }
+        Vec2::new(self.div(rhs.x), self.div(rhs.y))
     }
 }
 
@@ -1315,10 +1379,7 @@ impl Mul for Vec2 {
     type Output = Self;
     #[inline]
     fn mul(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.mul(rhs.x),
-            y: self.y.mul(rhs.y),
-        }
+        Self::new(self.x.mul(rhs.x), self.y.mul(rhs.y))
     }
 }
 
@@ -1365,10 +1426,7 @@ impl Mul<f32> for Vec2 {
     type Output = Self;
     #[inline]
     fn mul(self, rhs: f32) -> Self {
-        Self {
-            x: self.x.mul(rhs),
-            y: self.y.mul(rhs),
-        }
+        Self::new(self.x.mul(rhs), self.y.mul(rhs))
     }
 }
 
@@ -1415,10 +1473,7 @@ impl Mul<Vec2> for f32 {
     type Output = Vec2;
     #[inline]
     fn mul(self, rhs: Vec2) -> Vec2 {
-        Vec2 {
-            x: self.mul(rhs.x),
-            y: self.mul(rhs.y),
-        }
+        Vec2::new(self.mul(rhs.x), self.mul(rhs.y))
     }
 }
 
@@ -1450,10 +1505,7 @@ impl Add for Vec2 {
     type Output = Self;
     #[inline]
     fn add(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.add(rhs.x),
-            y: self.y.add(rhs.y),
-        }
+        Self::new(self.x.add(rhs.x), self.y.add(rhs.y))
     }
 }
 
@@ -1500,10 +1552,7 @@ impl Add<f32> for Vec2 {
     type Output = Self;
     #[inline]
     fn add(self, rhs: f32) -> Self {
-        Self {
-            x: self.x.add(rhs),
-            y: self.y.add(rhs),
-        }
+        Self::new(self.x.add(rhs), self.y.add(rhs))
     }
 }
 
@@ -1550,10 +1599,7 @@ impl Add<Vec2> for f32 {
     type Output = Vec2;
     #[inline]
     fn add(self, rhs: Vec2) -> Vec2 {
-        Vec2 {
-            x: self.add(rhs.x),
-            y: self.add(rhs.y),
-        }
+        Vec2::new(self.add(rhs.x), self.add(rhs.y))
     }
 }
 
@@ -1585,10 +1631,7 @@ impl Sub for Vec2 {
     type Output = Self;
     #[inline]
     fn sub(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.sub(rhs.x),
-            y: self.y.sub(rhs.y),
-        }
+        Self::new(self.x.sub(rhs.x), self.y.sub(rhs.y))
     }
 }
 
@@ -1635,10 +1678,7 @@ impl Sub<f32> for Vec2 {
     type Output = Self;
     #[inline]
     fn sub(self, rhs: f32) -> Self {
-        Self {
-            x: self.x.sub(rhs),
-            y: self.y.sub(rhs),
-        }
+        Self::new(self.x.sub(rhs), self.y.sub(rhs))
     }
 }
 
@@ -1685,10 +1725,7 @@ impl Sub<Vec2> for f32 {
     type Output = Vec2;
     #[inline]
     fn sub(self, rhs: Vec2) -> Vec2 {
-        Vec2 {
-            x: self.sub(rhs.x),
-            y: self.sub(rhs.y),
-        }
+        Vec2::new(self.sub(rhs.x), self.sub(rhs.y))
     }
 }
 
@@ -1720,10 +1757,7 @@ impl Rem for Vec2 {
     type Output = Self;
     #[inline]
     fn rem(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.rem(rhs.x),
-            y: self.y.rem(rhs.y),
-        }
+        Self::new(self.x.rem(rhs.x), self.y.rem(rhs.y))
     }
 }
 
@@ -1770,10 +1804,7 @@ impl Rem<f32> for Vec2 {
     type Output = Self;
     #[inline]
     fn rem(self, rhs: f32) -> Self {
-        Self {
-            x: self.x.rem(rhs),
-            y: self.y.rem(rhs),
-        }
+        Self::new(self.x.rem(rhs), self.y.rem(rhs))
     }
 }
 
@@ -1820,10 +1851,7 @@ impl Rem<Vec2> for f32 {
     type Output = Vec2;
     #[inline]
     fn rem(self, rhs: Vec2) -> Vec2 {
-        Vec2 {
-            x: self.rem(rhs.x),
-            y: self.rem(rhs.y),
-        }
+        Vec2::new(self.rem(rhs.x), self.rem(rhs.y))
     }
 }
 
@@ -1909,10 +1937,7 @@ impl Neg for Vec2 {
     type Output = Self;
     #[inline]
     fn neg(self) -> Self {
-        Self {
-            x: self.x.neg(),
-            y: self.y.neg(),
-        }
+        Self::new(self.x.neg(), self.y.neg())
     }
 }
 
@@ -1927,6 +1952,7 @@ impl Neg for &Vec2 {
 impl Index<usize> for Vec2 {
     type Output = f32;
     #[inline]
+    #[track_caller]
     fn index(&self, index: usize) -> &Self::Output {
         match index {
             0 => &self.x,
@@ -1938,6 +1964,7 @@ impl Index<usize> for Vec2 {
 
 impl IndexMut<usize> for Vec2 {
     #[inline]
+    #[track_caller]
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         match index {
             0 => &mut self.x,

@@ -119,7 +119,7 @@ mod tests {
     fn reflect_color_clone_value_round_trips() {
         let v: ReflectColor = glam::Vec3::new(0.2, 0.8, 1.0).into();
         let reflected: &dyn Reflect = &v;
-        let cloned = reflected.to_dynamic();
+        let cloned = reflected.to_dynamic().expect("an opaque wrapper is Clone");
         let back = cloned
             .try_downcast::<ReflectColor>()
             .expect("downcast failed");

@@ -34,6 +34,7 @@ const PS_SIN_COEFFICIENTS1: __m128 = m128_from_f32x4([
     -0.000_185_246_7, /*Est3*/
 ]);
 const PS_ONE: __m128 = m128_from_f32x4([1.0; 4]);
+const PS_HALF: __m128 = m128_from_f32x4([0.5; 4]);
 const PS_TWO_PI: __m128 = m128_from_f32x4([core::f32::consts::TAU; 4]);
 const PS_RECIPROCAL_TWO_PI: __m128 = m128_from_f32x4([0.159_154_94; 4]);
 
@@ -50,11 +51,7 @@ pub(crate) unsafe fn dot3_in_x(lhs: __m128, rhs: __m128) -> __m128 {
 /// Calculates the vector 4 dot product and returns answer in x lane of __m128.
 #[inline(always)]
 pub(crate) unsafe fn dot4_in_x(lhs: __m128, rhs: __m128) -> __m128 {
-    let x2_y2_z2_w2 = _mm_mul_ps(lhs, rhs);
-    let z2_w2_0_0 = _mm_shuffle_ps(x2_y2_z2_w2, x2_y2_z2_w2, 0b00_00_11_10);
-    let x2z2_y2w2_0_0 = _mm_add_ps(x2_y2_z2_w2, z2_w2_0_0);
-    let y2w2_0_0_0 = _mm_shuffle_ps(x2z2_y2w2_0_0, x2z2_y2w2_0_0, 0b00_00_00_01);
-    _mm_add_ps(x2z2_y2w2_0_0, y2w2_0_0_0)
+    dot4_into_m128(lhs, rhs)
 }
 
 #[inline]
@@ -73,10 +70,13 @@ pub(crate) unsafe fn dot4(lhs: __m128, rhs: __m128) -> f32 {
     _mm_cvtss_f32(dot4_in_x(lhs, rhs))
 }
 
+/// Calculates the vector 4 dot product and returns the answer in every lane of __m128.
 #[inline]
 pub(crate) unsafe fn dot4_into_m128(lhs: __m128, rhs: __m128) -> __m128 {
-    let dot_in_x = dot4_in_x(lhs, rhs);
-    _mm_shuffle_ps(dot_in_x, dot_in_x, 0b00_00_00_00)
+    let products = _mm_mul_ps(lhs, rhs);
+    // Sum both pairs in every lane, keeping the (x + z) + (y + w) grouping.
+    let pairs = _mm_add_ps(products, _mm_shuffle_ps(products, products, 0b01_00_11_10));
+    _mm_add_ps(pairs, _mm_shuffle_ps(pairs, pairs, 0b10_11_00_01))
 }
 
 #[inline]
@@ -126,14 +126,15 @@ pub(crate) unsafe fn m128_abs(v: __m128) -> __m128 {
 
 #[inline(always)]
 pub(crate) unsafe fn m128_mul_add(a: __m128, b: __m128, c: __m128) -> __m128 {
-    // Only enable fused multiply-adds here if "fast-math" is enabled and the
-    // platform supports it. Otherwise this may break cross-platform determinism.
-    #[cfg(all(feature = "fast-math", target_feature = "fma"))]
+    // Use a fused multiply-add whenever the target supports it. Fusing has a
+    // single rounding step and so is at least as accurate as a separate multiply
+    // and add, but may produce different results to targets without FMA.
+    #[cfg(target_feature = "fma")]
     {
         _mm_fmadd_ps(a, b, c)
     }
 
-    #[cfg(any(not(feature = "fast-math"), not(target_feature = "fma")))]
+    #[cfg(not(target_feature = "fma"))]
     {
         _mm_add_ps(_mm_mul_ps(a, b), c)
     }
@@ -141,11 +142,22 @@ pub(crate) unsafe fn m128_mul_add(a: __m128, b: __m128, c: __m128) -> __m128 {
 
 #[inline(always)]
 pub(crate) unsafe fn m128_neg_mul_sub(a: __m128, b: __m128, c: __m128) -> __m128 {
-    _mm_sub_ps(c, _mm_mul_ps(a, b))
+    // Computes `c - a * b`, fused when the target supports it.
+    #[cfg(target_feature = "fma")]
+    {
+        _mm_fnmadd_ps(a, b, c)
+    }
+
+    #[cfg(not(target_feature = "fma"))]
+    {
+        _mm_sub_ps(c, _mm_mul_ps(a, b))
+    }
 }
 
+/// Rounds each lane to the nearest integer, rounding half-way cases to the
+/// nearest even integer.
 #[inline]
-pub(crate) unsafe fn m128_round(v: __m128) -> __m128 {
+pub(crate) unsafe fn m128_round_ties_even(v: __m128) -> __m128 {
     // Based on https://github.com/microsoft/DirectXMath `XMVectorRound`
     let sign = _mm_and_ps(v, PS_SIGN_MASK);
     let s_magic = _mm_or_ps(PS_NO_FRACTION, sign);
@@ -156,6 +168,20 @@ pub(crate) unsafe fn m128_round(v: __m128) -> __m128 {
     let r2 = _mm_andnot_ps(mask, v);
     let r1 = _mm_and_ps(r1, mask);
     _mm_xor_ps(r1, r2)
+}
+
+/// Rounds each lane to the nearest integer, rounding half-way cases away from
+/// zero, matching `f32::round`.
+#[inline]
+pub(crate) unsafe fn m128_round(v: __m128) -> __m128 {
+    // The two roundings only differ on half-way cases that `m128_round_ties_even`
+    // rounded towards zero, and those are exactly the lanes where the difference
+    // between the input and the result is `0.5` with the sign of the input, so
+    // move those one further away from zero.
+    let rounded = m128_round_ties_even(v);
+    let sign = _mm_and_ps(v, PS_SIGN_MASK);
+    let ties_down = _mm_cmpeq_ps(_mm_sub_ps(v, rounded), _mm_or_ps(PS_HALF, sign));
+    _mm_add_ps(rounded, _mm_and_ps(ties_down, _mm_or_ps(PS_ONE, sign)))
 }
 
 #[inline]
@@ -182,7 +208,7 @@ pub(crate) unsafe fn m128_trunc(v: __m128) -> __m128 {
 pub(crate) unsafe fn m128_mod_angles(angles: __m128) -> __m128 {
     // Based on https://github.com/microsoft/DirectXMath `XMVectorModAngles`
     let v = _mm_mul_ps(angles, PS_RECIPROCAL_TWO_PI);
-    let v = m128_round(v);
+    let v = m128_round_ties_even(v);
     m128_neg_mul_sub(PS_TWO_PI, v, angles)
 }
 

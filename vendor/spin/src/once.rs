@@ -136,6 +136,17 @@ mod status {
 }
 use self::status::{AtomicStatus, Status};
 
+/// The result after trying to update the atomic status to begin initialization.
+#[derive(Clone, Copy, Debug)]
+enum BeginInit<'a, T> {
+    /// The status was successfully updated
+    Started,
+    /// The status was not updated, the caller should try again
+    Retry,
+    /// The cell was already initialized
+    Done(&'a T),
+}
+
 impl<T, R: RelaxStrategy> Once<T, R> {
     /// Performs an initialization routine once and only once. The given closure
     /// will be executed if this is the first time `call_once` has been called,
@@ -179,7 +190,7 @@ impl<T, R: RelaxStrategy> Once<T, R> {
     }
 
     /// This method is similar to `call_once`, but allows the given closure to
-    /// fail, and lets the `Once` in a uninitialized state if it does.
+    /// fail, and leaves the `Once` in a uninitialized state if it does.
     ///
     /// This method will block the calling thread if another initialization
     /// routine is currently running.
@@ -219,37 +230,117 @@ impl<T, R: RelaxStrategy> Once<T, R> {
         }
     }
 
+    /// Initializes the cell from a reference to the given value. If the cell is already
+    /// initialized, it returns the previous value.
+    ///
+    /// This method may help avoiding expensive stack copies on debug builds if
+    /// `T` is big enough.
+    ///
+    /// ```
+    /// #[derive(Clone, Copy, Debug)]
+    /// struct MyType([u8; 4096]);
+    ///
+    /// static INIT: spin::Once<MyType> = spin::Once::new();
+    ///
+    /// fn init_from_box(boxed: Box<MyType>) {
+    ///     INIT.init_from_ref(&boxed);
+    /// }
+    /// ```
+    pub fn init_from_ref(&self, value: &T) -> &T
+    where
+        T: Copy,
+    {
+        if let Some(value) = self.get() {
+            value
+        } else {
+            self.init_from_ref_slow(value)
+        }
+    }
+
+    /// Attempts begin the initialization process by updating `self.status`.
+    fn try_begin_init(&self) -> BeginInit<'_, T> {
+        match self.status.compare_exchange(
+            Status::Incomplete,
+            Status::Running,
+            Ordering::Acquire,
+            Ordering::Acquire,
+        ) {
+            Ok(_) => BeginInit::Started,
+            Err(Status::Panicked) => panic!("Once panicked"),
+            Err(Status::Running) => match self.poll() {
+                Some(v) => BeginInit::Done(v),
+                None => BeginInit::Retry,
+            },
+            Err(Status::Complete) => {
+                BeginInit::Done(unsafe {
+                    // SAFETY: The status is Complete
+                    self.force_get()
+                })
+            }
+            Err(Status::Incomplete) => {
+                // The compare_exchange failed, so this shouldn't ever be reached,
+                // however if we decide to switch to compare_exchange_weak it will
+                // be safer to leave this here than hit an unreachable
+                BeginInit::Retry
+            }
+        }
+    }
+
+    /// Complete the initialization process.
+    ///
+    /// # Safety
+    ///
+    /// The internal status must have been previously set to `Running` and the
+    /// internal cell properly initialized.
+    #[inline]
+    unsafe fn complete_init(&self) -> &T {
+        // SAFETY: Release is required here, so that all memory accesses done in the
+        // closure when initializing, become visible to other threads that perform Acquire
+        // loads.
+        //
+        // And, we also know that the changes this thread has done will not magically
+        // disappear from our cache, so it does not need to be AcqRel.
+        self.status.store(Status::Complete, Ordering::Release);
+
+        // This next line is mainly an optimization.
+        // SAFETY: the caller must have made sure that the cell was
+        // initialized.
+        unsafe { self.force_get() }
+    }
+
+    fn init_from_ref_slow(&self, value: &T) -> &T
+    where
+        T: Copy,
+    {
+        loop {
+            match self.try_begin_init() {
+                BeginInit::Started => break,
+                BeginInit::Retry => continue,
+                BeginInit::Done(v) => return v,
+            }
+        }
+        // SAFETY: `UnsafeCell`/deref: currently the only accessor, mutably
+        // and immutably by cas exclusion.
+        // `write`: pointer comes from `MaybeUninit`.
+        // We've made sure to set the internal atomic status to `Running`, and
+        // we initialize the cell before calling complete_init().
+        unsafe {
+            (*self.data.get())
+                .as_mut_ptr()
+                .copy_from_nonoverlapping(value, 1);
+            self.complete_init()
+        }
+    }
+
     #[cold]
     fn try_call_once_slow<F: FnOnce() -> Result<T, E>, E>(&self, f: F) -> Result<&T, E> {
         loop {
-            let xchg = self.status.compare_exchange(
-                Status::Incomplete,
-                Status::Running,
-                Ordering::Acquire,
-                Ordering::Acquire,
-            );
-
-            match xchg {
-                Ok(_must_be_state_incomplete) => {
+            match self.try_begin_init() {
+                BeginInit::Started => {
                     // Impl is defined after the match for readability
                 }
-                Err(Status::Panicked) => panic!("Once panicked"),
-                Err(Status::Running) => match self.poll() {
-                    Some(v) => return Ok(v),
-                    None => continue,
-                },
-                Err(Status::Complete) => {
-                    return Ok(unsafe {
-                        // SAFETY: The status is Complete
-                        self.force_get()
-                    });
-                }
-                Err(Status::Incomplete) => {
-                    // The compare_exchange failed, so this shouldn't ever be reached,
-                    // however if we decide to switch to compare_exchange_weak it will
-                    // be safer to leave this here than hit an unreachable
-                    continue;
-                }
+                BeginInit::Retry => continue,
+                BeginInit::Done(v) => return Ok(v),
             }
 
             // The compare-exchange succeeded, so we shall initialize it.
@@ -287,16 +378,9 @@ impl<T, R: RelaxStrategy> Once<T, R> {
             // unwinding is enabled.
             core::mem::forget(finish);
 
-            // SAFETY: Release is required here, so that all memory accesses done in the
-            // closure when initializing, become visible to other threads that perform Acquire
-            // loads.
-            //
-            // And, we also know that the changes this thread has done will not magically
-            // disappear from our cache, so it does not need to be AcqRel.
-            self.status.store(Status::Complete, Ordering::Release);
-
-            // This next line is mainly an optimization.
-            return unsafe { Ok(self.force_get()) };
+            // SAFETY: we have made sure to set the internal state via
+            // `try_begin_init()` and we have initialized the cell above.
+            return unsafe { Ok(self.complete_init()) };
         }
     }
 
@@ -453,7 +537,7 @@ impl<T, R> Once<T, R> {
         debug_assert_eq!(
             self.status.load(Ordering::SeqCst),
             Status::Complete,
-            "Attempted to access an unintialized Once.  If this was to run without debug checks, this would be undefined behavior.  This is a serious bug and you must fix it.",
+            "Attempted to access an uninitialized Once.  If this was to run without debug checks, this would be undefined behavior.  This is a serious bug and you must fix it.",
         );
         self.force_get_mut()
     }
@@ -480,7 +564,7 @@ impl<T, R> Once<T, R> {
         debug_assert_eq!(
             self.status.load(Ordering::SeqCst),
             Status::Complete,
-            "Attempted to access an unintialized Once.  If this was to run without debug checks, this would be undefined behavior.  This is a serious bug and you must fix it.",
+            "Attempted to access an uninitialized Once.  If this was to run without debug checks, this would be undefined behavior.  This is a serious bug and you must fix it.",
         );
         self.force_into_inner()
     }
@@ -506,10 +590,7 @@ impl<T, R> Drop for Once<T, R> {
     fn drop(&mut self) {
         // No need to do any atomic access here, we have &mut!
         if *self.status.get_mut() == Status::Complete {
-            unsafe {
-                //TODO: Use MaybeUninit::assume_init_drop once stabilised
-                core::ptr::drop_in_place((*self.data.get()).as_mut_ptr());
-            }
+            unsafe { self.data.get_mut().assume_init_drop() }
         }
     }
 }
@@ -607,7 +688,7 @@ mod tests {
 
         assert!(INIT.get().is_none());
         INIT.call_once(|| 2);
-        assert_eq!(INIT.get().map(|r| *r), Some(2));
+        assert_eq!(INIT.get().copied(), Some(2));
     }
 
     #[test]
@@ -632,7 +713,7 @@ mod tests {
 
         assert!(INIT.poll().is_none());
         INIT.call_once(|| 3);
-        assert_eq!(INIT.poll().map(|r| *r), Some(3));
+        assert_eq!(INIT.poll().copied(), Some(3));
     }
 
     #[test]
@@ -793,6 +874,16 @@ mod tests {
             }
             assert_eq!(1, share.load(Ordering::SeqCst));
         }
+    }
+
+    #[test]
+    fn init_from_ref_basic() {
+        let once = Once::<usize, Spin>::new();
+
+        let first = 1usize;
+        let second = 2usize;
+        assert_eq!(*once.init_from_ref(&first), 1);
+        assert_eq!(*once.init_from_ref(&second), 1);
     }
 
     #[test]

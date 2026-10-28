@@ -1,10 +1,16 @@
 /// A trait for extending [`prim@f32`] and [`prim@f64`] with extra methods.
 pub trait FloatExt {
-    /// Performs a linear interpolation between `self` and `rhs` based on the value `s`.
+    /// Performs a linear interpolation between `self` and `rhs` based on the value `s`, using the
+    /// form `self * (1.0 - s) + rhs * s`.
     ///
-    /// When `s` is `0`, the result will be `self`.  When `s` is `1`, the result
-    /// will be `rhs`. When `s` is outside of the range `[0, 1]`, the result is linearly
+    /// When `s` is `0.0`, the result will be equal to `self`. When `s` is `1.0`, the result will
+    /// be equal to `rhs`. When `s` is outside of the range `[0, 1]`, the result is linearly
     /// extrapolated.
+    ///
+    /// The result is guaranteed to be `self` at `s == 0.0` and `rhs` at `s == 1.0`, even when the
+    /// values differ greatly in magnitude, but it is not monotonic in `s` for nearly equal inputs
+    /// and may not preserve equal inputs exactly. The float vector types provide a monotonic
+    /// `lerp_monotonic` method for interpolating between values that may be equal or nearly equal.
     #[must_use]
     fn lerp(self, rhs: Self, s: Self) -> Self;
 
@@ -16,6 +22,13 @@ pub trait FloatExt {
     ///
     /// `a` and `b` must not be equal, otherwise the result will be either infinite or `NAN`.
     fn inverse_lerp(a: Self, b: Self, v: Self) -> Self;
+
+    /// Performs Hermite interpolation between `0.0` and `1.0` using `x` normalized to `[edge0, edge1]`.
+    ///
+    /// This is equivalent to `t * t * (3.0 - 2.0 * t)`, where `t` is clamped to `[0.0, 1.0]`.
+    /// Results are undefined if `edge0` is greater than or equal to `edge1`.
+    #[must_use]
+    fn smoothstep(self, edge0: Self, edge1: Self) -> Self;
 
     /// Remap `self` from the input range to the output range.
     ///
@@ -45,4 +58,12 @@ pub trait FloatExt {
     /// Returns `self` clamped within the range `[0.0, 1.0]`
     #[must_use]
     fn saturate(self) -> Self;
+
+    /// Moves `self` towards `rhs` by at most the distance `d`.
+    ///
+    /// When `d` is `0.0`, the result will be equal to `self`. When `d` is greater than or
+    /// equal to the distance between `self` and `rhs`, the result will be equal to `rhs`.
+    /// Will not go past `rhs`.
+    #[must_use]
+    fn move_towards(self, rhs: Self, d: Self) -> Self;
 }

@@ -133,7 +133,15 @@ impl EditorPanel for InspectorPanel {
                     .body(|ui| {
                         if draw_reflect_ui(ui, value.as_mut(), &reflect_ctx) {
                             validate_after_edit(type_path, value.as_mut(), type_registry);
-                            to_apply.push((type_path.clone(), value.to_dynamic()));
+                            // Since Bevy 0.20 a value that holds an opaque type which
+                            // cannot be cloned fails here instead of panicking; the edit
+                            // is dropped, with a warning, rather than half-applied.
+                            match value.to_dynamic() {
+                                Ok(edited) => to_apply.push((type_path.clone(), edited)),
+                                Err(e) => tracing::warn!(
+                                    "inspector: cannot apply the edit to {type_path}: {e}"
+                                ),
+                            }
                         }
                     });
                 }

@@ -13,6 +13,7 @@ use core::{
     cell::UnsafeCell,
     fmt,
     marker::PhantomData,
+    mem::ManuallyDrop,
     ops::{Deref, DerefMut},
 };
 
@@ -80,14 +81,20 @@ pub struct TicketMutex<T: ?Sized, R = Spin> {
 /// A guard that protects some data.
 ///
 /// When the guard is dropped, the next ticket will be processed.
-pub struct TicketMutexGuard<'a, T: ?Sized + 'a> {
-    next_serving: &'a AtomicUsize,
+pub struct TicketMutexGuard<'a, T: ?Sized + 'a, R = Spin> {
+    inner: &'a TicketMutex<T, R>,
     ticket: usize,
-    data: &'a mut T,
 }
 
+// SAFETY: Same unsafe impls as `std::sync::Mutex`
 unsafe impl<T: ?Sized + Send, R> Sync for TicketMutex<T, R> {}
 unsafe impl<T: ?Sized + Send, R> Send for TicketMutex<T, R> {}
+
+// SAFETY: Mutex guards can be thought of as mutable reference to the inner data. In fact, this
+// would be their ideal representation if it were not for the need for the critical section to end
+// *after* the reference is no longer live.
+unsafe impl<T: ?Sized, R> Sync for TicketMutexGuard<'_, T, R> where for<'a> &'a mut T: Sync {}
+unsafe impl<T: ?Sized, R> Send for TicketMutexGuard<'_, T, R> where for<'a> &'a mut T: Send {}
 
 impl<T, R> TicketMutex<T, R> {
     /// Creates a new [`TicketMutex`] wrapping the supplied data.
@@ -127,7 +134,7 @@ impl<T, R> TicketMutex<T, R> {
     pub fn into_inner(self) -> T {
         self.data.into_inner()
     }
-    /// Returns a mutable pointer to the underying data.
+    /// Returns a mutable pointer to the underlying data.
     ///
     /// This is mostly meant to be used for applications which require manual unlocking, but where
     /// storing both the lock and the pointer to the inner data gets inefficient.
@@ -158,7 +165,7 @@ impl<T: ?Sized + fmt::Debug, R> fmt::Debug for TicketMutex<T, R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.try_lock() {
             Some(guard) => write!(f, "Mutex {{ data: ")
-                .and_then(|()| (&*guard).fmt(f))
+                .and_then(|()| (*guard).fmt(f))
                 .and_then(|()| write!(f, " }}")),
             None => write!(f, "Mutex {{ <locked> }}"),
         }
@@ -181,7 +188,7 @@ impl<T: ?Sized, R: RelaxStrategy> TicketMutex<T, R> {
     /// }
     /// ```
     #[inline(always)]
-    pub fn lock(&self) -> TicketMutexGuard<T> {
+    pub fn lock(&self) -> TicketMutexGuard<'_, T, R> {
         let ticket = self.next_ticket.fetch_add(1, Ordering::Relaxed);
 
         while self.next_serving.load(Ordering::Acquire) != ticket {
@@ -189,15 +196,8 @@ impl<T: ?Sized, R: RelaxStrategy> TicketMutex<T, R> {
         }
 
         TicketMutexGuard {
-            next_serving: &self.next_serving,
+            inner: self,
             ticket,
-            // Safety
-            // We know that we are the next ticket to be served,
-            // so there's no other thread accessing the data.
-            //
-            // Every other thread has another ticket number so it's
-            // definitely stuck in the spin loop above.
-            data: unsafe { &mut *self.data.get() },
         }
     }
 }
@@ -242,7 +242,7 @@ impl<T: ?Sized, R> TicketMutex<T, R> {
     /// assert!(maybe_guard2.is_none());
     /// ```
     #[inline(always)]
-    pub fn try_lock(&self) -> Option<TicketMutexGuard<T>> {
+    pub fn try_lock(&self) -> Option<TicketMutexGuard<'_, T, R>> {
         // TODO: Replace with `fetch_update` to avoid manual CAS when upgrading MSRV
         let ticket = {
             let mut prev = self.next_ticket.load(Ordering::SeqCst);
@@ -264,13 +264,8 @@ impl<T: ?Sized, R> TicketMutex<T, R> {
         };
 
         ticket.map(|ticket| TicketMutexGuard {
-            next_serving: &self.next_serving,
+            inner: self,
             ticket,
-            // Safety
-            // We have a ticket that is equal to the next_serving ticket, so we know:
-            // - that no other thread can have the same ticket id as this thread
-            // - that we are the next one to be served so we have exclusive access to the data
-            data: unsafe { &mut *self.data.get() },
         })
     }
 
@@ -289,14 +284,11 @@ impl<T: ?Sized, R> TicketMutex<T, R> {
     /// ```
     #[inline(always)]
     pub fn get_mut(&mut self) -> &mut T {
-        // Safety:
-        // We know that there are no other references to `self`,
-        // so it's safe to return a exclusive reference to the data.
-        unsafe { &mut *self.data.get() }
+        self.data.get_mut()
     }
 }
 
-impl<T: ?Sized + Default, R> Default for TicketMutex<T, R> {
+impl<T: Default, R> Default for TicketMutex<T, R> {
     fn default() -> Self {
         Self::new(Default::default())
     }
@@ -308,7 +300,7 @@ impl<T, R> From<T> for TicketMutex<T, R> {
     }
 }
 
-impl<'a, T: ?Sized> TicketMutexGuard<'a, T> {
+impl<'a, T: ?Sized, R> TicketMutexGuard<'a, T, R> {
     /// Leak the lock guard, yielding a mutable reference to the underlying data.
     ///
     /// Note that this function will permanently lock the original [`TicketMutex`].
@@ -323,41 +315,50 @@ impl<'a, T: ?Sized> TicketMutexGuard<'a, T> {
     /// ```
     #[inline(always)]
     pub fn leak(this: Self) -> &'a mut T {
-        let data = this.data as *mut _; // Keep it in pointer form temporarily to avoid double-aliasing
-        core::mem::forget(this);
-        unsafe { &mut *data }
+        // Use ManuallyDrop to avoid stacked-borrow invalidation
+        let this = ManuallyDrop::new(this);
+        // We know statically that only we are referencing data
+        unsafe { &mut *this.inner.data.get() }
     }
 }
 
-impl<'a, T: ?Sized + fmt::Debug> fmt::Debug for TicketMutexGuard<'a, T> {
+impl<'a, T: ?Sized + fmt::Debug, R> fmt::Debug for TicketMutexGuard<'a, T, R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
     }
 }
 
-impl<'a, T: ?Sized + fmt::Display> fmt::Display for TicketMutexGuard<'a, T> {
+impl<'a, T: ?Sized + fmt::Display, R> fmt::Display for TicketMutexGuard<'a, T, R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(&**self, f)
     }
 }
 
-impl<'a, T: ?Sized> Deref for TicketMutexGuard<'a, T> {
+impl<'a, T: ?Sized, R> Deref for TicketMutexGuard<'a, T, R> {
     type Target = T;
     fn deref(&self) -> &T {
-        self.data
+        // SAFETY:
+        // We have a ticket that is equal to the next_serving ticket, so we know:
+        // - that no other thread can have the same ticket id as this thread
+        // - that we are the next one to be served so we have exclusive access to the data
+        unsafe { &*self.inner.data.get() }
     }
 }
 
-impl<'a, T: ?Sized> DerefMut for TicketMutexGuard<'a, T> {
+impl<'a, T: ?Sized, R> DerefMut for TicketMutexGuard<'a, T, R> {
     fn deref_mut(&mut self) -> &mut T {
-        self.data
+        // SAFETY:
+        // We have a ticket that is equal to the next_serving ticket, so we know:
+        // - that no other thread can have the same ticket id as this thread
+        // - that we are the next one to be served so we have exclusive access to the data
+        unsafe { &mut *self.inner.data.get() }
     }
 }
 
-impl<'a, T: ?Sized> Drop for TicketMutexGuard<'a, T> {
+impl<'a, T: ?Sized, R> Drop for TicketMutexGuard<'a, T, R> {
     fn drop(&mut self) {
         let new_ticket = self.ticket + 1;
-        self.next_serving.store(new_ticket, Ordering::Release);
+        self.inner.next_serving.store(new_ticket, Ordering::Release);
     }
 }
 

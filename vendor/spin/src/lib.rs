@@ -3,12 +3,12 @@
 #![deny(missing_docs)]
 
 //! This crate provides [spin-based](https://en.wikipedia.org/wiki/Spinlock) versions of the
-//! primitives in `std::sync` and `std::lazy`. Because synchronization is done through spinning,
+//! primitives in `std::sync`. Because synchronization is done through spinning,
 //! the primitives are suitable for use in `no_std` environments.
 //!
 //! # Features
 //!
-//! - `Mutex`, `RwLock`, `Once`/`SyncOnceCell`, and `SyncLazy` equivalents
+//! - `Mutex`, `RwLock`, `Once`/`SyncOnceCell`, and `LazyLock` equivalents
 //!
 //! - Support for `no_std` environments
 //!
@@ -64,8 +64,7 @@
 //!   to support platforms without native atomic operations (Cortex-M0, etc.).
 //!   See the documentation for the `portable-atomic` crate for more information
 //!   with some requirements for no-std build:
-//!   https://github.com/taiki-e/portable-atomic#optional-features
-
+//!   <https://github.com/taiki-e/portable-atomic#optional-features>
 
 #[cfg(any(test, feature = "std"))]
 extern crate core;
@@ -81,9 +80,9 @@ use portable_atomic as atomic;
 #[cfg(feature = "barrier")]
 #[cfg_attr(docsrs, doc(cfg(feature = "barrier")))]
 pub mod barrier;
-#[cfg(feature = "lazy")]
-#[cfg_attr(docsrs, doc(cfg(feature = "lazy")))]
-pub mod lazy;
+#[cfg(feature = "lazylock")]
+#[cfg_attr(docsrs, doc(cfg(feature = "lazylock")))]
+pub mod lazylock;
 #[cfg(feature = "mutex")]
 #[cfg_attr(docsrs, doc(cfg(feature = "mutex")))]
 pub mod mutex;
@@ -118,13 +117,20 @@ pub use rwlock::RwLockReadGuard;
 #[cfg_attr(docsrs, doc(cfg(feature = "barrier")))]
 pub type Barrier = crate::barrier::Barrier;
 
-/// A value which is initialized on the first access. See [`lazy::Lazy`] for documentation.
+/// A value which is initialized on the first access. See [`lazylock::LazyLock`] for documentation.
 ///
 /// A note for advanced users: this alias exists to avoid subtle type inference errors due to the default relax
 /// strategy type parameter. If you need a non-default relax strategy, use the fully-qualified path.
-#[cfg(feature = "lazy")]
-#[cfg_attr(docsrs, doc(cfg(feature = "lazy")))]
-pub type Lazy<T, F = fn() -> T> = crate::lazy::Lazy<T, F>;
+#[cfg(feature = "lazylock")]
+#[cfg_attr(docsrs, doc(cfg(feature = "lazylock")))]
+pub type LazyLock<T, F = fn() -> T> = crate::lazylock::LazyLock<T, F>;
+
+/// A type alias to [`LazyLock`] for compatibility reasons.
+///
+#[deprecated(note = "use `spin::LazyLock` instead")]
+#[cfg(feature = "lazylock")]
+#[cfg_attr(docsrs, doc(cfg(feature = "lazylock")))]
+pub type Lazy<T, F = fn() -> T> = crate::lazylock::LazyLock<T, F>;
 
 /// A primitive that synchronizes the execution of multiple threads. See [`mutex::Mutex`] for documentation.
 ///
@@ -181,6 +187,11 @@ pub mod lock_api {
     #[cfg_attr(docsrs, doc(cfg(feature = "mutex")))]
     pub type MutexGuard<'a, T> = lock_api_crate::MutexGuard<'a, crate::Mutex<()>, T>;
 
+    /// A guard that provides mutable data access via a mapping (compatible with [`lock_api`](https://crates.io/crates/lock_api)).
+    #[cfg(feature = "mutex")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "mutex")))]
+    pub type MappedMutexGuard<'a, T> = lock_api_crate::MappedMutexGuard<'a, crate::Mutex<()>, T>;
+
     /// A lock that provides data access to either one writer or many readers (compatible with [`lock_api`](https://crates.io/crates/lock_api)).
     #[cfg(feature = "rwlock")]
     #[cfg_attr(docsrs, doc(cfg(feature = "rwlock")))]
@@ -201,6 +212,18 @@ pub mod lock_api {
     #[cfg_attr(docsrs, doc(cfg(feature = "rwlock")))]
     pub type RwLockUpgradableReadGuard<'a, T> =
         lock_api_crate::RwLockUpgradableReadGuard<'a, crate::RwLock<()>, T>;
+
+    /// A guard returned by [RwLockReadGuard::map] that provides immutable data access (compatible with [`lock_api`](https://crates.io/crates/lock_api)).
+    #[cfg(feature = "rwlock")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "rwlock")))]
+    pub type MappedRwLockReadGuard<'a, T> =
+        lock_api_crate::MappedRwLockReadGuard<'a, crate::RwLock<()>, T>;
+
+    /// A guard returned by [RwLockWriteGuard::map] that provides mutable data access (compatible with [`lock_api`](https://crates.io/crates/lock_api)).
+    #[cfg(feature = "rwlock")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "rwlock")))]
+    pub type MappedRwLockWriteGuard<'a, T> =
+        lock_api_crate::MappedRwLockWriteGuard<'a, crate::RwLock<()>, T>;
 }
 
 /// In the event of an invalid operation, it's best to abort the current process.

@@ -13,8 +13,8 @@ use core::fmt;
 use core::iter::{Product, Sum};
 use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
-#[cfg(feature = "zerocopy")]
-use zerocopy_derive::*;
+#[cfg(feature = "zerocopy-08")]
+use zerocopy_derive_08::*;
 
 /// Creates a 4x4 matrix from four column vectors.
 #[inline(always)]
@@ -25,8 +25,7 @@ pub const fn mat4(x_axis: Vec4, y_axis: Vec4, z_axis: Vec4, w_axis: Vec4) -> Mat
 
 /// A 4x4 column major matrix.
 ///
-/// This 4x4 matrix type features convenience methods for creating and using affine transforms and
-/// perspective projections. If you are primarily dealing with 3D affine transformations
+/// If you are primarily dealing with 3D affine transformations
 /// considering using [`Affine3A`](crate::Affine3A) which is faster than a 4x4 matrix
 /// for some affine operations.
 ///
@@ -34,28 +33,15 @@ pub const fn mat4(x_axis: Vec4, y_axis: Vec4, z_axis: Vec4, w_axis: Vec4) -> Mat
 /// using methods such as [`Self::from_translation()`], [`Self::from_quat()`],
 /// [`Self::from_scale()`] and [`Self::from_scale_rotation_translation()`].
 ///
-/// Orthographic projections can be created using the methods [`Self::orthographic_lh()`] for
-/// left-handed coordinate systems and [`Self::orthographic_rh()`] for right-handed
-/// systems. The resulting matrix is also an affine transformation.
-///
 /// The [`Self::transform_point3()`] and [`Self::transform_vector3()`] convenience methods
 /// are provided for performing affine transformations on 3D vectors and points. These
 /// multiply 3D inputs as 4D vectors with an implicit `w` value of `1` for points and `0`
 /// for vectors respectively. These methods assume that `Self` contains a valid affine
 /// transform.
-///
-/// Perspective projections can be created using methods such as
-/// [`Self::perspective_lh()`], [`Self::perspective_infinite_lh()`] and
-/// [`Self::perspective_infinite_reverse_lh()`] for left-handed co-ordinate systems and
-/// [`Self::perspective_rh()`], [`Self::perspective_infinite_rh()`] and
-/// [`Self::perspective_infinite_reverse_rh()`] for right-handed co-ordinate systems.
-///
-/// The resulting perspective project can be use to transform 3D vectors as points with
-/// perspective correction using the [`Self::project_point3()`] convenience method.
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Pod, bytemuck::Zeroable))]
 #[cfg_attr(
-    feature = "zerocopy",
+    feature = "zerocopy-08",
     derive(FromBytes, Immutable, IntoBytes, KnownLayout)
 )]
 #[cfg_attr(any(not(feature = "scalar-math"), feature = "cuda"), repr(align(16)))]
@@ -107,6 +93,8 @@ impl Mat4 {
     }
 
     /// Creates a 4x4 matrix from four column vectors.
+    ///
+    /// See also [`Self::from_rows`] when the data is in row major order.
     #[inline(always)]
     #[must_use]
     pub const fn from_cols(x_axis: Vec4, y_axis: Vec4, z_axis: Vec4, w_axis: Vec4) -> Self {
@@ -118,9 +106,26 @@ impl Mat4 {
         }
     }
 
+    /// Creates a 4x4 matrix from four row vectors.
+    ///
+    /// Matrices are stored in column major order, so the given rows are permuted into
+    /// the matrix layout. Use [`Self::from_cols`] instead when the data is already in
+    /// column major order.
+    #[inline(always)]
+    #[must_use]
+    pub const fn from_rows(row0: Vec4, row1: Vec4, row2: Vec4, row3: Vec4) -> Self {
+        let [m00, m01, m02, m03] = row0.to_array();
+        let [m10, m11, m12, m13] = row1.to_array();
+        let [m20, m21, m22, m23] = row2.to_array();
+        let [m30, m31, m32, m33] = row3.to_array();
+        Self::new(
+            m00, m10, m20, m30, m01, m11, m21, m31, m02, m12, m22, m32, m03, m13, m23, m33,
+        )
+    }
+
     /// Creates a 4x4 matrix from a `[f32; 16]` array stored in column major order.
-    /// If your data is stored in row major you will need to `transpose` the returned
-    /// matrix.
+    ///
+    /// If the data is in row major order use [`Self::from_rows_array`] instead.
     #[inline]
     #[must_use]
     pub const fn from_cols_array(m: &[f32; 16]) -> Self {
@@ -131,7 +136,8 @@ impl Mat4 {
     }
 
     /// Creates a `[f32; 16]` array storing data in column major order.
-    /// If you require data in row major order `transpose` the matrix first.
+    ///
+    /// If you require the data in row major order use [`Self::to_rows_array`] instead.
     #[inline]
     #[must_use]
     pub const fn to_cols_array(&self) -> [f32; 16] {
@@ -156,8 +162,8 @@ impl Mat4 {
     }
 
     /// Creates a 4x4 matrix from a `[[f32; 4]; 4]` 4D array stored in column major order.
-    /// If your data is in row major order you will need to `transpose` the returned
-    /// matrix.
+    ///
+    /// If the data is in row major order `transpose` the returned matrix.
     #[inline]
     #[must_use]
     pub const fn from_cols_array_2d(m: &[[f32; 4]; 4]) -> Self {
@@ -170,7 +176,8 @@ impl Mat4 {
     }
 
     /// Creates a `[[f32; 4]; 4]` 4D array storing data in column major order.
-    /// If you require data in row major order `transpose` the matrix first.
+    ///
+    /// If you require row major order `transpose` the matrix first.
     #[inline]
     #[must_use]
     pub const fn to_cols_array_2d(&self) -> [[f32; 4]; 4] {
@@ -179,6 +186,35 @@ impl Mat4 {
             self.y_axis.to_array(),
             self.z_axis.to_array(),
             self.w_axis.to_array(),
+        ]
+    }
+
+    /// Creates a 4x4 matrix from a `[f32; 16]` array stored in row major order.
+    ///
+    /// Matrices are stored in column major order, so the array is permuted into the
+    /// matrix layout. Use [`Self::from_cols_array`] instead when the data is already in
+    /// column major order.
+    #[inline]
+    #[must_use]
+    pub const fn from_rows_array(m: &[f32; 16]) -> Self {
+        Self::new(
+            m[0], m[4], m[8], m[12], m[1], m[5], m[9], m[13], m[2], m[6], m[10], m[14], m[3], m[7],
+            m[11], m[15],
+        )
+    }
+
+    /// Creates a `[f32; 16]` array storing data in row major order.
+    ///
+    /// Matrices are stored in column major order, so the array is permuted out of the
+    /// column major storage. Use [`Self::to_cols_array`] instead when you want data in
+    /// column major order.
+    #[inline]
+    #[must_use]
+    pub const fn to_rows_array(&self) -> [f32; 16] {
+        let m = self.to_cols_array();
+        [
+            m[0], m[4], m[8], m[12], m[1], m[5], m[9], m[13], m[2], m[6], m[10], m[14], m[3], m[7],
+            m[11], m[15],
         ]
     }
 
@@ -195,6 +231,7 @@ impl Mat4 {
 
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     fn quat_to_axes(rotation: Quat) -> (Vec4, Vec4, Vec4) {
         glam_assert!(rotation.is_normalized());
 
@@ -229,6 +266,7 @@ impl Mat4 {
     /// Will panic if `rotation` is not normalized when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn from_scale_rotation_translation(scale: Vec3, rotation: Quat, translation: Vec3) -> Self {
         let (x_axis, y_axis, z_axis) = Self::quat_to_axes(rotation);
         Self::from_cols(
@@ -249,6 +287,7 @@ impl Mat4 {
     /// Will panic if `rotation` is not normalized when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn from_rotation_translation(rotation: Quat, translation: Vec3) -> Self {
         let (x_axis, y_axis, z_axis) = Self::quat_to_axes(rotation);
         Self::from_cols(x_axis, y_axis, z_axis, Vec4::from((translation, 1.0)))
@@ -258,19 +297,25 @@ impl Mat4 {
     /// expected to be a 3D affine transformation matrix otherwise the output will be invalid.
     ///
     /// # Panics
-    ///
-    /// Will panic if the determinant of `self` is zero or if the resulting scale vector
-    /// contains any zero elements when `glam_assert` is enabled.
+    /// Will panic if `self` is not a valid affine transformation matrix, if the determinant of the
+    /// 3x3 linear part (the rotation and scale part of the transform) is zero, when `glam_assert`
+    /// is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn to_scale_rotation_translation(&self) -> (Vec3, Quat, Vec3) {
-        let det = self.determinant();
+        glam_assert!(self.row(3).abs_diff_eq(Vec4::W, 1e-6));
+
+        let r = Mat3::from_mat4(*self);
+
+        let det = r.determinant();
+
         glam_assert!(det != 0.0);
 
         let scale = Vec3::new(
-            self.x_axis.length() * math::signum(det),
-            self.y_axis.length(),
-            self.z_axis.length(),
+            r.x_axis.length() * math::signum(det),
+            r.y_axis.length(),
+            r.z_axis.length(),
         );
 
         glam_assert!(scale.cmpne(Vec3::ZERO).all());
@@ -278,9 +323,9 @@ impl Mat4 {
         let inv_scale = scale.recip();
 
         let rotation = Quat::from_rotation_axes(
-            self.x_axis.mul(inv_scale.x).xyz(),
-            self.y_axis.mul(inv_scale.y).xyz(),
-            self.z_axis.mul(inv_scale.z).xyz(),
+            r.x_axis.mul(inv_scale.x),
+            r.y_axis.mul(inv_scale.y),
+            r.z_axis.mul(inv_scale.z),
         );
 
         let translation = self.w_axis.xyz();
@@ -298,6 +343,7 @@ impl Mat4 {
     /// Will panic if `rotation` is not normalized when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn from_quat(rotation: Quat) -> Self {
         let (x_axis, y_axis, z_axis) = Self::quat_to_axes(rotation);
         Self::from_cols(x_axis, y_axis, z_axis, Vec4::W)
@@ -376,6 +422,7 @@ impl Mat4 {
     /// Will panic if `axis` is not normalized when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn from_axis_angle(axis: Vec3, angle: f32) -> Self {
         glam_assert!(axis.is_normalized());
 
@@ -431,13 +478,14 @@ impl Mat4 {
     /// `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn to_euler(&self, order: EulerRot) -> (f32, f32, f32) {
         glam_assert!(
             self.x_axis.xyz().is_normalized()
                 && self.y_axis.xyz().is_normalized()
                 && self.z_axis.xyz().is_normalized()
         );
-        self.to_euler_angles(order)
+        Mat3::from_mat4(*self).to_euler_angles(order)
     }
 
     /// Creates an affine transformation matrix containing a 3D rotation around the x axis of
@@ -501,6 +549,7 @@ impl Mat4 {
     /// Will panic if all elements of `scale` are zero when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn from_scale(scale: Vec3) -> Self {
         // Do not panic as long as any component is non-zero
         glam_assert!(scale.cmpne(Vec3::ZERO).any());
@@ -515,11 +564,14 @@ impl Mat4 {
 
     /// Creates a 4x4 matrix from the first 16 values in `slice`.
     ///
+    /// See also [`Self::from_rows_slice`] when the slice is in row major order.
+    ///
     /// # Panics
     ///
     /// Panics if `slice` is less than 16 elements long.
     #[inline]
     #[must_use]
+    #[track_caller]
     pub const fn from_cols_slice(slice: &[f32]) -> Self {
         Self::new(
             slice[0], slice[1], slice[2], slice[3], slice[4], slice[5], slice[6], slice[7],
@@ -533,6 +585,7 @@ impl Mat4 {
     ///
     /// Panics if `slice` is less than 16 elements long.
     #[inline]
+    #[track_caller]
     pub fn write_cols_to_slice(&self, slice: &mut [f32]) {
         slice[0] = self.x_axis.x;
         slice[1] = self.x_axis.y;
@@ -552,6 +605,26 @@ impl Mat4 {
         slice[15] = self.w_axis.w;
     }
 
+    /// Creates a 4x4 matrix from the first 16 values in `slice`, stored in row
+    /// major order.
+    ///
+    /// Matrices are stored in column major order, so the slice is permuted into the
+    /// matrix layout. Use [`Self::from_cols_slice`] instead when the slice is already in
+    /// column major order.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `slice` is less than 16 elements long.
+    #[inline]
+    #[must_use]
+    #[track_caller]
+    pub const fn from_rows_slice(slice: &[f32]) -> Self {
+        Self::new(
+            slice[0], slice[4], slice[8], slice[12], slice[1], slice[5], slice[9], slice[13],
+            slice[2], slice[6], slice[10], slice[14], slice[3], slice[7], slice[11], slice[15],
+        )
+    }
+
     /// Returns the matrix column for the given `index`.
     ///
     /// # Panics
@@ -559,6 +632,7 @@ impl Mat4 {
     /// Panics if `index` is greater than 3.
     #[inline]
     #[must_use]
+    #[track_caller]
     pub fn col(&self, index: usize) -> Vec4 {
         match index {
             0 => self.x_axis,
@@ -575,6 +649,7 @@ impl Mat4 {
     ///
     /// Panics if `index` is greater than 3.
     #[inline]
+    #[track_caller]
     pub fn col_mut(&mut self, index: usize) -> &mut Vec4 {
         match index {
             0 => &mut self.x_axis,
@@ -587,17 +662,61 @@ impl Mat4 {
 
     /// Returns the matrix row for the given `index`.
     ///
+    /// See also [`Self::set_row`] when you need to change the row.
+    ///
     /// # Panics
     ///
     /// Panics if `index` is greater than 3.
     #[inline]
     #[must_use]
+    #[track_caller]
     pub fn row(&self, index: usize) -> Vec4 {
         match index {
             0 => Vec4::new(self.x_axis.x, self.y_axis.x, self.z_axis.x, self.w_axis.x),
             1 => Vec4::new(self.x_axis.y, self.y_axis.y, self.z_axis.y, self.w_axis.y),
             2 => Vec4::new(self.x_axis.z, self.y_axis.z, self.z_axis.z, self.w_axis.z),
             3 => Vec4::new(self.x_axis.w, self.y_axis.w, self.z_axis.w, self.w_axis.w),
+            _ => panic!("index out of bounds"),
+        }
+    }
+
+    /// Sets the matrix row for the given `index`.
+    ///
+    /// Matrices are stored in column major order, so the row is spread across all
+    /// 4 columns and writing it touches every column. Use [`Self::col_mut`]
+    /// instead when you can work with columns. See also [`Self::row`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index` is greater than 3.
+    #[inline]
+    #[track_caller]
+    pub fn set_row(&mut self, index: usize, row: Vec4) {
+        match index {
+            0 => {
+                self.x_axis.x = row.x;
+                self.y_axis.x = row.y;
+                self.z_axis.x = row.z;
+                self.w_axis.x = row.w;
+            }
+            1 => {
+                self.x_axis.y = row.x;
+                self.y_axis.y = row.y;
+                self.z_axis.y = row.z;
+                self.w_axis.y = row.w;
+            }
+            2 => {
+                self.x_axis.z = row.x;
+                self.y_axis.z = row.y;
+                self.z_axis.z = row.z;
+                self.w_axis.z = row.w;
+            }
+            3 => {
+                self.x_axis.w = row.x;
+                self.y_axis.w = row.y;
+                self.z_axis.w = row.z;
+                self.w_axis.w = row.w;
+            }
             _ => panic!("index out of bounds"),
         }
     }
@@ -665,14 +784,15 @@ impl Mat4 {
     /// inverted matrix and true is returned.
     ///
     /// If `CHECKED` is false then the determinant is not checked and if it is zero the resulting
-    /// inverted matrix will be invalid. Will panic if the determinant of `self` is zero when
-    /// `glam_assert` is enabled.
+    /// inverted matrix will be invalid. Will panic if the resulting inverted matrix is not finite
+    /// when `glam_assert` is enabled.
     ///
     /// A tuple containing the inverted matrix and a bool is used instead of an option here as
     /// regular Rust enums put the discriminant first which can result in a lot of padding if the
     /// matrix is aligned.
     #[inline(always)]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     fn inverse_checked<const CHECKED: bool>(&self) -> (Self, bool) {
         let (m00, m01, m02, m03) = self.x_axis.into();
         let (m10, m11, m12, m13) = self.y_axis.into();
@@ -739,32 +859,38 @@ impl Mat4 {
 
         let dot0 = self.x_axis.mul(col0);
         let dot1 = dot0.x + dot0.y + dot0.z + dot0.w;
+        let m = inverse.mul(1.0 / dot1);
 
         if CHECKED {
-            if dot1 == 0.0 {
+            if !m.is_finite() {
                 return (Self::ZERO, false);
             }
         } else {
-            glam_assert!(dot1 != 0.0);
+            glam_assert!(m.is_finite());
         }
 
-        let rcp_det = dot1.recip();
-        (inverse.mul(rcp_det), true)
+        (m, true)
     }
 
     /// Returns the inverse of `self`.
     ///
-    /// If the matrix is not invertible the returned matrix will be invalid.
+    /// If the matrix is not invertible the returned matrix will be invalid. The
+    /// returned matrix will also be invalid if the inverse is not finite, which can
+    /// happen when `self` contains very large or very small values. Use
+    /// [`Self::try_inverse`] or [`Self::inverse_or_zero`] to detect these cases.
     ///
     /// # Panics
     ///
-    /// Will panic if the determinant of `self` is zero when `glam_assert` is enabled.
+    /// Will panic if the resulting inverted matrix is not finite when `glam_assert`
+    /// is enabled.
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn inverse(&self) -> Self {
         self.inverse_checked::<false>().0
     }
 
-    /// Returns the inverse of `self` or `None` if the matrix is not invertible.
+    /// Returns the inverse of `self` or `None` if the matrix is not invertible, or if
+    /// the inverse is not finite.
     #[must_use]
     pub fn try_inverse(&self) -> Option<Self> {
         let (m, is_valid) = self.inverse_checked::<true>();
@@ -775,7 +901,8 @@ impl Mat4 {
         }
     }
 
-    /// Returns the inverse of `self` or `Mat4::ZERO` if the matrix is not invertible.
+    /// Returns the inverse of `self` or `Mat4::ZERO` if the matrix is not
+    /// invertible, or if the inverse is not finite.
     #[must_use]
     pub fn inverse_or_zero(&self) -> Self {
         self.inverse_checked::<true>().0
@@ -788,10 +915,17 @@ impl Mat4 {
     ///
     /// # Panics
     ///
-    /// Will panic if `dir` or `up` are not normalized when `glam_assert` is enabled.
+    /// Will panic if `dir` or `up` are not normalized, or if `dir` and `up` are parallel,
+    /// when `glam_assert` is enabled.
+    #[deprecated(
+        since = "0.33.1",
+        note = "use the `glam::camera::lh::view::look_to_mat4` function instead"
+    )]
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn look_to_lh(eye: Vec3, dir: Vec3, up: Vec3) -> Self {
+        #[allow(deprecated)]
         Self::look_to_rh(eye, -dir, up)
     }
 
@@ -802,9 +936,15 @@ impl Mat4 {
     ///
     /// # Panics
     ///
-    /// Will panic if `dir` or `up` are not normalized when `glam_assert` is enabled.
+    /// Will panic if `dir` or `up` are not normalized, or if `dir` and `up` are parallel,
+    /// when `glam_assert` is enabled.
+    #[deprecated(
+        since = "0.33.1",
+        note = "use the `glam::camera::rh::view::look_to_mat4` function instead"
+    )]
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn look_to_rh(eye: Vec3, dir: Vec3, up: Vec3) -> Self {
         glam_assert!(dir.is_normalized());
         glam_assert!(up.is_normalized());
@@ -827,10 +967,17 @@ impl Mat4 {
     ///
     /// # Panics
     ///
-    /// Will panic if `up` is not normalized when `glam_assert` is enabled.
+    /// Will panic if `up` is not normalized, if `center` is equal to `eye`, or if the view
+    /// direction is parallel to `up`, when `glam_assert` is enabled.
+    #[deprecated(
+        since = "0.33.1",
+        note = "use the `glam::camera::lh::view::look_at_mat4` function instead"
+    )]
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn look_at_lh(eye: Vec3, center: Vec3, up: Vec3) -> Self {
+        #[allow(deprecated)]
         Self::look_to_lh(eye, center.sub(eye).normalize(), up)
     }
 
@@ -841,9 +988,16 @@ impl Mat4 {
     ///
     /// # Panics
     ///
-    /// Will panic if `up` is not normalized when `glam_assert` is enabled.
+    /// Will panic if `up` is not normalized, if `center` is equal to `eye`, or if the view
+    /// direction is parallel to `up`, when `glam_assert` is enabled.
+    #[deprecated(
+        since = "0.33.1",
+        note = "use the `glam::camera::rh::view::look_at_mat4` function instead"
+    )]
     #[inline]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn look_at_rh(eye: Vec3, center: Vec3, up: Vec3) -> Self {
+        #[allow(deprecated)]
         Self::look_to_rh(eye, center.sub(eye).normalize(), up)
     }
 
@@ -852,6 +1006,10 @@ impl Mat4 {
     /// This is the same as the OpenGL `glFrustum` function.
     ///
     /// See <https://registry.khronos.org/OpenGL-Refpages/gl2.1/xhtml/glFrustum.xml>
+    #[deprecated(
+        since = "0.33.1",
+        note = "use the `glam::camera::rh::proj::opengl::frustum` function instead"
+    )]
     #[inline]
     #[must_use]
     pub fn frustum_rh_gl(
@@ -882,10 +1040,15 @@ impl Mat4 {
     ///
     /// # Panics
     ///
-    /// Will panic if `z_near` or `z_far` are less than or equal to zero when `glam_assert` is
-    /// enabled.
+    /// Will panic if `left` equals `right`, `bottom` equals `top`, `z_near` equals `z_far`,
+    /// or `z_near` or `z_far` are not positive when `glam_assert` is enabled.
+    #[deprecated(
+        since = "0.33.1",
+        note = "use the `glam::camera::lh::proj::directx::frustum` function instead"
+    )]
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn frustum_lh(
         left: f32,
         right: f32,
@@ -894,7 +1057,8 @@ impl Mat4 {
         z_near: f32,
         z_far: f32,
     ) -> Self {
-        glam_assert!(z_near > 0.0 && z_far > 0.0);
+        glam_assert!(left != right && bottom != top);
+        glam_assert!(z_near > 0.0 && z_far > 0.0 && z_near != z_far);
         let inv_width = 1.0 / (right - left);
         let inv_height = 1.0 / (top - bottom);
         let inv_depth = 1.0 / (z_far - z_near);
@@ -915,10 +1079,15 @@ impl Mat4 {
     ///
     /// # Panics
     ///
-    /// Will panic if `z_near` or `z_far` are less than or equal to zero when `glam_assert` is
-    /// enabled.
+    /// Will panic if `left` equals `right`, `bottom` equals `top`, `z_near` equals `z_far`,
+    /// or `z_near` or `z_far` are not positive when `glam_assert` is enabled.
+    #[deprecated(
+        since = "0.33.1",
+        note = "use the `glam::camera::rh::proj::directx::frustum` function instead"
+    )]
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn frustum_rh(
         left: f32,
         right: f32,
@@ -927,7 +1096,8 @@ impl Mat4 {
         z_near: f32,
         z_far: f32,
     ) -> Self {
-        glam_assert!(z_near > 0.0 && z_far > 0.0);
+        glam_assert!(left != right && bottom != top);
+        glam_assert!(z_near > 0.0 && z_far > 0.0 && z_near != z_far);
         let inv_width = 1.0 / (right - left);
         let inv_height = 1.0 / (top - bottom);
         let inv_depth = 1.0 / (z_far - z_near);
@@ -950,6 +1120,10 @@ impl Mat4 {
     ///
     /// This is the same as the OpenGL `gluPerspective` function.
     /// See <https://www.khronos.org/registry/OpenGL-Refpages/gl2.1/xhtml/gluPerspective.xml>
+    #[deprecated(
+        since = "0.33.1",
+        note = "use the `glam::camera::rh::proj::opengl::perspective` function instead"
+    )]
     #[inline]
     #[must_use]
     pub fn perspective_rh_gl(
@@ -977,12 +1151,20 @@ impl Mat4 {
     ///
     /// # Panics
     ///
-    /// Will panic if `z_near` or `z_far` are less than or equal to zero when `glam_assert` is
-    /// enabled.
+    /// Will panic if `fov_y_radians` is not in the range `(0, π)`, if `aspect_ratio` is
+    /// zero, or if `z_near` or `z_far` are less than or equal to zero, or if `z_near` is
+    /// equal to `z_far`, when `glam_assert` is enabled.
+    #[deprecated(
+        since = "0.33.1",
+        note = "use the `glam::camera::lh::proj::directx::perspective` function instead"
+    )]
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn perspective_lh(fov_y_radians: f32, aspect_ratio: f32, z_near: f32, z_far: f32) -> Self {
-        glam_assert!(z_near > 0.0 && z_far > 0.0);
+        glam_assert!(fov_y_radians > 0.0 && fov_y_radians < core::f32::consts::PI);
+        glam_assert!(aspect_ratio != 0.0);
+        glam_assert!(z_near > 0.0 && z_far > 0.0 && z_near != z_far);
         let (sin_fov, cos_fov) = math::sin_cos(0.5 * fov_y_radians);
         let h = cos_fov / sin_fov;
         let w = h / aspect_ratio;
@@ -1001,12 +1183,20 @@ impl Mat4 {
     ///
     /// # Panics
     ///
-    /// Will panic if `z_near` or `z_far` are less than or equal to zero when `glam_assert` is
-    /// enabled.
+    /// Will panic if `fov_y_radians` is not in the range `(0, π)`, if `aspect_ratio` is
+    /// zero, or if `z_near` or `z_far` are less than or equal to zero, or if `z_near` is
+    /// equal to `z_far`, when `glam_assert` is enabled.
+    #[deprecated(
+        since = "0.33.1",
+        note = "use the `glam::camera::rh::proj::directx::perspective` function instead"
+    )]
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn perspective_rh(fov_y_radians: f32, aspect_ratio: f32, z_near: f32, z_far: f32) -> Self {
-        glam_assert!(z_near > 0.0 && z_far > 0.0);
+        glam_assert!(fov_y_radians > 0.0 && fov_y_radians < core::f32::consts::PI);
+        glam_assert!(aspect_ratio != 0.0);
+        glam_assert!(z_near > 0.0 && z_far > 0.0 && z_near != z_far);
         let (sin_fov, cos_fov) = math::sin_cos(0.5 * fov_y_radians);
         let h = cos_fov / sin_fov;
         let w = h / aspect_ratio;
@@ -1026,11 +1216,18 @@ impl Mat4 {
     ///
     /// # Panics
     ///
-    /// Will panic if `z_near` or `z_far` are less than or equal to zero when `glam_assert` is
-    /// enabled.
+    /// Will panic if `fov_y_radians` is not in the range `(0, π)`, if `aspect_ratio` is
+    /// zero, or if `z_near` is less than or equal to zero when `glam_assert` is enabled.
+    #[deprecated(
+        since = "0.33.1",
+        note = "use the `glam::camera::lh::proj::directx::perspective_infinite` function instead"
+    )]
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn perspective_infinite_lh(fov_y_radians: f32, aspect_ratio: f32, z_near: f32) -> Self {
+        glam_assert!(fov_y_radians > 0.0 && fov_y_radians < core::f32::consts::PI);
+        glam_assert!(aspect_ratio != 0.0);
         glam_assert!(z_near > 0.0);
         let (sin_fov, cos_fov) = math::sin_cos(0.5 * fov_y_radians);
         let h = cos_fov / sin_fov;
@@ -1049,14 +1246,22 @@ impl Mat4 {
     ///
     /// # Panics
     ///
-    /// Will panic if `z_near` is less than or equal to zero when `glam_assert` is enabled.
+    /// Will panic if `fov_y_radians` is not in the range `(0, π)`, if `aspect_ratio` is
+    /// zero, or if `z_near` is less than or equal to zero when `glam_assert` is enabled.
+    #[deprecated(
+        since = "0.33.1",
+        note = "use the `glam::camera::lh::proj::directx::perspective_infinite_reverse` function instead"
+    )]
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn perspective_infinite_reverse_lh(
         fov_y_radians: f32,
         aspect_ratio: f32,
         z_near: f32,
     ) -> Self {
+        glam_assert!(fov_y_radians > 0.0 && fov_y_radians < core::f32::consts::PI);
+        glam_assert!(aspect_ratio != 0.0);
         glam_assert!(z_near > 0.0);
         let (sin_fov, cos_fov) = math::sin_cos(0.5 * fov_y_radians);
         let h = cos_fov / sin_fov;
@@ -1076,11 +1281,18 @@ impl Mat4 {
     ///
     /// # Panics
     ///
-    /// Will panic if `z_near` or `z_far` are less than or equal to zero when `glam_assert` is
-    /// enabled.
+    /// Will panic if `fov_y_radians` is not in the range `(0, π)`, if `aspect_ratio` is
+    /// zero, or if `z_near` is less than or equal to zero when `glam_assert` is enabled.
+    #[deprecated(
+        since = "0.33.1",
+        note = "use the `glam::camera::rh::proj::directx::perspective_infinite` function instead"
+    )]
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn perspective_infinite_rh(fov_y_radians: f32, aspect_ratio: f32, z_near: f32) -> Self {
+        glam_assert!(fov_y_radians > 0.0 && fov_y_radians < core::f32::consts::PI);
+        glam_assert!(aspect_ratio != 0.0);
         glam_assert!(z_near > 0.0);
         let f = 1.0 / math::tan(0.5 * fov_y_radians);
         Self::from_cols(
@@ -1097,14 +1309,22 @@ impl Mat4 {
     ///
     /// # Panics
     ///
-    /// Will panic if `z_near` is less than or equal to zero when `glam_assert` is enabled.
+    /// Will panic if `fov_y_radians` is not in the range `(0, π)`, if `aspect_ratio` is
+    /// zero, or if `z_near` is less than or equal to zero when `glam_assert` is enabled.
+    #[deprecated(
+        since = "0.33.1",
+        note = "use the `glam::camera::rh::proj::directx::perspective_infinite_reverse` function instead"
+    )]
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn perspective_infinite_reverse_rh(
         fov_y_radians: f32,
         aspect_ratio: f32,
         z_near: f32,
     ) -> Self {
+        glam_assert!(fov_y_radians > 0.0 && fov_y_radians < core::f32::consts::PI);
+        glam_assert!(aspect_ratio != 0.0);
         glam_assert!(z_near > 0.0);
         let f = 1.0 / math::tan(0.5 * fov_y_radians);
         Self::from_cols(
@@ -1121,6 +1341,10 @@ impl Mat4 {
     /// <https://www.khronos.org/registry/OpenGL-Refpages/gl2.1/xhtml/glOrtho.xml>
     ///
     /// Useful to map a right-handed coordinate system to the normalized device coordinates that OpenGL expects.
+    #[deprecated(
+        since = "0.33.1",
+        note = "use the `glam::camera::rh::proj::opengl::orthographic` function instead"
+    )]
     #[inline]
     #[must_use]
     pub fn orthographic_rh_gl(
@@ -1133,7 +1357,7 @@ impl Mat4 {
     ) -> Self {
         let a = 2.0 / (right - left);
         let b = 2.0 / (top - bottom);
-        let c = -2.0 / (far - near);
+        let c = 2.0 / (near - far);
         let tx = -(right + left) / (right - left);
         let ty = -(top + bottom) / (top - bottom);
         let tz = -(far + near) / (far - near);
@@ -1149,6 +1373,10 @@ impl Mat4 {
     /// Creates a left-handed orthographic projection matrix with `[0,1]` depth range.
     ///
     /// Useful to map a left-handed coordinate system to the normalized device coordinates that WebGPU/Direct3D/Metal expect.
+    #[deprecated(
+        since = "0.33.1",
+        note = "use the `glam::camera::lh::proj::directx::orthographic` function instead"
+    )]
     #[inline]
     #[must_use]
     pub fn orthographic_lh(
@@ -1178,6 +1406,10 @@ impl Mat4 {
     /// Creates a right-handed orthographic projection matrix with `[0,1]` depth range.
     ///
     /// Useful to map a right-handed coordinate system to the normalized device coordinates that WebGPU/Direct3D/Metal expect.
+    #[deprecated(
+        since = "0.33.1",
+        note = "use the `glam::camera::rh::proj::directx::orthographic` function instead"
+    )]
     #[inline]
     #[must_use]
     pub fn orthographic_rh(
@@ -1235,6 +1467,7 @@ impl Mat4 {
     /// Will panic if the 3rd row of `self` is not `(0, 0, 0, 1)` when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn transform_point3(&self, rhs: Vec3) -> Vec3 {
         glam_assert!(self.row(3).abs_diff_eq(Vec4::W, 1e-6));
         let mut res = self.x_axis.mul(rhs.x);
@@ -1256,6 +1489,7 @@ impl Mat4 {
     /// Will panic if the 3rd row of `self` is not `(0, 0, 0, 1)` when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn transform_vector3(&self, rhs: Vec3) -> Vec3 {
         glam_assert!(self.row(3).abs_diff_eq(Vec4::W, 1e-6));
         let mut res = self.x_axis.mul(rhs.x);
@@ -1279,17 +1513,33 @@ impl Mat4 {
     /// Transforms the given [`Vec3A`] as 3D point.
     ///
     /// This is the equivalent of multiplying the [`Vec3A`] as a 4D vector where `w` is `1.0`.
+    ///
+    /// This method assumes that `self` contains a valid affine transform. If `self` contains a
+    /// perspective transform, or if you are unsure, the [`Self::project_point3a()`] method should
+    /// be used instead.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if the 3rd row of `self` is not `(0, 0, 0, 1)` when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn transform_point3a(&self, rhs: Vec3A) -> Vec3A {
         self.transform_point3(rhs.into()).into()
     }
 
-    /// Transforms the give [`Vec3A`] as 3D vector.
+    /// Transforms the given [`Vec3A`] as 3D vector.
     ///
     /// This is the equivalent of multiplying the [`Vec3A`] as a 4D vector where `w` is `0.0`.
+    ///
+    /// This method assumes that `self` contains a valid affine transform.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if the 3rd row of `self` is not `(0, 0, 0, 1)` when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn transform_vector3a(&self, rhs: Vec3A) -> Vec3A {
         self.transform_vector3(rhs.into()).into()
     }

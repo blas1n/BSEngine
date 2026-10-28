@@ -1,54 +1,48 @@
+//! Provides macros for implementing traits on variadic types.
+
 // FIXME(15321): solve CI failures, then replace with `#![expect()]`.
 #![allow(missing_docs, reason = "Not all docs are written yet, see #3492.")]
-#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![cfg_attr(any(docsrs, docsrs_dep), feature(doc_cfg))]
+// This lint is triggered from inside the `unsynn!` macro, so we are forced to suppress it for the entire module.
+#![expect(
+    clippy::result_large_err,
+    reason = "The error variant intentionally holds detailed diagnostic information."
+)]
 
 use proc_macro::TokenStream;
-use proc_macro2::{Literal, Span as Span2, TokenStream as TokenStream2};
-use quote::{format_ident, quote};
-use syn::{
-    parse::{Parse, ParseStream},
-    parse_macro_input,
-    spanned::Spanned as _,
-    token::Comma,
-    Attribute, Error, Ident, LitInt, LitStr, Result,
-};
+use quote::quote;
+use unsynn::{TokenStream as TokenStream2, format_ident, *};
+
+unsynn! {
+    keyword KDoc = "doc";
+    keyword KFakeVariadic = "fake_variadic";
+
+    /// `all_tuples!(#[doc(fake_variadic)] some_macro, 1, 16, P, Q, ..)`
+    struct AllTuplesParsed {
+        fake_variadic: Option<FakeVariadicAttr>,
+        macro_ident: Ident,
+        _comma1: Comma,
+        start: LiteralInteger,
+        _comma2: Comma,
+        end: LiteralInteger,
+        _comma3: Comma,
+        idents: CommaDelimitedVec<Ident>,
+    }
+
+    /// `#[doc(fake_variadic)]`
+    struct FakeVariadicAttr {
+        _hash: Pound,
+        _bracket: BracketGroupContaining::<(KDoc, ParenthesisGroupContaining::<KFakeVariadic>)>,
+    }
+}
+
+/// Duplication of [`AllTuplesParsed`], but after it went through validation.
 struct AllTuples {
     fake_variadic: bool,
     macro_ident: Ident,
     start: usize,
     end: usize,
     idents: Vec<Ident>,
-}
-
-impl Parse for AllTuples {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let fake_variadic = input.call(parse_fake_variadic_attr)?;
-        let macro_ident = input.parse::<Ident>()?;
-        input.parse::<Comma>()?;
-        let start = input.parse::<LitInt>()?.base10_parse()?;
-        input.parse::<Comma>()?;
-        let end = input.parse::<LitInt>()?.base10_parse()?;
-        input.parse::<Comma>()?;
-        let mut idents = vec![input.parse::<Ident>()?];
-        while input.parse::<Comma>().is_ok() {
-            idents.push(input.parse::<Ident>()?);
-        }
-
-        if start > 1 && fake_variadic {
-            return Err(Error::new(
-                input.span(),
-                "#[doc(fake_variadic)] only works when the tuple with length one is included",
-            ));
-        }
-
-        Ok(AllTuples {
-            fake_variadic,
-            macro_ident,
-            start,
-            end,
-            idents,
-        })
-    }
 }
 
 /// Helper macro to generate tuple pyramids. Useful to generate scaffolding to work around Rust
@@ -81,6 +75,7 @@ impl Parse for AllTuples {
 ///     };
 /// }
 ///
+/// // start from 0 element to 15 elements
 /// all_tuples!(impl_wrapped_in_foo, 0, 15, T);
 /// // impl_wrapped_in_foo!();
 /// // impl_wrapped_in_foo!(T0);
@@ -117,12 +112,19 @@ impl Parse for AllTuples {
 ///     }
 /// }
 ///
+/// // start from 1 element to 15 elements
 /// all_tuples!(impl_append, 1, 15, P, p);
 /// // impl_append!((P0, p0));
 /// // impl_append!((P0, p0), (P1, p1));
 /// // impl_append!((P0, p0), (P1, p1), (P2, p2));
 /// // ..
 /// // impl_append!((P0, p0) .. (P14, p14));
+///
+/// // start from 16 elements to 20
+/// all_tuples!(impl_append, 16, 20, P, p);
+/// // impl_append!((P0, p0) .. (P15, p15));
+/// // ..
+/// // impl_append!((P0, p0) .. (P19, p19));
 /// ```
 ///
 /// **`#[doc(fake_variadic)]`**
@@ -139,7 +141,6 @@ impl Parse for AllTuples {
 ///
 /// ```
 /// // `rustdoc_internals` is needed for `#[doc(fake_variadics)]`
-/// #![allow(internal_features)]
 /// #![cfg_attr(any(docsrs, docsrs_dep), feature(rustdoc_internals))]
 /// ```
 ///
@@ -161,34 +162,20 @@ impl Parse for AllTuples {
 /// ```
 #[proc_macro]
 pub fn all_tuples(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as AllTuples);
-    let len = 1 + input.end - input.start;
-    let mut ident_tuples = Vec::with_capacity(len);
-    for i in 0..=len {
-        let idents = input
-            .idents
-            .iter()
-            .map(|ident| format_ident!("{}{}", ident, i));
-        ident_tuples.push(to_ident_tuple(idents, input.idents.len()));
-    }
-
-    let macro_ident = &input.macro_ident;
-    let invocations = (input.start..=input.end).map(|i| {
-        let ident_tuples = choose_ident_tuples(&input, &ident_tuples, i);
-        let attrs = if input.fake_variadic {
-            fake_variadic_attrs(len, i)
-        } else {
-            TokenStream2::default()
-        };
-        quote! {
-            #macro_ident!(#attrs #ident_tuples);
+    let input = match parse_all_tuples(input) {
+        Ok(input) => input,
+        Err(err) => {
+            return err;
         }
+    };
+    let ident_tuples = build_ident_tuples(&input);
+    let macro_ident = &input.macro_ident;
+    let invocations = make_invocation_range(&input).map(|n| {
+        let ident_tuples = choose_ident_tuples(&input, &ident_tuples, n);
+        let attrs = attrs(&input, n);
+        quote! { #macro_ident!(#attrs #ident_tuples); }
     });
-    TokenStream::from(quote! {
-        #(
-            #invocations
-        )*
-    })
+    TokenStream::from(quote! { #(#invocations)* })
 }
 
 /// A variant of [`all_tuples!`] that enumerates its output.
@@ -223,6 +210,11 @@ pub fn all_tuples(input: TokenStream) -> TokenStream {
 /// // impl_squawk!((0, T0), (1, T1));
 /// // ..
 /// // impl_squawk!((0, T0) .. (14, T14));
+///
+/// all_tuples_enumerated!(impl_squawk, 16, 20, T);
+/// // impl_append!((0, T0) .. (15, T15));
+/// // ..
+/// // impl_append!((0, T0) .. (19, T19));
 /// ```
 ///
 /// With multiple parameters, the result is similar, but with the additional parameters
@@ -233,37 +225,28 @@ pub fn all_tuples(input: TokenStream) -> TokenStream {
 /// // impl_squawk!((0, P0, p0), (1, P1, p1));
 /// // ..
 /// // impl_squawk!((0, P0, p0) .. (14, P14, p14));
+///
+/// all_tuples_enumerated!(impl_append, 16, 20, P, p);
+/// // impl_append!((0, P0, p0) .. (15, P15, p15));
+/// // ..
+/// // impl_append!((0, P0, p0) .. (19, P19, p19));
 /// ```
 #[proc_macro]
 pub fn all_tuples_enumerated(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as AllTuples);
-    let len = 1 + input.end - input.start;
-    let mut ident_tuples = Vec::with_capacity(len);
-    for i in 0..=len {
-        let idents = input
-            .idents
-            .iter()
-            .map(|ident| format_ident!("{}{}", ident, i));
-        ident_tuples.push(to_ident_tuple_enumerated(idents, i));
-    }
-
-    let macro_ident = &input.macro_ident;
-    let invocations = (input.start..=input.end).map(|i| {
-        let ident_tuples = choose_ident_tuples_enumerated(&input, &ident_tuples, i);
-        let attrs = if input.fake_variadic {
-            fake_variadic_attrs(len, i)
-        } else {
-            TokenStream2::default()
-        };
-        quote! {
-            #macro_ident!(#attrs #ident_tuples);
+    let input = match parse_all_tuples(input) {
+        Ok(input) => input,
+        Err(err) => {
+            return err;
         }
+    };
+    let ident_tuples = build_ident_tuples_enumerated(&input);
+    let macro_ident = &input.macro_ident;
+    let invocations = make_invocation_range(&input).map(|n| {
+        let ident_tuples = choose_ident_tuples_enumerated(&input, &ident_tuples, n);
+        let attrs = attrs(&input, n);
+        quote! { #macro_ident!(#attrs #ident_tuples); }
     });
-    TokenStream::from(quote! {
-        #(
-            #invocations
-        )*
-    })
+    TokenStream::from(quote! { #(#invocations)* })
 }
 
 /// Helper macro to generate tuple pyramids with their length. Useful to generate scaffolding to
@@ -304,6 +287,11 @@ pub fn all_tuples_enumerated(input: TokenStream) -> TokenStream {
 /// // impl_wrapped_in_foo!(2, T0, T1);
 /// // ..
 /// // impl_wrapped_in_foo!(15, T0 .. T14);
+///
+/// all_tuples_with_size!(impl_wrapped_in_foo, 16, 20, T);
+/// // impl_wrapped_in_foo!(16, T0 .. T15);
+/// // ..
+/// // impl_wrapped_in_foo!(20, T0 .. T19);
 /// ```
 ///
 /// ## Multiple parameters
@@ -340,6 +328,11 @@ pub fn all_tuples_enumerated(input: TokenStream) -> TokenStream {
 /// // impl_append!(3, (P0, p0), (P1, p1), (P2, p2));
 /// // ..
 /// // impl_append!(15, (P0, p0) .. (P14, p14));
+///
+/// all_tuples_with_size!(impl_append, 16, 20, P, p);
+/// // impl_append!(16, (P0, p0) .. (P15, p15));
+/// // ..
+/// // impl_append!(20, (P0, p0) .. (P19, p19));
 /// ```
 ///
 /// **`#[doc(fake_variadic)]`**
@@ -356,7 +349,6 @@ pub fn all_tuples_enumerated(input: TokenStream) -> TokenStream {
 ///
 /// ```
 /// // `rustdoc_internals` is needed for `#[doc(fake_variadics)]`
-/// #![allow(internal_features)]
 /// #![cfg_attr(any(docsrs, docsrs_dep), feature(rustdoc_internals))]
 /// ```
 ///
@@ -378,71 +370,126 @@ pub fn all_tuples_enumerated(input: TokenStream) -> TokenStream {
 /// ```
 #[proc_macro]
 pub fn all_tuples_with_size(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as AllTuples);
-    let len = 1 + input.end - input.start;
-    let mut ident_tuples = Vec::with_capacity(len);
-    for i in 0..=len {
-        let idents = input
-            .idents
-            .iter()
-            .map(|ident| format_ident!("{}{}", ident, i));
-        ident_tuples.push(to_ident_tuple(idents, input.idents.len()));
-    }
-    let macro_ident = &input.macro_ident;
-    let invocations = (input.start..=input.end).map(|i| {
-        let ident_tuples = choose_ident_tuples(&input, &ident_tuples, i);
-        let attrs = if input.fake_variadic {
-            fake_variadic_attrs(len, i)
-        } else {
-            TokenStream2::default()
-        };
-        quote! {
-            #macro_ident!(#i, #attrs #ident_tuples);
+    let input = match parse_all_tuples(input) {
+        Ok(input) => input,
+        Err(err) => {
+            return err;
         }
+    };
+    let ident_tuples = build_ident_tuples(&input);
+    let macro_ident = &input.macro_ident;
+    let invocations = make_invocation_range(&input).map(|n| {
+        let ident_tuples = choose_ident_tuples(&input, &ident_tuples, n);
+        let attrs = attrs(&input, n);
+        quote! { #macro_ident!(#n, #attrs #ident_tuples); }
     });
-    TokenStream::from(quote! {
-        #(
-            #invocations
-        )*
+    TokenStream::from(quote! { #(#invocations)* })
+}
+
+fn parse_all_tuples(input: TokenStream) -> std::result::Result<AllTuples, TokenStream> {
+    let ts: TokenStream2 = input.into();
+    let mut iter = ts.to_token_iter();
+    let tuples = AllTuplesParsed::parse(&mut iter).map_err(pretty_print_error)?;
+    let start: usize = match tuples.start.value().try_into() {
+        Ok(start) => start,
+        Err(_) => {
+            return Err(span_error(
+                tuples.start,
+                "`start` should be in the range of 0..usize::MAX",
+            ));
+        }
+    };
+    let end: usize = match tuples.end.value().try_into() {
+        Ok(end) => end,
+        Err(_) => {
+            return Err(span_error(
+                tuples.end,
+                "`end` should be in the range of 0..usize::MAX",
+            ));
+        }
+    };
+    if end < start {
+        return Err(span_error(tuples.end, "`start` should <= `end`"));
+    }
+    Ok(AllTuples {
+        fake_variadic: tuples.fake_variadic.is_some(),
+        macro_ident: tuples.macro_ident,
+        start,
+        end,
+        idents: tuples.idents.iter().map(|i| i.value.clone()).collect(),
     })
 }
 
-/// Parses the attribute `#[doc(fake_variadic)]`
-fn parse_fake_variadic_attr(input: ParseStream) -> Result<bool> {
-    let attribute = match input.call(Attribute::parse_outer)? {
-        attributes if attributes.is_empty() => return Ok(false),
-        attributes if attributes.len() == 1 => attributes[0].clone(),
-        attributes => {
-            return Err(Error::new(
-                input.span(),
-                format!("Expected exactly one attribute, got {}", attributes.len()),
-            ))
-        }
+/// Unfortunately there's no upstream pretty-printing in `unsynn` yet:
+/// <https://seed.pipapo.org/nodes/seed.pipapo.org/rad:z39WbeupErKS8TwbDS5yU8eZSa3C/issues/960feccb89aef6452b5ec0a6ce6a00604c8d8d21>
+fn pretty_print_error(err: Error) -> TokenStream {
+    let span = err
+        .failed_at()
+        .map(|tt| tt.span())
+        .unwrap_or_else(Span::call_site);
+
+    let msg = match err.kind {
+        ErrorKind::Other { reason } => reason,
+        ErrorKind::UnexpectedToken => format!("expected {}", err.expected_type_name()),
+        _ => err.to_string(),
     };
-
-    if attribute.path().is_ident("doc") {
-        let nested = attribute.parse_args::<Ident>()?;
-        if nested == "fake_variadic" {
-            return Ok(true);
-        }
-    }
-
-    Err(Error::new(
-        attribute.meta.span(),
-        "Unexpected attribute".to_string(),
-    ))
+    quote::quote_spanned! { span => compile_error!(#msg); }.into()
 }
 
-fn choose_ident_tuples(input: &AllTuples, ident_tuples: &[TokenStream2], i: usize) -> TokenStream2 {
+fn span_error(tokens: impl ToTokens, msg: &str) -> TokenStream {
+    let span = tokens
+        .to_token_iter()
+        .next()
+        .map(|tt| tt.span())
+        .unwrap_or_else(Span::call_site);
+    quote::quote_spanned! { span => compile_error!(#msg); }.into()
+}
+
+fn build_ident_tuples(input: &AllTuples) -> Vec<TokenStream2> {
+    (0..input.end)
+        .map(|i| {
+            let idents = input
+                .idents
+                .iter()
+                .map(|ident| format_ident!("{}{}", ident, i));
+            to_ident_tuple(idents, input.idents.len())
+        })
+        .collect()
+}
+
+fn build_ident_tuples_enumerated(input: &AllTuples) -> Vec<TokenStream2> {
+    (0..input.end)
+        .map(|i| {
+            let idents = input
+                .idents
+                .iter()
+                .map(|ident| format_ident!("{}{}", ident, i));
+            to_ident_tuple_enumerated(idents, i)
+        })
+        .collect()
+}
+
+/// Returns an iterator over the invocation arities, including the optional fake-variadic `n=1`.
+fn make_invocation_range(input: &AllTuples) -> impl Iterator<Item = usize> {
+    let base = input.start..=input.end;
+    let extra: Vec<usize> = if input.fake_variadic && input.start > 1 {
+        vec![1]
+    } else {
+        vec![]
+    };
+    base.chain(extra)
+}
+
+fn choose_ident_tuples(input: &AllTuples, ident_tuples: &[TokenStream2], n: usize) -> TokenStream2 {
     // `rustdoc` uses the first ident to generate nice
     // idents with subscript numbers e.g. (F₁, F₂, …, Fₙ).
     // We don't want two numbers, so we use the
     // original, unnumbered idents for this case.
-    if input.fake_variadic && i == 1 {
+    if input.fake_variadic && n == 1 {
         let ident_tuple = to_ident_tuple(input.idents.iter().cloned(), input.idents.len());
         quote! { #ident_tuple }
     } else {
-        let ident_tuples = &ident_tuples[..i];
+        let ident_tuples = &ident_tuples[..n];
         quote! { #(#ident_tuples),* }
     }
 }
@@ -450,19 +497,19 @@ fn choose_ident_tuples(input: &AllTuples, ident_tuples: &[TokenStream2], i: usiz
 fn choose_ident_tuples_enumerated(
     input: &AllTuples,
     ident_tuples: &[TokenStream2],
-    i: usize,
+    n: usize,
 ) -> TokenStream2 {
-    if input.fake_variadic && i == 1 {
+    if input.fake_variadic && n == 1 {
         let ident_tuple = to_ident_tuple_enumerated(input.idents.iter().cloned(), 0);
         quote! { #ident_tuple }
     } else {
-        let ident_tuples = &ident_tuples[..i];
+        let ident_tuples = &ident_tuples[..n];
         quote! { #(#ident_tuples),* }
     }
 }
 
-fn to_ident_tuple(idents: impl Iterator<Item = Ident>, len: usize) -> TokenStream2 {
-    if len < 2 {
+fn to_ident_tuple(idents: impl Iterator<Item = Ident>, generic_num: usize) -> TokenStream2 {
+    if generic_num < 2 {
         quote! { #(#idents)* }
     } else {
         quote! { (#(#idents),*) }
@@ -475,23 +522,59 @@ fn to_ident_tuple_enumerated(idents: impl Iterator<Item = Ident>, idx: usize) ->
     quote! { (#idx, #(#idents),*) }
 }
 
-fn fake_variadic_attrs(len: usize, i: usize) -> TokenStream2 {
-    let cfg = quote! { any(docsrs, docsrs_dep) };
-    match i {
+/// n: number of elements
+fn attrs(input: &AllTuples, n: usize) -> TokenStream2 {
+    if !input.fake_variadic {
+        return TokenStream2::default();
+    }
+    match n {
         // An empty tuple (i.e. the unit type) is still documented separately,
         // so no `#[doc(hidden)]` here.
         0 => TokenStream2::default(),
-        // The `#[doc(fake_variadic)]` attr has to be on the first impl block.
-        1 => {
-            let doc = LitStr::new(
-                &format!("This trait is implemented for tuples up to {len} items long."),
-                Span2::call_site(),
-            );
-            quote! {
-                #[cfg_attr(#cfg, doc(fake_variadic))]
-                #[cfg_attr(#cfg, doc = #doc)]
+        n => {
+            let cfg = quote! { any(docsrs, docsrs_dep) };
+            // The `#[doc(fake_variadic)]` attr has to be on the first impl block.
+            if n == 1 {
+                let doc = Literal::string(&format!(
+                    "This trait is implemented for tuple{s1} {range} item{s2} long.",
+                    range = if input.start == input.end {
+                        format!("exactly {}", input.start)
+                    } else {
+                        format!(
+                            "{down}up to {up}",
+                            down = if input.start != 0 {
+                                format!("down to {} ", input.start)
+                            } else {
+                                "".to_string()
+                            },
+                            up = input.end
+                        )
+                    },
+                    s1 = if input.end > input.start { "s" } else { "" },
+                    s2 = if input.end >= input.start && input.end > 1 {
+                        "s"
+                    } else {
+                        ""
+                    }
+                ));
+                if input.start <= 1 && input.end >= 1 {
+                    // n == 1 and it's included
+                    quote! {
+                        #[cfg_attr(#cfg, doc(fake_variadic))]
+                        #[cfg_attr(#cfg, doc = #doc)]
+                    }
+                } else {
+                    // n == 1 but it's not included,
+                    // only generate if #cfg
+                    quote! {
+                        #[cfg(#cfg)]
+                        #[doc(fake_variadic)]
+                        #[doc = #doc]
+                    }
+                }
+            } else {
+                quote! { #[cfg_attr(#cfg, doc(hidden))] }
             }
         }
-        _ => quote! { #[cfg_attr(#cfg, doc(hidden))] },
     }
 }

@@ -478,7 +478,7 @@ struct BuiltRagdoll {
 /// `remove_body` on an entity with no body (a bone `sync_ragdolls` already
 /// took out) does nothing.
 fn take_body_out_of_the_simulation(
-    remove: bevy_ecs::observer::On<bevy_ecs::lifecycle::Remove, RigidBody>,
+    remove: bevy_ecs::observer::On<bevy_ecs::lifecycle::Remove<RigidBody>>,
     physics: Option<ResMut<PhysicsWorld>>,
 ) {
     if let Some(mut physics) = physics {

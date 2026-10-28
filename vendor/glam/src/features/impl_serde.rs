@@ -279,7 +279,7 @@ macro_rules! impl_serde_quat {
 
         #[test]
         fn test_quat_serde() {
-            let a = $quat::from_xyzw(1.0, 2.0, 3.0, 4.0);
+            let a = $quat::from_xyzw(V1, V2, V3, V4);
             let serialized = serde_json::to_string(&a).unwrap();
             assert_eq!(serialized, "[1.0,2.0,3.0,4.0]");
             let deserialized = serde_json::from_str(&serialized).unwrap();
@@ -838,6 +838,7 @@ mod test_u32 {
 
 #[cfg(feature = "u64")]
 #[cfg(test)]
+#[allow(dead_code)]
 mod test_u64 {
     pub const V1: u64 = 1;
     pub const V2: u64 = 2;
@@ -866,6 +867,7 @@ mod test_float {
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 mod test_int {
     pub const SX0: &str = "[]";
     pub const SX1: &str = "[1]";
@@ -895,7 +897,6 @@ mod bool {
     #[cfg(test)]
     use super::test_bool_mask::*;
     use crate::{BVec2, BVec3, BVec4};
-    #[cfg(not(feature = "scalar-math"))]
     use crate::{BVec3A, BVec4A};
     use core::fmt;
     use serde_core::{
@@ -907,7 +908,6 @@ mod bool {
     impl_serde_vec3!(bool, BVec3);
     impl_serde_vec4!(bool, BVec4);
 
-    #[cfg(not(feature = "scalar-math"))]
     impl Serialize for BVec3A {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where
@@ -922,7 +922,6 @@ mod bool {
         }
     }
 
-    #[cfg(not(feature = "scalar-math"))]
     impl<'de> Deserialize<'de> for BVec3A {
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where
@@ -958,7 +957,6 @@ mod bool {
         }
     }
 
-    #[cfg(not(feature = "scalar-math"))]
     #[test]
     fn test_bvec3a_serde() {
         let a = BVec3A::new(V1, V2, V3);
@@ -976,7 +974,6 @@ mod bool {
         assert!(deserialized.is_err());
     }
 
-    #[cfg(not(feature = "scalar-math"))]
     impl Serialize for BVec4A {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where
@@ -992,7 +989,6 @@ mod bool {
         }
     }
 
-    #[cfg(not(feature = "scalar-math"))]
     impl<'de> Deserialize<'de> for BVec4A {
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where
@@ -1031,7 +1027,6 @@ mod bool {
         }
     }
 
-    #[cfg(not(feature = "scalar-math"))]
     #[test]
     fn test_bvec4a_serde() {
         let a = BVec4A::new(V1, V2, V3, V4);

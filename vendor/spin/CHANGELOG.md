@@ -13,12 +13,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-# [0.10.1] - 2026-07-13
+# [0.12.3] - 2026-08-17
+
+### Added
+
+- `lock_api::MappedMutexGuard`
+
+# [0.12.2] - 2026-07-13
 
 ### Fixed
 
 - Unsoundness in `Once::force_into_inner`, `Once::try_into_inner`, and
   `Once::into_inner_unchecked`. Thanks to `@Poseidon` for catching this.
+
+# [0.12.1] - 2026-06-23
+
+### Fixed
+
+- Unsoundness in `RwLock`'s `try_upgrade` path for the `lock_api` interface has been
+  fixed. Note that this unsoundness only affects you if all of the following apply:
+  - You use `RwLock` via the `lock_api` interface specifically
+  - You call `upgradable_read` to create an upgradeable lock guard
+  - You call `try_upgrade` on the upgradeable lock guard
+
+- `LazyLock`'s `Sync` implementation is now less restrictive
+
+# [0.12.0] - 2026-05-20
+
+### Changed
+
+- Moved to Codeberg
+
+### Fixed
+
+- Unsoundness in `FairMutex` caused by an undue extension of a reference lifetime
+  outside of a critical section. Note that we do not consider this CVE-worthy since
+  there's no clear path to exploiting this and there's no clear reason for the compiler
+  to actually generate code that falls afoul of the issue. If you have found an example
+  of this issue leading to unexpected behaviour in practice, please open an issue.
+
+# [0.11.0] - 2026-05-14
+
+### Added
+
+- `lock_api` mapped read/write guard for `RwLock`
+- `Once::init_from_ref`
+- `rustc-dep-of-std` feature, allowing `spin` to be used as a standard library dependency
+
+### Changed
+
+- MSRV is now `1.71`
+- `Lazy` is now `LazyLock`
+
+### Fixed
+
+- `lock_api` feature name for `RawRwLockUpgradeDowngrade`
 
 # [0.10.0] - 2025-03-26
 

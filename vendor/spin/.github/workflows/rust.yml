@@ -8,61 +8,79 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  MSRV: 1.71.0
 
 permissions: read-all
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install toolchain
+        uses: https://github.com/dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly
+          components: rustfmt, clippy, miri
+      - name: Check (no features)
+        run: cargo check --benches --examples --tests --no-default-features
+      - name: Check (all features)
+        run: cargo check --benches --examples --tests --all-features
+      - name: Clippy (all features)
+        run: cargo clippy --examples --all-features -- -D warnings
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Docs (all features)
+        run: cargo doc --all-features
+        env:
+            RUSTDOCFLAGS: --cfg docsrs
+    
+      - name: Soundness (all features)
+        run: cargo miri test --all-features
+        env:
+          MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-disable-isolation -Zmiri-ignore-leaks
+          RUSTFLAGS: ${{ env.RUSTFLAGS }} -Z randomize-layout
+      
+      - name: Catch missing feature flags
+        run: cargo check -Z features=dev_dep
+    
+      - name: Install cargo-hack
+        uses: https://github.com/taiki-e/install-action@cargo-hack
+      - run: rustup target add thumbv7m-none-eabi
+      - name: Ensure we dont depend on libstd
+        run: cargo hack build --target thumbv7m-none-eabi --no-dev-deps --no-default-features
+
   test:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        rust: [stable, beta, nightly]
-
     steps:
-    - uses: actions/checkout@v3
-    - name: Install Rust
-      run: rustup update ${{ matrix.rust }} && rustup default ${{ matrix.rust }}
-    - name: Run Tests
-      run: cargo test --verbose
-    - name: Build crate
-      run: cargo build --all --all-features --all-targets
-    - name: Catch missing feature flags
-      if: startsWith(matrix.rust, 'nightly')
-      run: cargo check -Z features=dev_dep
-    - name: Install cargo-hack
-      uses: taiki-e/install-action@cargo-hack
-    - run: rustup target add thumbv7m-none-eabi
-    - name: Ensure we don't depend on libstd
-      run: cargo hack build --target thumbv7m-none-eabi --no-dev-deps --no-default-features
+      - uses: actions/checkout@v5
+      - name: Install toolchain
+        uses: https://github.com/dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly
+      - name: Tests
+        run: cargo test --all-features --all-targets
+
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install toolchain
+        uses: https://github.com/dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.MSRV }}
+      - name: MSRV check (all features)
+        run: cargo check --all-features
 
   semver:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-    - name: Check semver
-      uses: obi1kenobi/cargo-semver-checks-action@v2
-
-  msrv:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        version: [1.60.0]
-    steps:
-    - uses: actions/checkout@v3
-    - name: Install Rust
-      run: rustup update ${{ matrix.version }} && rustup default ${{ matrix.version }}
-    - name: Check MSRV
-      run: cargo check --all --all-features
-
-  miri:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Install Rust
-      run: rustup toolchain install nightly --component miri && rustup default nightly
-    - run: cargo miri test
-      env:
-        MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-disable-isolation -Zmiri-ignore-leaks
-        RUSTFLAGS: ${{ env.RUSTFLAGS }} -Z randomize-layout
+      - uses: actions/checkout@v5
+      - name: Install toolchain
+        uses: https://github.com/dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - name: Install cargo-binstall
+        uses: https://github.com/cargo-bins/cargo-binstall@main
+      - name: Semver compatibility
+        run: cargo binstall cargo-semver-checks && cargo +stable semver-checks

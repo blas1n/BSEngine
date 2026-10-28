@@ -13,11 +13,13 @@ A simple and fast 3D math library for games and graphics.
   * square matrices: `Mat2`, `Mat3`, `Mat3A` and `Mat4`
   * a quaternion type: `Quat`
   * affine transformation types: `Affine2`, `Affine3` and `Affine3A`
+  * camera view and projection constructors: `camera` module
 * `f64` types
   * vectors: `DVec2`, `DVec3` and `DVec4`
   * square matrices: `DMat2`, `DMat3` and `DMat4`
   * a quaternion type: `DQuat`
   * affine transformation types: `DAffine2` and `DAffine3`
+  * camera view and projection constructors: `dcamera` module
 * `i8` types
   * vectors: `I8Vec2`, `I8Vec3` and `I8Vec4`
 * `u8` types
@@ -66,10 +68,8 @@ SIMD is supported on `x86`, `x86_64`, `wasm32` and `wasm64` targets.
 
 * `SSE2` is enabled by default on `x86_64` targets.
 * To enable `SSE2` on `x86` targets add `-C target-feature=+sse2` to
-  `RUSTCFLAGS`.
-* `NEON` is enabled by default on `aarch64` targets.
-* To enable `NEON` on `aarch64` targets add `-C target-feature=+neon` to
   `RUSTFLAGS`.
+* `NEON` is enabled by default on `aarch64` targets.
 * To enable `simd128` on `wasm32` or `wasm64` targets add `-C target-feature=+simd128` to
   `RUSTFLAGS`.
 * Experimental [portable simd] support can be enabled with the `core-simd`
@@ -88,7 +88,7 @@ defined in `std`. For example:
 
 ```toml
 [dependencies]
-glam = { version = "0.33.1", default-features = false, features = ["libm"] }
+glam = { default-features = false, features = ["libm"] }
 ```
 
 To support both `std` and `no_std` builds in project, you can use the following
@@ -102,7 +102,7 @@ std = ["glam/std"]
 libm = ["glam/libm"]
 
 [dependencies]
-glam = { version = "0.33.1", default-features = false }
+glam = { default-features = false }
 ```
 
 Alternatively, you can use the `nostd-libm` feature. This will always include a
@@ -118,7 +118,7 @@ std = ["glam/std"]
 libm = ["glam/libm"]
 
 [dependencies]
-glam = { version = "0.33.1", default-features = false, features = ["nostd-libm"] }
+glam = { default-features = false, features = ["nostd-libm"] }
 ```
 
 ### Feature gates
@@ -138,53 +138,89 @@ glam = { version = "0.33.1", default-features = false, features = ["nostd-libm"]
   of parameters passed to `glam` to help catch runtime errors
 * `glam-assert` - adds validation assertions to all builds
 * `cuda` - forces `glam` types to match expected [cuda alignment]
-* `fast-math` - By default, glam attempts to provide bit-for-bit identical
-  results on all platforms. Using this feature will enable platform specific
-  optimizations that may not be identical to other platforms. **Intermediate
-  libraries should not use this feature and defer the decision to the final
-  binary build**.
+* `fast-math` - **Deprecated.** This feature no longer has any effect and will
+  be removed in a future release.
 * `core-simd` - enables SIMD support via the [portable simd] module. This is an
   unstable feature which requires a nightly Rust toolchain and `std` support.
 
 [cuda alignment]: https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#built-in-vector-types
 
-### Optional features
+### Optional dependencies
 
-* [`approx`] - traits and macros for approximate float comparisons
+Pre-1.0 dependencies that appear in `glam`'s public API use versioned feature names
+(e.g. `rand-010`), so a new version can be added without a breaking change.
+
+* [`approx`] - **Deprecated.** Alias for the `approx-05` feature, will be removed
+  in the next major release.
+* [`approx-05`] - `approx` 0.5 traits and macros for approximate float comparisons.
 * [`arbitrary`] - `arbitrary` trait implementations for `glam` types.
 * [`bytemuck`] - for casting into slices of bytes
-* [`encase`] - `encase` trait implementations for `glam` types.
+* [`encase`] - **Deprecated.** Alias for the `encase-012` feature, will be removed
+  in the next major release.
+* [`encase-012`] - `encase` 0.12 trait implementations for `glam` types.
+* [`encase-013`] - `encase` 0.13 trait implementations for `glam` types.
+* [`float_eq`] - traits and macros for comparing float types using various tolerances.
 * [`libm`] - uses `libm` math functions instead of `std`
-* [`mint`] - for interoperating with other 3D math libraries
-* [`rand`] - implementations of `Distribution` trait for all `glam` types.
-* [`rkyv`] - implementations of `Archive`, `Serialize` and `Deserialize` for all
-  `glam` types. Note that serialization is not interoperable with and without
-  the `scalar-math` feature. It should work between all other builds of `glam`.
-  Endian conversion is currently not supported
-* [`bytecheck`] - to perform archive validation when using the `rkyv` feature
+* [`mint`] - **Deprecated.** Alias for the `mint-05` feature, will be removed in
+  the next major release.
+* [`mint-05`] - `mint` 0.5 for interoperating with other 3D math libraries.
+* [`rand`] - **Deprecated.** Alias for the `rand-010` feature, will be removed in
+  the next major release.
+* [`rand-010`] - `rand` 0.10 `Distribution` implementations for all `glam` types.
+* [`rkyv`] - **Deprecated.** The current implementation is unsound and will be
+  removed in the next major release. Use `rkyv-08` instead.
+* [`rkyv-08`] - `rkyv` 0.8 `Archive`, `Serialize` and `Deserialize` implementations
+  for all `glam` types, archiving to `glam::rkyv_08` types instead of the native type.
+* [`bytecheck`] - enables `rkyv`'s archive validation; only has an effect when an
+  `rkyv` feature is enabled
 * [`serde`] - implementations of `Serialize` and `Deserialize` for all `glam`
   types. Note that serialization should work between builds of `glam` with and
   without SIMD enabled
-* [`speedy`] - implementations of `speedy`'s `Readable` and `Writable` for all
+* [`speedy`] - **Deprecated.** Alias for the `speedy-08` feature, will be removed
+  in the next major release.
+* [`speedy-08`] - `speedy` 0.8 implementations of `Readable` and `Writable` for all
   `glam` types.
-* [`zerocopy`] - implementations of zerocopy traits for safe transmutes.
+* [`zerocopy`] - **Deprecated.** Alias for the `zerocopy-08` feature, will be removed
+  in the next major release.
+* [`zerocopy-08`] - `zerocopy` 0.8 implementations of zerocopy traits for safe
+  transmutes.
 
 [`approx`]: https://docs.rs/approx
+[`approx-05`]: https://docs.rs/approx/0.5
 [`arbitrary`]: https://docs.rs/arbitrary
 [`bytecheck`]: https://github.com/rkyv/bytecheck
 [`bytemuck`]: https://docs.rs/bytemuck
 [`encase`]: https://github.com/teoxoy/encase
+[`encase-012`]: https://docs.rs/encase/0.12
+[`encase-013`]: https://docs.rs/encase/0.13
+[`float_eq`]: https://docs.rs/float_eq
 [`libm`]: https://github.com/rust-lang/libm
 [`mint`]: https://github.com/kvark/mint
+[`mint-05`]: https://docs.rs/mint/0.5
 [`rand`]: https://github.com/rust-random/rand
+[`rand-010`]: https://docs.rs/rand/0.10
 [`rkyv`]: https://github.com/rkyv/rkyv
+[`rkyv-08`]: https://docs.rs/rkyv/0.8
 [`serde`]: https://serde.rs
 [`speedy`]: https://docs.rs/speedy
+[`speedy-08`]: https://docs.rs/speedy/0.8
 [`zerocopy`]: https://github.com/google/zerocopy
+[`zerocopy-08`]: https://docs.rs/zerocopy/0.8
 
 ### Minimum Supported Rust Version (MSRV)
 
 The minimum supported version of Rust for `glam` is `1.68.2`.
+
+Raising the MSRV is treated as a non-breaking change, following Cargo's
+[semver guidance].
+
+`glam` itself and all of its features are expected to build with the MSRV
+unless otherwise documented. Optional dependencies are exempt, per Cargo's
+[support expectations]: they are not required to build with `glam`'s MSRV, so a
+feature that enables one may require a newer toolchain than `glam` itself.
+
+[semver guidance]: https://doc.rust-lang.org/cargo/reference/semver.html#env-new-rust
+[support expectations]: https://doc.rust-lang.org/cargo/reference/rust-version.html#support-expectations
 
 ## Conventions
 
@@ -205,6 +241,15 @@ contiguous memory.
 `glam` is co-ordinate system agnostic and intends to support both right-handed
 and left-handed conventions.
 
+### Camera
+
+`glam` provides a `camera` module with view matrix (`look_at`, `look_to`)
+and projection matrix (`perspective`, `orthographic`, `frustum`) constructors.
+
+Pick the `rh` or `lh` sub-module based on your world space handedness,
+then the API-specific constructor for your target graphics API convention
+(OpenGL, DirectX, Vulkan, or WebGPU).
+
 ## Design Philosophy
 
 The design of this library is guided by a desire for simplicity and good
@@ -214,11 +259,12 @@ performance.
 * All dependencies are optional (e.g. `mint`, `rand` and `serde`)
 * Follows the [Rust API Guidelines] where possible
 * Aiming for 100% test [coverage]
-* Common functionality is benchmarked using [Criterion.rs]
+* Common functionality is benchmarked using [Criterion.rs] and [Gungraun]
 
 [Rust API Guidelines]: https://rust-lang-nursery.github.io/api-guidelines/
 [coverage]: coveralls.io
-[Criterion.rs]: https://bheisler.github.io/criterion.rs/book/index.html
+[Criterion.rs]: https://criterion-rs.github.io/book/index.html
+[Gungraun]: https://gungraun.github.io/gungraun/
 
 ## Architecture
 

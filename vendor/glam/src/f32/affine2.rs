@@ -3,8 +3,8 @@
 use crate::{Mat2, Mat3, Mat3A, Vec2, Vec3A};
 use core::ops::{Deref, DerefMut, Mul, MulAssign};
 
-#[cfg(all(feature = "zerocopy", not(feature = "core-simd")))]
-use zerocopy_derive::*;
+#[cfg(all(feature = "zerocopy-08", not(feature = "core-simd")))]
+use zerocopy_derive_08::*;
 
 /// A 2D affine transform, which can represent translation, rotation, scaling and shear.
 #[derive(Copy, Clone)]
@@ -17,7 +17,7 @@ use zerocopy_derive::*;
     derive(bytemuck::Pod, bytemuck::Zeroable)
 )]
 #[cfg_attr(
-    all(feature = "zerocopy", not(feature = "core-simd")),
+    all(feature = "zerocopy-08", not(feature = "core-simd")),
     derive(FromBytes, Immutable, KnownLayout)
 )]
 #[repr(C)]
@@ -247,6 +247,7 @@ impl Affine2 {
     /// vector contains any zero elements when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn to_scale_angle_translation(&self) -> (Vec2, f32, Vec2) {
         use crate::f32::math;
         let det = self.matrix2.determinant();
@@ -316,8 +317,13 @@ impl Affine2 {
     /// Return the inverse of this transform.
     ///
     /// Note that if the transform is not invertible the result will be invalid.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if the resulting inverted matrix is not finite when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn inverse(&self) -> Self {
         let matrix2 = self.matrix2.inverse();
         // transform negative translation by the matrix inverse:

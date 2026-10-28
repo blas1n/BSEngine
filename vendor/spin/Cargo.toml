@@ -10,9 +10,10 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-rust-version = "1.60"
+edition = "2021"
+rust-version = "1.71"
 name = "spin"
-version = "0.10.1"
+version = "0.12.3"
 authors = [
     "Mathijs van de Nes <git@mathijs.vd-nes.nl>",
     "John Ericson <git@JohnEricson.me>",
@@ -32,7 +33,7 @@ keywords = [
     "rwlock",
 ]
 license = "MIT"
-repository = "https://github.com/mvdnes/spin-rs.git"
+repository = "https://codeberg.org/zesterer/spin"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -49,16 +50,18 @@ default = [
     "spin_mutex",
     "rwlock",
     "once",
-    "lazy",
+    "lazylock",
     "barrier",
 ]
 fair_mutex = ["mutex"]
-lazy = ["once"]
+lazy = ["lazylock"]
+lazylock = ["once"]
 lock_api = ["dep:lock_api_crate"]
 mutex = []
 once = []
 portable-atomic = ["dep:portable-atomic"]
 portable_atomic = ["portable-atomic"]
+rustc-dep-of-std = ["core"]
 rwlock = []
 spin_mutex = ["mutex"]
 std = []
@@ -75,12 +78,21 @@ path = "src/lib.rs"
 [[example]]
 name = "debug"
 path = "examples/debug.rs"
+required-features = [
+    "mutex",
+    "rwlock",
+]
 
 [[bench]]
 name = "mutex"
 path = "benches/mutex.rs"
 harness = false
 required-features = ["ticket_mutex"]
+
+[dependencies.core]
+version = "1.0.0"
+optional = true
+package = "rustc-std-workspace-core"
 
 [dependencies.lock_api_crate]
 version = "0.4"

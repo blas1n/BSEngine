@@ -581,7 +581,7 @@ struct FreeList {
 }
 
 impl FreeList {
-    /// Constructs a empty [`FreeList`].
+    /// Constructs an empty [`FreeList`].
     fn new() -> Self {
         Self {
             buffer: FreeBuffer::new(),

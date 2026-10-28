@@ -1,9 +1,16 @@
+//! An example of using `all_tuples!`
+
+#![cfg_attr(docsrs, feature(rustdoc_internals))]
+
 use variadics_please::all_tuples;
 
 fn main() {}
 
+/// For demonstration
 pub trait Foo {
+    /// For demonstration
     const FOO_HARDER: bool;
+    /// For demonstration
     fn foo() -> bool;
 }
 

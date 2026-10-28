@@ -1,0 +1,78 @@
+[package]
+name = "unsynn"
+version = "0.3.0"
+edition = "2021"
+authors = ["Christian Thäter <ct@pipapo.org>"]
+description = "(Proc-macro) parsing made easy"
+documentation = "https://docs.rs/unsynn"
+license = "MIT OR Apache-2.0"
+repository = "https://seed.pipapo.org/nodes/seed.pipapo.org/rad:z39WbeupErKS8TwbDS5yU8eZSa3C"
+keywords = ["parser", "macros", "proc_macro"]
+categories = ["development-tools::procedural-macro-helpers", "parser-implementations"]
+readme = "README.md"
+rust-version = "1.80.1"
+include = ["src/**/*", "LICENSE-*", "README.md", "ROADMAP.md", "COOKBOOK.md", "CHANGELOG.md", "HOW-TO-USE-UNSYNN-BY-AI.md"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+mutants = "0.0.3"
+proc-macro2 = { version = "1.0.81", features = ["proc-macro", "span-locations"], optional = true }
+rustc-hash = { version = "2.1.1", optional = true }
+criterion = { version = "0.7", optional = true }
+
+[features]
+default = [
+          "proc_macro2", "hash_keywords", "docgen", "nonparseable", "trait_methods_track_caller",
+          "extra_asserts",
+          "extra_tests",
+          ]
+proc_macro2 = ["dep:proc-macro2"]
+hash_keywords = ["dep:rustc-hash"]
+criterion = ["dep:criterion"]
+nonparseable = []
+docgen = []
+trait_methods_track_caller = []
+extra_asserts = []
+extra_tests = []
+debug_grammar = []
+
+[lints.rust]
+missing_docs = "warn"
+unknown_lints = "allow"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(rust_analyzer)'] }
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+missing_const_for_fn = "warn"
+unwrap_used = "deny"
+dbg_macro = "forbid"
+items_after_statements = "allow"
+
+[lints.rustdoc]
+missing_crate_level_docs = "warn"
+missing_doc_code_examples = "warn"
+
+[profile.dev]
+# optimization level 1 has little impact on compile time and improves
+# generated parsers more than three-fold thus we use it as default
+# higher optimization levels have little advantage and compile slower
+opt-level = 1
+# when compiletime is not a concern then one can enable 'thin' lto
+# this reduces the size of the generated object significantly (60%)
+# and improve performance by another 25%, at the cost of 2x slower compiling
+lto = "off"
+
+[[bench]]
+name = "expression_bench"
+harness = false
+
+[[bench]]
+name = "stress_test"
+harness = false
+
+[[bench]]
+name = "toy_language_bench"
+harness = false

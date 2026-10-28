@@ -1,16 +1,22 @@
 // Generated from float.rs.tera template. Edit the template, not the generated file.
 
-use crate::float::FloatExt;
+use crate::{f64::math, float::FloatExt};
 
 impl FloatExt for f64 {
     #[inline]
     fn lerp(self, rhs: Self, t: Self) -> Self {
-        self + (rhs - self) * t
+        self * (1.0 - t) + rhs * t
     }
 
     #[inline]
     fn inverse_lerp(a: Self, b: Self, v: Self) -> Self {
         (v - a) / (b - a)
+    }
+
+    #[inline]
+    fn smoothstep(self, edge0: Self, edge1: Self) -> Self {
+        let t = ((self - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
     }
 
     #[inline]
@@ -21,7 +27,7 @@ impl FloatExt for f64 {
 
     #[inline]
     fn fract_gl(self) -> Self {
-        self - crate::f64::math::floor(self)
+        self - math::floor(self)
     }
 
     #[inline]
@@ -36,5 +42,15 @@ impl FloatExt for f64 {
     #[inline]
     fn saturate(self) -> Self {
         self.clamp(0.0, 1.0)
+    }
+
+    #[inline]
+    fn move_towards(self, rhs: Self, d: Self) -> Self {
+        let a = rhs - self;
+        if math::abs(a) <= d {
+            rhs
+        } else {
+            self + math::signum(a) * d
+        }
     }
 }

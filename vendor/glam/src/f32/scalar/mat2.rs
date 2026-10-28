@@ -8,8 +8,8 @@ use core::fmt;
 use core::iter::{Product, Sum};
 use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
-#[cfg(feature = "zerocopy")]
-use zerocopy_derive::*;
+#[cfg(feature = "zerocopy-08")]
+use zerocopy_derive_08::*;
 
 /// Creates a 2x2 matrix from two column vectors.
 #[inline(always)]
@@ -22,7 +22,7 @@ pub const fn mat2(x_axis: Vec2, y_axis: Vec2) -> Mat2 {
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Pod, bytemuck::Zeroable))]
 #[cfg_attr(
-    feature = "zerocopy",
+    feature = "zerocopy-08",
     derive(FromBytes, Immutable, IntoBytes, KnownLayout)
 )]
 #[cfg_attr(not(feature = "scalar-math"), repr(align(16)))]
@@ -54,15 +54,30 @@ impl Mat2 {
     }
 
     /// Creates a 2x2 matrix from two column vectors.
+    ///
+    /// See also [`Self::from_rows`] when the data is in row major order.
     #[inline(always)]
     #[must_use]
     pub const fn from_cols(x_axis: Vec2, y_axis: Vec2) -> Self {
         Self { x_axis, y_axis }
     }
 
+    /// Creates a 2x2 matrix from two row vectors.
+    ///
+    /// Matrices are stored in column major order, so the given rows are permuted into
+    /// the matrix layout. Use [`Self::from_cols`] instead when the data is already in
+    /// column major order.
+    #[inline(always)]
+    #[must_use]
+    pub const fn from_rows(row0: Vec2, row1: Vec2) -> Self {
+        let [m00, m01] = row0.to_array();
+        let [m10, m11] = row1.to_array();
+        Self::new(m00, m10, m01, m11)
+    }
+
     /// Creates a 2x2 matrix from a `[f32; 4]` array stored in column major order.
-    /// If your data is stored in row major you will need to `transpose` the returned
-    /// matrix.
+    ///
+    /// If the data is in row major order use [`Self::from_rows_array`] instead.
     #[inline]
     #[must_use]
     pub const fn from_cols_array(m: &[f32; 4]) -> Self {
@@ -70,7 +85,8 @@ impl Mat2 {
     }
 
     /// Creates a `[f32; 4]` array storing data in column major order.
-    /// If you require data in row major order `transpose` the matrix first.
+    ///
+    /// If you require the data in row major order use [`Self::to_rows_array`] instead.
     #[inline]
     #[must_use]
     pub const fn to_cols_array(&self) -> [f32; 4] {
@@ -78,8 +94,8 @@ impl Mat2 {
     }
 
     /// Creates a 2x2 matrix from a `[[f32; 2]; 2]` 2D array stored in column major order.
-    /// If your data is in row major order you will need to `transpose` the returned
-    /// matrix.
+    ///
+    /// If the data is in row major order `transpose` the returned matrix.
     #[inline]
     #[must_use]
     pub const fn from_cols_array_2d(m: &[[f32; 2]; 2]) -> Self {
@@ -87,11 +103,35 @@ impl Mat2 {
     }
 
     /// Creates a `[[f32; 2]; 2]` 2D array storing data in column major order.
-    /// If you require data in row major order `transpose` the matrix first.
+    ///
+    /// If you require row major order `transpose` the matrix first.
     #[inline]
     #[must_use]
     pub const fn to_cols_array_2d(&self) -> [[f32; 2]; 2] {
         [self.x_axis.to_array(), self.y_axis.to_array()]
+    }
+
+    /// Creates a 2x2 matrix from a `[f32; 4]` array stored in row major order.
+    ///
+    /// Matrices are stored in column major order, so the array is permuted into the
+    /// matrix layout. Use [`Self::from_cols_array`] instead when the data is already in
+    /// column major order.
+    #[inline]
+    #[must_use]
+    pub const fn from_rows_array(m: &[f32; 4]) -> Self {
+        Self::new(m[0], m[2], m[1], m[3])
+    }
+
+    /// Creates a `[f32; 4]` array storing data in row major order.
+    ///
+    /// Matrices are stored in column major order, so the array is permuted out of the
+    /// column major storage. Use [`Self::to_cols_array`] instead when you want data in
+    /// column major order.
+    #[inline]
+    #[must_use]
+    pub const fn to_rows_array(&self) -> [f32; 4] {
+        let m = self.to_cols_array();
+        [m[0], m[2], m[1], m[3]]
     }
 
     /// Creates a 2x2 matrix with its diagonal set to `diagonal` and all other entries set to 0.
@@ -134,6 +174,7 @@ impl Mat2 {
     /// Panics if `i` or `j` is greater than 2.
     #[inline]
     #[must_use]
+    #[track_caller]
     pub fn from_mat3_minor(m: Mat3, i: usize, j: usize) -> Self {
         match (i, j) {
             (0, 0) => Self::from_cols(m.y_axis.yz(), m.z_axis.yz()),
@@ -164,6 +205,7 @@ impl Mat2 {
     /// Panics if `i` or `j` is greater than 2.
     #[inline]
     #[must_use]
+    #[track_caller]
     pub fn from_mat3a_minor(m: Mat3A, i: usize, j: usize) -> Self {
         match (i, j) {
             (0, 0) => Self::from_cols(m.y_axis.yz(), m.z_axis.yz()),
@@ -181,11 +223,14 @@ impl Mat2 {
 
     /// Creates a 2x2 matrix from the first 4 values in `slice`.
     ///
+    /// See also [`Self::from_rows_slice`] when the slice is in row major order.
+    ///
     /// # Panics
     ///
     /// Panics if `slice` is less than 4 elements long.
     #[inline]
     #[must_use]
+    #[track_caller]
     pub const fn from_cols_slice(slice: &[f32]) -> Self {
         Self::new(slice[0], slice[1], slice[2], slice[3])
     }
@@ -196,11 +241,29 @@ impl Mat2 {
     ///
     /// Panics if `slice` is less than 4 elements long.
     #[inline]
+    #[track_caller]
     pub fn write_cols_to_slice(&self, slice: &mut [f32]) {
         slice[0] = self.x_axis.x;
         slice[1] = self.x_axis.y;
         slice[2] = self.y_axis.x;
         slice[3] = self.y_axis.y;
+    }
+
+    /// Creates a 2x2 matrix from the first 4 values in `slice`, stored in row
+    /// major order.
+    ///
+    /// Matrices are stored in column major order, so the slice is permuted into the
+    /// matrix layout. Use [`Self::from_cols_slice`] instead when the slice is already in
+    /// column major order.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `slice` is less than 4 elements long.
+    #[inline]
+    #[must_use]
+    #[track_caller]
+    pub const fn from_rows_slice(slice: &[f32]) -> Self {
+        Self::new(slice[0], slice[2], slice[1], slice[3])
     }
 
     /// Returns the matrix column for the given `index`.
@@ -210,6 +273,7 @@ impl Mat2 {
     /// Panics if `index` is greater than 1.
     #[inline]
     #[must_use]
+    #[track_caller]
     pub fn col(&self, index: usize) -> Vec2 {
         match index {
             0 => self.x_axis,
@@ -224,6 +288,7 @@ impl Mat2 {
     ///
     /// Panics if `index` is greater than 1.
     #[inline]
+    #[track_caller]
     pub fn col_mut(&mut self, index: usize) -> &mut Vec2 {
         match index {
             0 => &mut self.x_axis,
@@ -234,15 +299,43 @@ impl Mat2 {
 
     /// Returns the matrix row for the given `index`.
     ///
+    /// See also [`Self::set_row`] when you need to change the row.
+    ///
     /// # Panics
     ///
     /// Panics if `index` is greater than 1.
     #[inline]
     #[must_use]
+    #[track_caller]
     pub fn row(&self, index: usize) -> Vec2 {
         match index {
             0 => Vec2::new(self.x_axis.x, self.y_axis.x),
             1 => Vec2::new(self.x_axis.y, self.y_axis.y),
+            _ => panic!("index out of bounds"),
+        }
+    }
+
+    /// Sets the matrix row for the given `index`.
+    ///
+    /// Matrices are stored in column major order, so the row is spread across all
+    /// 2 columns and writing it touches every column. Use [`Self::col_mut`]
+    /// instead when you can work with columns. See also [`Self::row`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index` is greater than 1.
+    #[inline]
+    #[track_caller]
+    pub fn set_row(&mut self, index: usize, row: Vec2) {
+        match index {
+            0 => {
+                self.x_axis.x = row.x;
+                self.y_axis.x = row.y;
+            }
+            1 => {
+                self.x_axis.y = row.x;
+                self.y_axis.y = row.y;
+            }
             _ => panic!("index out of bounds"),
         }
     }
@@ -291,49 +384,53 @@ impl Mat2 {
     /// inverted matrix and true is returned.
     ///
     /// If `CHECKED` is false then the determinant is not checked and if it is zero the resulting
-    /// inverted matrix will be invalid. Will panic if the determinant of `self` is zero when
-    /// `glam_assert` is enabled.
+    /// inverted matrix will be invalid. Will panic if the resulting inverted matrix is not finite
+    /// when `glam_assert` is enabled.
     ///
     /// A tuple containing the inverted matrix and a bool is used instead of an option here as
     /// regular Rust enums put the discriminant first which can result in a lot of padding if the
     /// matrix is aligned.
     #[inline(always)]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     fn inverse_checked<const CHECKED: bool>(&self) -> (Self, bool) {
-        let det = self.determinant();
+        let inv_det = 1.0 / self.determinant();
+        let m = Self::new(
+            self.y_axis.y * inv_det,
+            self.x_axis.y * -inv_det,
+            self.y_axis.x * -inv_det,
+            self.x_axis.x * inv_det,
+        );
         if CHECKED {
-            if det == 0.0 {
+            if !m.is_finite() {
                 return (Self::ZERO, false);
             }
         } else {
-            glam_assert!(det != 0.0);
+            glam_assert!(m.is_finite());
         }
-        let inv_det = det.recip();
-        (
-            Self::new(
-                self.y_axis.y * inv_det,
-                self.x_axis.y * -inv_det,
-                self.y_axis.x * -inv_det,
-                self.x_axis.x * inv_det,
-            ),
-            true,
-        )
+        (m, true)
     }
 
     /// Returns the inverse of `self`.
     ///
-    /// If the matrix is not invertible the returned matrix will be invalid.
+    /// If the matrix is not invertible the returned matrix will be invalid. The
+    /// returned matrix will also be invalid if the inverse is not finite, which can
+    /// happen when `self` contains very large or very small values. Use
+    /// [`Self::try_inverse`] or [`Self::inverse_or_zero`] to detect these cases.
     ///
     /// # Panics
     ///
-    /// Will panic if the determinant of `self` is zero when `glam_assert` is enabled.
+    /// Will panic if the resulting inverted matrix is not finite when `glam_assert`
+    /// is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn inverse(&self) -> Self {
         self.inverse_checked::<false>().0
     }
 
-    /// Returns the inverse of `self` or `None` if the matrix is not invertible.
+    /// Returns the inverse of `self` or `None` if the matrix is not invertible, or if
+    /// the inverse is not finite.
     #[inline]
     #[must_use]
     pub fn try_inverse(&self) -> Option<Self> {
@@ -345,7 +442,8 @@ impl Mat2 {
         }
     }
 
-    /// Returns the inverse of `self` or `Mat2::ZERO` if the matrix is not invertible.
+    /// Returns the inverse of `self` or `Mat2::ZERO` if the matrix is not
+    /// invertible, or if the inverse is not finite.
     #[inline]
     #[must_use]
     pub fn inverse_or_zero(&self) -> Self {

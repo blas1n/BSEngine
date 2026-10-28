@@ -81,16 +81,25 @@ pub struct FairMutex<T: ?Sized, R = Spin> {
 /// A guard that provides mutable data access.
 ///
 /// When the guard falls out of scope it will release the lock.
-pub struct FairMutexGuard<'a, T: ?Sized + 'a> {
-    lock: &'a AtomicUsize,
-    data: *mut T,
+pub struct FairMutexGuard<'a, T: ?Sized + 'a, R = Spin> {
+    inner: &'a FairMutex<T, R>,
 }
+
+// SAFETY: Same unsafe impls as `std::sync::Mutex`
+unsafe impl<T: ?Sized + Send, R> Sync for FairMutex<T, R> {}
+unsafe impl<T: ?Sized + Send, R> Send for FairMutex<T, R> {}
+
+// SAFETY: Mutex guards can be thought of as mutable reference to the inner data. In fact, this
+// would be their ideal representation if it were not for the need for the critical section to end
+// *after* the reference is no longer live.
+unsafe impl<T: ?Sized, R> Sync for FairMutexGuard<'_, T, R> where for<'a> &'a mut T: Sync {}
+unsafe impl<T: ?Sized, R> Send for FairMutexGuard<'_, T, R> where for<'a> &'a mut T: Send {}
 
 /// A handle that indicates that we have been trying to acquire the lock for a while.
 ///
 /// This handle is used to prevent starvation.
-pub struct Starvation<'a, T: ?Sized + 'a, R> {
-    lock: &'a FairMutex<T, R>,
+pub struct Starvation<'a, T: ?Sized + 'a, R = Spin> {
+    inner: &'a FairMutex<T, R>,
 }
 
 /// Indicates whether a lock was rejected due to the lock being held by another thread or due to starvation.
@@ -102,13 +111,6 @@ pub enum LockRejectReason {
     /// The lock was rejected due to starvation.
     Starved,
 }
-
-// Same unsafe impls as `std::sync::Mutex`
-unsafe impl<T: ?Sized + Send, R> Sync for FairMutex<T, R> {}
-unsafe impl<T: ?Sized + Send, R> Send for FairMutex<T, R> {}
-
-unsafe impl<T: ?Sized + Sync> Sync for FairMutexGuard<'_, T> {}
-unsafe impl<T: ?Sized + Send> Send for FairMutexGuard<'_, T> {}
 
 impl<T, R> FairMutex<T, R> {
     /// Creates a new [`FairMutex`] wrapping the supplied data.
@@ -194,7 +196,7 @@ impl<T: ?Sized, R: RelaxStrategy> FairMutex<T, R> {
     /// }
     /// ```
     #[inline(always)]
-    pub fn lock(&self) -> FairMutexGuard<T> {
+    pub fn lock(&self) -> FairMutexGuard<'_, T, R> {
         // Can fail to lock even if the spinlock is not locked. May be more efficient than `try_lock`
         // when called in a loop.
         let mut spins = 0;
@@ -216,10 +218,7 @@ impl<T: ?Sized, R: RelaxStrategy> FairMutex<T, R> {
             }
         }
 
-        FairMutexGuard {
-            lock: &self.lock,
-            data: unsafe { &mut *self.data.get() },
-        }
+        FairMutexGuard { inner: self }
     }
 }
 
@@ -262,23 +261,20 @@ impl<T: ?Sized, R> FairMutex<T, R> {
     /// assert!(maybe_guard2.is_none());
     /// ```
     #[inline(always)]
-    pub fn try_lock(&self) -> Option<FairMutexGuard<T>> {
+    pub fn try_lock(&self) -> Option<FairMutexGuard<'_, T, R>> {
         self.try_lock_starver().ok()
     }
 
     /// Tries to lock this [`FairMutex`] and returns a result that indicates whether the lock was
     /// rejected due to a starver or not.
     #[inline(always)]
-    pub fn try_lock_starver(&self) -> Result<FairMutexGuard<T>, LockRejectReason> {
+    pub fn try_lock_starver(&self) -> Result<FairMutexGuard<'_, T, R>, LockRejectReason> {
         match self
             .lock
             .compare_exchange(0, LOCKED, Ordering::Acquire, Ordering::Relaxed)
             .unwrap_or_else(|x| x)
         {
-            0 => Ok(FairMutexGuard {
-                lock: &self.lock,
-                data: unsafe { &mut *self.data.get() },
-            }),
+            0 => Ok(FairMutexGuard { inner: self }),
             LOCKED => Err(LockRejectReason::Locked),
             _ => Err(LockRejectReason::Starved),
         }
@@ -319,12 +315,12 @@ impl<T: ?Sized, R> FairMutex<T, R> {
     /// ```
     pub fn starve(&self) -> Starvation<'_, T, R> {
         // Add a new starver to the state.
-        if self.lock.fetch_add(STARVED, Ordering::Relaxed) > (core::isize::MAX - 1) as usize {
+        if self.lock.fetch_add(STARVED, Ordering::Relaxed) > (isize::MAX - 1) as usize {
             // In the event of a potential lock overflow, abort.
             crate::abort();
         }
 
-        Starvation { lock: self }
+        Starvation { inner: self }
     }
 
     /// Returns a mutable reference to the underlying data.
@@ -342,17 +338,15 @@ impl<T: ?Sized, R> FairMutex<T, R> {
     /// ```
     #[inline(always)]
     pub fn get_mut(&mut self) -> &mut T {
-        // We know statically that there are no other references to `self`, so
-        // there's no need to lock the inner mutex.
-        unsafe { &mut *self.data.get() }
+        self.data.get_mut()
     }
 }
 
 impl<T: ?Sized + fmt::Debug, R> fmt::Debug for FairMutex<T, R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        struct LockWrapper<'a, T: ?Sized + fmt::Debug>(Option<FairMutexGuard<'a, T>>);
+        struct LockWrapper<'a, T: ?Sized + fmt::Debug, R>(Option<FairMutexGuard<'a, T, R>>);
 
-        impl<T: ?Sized + fmt::Debug> fmt::Debug for LockWrapper<'_, T> {
+        impl<T: ?Sized + fmt::Debug, R> fmt::Debug for LockWrapper<'_, T, R> {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 match &self.0 {
                     Some(guard) => fmt::Debug::fmt(guard, f),
@@ -367,7 +361,7 @@ impl<T: ?Sized + fmt::Debug, R> fmt::Debug for FairMutex<T, R> {
     }
 }
 
-impl<T: ?Sized + Default, R> Default for FairMutex<T, R> {
+impl<T: Default, R> Default for FairMutex<T, R> {
     fn default() -> Self {
         Self::new(Default::default())
     }
@@ -379,7 +373,7 @@ impl<T, R> From<T> for FairMutex<T, R> {
     }
 }
 
-impl<'a, T: ?Sized> FairMutexGuard<'a, T> {
+impl<'a, T: ?Sized, R> FairMutexGuard<'a, T, R> {
     /// Leak the lock guard, yielding a mutable reference to the underlying data.
     ///
     /// Note that this function will permanently lock the original [`FairMutex`].
@@ -395,43 +389,43 @@ impl<'a, T: ?Sized> FairMutexGuard<'a, T> {
     #[inline(always)]
     pub fn leak(this: Self) -> &'a mut T {
         // Use ManuallyDrop to avoid stacked-borrow invalidation
-        let mut this = ManuallyDrop::new(this);
+        let this = ManuallyDrop::new(this);
         // We know statically that only we are referencing data
-        unsafe { &mut *this.data }
+        unsafe { &mut *this.inner.data.get() }
     }
 }
 
-impl<'a, T: ?Sized + fmt::Debug> fmt::Debug for FairMutexGuard<'a, T> {
+impl<'a, T: ?Sized + fmt::Debug, R> fmt::Debug for FairMutexGuard<'a, T, R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
     }
 }
 
-impl<'a, T: ?Sized + fmt::Display> fmt::Display for FairMutexGuard<'a, T> {
+impl<'a, T: ?Sized + fmt::Display, R> fmt::Display for FairMutexGuard<'a, T, R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(&**self, f)
     }
 }
 
-impl<'a, T: ?Sized> Deref for FairMutexGuard<'a, T> {
+impl<'a, T: ?Sized, R> Deref for FairMutexGuard<'a, T, R> {
     type Target = T;
     fn deref(&self) -> &T {
         // We know statically that only we are referencing data
-        unsafe { &*self.data }
+        unsafe { &*self.inner.data.get() }
     }
 }
 
-impl<'a, T: ?Sized> DerefMut for FairMutexGuard<'a, T> {
+impl<'a, T: ?Sized, R> DerefMut for FairMutexGuard<'a, T, R> {
     fn deref_mut(&mut self) -> &mut T {
         // We know statically that only we are referencing data
-        unsafe { &mut *self.data }
+        unsafe { &mut *self.inner.data.get() }
     }
 }
 
-impl<'a, T: ?Sized> Drop for FairMutexGuard<'a, T> {
+impl<'a, T: ?Sized, R> Drop for FairMutexGuard<'a, T, R> {
     /// The dropping of the MutexGuard will release the lock it was created from.
     fn drop(&mut self) {
-        self.lock.fetch_and(!LOCKED, Ordering::Release);
+        self.inner.lock.fetch_and(!LOCKED, Ordering::Release);
     }
 }
 
@@ -439,10 +433,10 @@ impl<'a, T: ?Sized, R> Starvation<'a, T, R> {
     /// Attempts the lock the mutex if we are the only starving user.
     ///
     /// This allows another user to lock the mutex if they are starving as well.
-    pub fn try_lock_fair(self) -> Result<FairMutexGuard<'a, T>, Self> {
+    pub fn try_lock_fair(self) -> Result<FairMutexGuard<'a, T, R>, Self> {
         // Try to lock the mutex.
         if self
-            .lock
+            .inner
             .lock
             .compare_exchange(
                 STARVED,
@@ -453,10 +447,7 @@ impl<'a, T: ?Sized, R> Starvation<'a, T, R> {
             .is_ok()
         {
             // We are the only starving user, lock the mutex.
-            Ok(FairMutexGuard {
-                lock: &self.lock.lock,
-                data: self.lock.data.get(),
-            })
+            Ok(FairMutexGuard { inner: self.inner })
         } else {
             // Another user is starving, fail.
             Err(self)
@@ -497,15 +488,12 @@ impl<'a, T: ?Sized, R> Starvation<'a, T, R> {
     ///
     /// # fn wait_for_a_while() {}
     /// ```
-    pub fn try_lock(self) -> Result<FairMutexGuard<'a, T>, Self> {
+    pub fn try_lock(self) -> Result<FairMutexGuard<'a, T, R>, Self> {
         // Try to lock the mutex.
-        if self.lock.lock.fetch_or(LOCKED, Ordering::Acquire) & LOCKED == 0 {
+        if self.inner.lock.fetch_or(LOCKED, Ordering::Acquire) & LOCKED == 0 {
             // We have successfully locked the mutex.
             // By dropping `self` here, we decrement the starvation count.
-            Ok(FairMutexGuard {
-                lock: &self.lock.lock,
-                data: self.lock.data.get(),
-            })
+            Ok(FairMutexGuard { inner: self.inner })
         } else {
             Err(self)
         }
@@ -514,7 +502,7 @@ impl<'a, T: ?Sized, R> Starvation<'a, T, R> {
 
 impl<'a, T: ?Sized, R: RelaxStrategy> Starvation<'a, T, R> {
     /// Locks the mutex.
-    pub fn lock(mut self) -> FairMutexGuard<'a, T> {
+    pub fn lock(mut self) -> FairMutexGuard<'a, T, R> {
         // Try to lock the mutex.
         loop {
             match self.try_lock() {
@@ -523,7 +511,7 @@ impl<'a, T: ?Sized, R: RelaxStrategy> Starvation<'a, T, R> {
             }
 
             // Relax until the lock is released.
-            while self.lock.is_locked() {
+            while self.inner.is_locked() {
                 R::relax();
             }
         }
@@ -533,7 +521,7 @@ impl<'a, T: ?Sized, R: RelaxStrategy> Starvation<'a, T, R> {
 impl<'a, T: ?Sized, R> Drop for Starvation<'a, T, R> {
     fn drop(&mut self) {
         // As there is no longer a user being starved, we decrement the starver count.
-        self.lock.lock.fetch_sub(STARVED, Ordering::Release);
+        self.inner.lock.fetch_sub(STARVED, Ordering::Release);
     }
 }
 

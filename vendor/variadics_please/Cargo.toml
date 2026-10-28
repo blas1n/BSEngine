@@ -10,10 +10,10 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2021"
-rust-version = "1.81.0"
+edition = "2024"
+rust-version = "1.85.0"
 name = "variadics_please"
-version = "1.1.0"
+version = "2.0.0"
 build = false
 exclude = [
     "tools/",
@@ -37,10 +37,29 @@ categories = ["rust-patterns"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/bevyengine/variadics_please"
 
+[package.metadata.docs.rs]
+rustc-args = [
+    "--cfg",
+    "docsrs_dep",
+]
+rustdoc-args = [
+    "-Zunstable-options",
+    "--generate-link-to-definition",
+]
+all-features = true
+cargo-args = [
+    "-Zunstable-options",
+    "-Zrustdoc-scrape-examples",
+]
+
 [package.metadata.example.all_tuples]
-category = "Demonstration"
-description = "Demonstrates the functionality of `all_tuples!`."
 name = "all_tuples"
+description = "Demonstrates the functionality of `all_tuples!`."
+category = "Demonstration"
+
+[features]
+alloc = []
+default = ["alloc"]
 
 [lib]
 name = "variadics_please"
@@ -52,15 +71,54 @@ name = "all_tuples"
 path = "examples/demonstrations/all_tuples.rs"
 doc-scrape-examples = true
 
-[dependencies.proc-macro2]
-version = "1.0"
+[[test]]
+name = "basic_all_tuples"
+path = "tests/basic_all_tuples.rs"
+
+[[test]]
+name = "basic_all_tuples_enumerated"
+path = "tests/basic_all_tuples_enumerated.rs"
+
+[[test]]
+name = "basic_all_tuples_with_size"
+path = "tests/basic_all_tuples_with_size.rs"
+
+[[test]]
+name = "fake_variadic_all_tuples"
+path = "tests/fake_variadic_all_tuples.rs"
+
+[[test]]
+name = "fake_variadic_all_tuples_enumerated"
+path = "tests/fake_variadic_all_tuples_enumerated.rs"
+
+[[test]]
+name = "fake_variadic_all_tuples_with_size"
+path = "tests/fake_variadic_all_tuples_with_size.rs"
 
 [dependencies.quote]
 version = "1.0"
 
-[dependencies.syn]
-version = "2.0"
+[dependencies.unsynn]
+version = "0.3"
 
-[features]
-alloc = []
-default = ["alloc"]
+[dev-dependencies.static_assertions]
+version = "1.1"
+
+[lints.rust]
+missing_docs = "warn"
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "warn"
+unused_qualifications = "warn"
+
+[lints.rust.internal_features]
+level = "allow"
+priority = 0
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+priority = 0
+check-cfg = ["cfg(docsrs_dep)"]
+
+[profile.release]
+opt-level = 3
+lto = true

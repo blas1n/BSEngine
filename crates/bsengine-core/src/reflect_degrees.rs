@@ -107,7 +107,7 @@ mod tests {
     fn reflect_degrees_clone_value_round_trips() {
         let v: ReflectDegrees = 90.0_f32.into();
         let reflected: &dyn Reflect = &v;
-        let cloned = reflected.to_dynamic();
+        let cloned = reflected.to_dynamic().expect("an opaque wrapper is Clone");
         let back = cloned
             .try_downcast::<ReflectDegrees>()
             .expect("downcast failed");

@@ -1,4 +1,6 @@
 #[cfg(not(any(feature = "scalar-math", target_arch = "spirv")))]
+#[allow(dead_code)]
+#[doc(hidden)]
 #[repr(C)]
 pub struct Vec3<T> {
     pub x: T,
@@ -7,6 +9,8 @@ pub struct Vec3<T> {
 }
 
 #[cfg(not(any(feature = "scalar-math", target_arch = "spirv")))]
+#[allow(dead_code)]
+#[doc(hidden)]
 #[repr(C)]
 pub struct Vec4<T> {
     pub x: T,
@@ -16,12 +20,15 @@ pub struct Vec4<T> {
 }
 
 #[cfg(not(any(feature = "scalar-math", target_arch = "spirv")))]
+#[allow(dead_code)]
+#[doc(hidden)]
 #[repr(C)]
 pub struct Cols2<V> {
     pub x_axis: V,
     pub y_axis: V,
 }
 
+#[doc(hidden)]
 #[repr(C)]
 pub struct Cols3<V> {
     pub x_axis: V,
@@ -29,6 +36,7 @@ pub struct Cols3<V> {
     pub z_axis: V,
 }
 
+#[doc(hidden)]
 #[repr(C)]
 pub struct Cols4<V> {
     pub x_axis: V,

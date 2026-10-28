@@ -54,8 +54,8 @@ cargo build --all
 # Two invocations, not one. bsengine-editor shares a process with V8 badly:
 # run concatenated with the rest of the workspace, its reflection-heavy suite
 # overflows the stack. Split, both pass.
-cargo test --workspace --exclude bsengine-editor   # ~2,780 tests (2026-10-27)
-cargo test -p bsengine-editor                      # 351 tests (2026-10-27)
+cargo test --workspace --exclude bsengine-editor   # ~2,808 tests (2026-10-29)
+cargo test -p bsengine-editor                      # 356 tests (2026-10-29)
 
 cargo +nightly fmt --all                           # nightly, see below
 cargo clippy --all-targets                         # --all-targets matters
@@ -123,8 +123,8 @@ cargo run -p bsengine-catalog --bin catalog -- --check;      echo "CATALOG=$?"
 cargo clippy --all-targets;                                  echo "CLIPPY=$?"
 ```
 
-Current baselines: catalog **79 components / 287 ops**; clippy has a noisy
-non-zero warning baseline, so compare *counts*, not presence.
+Current baselines: catalog **100 components / 308 ops**; clippy **0 warnings**
+(`--all-targets`), so any warning is new.
 
 ### A green `cargo test` is not a green CI
 
@@ -132,6 +132,10 @@ non-zero warning baseline, so compare *counts*, not presence.
   the runtime binary. Nothing in `cargo test` touches them, so a script or
   scene change can pass the whole suite and break every recording. Run the
   loop locally before pushing changes to scripts, scenes or physics tuning.
+  CI also replays them with `--shuffle-seed 1` and `2` (Ubuntu): every
+  schedule's *unordered* systems run in a shuffled order, so a recording that
+  passes only because two systems happen to run the same way round fails
+  there. Add the flag to a local replay to reproduce one.
 - **`cargo test` is fail-fast.** One failing crate means later crates never
   run — their results are absent, not passing.
 
@@ -160,6 +164,11 @@ These all produced a green run while being wrong. They are worth memorising.
   in the wrong worktree still prints `ok`; it just runs a different branch's
   tests. Print `pwd` with every measurement, and treat "same as baseline" as
   suspicious when you expected a change.
+- **A query over every entity sees the resources** (Bevy 0.19+). Each resource
+  is an entity marked `IsResource`, and only `Disabled` is filtered by default,
+  so a query whose terms are all `Entity` / `EntityRef` / `Option<…>` visits
+  them: the editor once listed twenty-odd nameless entities and ClearScene
+  despawned the engine's resources. Give such a query `Without<IsResource>`.
 - **GPU tests must share one device.** Each `request_device` costs real VRAM;
   a dozen device-creating tests make Windows CI fail with
   `RequestDeviceError(OutOfMemory)` — *in whichever test asked last*, so the

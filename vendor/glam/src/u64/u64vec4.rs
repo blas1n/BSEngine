@@ -33,10 +33,10 @@ use crate::USizeVec4;
 
 use core::fmt;
 use core::iter::{Product, Sum};
-use core::{f32, ops::*};
+use core::ops::*;
 
-#[cfg(feature = "zerocopy")]
-use zerocopy_derive::*;
+#[cfg(feature = "zerocopy-08")]
+use zerocopy_derive_08::*;
 
 /// Creates a 4-dimensional vector.
 #[inline(always)]
@@ -49,7 +49,7 @@ pub const fn u64vec4(x: u64, y: u64, z: u64, w: u64) -> U64Vec4 {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Pod, bytemuck::Zeroable))]
 #[cfg_attr(
-    feature = "zerocopy",
+    feature = "zerocopy-08",
     derive(FromBytes, Immutable, IntoBytes, KnownLayout)
 )]
 #[cfg_attr(feature = "cuda", repr(align(16)))]
@@ -101,15 +101,7 @@ impl U64Vec4 {
     #[inline]
     #[must_use]
     pub const fn splat(v: u64) -> Self {
-        Self {
-            x: v,
-
-            y: v,
-
-            z: v,
-
-            w: v,
-        }
+        Self::new(v, v, v, v)
     }
 
     /// Returns a vector containing each element of `self` modified by a mapping function `f`.
@@ -130,12 +122,12 @@ impl U64Vec4 {
     #[inline]
     #[must_use]
     pub fn select(mask: BVec4, if_true: Self, if_false: Self) -> Self {
-        Self {
-            x: if mask.test(0) { if_true.x } else { if_false.x },
-            y: if mask.test(1) { if_true.y } else { if_false.y },
-            z: if mask.test(2) { if_true.z } else { if_false.z },
-            w: if mask.test(3) { if_true.w } else { if_false.w },
-        }
+        Self::new(
+            if mask.test(0) { if_true.x } else { if_false.x },
+            if mask.test(1) { if_true.y } else { if_false.y },
+            if mask.test(2) { if_true.z } else { if_false.z },
+            if mask.test(3) { if_true.w } else { if_false.w },
+        )
     }
 
     /// Creates a new vector from an array.
@@ -159,6 +151,7 @@ impl U64Vec4 {
     /// Panics if `slice` is less than 4 elements long.
     #[inline]
     #[must_use]
+    #[track_caller]
     pub const fn from_slice(slice: &[u64]) -> Self {
         assert!(slice.len() >= 4);
         Self::new(slice[0], slice[1], slice[2], slice[3])
@@ -170,6 +163,7 @@ impl U64Vec4 {
     ///
     /// Panics if `slice` is less than 4 elements long.
     #[inline]
+    #[track_caller]
     pub fn write_to_slice(self, slice: &mut [u64]) {
         slice[..4].copy_from_slice(&self.to_array());
     }
@@ -236,12 +230,12 @@ impl U64Vec4 {
     #[inline]
     #[must_use]
     pub fn min(self, rhs: Self) -> Self {
-        Self {
-            x: if self.x < rhs.x { self.x } else { rhs.x },
-            y: if self.y < rhs.y { self.y } else { rhs.y },
-            z: if self.z < rhs.z { self.z } else { rhs.z },
-            w: if self.w < rhs.w { self.w } else { rhs.w },
-        }
+        Self::new(
+            if self.x < rhs.x { self.x } else { rhs.x },
+            if self.y < rhs.y { self.y } else { rhs.y },
+            if self.z < rhs.z { self.z } else { rhs.z },
+            if self.w < rhs.w { self.w } else { rhs.w },
+        )
     }
 
     /// Returns a vector containing the maximum values for each element of `self` and `rhs`.
@@ -250,12 +244,12 @@ impl U64Vec4 {
     #[inline]
     #[must_use]
     pub fn max(self, rhs: Self) -> Self {
-        Self {
-            x: if self.x > rhs.x { self.x } else { rhs.x },
-            y: if self.y > rhs.y { self.y } else { rhs.y },
-            z: if self.z > rhs.z { self.z } else { rhs.z },
-            w: if self.w > rhs.w { self.w } else { rhs.w },
-        }
+        Self::new(
+            if self.x > rhs.x { self.x } else { rhs.x },
+            if self.y > rhs.y { self.y } else { rhs.y },
+            if self.z > rhs.z { self.z } else { rhs.z },
+            if self.w > rhs.w { self.w } else { rhs.w },
+        )
     }
 
     /// Component-wise clamping of values, similar to [`u64::clamp`].
@@ -267,6 +261,7 @@ impl U64Vec4 {
     /// Will panic if `min` is greater than `max` when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn clamp(self, min: Self, max: Self) -> Self {
         glam_assert!(min.cmple(max).all(), "clamp: expected min <= max");
         self.max(min).min(max)
@@ -887,12 +882,12 @@ impl Div for U64Vec4 {
     type Output = Self;
     #[inline]
     fn div(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.div(rhs.x),
-            y: self.y.div(rhs.y),
-            z: self.z.div(rhs.z),
-            w: self.w.div(rhs.w),
-        }
+        Self::new(
+            self.x.div(rhs.x),
+            self.y.div(rhs.y),
+            self.z.div(rhs.z),
+            self.w.div(rhs.w),
+        )
     }
 }
 
@@ -941,12 +936,12 @@ impl Div<u64> for U64Vec4 {
     type Output = Self;
     #[inline]
     fn div(self, rhs: u64) -> Self {
-        Self {
-            x: self.x.div(rhs),
-            y: self.y.div(rhs),
-            z: self.z.div(rhs),
-            w: self.w.div(rhs),
-        }
+        Self::new(
+            self.x.div(rhs),
+            self.y.div(rhs),
+            self.z.div(rhs),
+            self.w.div(rhs),
+        )
     }
 }
 
@@ -995,12 +990,12 @@ impl Div<U64Vec4> for u64 {
     type Output = U64Vec4;
     #[inline]
     fn div(self, rhs: U64Vec4) -> U64Vec4 {
-        U64Vec4 {
-            x: self.div(rhs.x),
-            y: self.div(rhs.y),
-            z: self.div(rhs.z),
-            w: self.div(rhs.w),
-        }
+        U64Vec4::new(
+            self.div(rhs.x),
+            self.div(rhs.y),
+            self.div(rhs.z),
+            self.div(rhs.w),
+        )
     }
 }
 
@@ -1032,12 +1027,12 @@ impl Mul for U64Vec4 {
     type Output = Self;
     #[inline]
     fn mul(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.mul(rhs.x),
-            y: self.y.mul(rhs.y),
-            z: self.z.mul(rhs.z),
-            w: self.w.mul(rhs.w),
-        }
+        Self::new(
+            self.x.mul(rhs.x),
+            self.y.mul(rhs.y),
+            self.z.mul(rhs.z),
+            self.w.mul(rhs.w),
+        )
     }
 }
 
@@ -1086,12 +1081,12 @@ impl Mul<u64> for U64Vec4 {
     type Output = Self;
     #[inline]
     fn mul(self, rhs: u64) -> Self {
-        Self {
-            x: self.x.mul(rhs),
-            y: self.y.mul(rhs),
-            z: self.z.mul(rhs),
-            w: self.w.mul(rhs),
-        }
+        Self::new(
+            self.x.mul(rhs),
+            self.y.mul(rhs),
+            self.z.mul(rhs),
+            self.w.mul(rhs),
+        )
     }
 }
 
@@ -1140,12 +1135,12 @@ impl Mul<U64Vec4> for u64 {
     type Output = U64Vec4;
     #[inline]
     fn mul(self, rhs: U64Vec4) -> U64Vec4 {
-        U64Vec4 {
-            x: self.mul(rhs.x),
-            y: self.mul(rhs.y),
-            z: self.mul(rhs.z),
-            w: self.mul(rhs.w),
-        }
+        U64Vec4::new(
+            self.mul(rhs.x),
+            self.mul(rhs.y),
+            self.mul(rhs.z),
+            self.mul(rhs.w),
+        )
     }
 }
 
@@ -1177,12 +1172,12 @@ impl Add for U64Vec4 {
     type Output = Self;
     #[inline]
     fn add(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.add(rhs.x),
-            y: self.y.add(rhs.y),
-            z: self.z.add(rhs.z),
-            w: self.w.add(rhs.w),
-        }
+        Self::new(
+            self.x.add(rhs.x),
+            self.y.add(rhs.y),
+            self.z.add(rhs.z),
+            self.w.add(rhs.w),
+        )
     }
 }
 
@@ -1231,12 +1226,12 @@ impl Add<u64> for U64Vec4 {
     type Output = Self;
     #[inline]
     fn add(self, rhs: u64) -> Self {
-        Self {
-            x: self.x.add(rhs),
-            y: self.y.add(rhs),
-            z: self.z.add(rhs),
-            w: self.w.add(rhs),
-        }
+        Self::new(
+            self.x.add(rhs),
+            self.y.add(rhs),
+            self.z.add(rhs),
+            self.w.add(rhs),
+        )
     }
 }
 
@@ -1285,12 +1280,12 @@ impl Add<U64Vec4> for u64 {
     type Output = U64Vec4;
     #[inline]
     fn add(self, rhs: U64Vec4) -> U64Vec4 {
-        U64Vec4 {
-            x: self.add(rhs.x),
-            y: self.add(rhs.y),
-            z: self.add(rhs.z),
-            w: self.add(rhs.w),
-        }
+        U64Vec4::new(
+            self.add(rhs.x),
+            self.add(rhs.y),
+            self.add(rhs.z),
+            self.add(rhs.w),
+        )
     }
 }
 
@@ -1322,12 +1317,12 @@ impl Sub for U64Vec4 {
     type Output = Self;
     #[inline]
     fn sub(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.sub(rhs.x),
-            y: self.y.sub(rhs.y),
-            z: self.z.sub(rhs.z),
-            w: self.w.sub(rhs.w),
-        }
+        Self::new(
+            self.x.sub(rhs.x),
+            self.y.sub(rhs.y),
+            self.z.sub(rhs.z),
+            self.w.sub(rhs.w),
+        )
     }
 }
 
@@ -1376,12 +1371,12 @@ impl Sub<u64> for U64Vec4 {
     type Output = Self;
     #[inline]
     fn sub(self, rhs: u64) -> Self {
-        Self {
-            x: self.x.sub(rhs),
-            y: self.y.sub(rhs),
-            z: self.z.sub(rhs),
-            w: self.w.sub(rhs),
-        }
+        Self::new(
+            self.x.sub(rhs),
+            self.y.sub(rhs),
+            self.z.sub(rhs),
+            self.w.sub(rhs),
+        )
     }
 }
 
@@ -1430,12 +1425,12 @@ impl Sub<U64Vec4> for u64 {
     type Output = U64Vec4;
     #[inline]
     fn sub(self, rhs: U64Vec4) -> U64Vec4 {
-        U64Vec4 {
-            x: self.sub(rhs.x),
-            y: self.sub(rhs.y),
-            z: self.sub(rhs.z),
-            w: self.sub(rhs.w),
-        }
+        U64Vec4::new(
+            self.sub(rhs.x),
+            self.sub(rhs.y),
+            self.sub(rhs.z),
+            self.sub(rhs.w),
+        )
     }
 }
 
@@ -1467,12 +1462,12 @@ impl Rem for U64Vec4 {
     type Output = Self;
     #[inline]
     fn rem(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.rem(rhs.x),
-            y: self.y.rem(rhs.y),
-            z: self.z.rem(rhs.z),
-            w: self.w.rem(rhs.w),
-        }
+        Self::new(
+            self.x.rem(rhs.x),
+            self.y.rem(rhs.y),
+            self.z.rem(rhs.z),
+            self.w.rem(rhs.w),
+        )
     }
 }
 
@@ -1521,12 +1516,12 @@ impl Rem<u64> for U64Vec4 {
     type Output = Self;
     #[inline]
     fn rem(self, rhs: u64) -> Self {
-        Self {
-            x: self.x.rem(rhs),
-            y: self.y.rem(rhs),
-            z: self.z.rem(rhs),
-            w: self.w.rem(rhs),
-        }
+        Self::new(
+            self.x.rem(rhs),
+            self.y.rem(rhs),
+            self.z.rem(rhs),
+            self.w.rem(rhs),
+        )
     }
 }
 
@@ -1575,12 +1570,12 @@ impl Rem<U64Vec4> for u64 {
     type Output = U64Vec4;
     #[inline]
     fn rem(self, rhs: U64Vec4) -> U64Vec4 {
-        U64Vec4 {
-            x: self.rem(rhs.x),
-            y: self.rem(rhs.y),
-            z: self.rem(rhs.z),
-            w: self.rem(rhs.w),
-        }
+        U64Vec4::new(
+            self.rem(rhs.x),
+            self.rem(rhs.y),
+            self.rem(rhs.z),
+            self.rem(rhs.w),
+        )
     }
 }
 
@@ -1666,12 +1661,7 @@ impl Not for U64Vec4 {
     type Output = Self;
     #[inline]
     fn not(self) -> Self {
-        Self {
-            x: self.x.not(),
-            y: self.y.not(),
-            z: self.z.not(),
-            w: self.w.not(),
-        }
+        Self::new(self.x.not(), self.y.not(), self.z.not(), self.w.not())
     }
 }
 
@@ -1687,12 +1677,12 @@ impl BitAnd for U64Vec4 {
     type Output = Self;
     #[inline]
     fn bitand(self, rhs: Self) -> Self::Output {
-        Self {
-            x: self.x.bitand(rhs.x),
-            y: self.y.bitand(rhs.y),
-            z: self.z.bitand(rhs.z),
-            w: self.w.bitand(rhs.w),
-        }
+        Self::new(
+            self.x.bitand(rhs.x),
+            self.y.bitand(rhs.y),
+            self.z.bitand(rhs.z),
+            self.w.bitand(rhs.w),
+        )
     }
 }
 
@@ -1738,12 +1728,12 @@ impl BitOr for U64Vec4 {
     type Output = Self;
     #[inline]
     fn bitor(self, rhs: Self) -> Self::Output {
-        Self {
-            x: self.x.bitor(rhs.x),
-            y: self.y.bitor(rhs.y),
-            z: self.z.bitor(rhs.z),
-            w: self.w.bitor(rhs.w),
-        }
+        Self::new(
+            self.x.bitor(rhs.x),
+            self.y.bitor(rhs.y),
+            self.z.bitor(rhs.z),
+            self.w.bitor(rhs.w),
+        )
     }
 }
 
@@ -1789,12 +1779,12 @@ impl BitXor for U64Vec4 {
     type Output = Self;
     #[inline]
     fn bitxor(self, rhs: Self) -> Self::Output {
-        Self {
-            x: self.x.bitxor(rhs.x),
-            y: self.y.bitxor(rhs.y),
-            z: self.z.bitxor(rhs.z),
-            w: self.w.bitxor(rhs.w),
-        }
+        Self::new(
+            self.x.bitxor(rhs.x),
+            self.y.bitxor(rhs.y),
+            self.z.bitxor(rhs.z),
+            self.w.bitxor(rhs.w),
+        )
     }
 }
 
@@ -1840,12 +1830,12 @@ impl BitAnd<u64> for U64Vec4 {
     type Output = Self;
     #[inline]
     fn bitand(self, rhs: u64) -> Self::Output {
-        Self {
-            x: self.x.bitand(rhs),
-            y: self.y.bitand(rhs),
-            z: self.z.bitand(rhs),
-            w: self.w.bitand(rhs),
-        }
+        Self::new(
+            self.x.bitand(rhs),
+            self.y.bitand(rhs),
+            self.z.bitand(rhs),
+            self.w.bitand(rhs),
+        )
     }
 }
 
@@ -1891,12 +1881,12 @@ impl BitOr<u64> for U64Vec4 {
     type Output = Self;
     #[inline]
     fn bitor(self, rhs: u64) -> Self::Output {
-        Self {
-            x: self.x.bitor(rhs),
-            y: self.y.bitor(rhs),
-            z: self.z.bitor(rhs),
-            w: self.w.bitor(rhs),
-        }
+        Self::new(
+            self.x.bitor(rhs),
+            self.y.bitor(rhs),
+            self.z.bitor(rhs),
+            self.w.bitor(rhs),
+        )
     }
 }
 
@@ -1942,12 +1932,12 @@ impl BitXor<u64> for U64Vec4 {
     type Output = Self;
     #[inline]
     fn bitxor(self, rhs: u64) -> Self::Output {
-        Self {
-            x: self.x.bitxor(rhs),
-            y: self.y.bitxor(rhs),
-            z: self.z.bitxor(rhs),
-            w: self.w.bitxor(rhs),
-        }
+        Self::new(
+            self.x.bitxor(rhs),
+            self.y.bitxor(rhs),
+            self.z.bitxor(rhs),
+            self.w.bitxor(rhs),
+        )
     }
 }
 
@@ -1993,12 +1983,12 @@ impl Shl<i8> for U64Vec4 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: i8) -> Self::Output {
-        Self {
-            x: self.x.shl(rhs),
-            y: self.y.shl(rhs),
-            z: self.z.shl(rhs),
-            w: self.w.shl(rhs),
-        }
+        Self::new(
+            self.x.shl(rhs),
+            self.y.shl(rhs),
+            self.z.shl(rhs),
+            self.w.shl(rhs),
+        )
     }
 }
 
@@ -2044,12 +2034,12 @@ impl Shr<i8> for U64Vec4 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: i8) -> Self::Output {
-        Self {
-            x: self.x.shr(rhs),
-            y: self.y.shr(rhs),
-            z: self.z.shr(rhs),
-            w: self.w.shr(rhs),
-        }
+        Self::new(
+            self.x.shr(rhs),
+            self.y.shr(rhs),
+            self.z.shr(rhs),
+            self.w.shr(rhs),
+        )
     }
 }
 
@@ -2095,12 +2085,12 @@ impl Shl<i16> for U64Vec4 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: i16) -> Self::Output {
-        Self {
-            x: self.x.shl(rhs),
-            y: self.y.shl(rhs),
-            z: self.z.shl(rhs),
-            w: self.w.shl(rhs),
-        }
+        Self::new(
+            self.x.shl(rhs),
+            self.y.shl(rhs),
+            self.z.shl(rhs),
+            self.w.shl(rhs),
+        )
     }
 }
 
@@ -2146,12 +2136,12 @@ impl Shr<i16> for U64Vec4 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: i16) -> Self::Output {
-        Self {
-            x: self.x.shr(rhs),
-            y: self.y.shr(rhs),
-            z: self.z.shr(rhs),
-            w: self.w.shr(rhs),
-        }
+        Self::new(
+            self.x.shr(rhs),
+            self.y.shr(rhs),
+            self.z.shr(rhs),
+            self.w.shr(rhs),
+        )
     }
 }
 
@@ -2197,12 +2187,12 @@ impl Shl<i32> for U64Vec4 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: i32) -> Self::Output {
-        Self {
-            x: self.x.shl(rhs),
-            y: self.y.shl(rhs),
-            z: self.z.shl(rhs),
-            w: self.w.shl(rhs),
-        }
+        Self::new(
+            self.x.shl(rhs),
+            self.y.shl(rhs),
+            self.z.shl(rhs),
+            self.w.shl(rhs),
+        )
     }
 }
 
@@ -2248,12 +2238,12 @@ impl Shr<i32> for U64Vec4 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: i32) -> Self::Output {
-        Self {
-            x: self.x.shr(rhs),
-            y: self.y.shr(rhs),
-            z: self.z.shr(rhs),
-            w: self.w.shr(rhs),
-        }
+        Self::new(
+            self.x.shr(rhs),
+            self.y.shr(rhs),
+            self.z.shr(rhs),
+            self.w.shr(rhs),
+        )
     }
 }
 
@@ -2299,12 +2289,12 @@ impl Shl<i64> for U64Vec4 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: i64) -> Self::Output {
-        Self {
-            x: self.x.shl(rhs),
-            y: self.y.shl(rhs),
-            z: self.z.shl(rhs),
-            w: self.w.shl(rhs),
-        }
+        Self::new(
+            self.x.shl(rhs),
+            self.y.shl(rhs),
+            self.z.shl(rhs),
+            self.w.shl(rhs),
+        )
     }
 }
 
@@ -2350,12 +2340,12 @@ impl Shr<i64> for U64Vec4 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: i64) -> Self::Output {
-        Self {
-            x: self.x.shr(rhs),
-            y: self.y.shr(rhs),
-            z: self.z.shr(rhs),
-            w: self.w.shr(rhs),
-        }
+        Self::new(
+            self.x.shr(rhs),
+            self.y.shr(rhs),
+            self.z.shr(rhs),
+            self.w.shr(rhs),
+        )
     }
 }
 
@@ -2401,12 +2391,12 @@ impl Shl<u8> for U64Vec4 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: u8) -> Self::Output {
-        Self {
-            x: self.x.shl(rhs),
-            y: self.y.shl(rhs),
-            z: self.z.shl(rhs),
-            w: self.w.shl(rhs),
-        }
+        Self::new(
+            self.x.shl(rhs),
+            self.y.shl(rhs),
+            self.z.shl(rhs),
+            self.w.shl(rhs),
+        )
     }
 }
 
@@ -2452,12 +2442,12 @@ impl Shr<u8> for U64Vec4 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: u8) -> Self::Output {
-        Self {
-            x: self.x.shr(rhs),
-            y: self.y.shr(rhs),
-            z: self.z.shr(rhs),
-            w: self.w.shr(rhs),
-        }
+        Self::new(
+            self.x.shr(rhs),
+            self.y.shr(rhs),
+            self.z.shr(rhs),
+            self.w.shr(rhs),
+        )
     }
 }
 
@@ -2503,12 +2493,12 @@ impl Shl<u16> for U64Vec4 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: u16) -> Self::Output {
-        Self {
-            x: self.x.shl(rhs),
-            y: self.y.shl(rhs),
-            z: self.z.shl(rhs),
-            w: self.w.shl(rhs),
-        }
+        Self::new(
+            self.x.shl(rhs),
+            self.y.shl(rhs),
+            self.z.shl(rhs),
+            self.w.shl(rhs),
+        )
     }
 }
 
@@ -2554,12 +2544,12 @@ impl Shr<u16> for U64Vec4 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: u16) -> Self::Output {
-        Self {
-            x: self.x.shr(rhs),
-            y: self.y.shr(rhs),
-            z: self.z.shr(rhs),
-            w: self.w.shr(rhs),
-        }
+        Self::new(
+            self.x.shr(rhs),
+            self.y.shr(rhs),
+            self.z.shr(rhs),
+            self.w.shr(rhs),
+        )
     }
 }
 
@@ -2605,12 +2595,12 @@ impl Shl<u32> for U64Vec4 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: u32) -> Self::Output {
-        Self {
-            x: self.x.shl(rhs),
-            y: self.y.shl(rhs),
-            z: self.z.shl(rhs),
-            w: self.w.shl(rhs),
-        }
+        Self::new(
+            self.x.shl(rhs),
+            self.y.shl(rhs),
+            self.z.shl(rhs),
+            self.w.shl(rhs),
+        )
     }
 }
 
@@ -2656,12 +2646,12 @@ impl Shr<u32> for U64Vec4 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: u32) -> Self::Output {
-        Self {
-            x: self.x.shr(rhs),
-            y: self.y.shr(rhs),
-            z: self.z.shr(rhs),
-            w: self.w.shr(rhs),
-        }
+        Self::new(
+            self.x.shr(rhs),
+            self.y.shr(rhs),
+            self.z.shr(rhs),
+            self.w.shr(rhs),
+        )
     }
 }
 
@@ -2707,12 +2697,12 @@ impl Shl<u64> for U64Vec4 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: u64) -> Self::Output {
-        Self {
-            x: self.x.shl(rhs),
-            y: self.y.shl(rhs),
-            z: self.z.shl(rhs),
-            w: self.w.shl(rhs),
-        }
+        Self::new(
+            self.x.shl(rhs),
+            self.y.shl(rhs),
+            self.z.shl(rhs),
+            self.w.shl(rhs),
+        )
     }
 }
 
@@ -2758,12 +2748,12 @@ impl Shr<u64> for U64Vec4 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: u64) -> Self::Output {
-        Self {
-            x: self.x.shr(rhs),
-            y: self.y.shr(rhs),
-            z: self.z.shr(rhs),
-            w: self.w.shr(rhs),
-        }
+        Self::new(
+            self.x.shr(rhs),
+            self.y.shr(rhs),
+            self.z.shr(rhs),
+            self.w.shr(rhs),
+        )
     }
 }
 
@@ -2810,12 +2800,12 @@ impl Shl<IVec4> for U64Vec4 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: IVec4) -> Self {
-        Self {
-            x: self.x.shl(rhs.x),
-            y: self.y.shl(rhs.y),
-            z: self.z.shl(rhs.z),
-            w: self.w.shl(rhs.w),
-        }
+        Self::new(
+            self.x.shl(rhs.x),
+            self.y.shl(rhs.y),
+            self.z.shl(rhs.z),
+            self.w.shl(rhs.w),
+        )
     }
 }
 
@@ -2851,12 +2841,12 @@ impl Shr<IVec4> for U64Vec4 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: IVec4) -> Self {
-        Self {
-            x: self.x.shr(rhs.x),
-            y: self.y.shr(rhs.y),
-            z: self.z.shr(rhs.z),
-            w: self.w.shr(rhs.w),
-        }
+        Self::new(
+            self.x.shr(rhs.x),
+            self.y.shr(rhs.y),
+            self.z.shr(rhs.z),
+            self.w.shr(rhs.w),
+        )
     }
 }
 
@@ -2892,12 +2882,12 @@ impl Shl<UVec4> for U64Vec4 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: UVec4) -> Self {
-        Self {
-            x: self.x.shl(rhs.x),
-            y: self.y.shl(rhs.y),
-            z: self.z.shl(rhs.z),
-            w: self.w.shl(rhs.w),
-        }
+        Self::new(
+            self.x.shl(rhs.x),
+            self.y.shl(rhs.y),
+            self.z.shl(rhs.z),
+            self.w.shl(rhs.w),
+        )
     }
 }
 
@@ -2933,12 +2923,12 @@ impl Shr<UVec4> for U64Vec4 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: UVec4) -> Self {
-        Self {
-            x: self.x.shr(rhs.x),
-            y: self.y.shr(rhs.y),
-            z: self.z.shr(rhs.z),
-            w: self.w.shr(rhs.w),
-        }
+        Self::new(
+            self.x.shr(rhs.x),
+            self.y.shr(rhs.y),
+            self.z.shr(rhs.z),
+            self.w.shr(rhs.w),
+        )
     }
 }
 
@@ -2972,6 +2962,7 @@ impl Shr<UVec4> for &U64Vec4 {
 impl Index<usize> for U64Vec4 {
     type Output = u64;
     #[inline]
+    #[track_caller]
     fn index(&self, index: usize) -> &Self::Output {
         match index {
             0 => &self.x,
@@ -2985,6 +2976,7 @@ impl Index<usize> for U64Vec4 {
 
 impl IndexMut<usize> for U64Vec4 {
     #[inline]
+    #[track_caller]
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         match index {
             0 => &mut self.x,

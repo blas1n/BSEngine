@@ -3,14 +3,14 @@
 use crate::{DMat2, DMat3, DVec2};
 use core::ops::{Deref, DerefMut, Mul, MulAssign};
 
-#[cfg(feature = "zerocopy")]
-use zerocopy_derive::*;
+#[cfg(feature = "zerocopy-08")]
+use zerocopy_derive_08::*;
 
 /// A 2D affine transform, which can represent translation, rotation, scaling and shear.
 #[derive(Copy, Clone)]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Pod, bytemuck::Zeroable))]
 #[cfg_attr(
-    feature = "zerocopy",
+    feature = "zerocopy-08",
     derive(FromBytes, Immutable, IntoBytes, KnownLayout)
 )]
 #[repr(C)]
@@ -229,6 +229,7 @@ impl DAffine2 {
     /// vector contains any zero elements when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn to_scale_angle_translation(&self) -> (DVec2, f64, DVec2) {
         use crate::f64::math;
         let det = self.matrix2.determinant();
@@ -298,8 +299,13 @@ impl DAffine2 {
     /// Return the inverse of this transform.
     ///
     /// Note that if the transform is not invertible the result will be invalid.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if the resulting inverted matrix is not finite when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn inverse(&self) -> Self {
         let matrix2 = self.matrix2.inverse();
         // transform negative translation by the matrix inverse:

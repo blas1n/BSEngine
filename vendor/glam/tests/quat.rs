@@ -80,6 +80,10 @@ macro_rules! impl_quat_tests {
             let y5 = $quat::from_rotation_axes(m0.x_axis, m0.y_axis, m0.z_axis);
             assert_approx_eq!(y0, y5);
 
+            should_glam_assert!({ $quat::from_rotation_axes($vec3::ONE, $vec3::Y, $vec3::Z) });
+            should_glam_assert!({ $quat::from_rotation_axes($vec3::X, $vec3::ONE, $vec3::Z) });
+            should_glam_assert!({ $quat::from_rotation_axes($vec3::X, $vec3::Y, $vec3::ONE) });
+
             let x0 = $quat::from_rotation_x(pitch);
             assert!(x0.is_normalized());
             let (axis, angle) = x0.to_axis_angle();
@@ -150,6 +154,12 @@ macro_rules! impl_quat_tests {
 
             should_glam_assert!({ ($quat::IDENTITY * 2.0).inverse() });
             should_glam_assert!({ $quat::from_axis_angle($vec3::ZERO, 0.0) });
+            should_glam_assert!({
+                $quat::from_mat3(&$mat3::from_cols($vec3::ONE, $vec3::Y, $vec3::Z))
+            });
+            should_glam_assert!({
+                $quat::from_mat4(&$mat4::from_cols($vec4::ONE, $vec4::Y, $vec4::Z, $vec4::W))
+            });
         });
 
         glam_test!(test_from_scaled_axis, {
@@ -176,30 +186,8 @@ macro_rules! impl_quat_tests {
                     assert!(($quat::from_scaled_axis(v).to_scaled_axis() - v).length() < 1e-6,);
                 }
             }
-        });
 
-        glam_test!(test_quat_look_at, {
-            let eye = $vec3::new(0.0, 0.0, -5.0);
-            let center = $vec3::new(0.0, 0.0, 0.0);
-            let up = $vec3::new(1.0, 0.0, 0.0);
-
-            let point = $vec3::new(1.0, 0.0, 0.0);
-
-            let lh = $quat::look_at_lh(eye, center, up);
-            let rh = $quat::look_at_rh(eye, center, up);
-            assert_approx_eq!(lh * point, $vec3::new(0.0, 1.0, 0.0));
-            assert_approx_eq!(rh * point, $vec3::new(0.0, 1.0, 0.0));
-
-            let dir = (center - eye).normalize();
-            let lh = $quat::look_to_lh(dir, up);
-            let rh = $quat::look_to_rh(dir, up);
-            assert_approx_eq!(lh * point, $vec3::new(0.0, 1.0, 0.0));
-            assert_approx_eq!(rh * point, $vec3::new(0.0, 1.0, 0.0));
-
-            should_glam_assert!({ $quat::look_to_lh($vec3::ONE, $vec3::ZERO) });
-            should_glam_assert!({ $quat::look_to_lh($vec3::ZERO, $vec3::ONE) });
-            should_glam_assert!({ $quat::look_to_rh($vec3::ONE, $vec3::ZERO) });
-            should_glam_assert!({ $quat::look_to_rh($vec3::ZERO, $vec3::ONE) });
+            should_glam_assert!({ $quat::from_scaled_axis($vec3::NAN) });
         });
 
         glam_test!(test_mul_vec3, {
@@ -296,6 +284,9 @@ macro_rules! impl_quat_tests {
             assert_approx_eq!(q1.angle_between(q6), TAU - TAU * 0.94, eps);
             assert_approx_eq!((q5 * q1).angle_between(q5 * q6), TAU - TAU * 0.94, eps);
             assert_approx_eq!((q1 * q5).angle_between(q6 * q5), TAU - TAU * 0.94, eps);
+
+            should_glam_assert!({ ($quat::IDENTITY * 2.0).angle_between($quat::IDENTITY) });
+            should_glam_assert!({ $quat::IDENTITY.angle_between($quat::IDENTITY * 0.5) });
         });
 
         glam_test!(test_lerp, {
@@ -371,6 +362,94 @@ macro_rules! impl_quat_tests {
             assert!(s.is_normalized());
         });
 
+        glam_test!(test_slerp_long, {
+            let q0 = $quat::from_rotation_y(deg(0.0));
+            assert_approx_eq!(q0, q0.slerp_long(q0, 0.0));
+            assert_approx_eq!(q0, q0.slerp_long(q0, 1.0));
+
+            // When dot > 0, slerp_long matches slerp (same path)
+            let q1 = $quat::from_rotation_y(deg(90.0));
+            assert_approx_eq!(q0.slerp(q1, 0.5), q0.slerp_long(q1, 0.5), 1.0e-3);
+            assert_approx_eq!(
+                $quat::from_rotation_y(deg(45.0)),
+                q0.slerp_long(q1, 0.5),
+                1.0e-3
+            );
+
+            // When dot < 0, slerp_long takes the longer arc
+            let q2 = $quat::from_rotation_y(deg(200.0));
+            // slerp takes the short path (80° arc), slerp_long takes the long path (100° arc)
+            let mid_slerp = q0.slerp(q2, 0.5);
+            let mid_long = q0.slerp_long(q2, 0.5);
+            assert_approx_eq!($quat::from_rotation_y(deg(100.0)), mid_long, 1.0e-3);
+            let dist_slerp = q0.angle_between(mid_slerp);
+            let dist_long = q0.angle_between(mid_long);
+            assert!(dist_long > dist_slerp);
+
+            // Edge cases
+            let s1 = q0.slerp_long($quat::from_rotation_x(core::$t::consts::TAU), 1.);
+            assert!(s1.is_finite());
+            assert!(s1.is_normalized());
+
+            let s2 = q0.slerp_long($quat::from_rotation_x(-core::$t::consts::TAU), 1.);
+            assert!(s2.is_finite());
+            assert!(s2.is_normalized());
+
+            let s3 = q0.slerp_long($quat::from_rotation_x(core::$t::consts::PI), 1.);
+            assert!(s3.is_finite());
+            assert!(s3.is_normalized());
+
+            let s4 = q0.slerp_long($quat::from_rotation_x(-core::$t::consts::PI), 1.);
+            assert!(s4.is_finite());
+            assert!(s4.is_normalized());
+
+            should_glam_assert!({ $quat::slerp_long($quat::IDENTITY * 2.0, $quat::IDENTITY, 1.0) });
+            should_glam_assert!({ $quat::slerp_long($quat::IDENTITY, $quat::IDENTITY * 0.5, 1.0) });
+        });
+
+        glam_test!(test_slerp_long_constant_speed, {
+            let step = 0.01;
+            let mut s = 0.0;
+            while s <= 1.0 {
+                let q0 = $quat::from_rotation_y(deg(0.0));
+                let q1 = $quat::from_rotation_y(deg(90.0));
+                let result = q0.slerp_long(q1, s);
+                assert_approx_eq!($quat::from_rotation_y(deg(s * 90.0)), result, 1.0e-3);
+                assert!(result.is_normalized());
+                s += step;
+            }
+        });
+
+        glam_test!(test_slerp_extrapolate, {
+            let q0 = $quat::from_rotation_y(deg(0.0));
+            let q1 = $quat::from_rotation_y(deg(90.0));
+            let result = q0.slerp(q1, -0.5);
+            assert_approx_eq!($quat::from_rotation_y(deg(-45.0)), result, 1.0e-3);
+            assert!(result.is_normalized());
+            let result = q0.slerp(q1, 1.5);
+            assert_approx_eq!($quat::from_rotation_y(deg(135.0)), result, 1.0e-3);
+            assert!(result.is_normalized());
+        });
+
+        glam_test!(test_slerp_near_parallel, {
+            let q0 = $quat::from_rotation_y(deg(0.0));
+            let angle = 0.5;
+            let q1 = $quat::from_rotation_y(deg(angle));
+            let mid = q0.slerp(q1, 0.5);
+            assert_approx_eq!($quat::from_rotation_y(deg(angle * 0.5)), mid, 1.0e-6);
+            assert!(mid.is_normalized());
+        });
+
+        glam_test!(test_slerp_long_near_antipodal, {
+            let q0 = $quat::IDENTITY;
+            let q1 = $quat::from_rotation_y(deg(354.8));
+            let mid = q0.slerp_long(q1, 0.5);
+            assert!(mid.is_finite());
+            assert!(mid.is_normalized());
+            let short = q0.slerp(q1, 0.5);
+            assert!(q0.angle_between(mid) > q0.angle_between(short));
+        });
+
         glam_test!(test_rotate_towards, {
             use core::$t::consts::{FRAC_PI_2, FRAC_PI_4};
             let eps = 10.0 * $t::EPSILON as f32;
@@ -402,7 +481,14 @@ macro_rules! impl_quat_tests {
             // Small angles
             let q0 = $quat::from_euler(EulerRot::YXZ, 0.0, 0.0, 0.0);
             let q1 = $quat::from_euler(EulerRot::YXZ, 1e-4, 0.0, 0.0);
-            assert_eq!(q1, q0.rotate_towards(q1, FRAC_PI_2))
+            assert_eq!(q1, q0.rotate_towards(q1, FRAC_PI_2));
+
+            should_glam_assert!({
+                ($quat::IDENTITY * 2.0).rotate_towards($quat::IDENTITY, FRAC_PI_2)
+            });
+            should_glam_assert!({
+                $quat::IDENTITY.rotate_towards($quat::IDENTITY * 0.5, FRAC_PI_2)
+            });
         });
 
         glam_test!(test_fmt, {
@@ -429,6 +515,7 @@ macro_rules! impl_quat_tests {
             assert_eq!(q, q * identity);
             assert_eq!(q, identity * q);
             assert_eq!(identity, $quat::default());
+            assert_eq!(identity, -&-identity);
         });
 
         glam_test!(test_slice, {
@@ -729,6 +816,9 @@ mod quat {
         assert_approx_eq!(Vec3A::Y, qrz.mul_vec3a(Vec3A::X));
         assert_approx_eq!(Vec3A::Y, -qrz * Vec3A::X);
         assert_approx_eq!(Vec3A::Y, qrz.neg().mul_vec3a(Vec3A::X));
+
+        should_glam_assert!({ (Quat::IDENTITY * 0.5).mul_vec3a(Vec3A::X) });
+        should_glam_assert!({ (Quat::IDENTITY * 0.5) * Vec3A::X });
         assert_approx_eq!(-Vec3A::X, qrz * Vec3A::Y);
         assert_approx_eq!(-Vec3A::X, qrz.mul_vec3a(Vec3A::Y));
         assert_approx_eq!(-Vec3A::X, -qrz * Vec3A::Y);
@@ -784,6 +874,27 @@ mod quat {
         assert_approx_eq!(-Vec3A::X, mrzx.mul_vec3a(Vec3A::Y));
     });
 
+    glam_test!(test_from_affine3a, {
+        use glam::Affine3A;
+        let q = Quat::from_rotation_y(deg(30.0));
+        let a = Affine3A::from_quat(q);
+        assert_approx_eq!(q, Quat::from_affine3a(&a));
+
+        should_glam_assert!({
+            Quat::from_affine3a(&Affine3A::from_mat3(Mat3::from_cols(
+                Vec3::ONE,
+                Vec3::Y,
+                Vec3::Z,
+            )))
+        });
+    });
+
+    glam_test!(test_quat_deref_mut, {
+        let mut q = Quat::from_rotation_y(deg(30.0));
+        q.x = 42.0;
+        assert_eq!(q.x, 42.0);
+    });
+
     glam_test!(test_from_mat3a, {
         use glam::Mat3A;
         let yaw = deg(30.0);
@@ -792,6 +903,10 @@ mod quat {
         assert_approx_eq!(y0, y1);
         let y2 = Quat::from_mat3a(&Mat3A::from_quat(y0));
         assert_approx_eq!(y0, y2);
+
+        should_glam_assert!({
+            Quat::from_mat3a(&Mat3A::from_cols(Vec3A::ONE, Vec3A::Y, Vec3A::Z))
+        });
     });
 
     #[cfg(feature = "f64")]
@@ -807,6 +922,26 @@ mod quat {
         );
     });
 
+    glam_test!(test_is_near_identity_threshold, {
+        let threshold_w = 0.999_999_f32;
+        let inside_w = f32::from_bits(threshold_w.to_bits() + 1);
+        let threshold = quat(
+            (1.0 - threshold_w * threshold_w).sqrt(),
+            0.0,
+            0.0,
+            threshold_w,
+        );
+        let inside = quat((1.0 - inside_w * inside_w).sqrt(), 0.0, 0.0, inside_w);
+
+        assert!(threshold.is_normalized());
+        assert!(inside.is_normalized());
+        assert!(!threshold.is_near_identity());
+        assert!(inside.is_near_identity());
+        assert!(!(-threshold).is_near_identity());
+        assert!((-inside).is_near_identity());
+        assert!(!Quat::NAN.is_near_identity());
+    });
+
     impl_quat_tests!(f32, quat, Mat3, Mat4, Quat, Vec2, Vec3, Vec4);
 }
 
@@ -820,6 +955,26 @@ mod dquat {
         use std::mem;
         assert_eq!(32, mem::size_of::<DQuat>());
         assert_eq!(mem::align_of::<f64>(), mem::align_of::<DQuat>());
+    });
+
+    glam_test!(test_is_near_identity_threshold, {
+        let threshold_w = 0.999_999_999_999_99_f64;
+        let inside_w = f64::from_bits(threshold_w.to_bits() + 1);
+        let threshold = dquat(
+            (1.0 - threshold_w * threshold_w).sqrt(),
+            0.0,
+            0.0,
+            threshold_w,
+        );
+        let inside = dquat((1.0 - inside_w * inside_w).sqrt(), 0.0, 0.0, inside_w);
+
+        assert!(threshold.is_normalized());
+        assert!(inside.is_normalized());
+        assert!(!threshold.is_near_identity());
+        assert!(inside.is_near_identity());
+        assert!(!(-threshold).is_near_identity());
+        assert!((-inside).is_near_identity());
+        assert!(!DQuat::NAN.is_near_identity());
     });
 
     impl_quat_tests!(f64, dquat, DMat3, DMat4, DQuat, DVec2, DVec3, DVec4);

@@ -10416,7 +10416,13 @@ impl WgpuSurface {
                                                 value.as_mut(),
                                                 type_registry_guard.as_deref(),
                                             );
-                                            to_apply.push((type_path.clone(), value.to_dynamic()));
+                                            // Since Bevy 0.20 a value that holds an opaque type which
+                                            // cannot be cloned fails here instead of panicking; the edit
+                                            // is dropped, with a warning, rather than half-applied.
+                                            match value.to_dynamic() {
+                                                Ok(edited) => to_apply.push((type_path.clone(), edited)),
+                                                Err(e) => tracing::warn!("inspector: cannot apply the edit to {type_path}: {e}"),
+                                            }
                                         }
                                         ui.separator();
                                     }

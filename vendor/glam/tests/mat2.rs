@@ -8,6 +8,16 @@ macro_rules! impl_mat2_tests {
         const ARRAY1X4: [$t; 4] = [1.0, 2.0, 3.0, 4.0];
         const ARRAY3X3: [[$t; 3]; 3] = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]];
 
+        glam_test!(test_inverse_tiny_entries, {
+            // A subnormal determinant makes `1.0 / det` overflow to infinity; the
+            // fallible inverse reports this instead of returning inf.
+            let t: $t = $t::MIN_POSITIVE / 8.0;
+            let m = $mat2::from_diagonal($vec2::new(t, 1.0));
+            assert!(m.try_inverse().is_none());
+            assert_eq!(m.inverse_or_zero(), $mat2::ZERO);
+            should_glam_assert!({ m.inverse() });
+        });
+
         glam_test!(test_const, {
             const M0: $mat2 = $mat2::from_cols($newvec2(1.0, 2.0), $newvec2(3.0, 4.0));
             const M1: $mat2 = $mat2::from_cols_array(&ARRAY1X4);
@@ -62,6 +72,46 @@ macro_rules! impl_mat2_tests {
                 m.col_mut(2);
             });
             should_panic!({ $mat2::ZERO.row(2) });
+        });
+
+        glam_test!(test_mat2_rows, {
+            // ARRAY1X4 is column major, so the same matrix in row major order is:
+            const ROW_MAJOR: [$t; 4] = [1.0, 3.0, 2.0, 4.0];
+
+            let m = $mat2::from_cols_array(&ARRAY1X4);
+
+            assert_eq!(ROW_MAJOR, m.to_rows_array());
+            assert_eq!(m, $mat2::from_rows_array(&ROW_MAJOR));
+            assert_eq!(m, $mat2::from_rows_slice(&ROW_MAJOR));
+            assert_eq!(m, $mat2::from_rows(m.row(0), m.row(1)));
+
+            // rows are just the columns of the transpose
+            assert_eq!(m.to_rows_array(), m.transpose().to_cols_array());
+            assert_eq!(
+                $mat2::from_rows_array(&ARRAY1X4),
+                $mat2::from_cols_array(&ARRAY1X4).transpose()
+            );
+
+            let mut m2 = $mat2::ZERO;
+            m2.set_row(0, m.row(0));
+            m2.set_row(1, m.row(1));
+            assert_eq!(m, m2);
+
+            // these are all const
+            const M0: $mat2 = $mat2::from_rows($newvec2(1.0, 3.0), $newvec2(2.0, 4.0));
+            const M1: $mat2 = $mat2::from_rows_array(&ROW_MAJOR);
+            const M2: $mat2 = $mat2::from_rows_slice(&ROW_MAJOR);
+            const A: [$t; 4] = M0.to_rows_array();
+            assert_eq!(ARRAY1X4, M0.to_cols_array());
+            assert_eq!(ARRAY1X4, M1.to_cols_array());
+            assert_eq!(ARRAY1X4, M2.to_cols_array());
+            assert_eq!(ROW_MAJOR, A);
+
+            should_panic!({
+                let mut m = $mat2::ZERO;
+                m.set_row(2, $vec2::ZERO);
+            });
+            should_panic!({ $mat2::from_rows_slice(&[0.0; 3]) });
         });
 
         glam_test!(test_mat2_from_axes, {
@@ -313,12 +363,18 @@ macro_rules! impl_mat2_tests {
             let mut m1 = $mat2::IDENTITY;
             m1 *= &m0;
             assert_eq!(m0, m1);
+
+            assert_eq!(m0, (-m0).abs());
         });
 
         glam_test!(test_mat2_fmt, {
             let a = $mat2::from_cols_array_2d(&ARRAY2X2);
             assert_eq!(format!("{}", a), "[[1, 2], [3, 4]]");
             assert_eq!(format!("{:.2}", a), "[[1.00, 2.00], [3.00, 4.00]]");
+            let debug = format!("{:?}", a);
+            assert!(debug.starts_with(&format!("{} {{", stringify!($mat2))));
+            assert!(debug.contains("x_axis"));
+            assert!(debug.contains("y_axis"));
         });
 
         glam_test!(test_mat2_to_from_slice, {

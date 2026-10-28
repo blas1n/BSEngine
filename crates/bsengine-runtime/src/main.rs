@@ -185,20 +185,41 @@ fn main() {
                 // so CI replays at a fraction of the pixels; see
                 // `test_mode::SIMULATION_FRAME_DIVISOR` for what that saves.
                 let mut frame_divisor = 1;
-                match args.next().as_deref() {
-                    Some("--frame-divisor") => {
-                        frame_divisor = args
-                            .next()
-                            .and_then(|n| n.parse::<u32>().ok())
-                            .filter(|&n| n >= 1)
-                            .unwrap_or_else(|| {
-                                panic!("--frame-divisor requires a whole number of at least 1")
-                            });
+                // `--shuffle-seed N` runs every schedule's unordered systems
+                // in an order shuffled by N (Bevy's `shuffle_seed`): a
+                // recording that passes only in the default order is relying
+                // on an ordering nothing declares. See
+                // `test_mode::run_replay_mode`.
+                let mut shuffle_seed = None;
+                while let Some(flag) = args.next() {
+                    match flag.as_str() {
+                        "--frame-divisor" => {
+                            frame_divisor = args
+                                .next()
+                                .and_then(|n| n.parse::<u32>().ok())
+                                .filter(|&n| n >= 1)
+                                .unwrap_or_else(|| {
+                                    panic!("--frame-divisor requires a whole number of at least 1")
+                                });
+                        }
+                        "--shuffle-seed" => {
+                            shuffle_seed = Some(
+                                args.next()
+                                    .and_then(|n| n.parse::<u64>().ok())
+                                    .unwrap_or_else(|| {
+                                        panic!("--shuffle-seed requires a whole number")
+                                    }),
+                            );
+                        }
+                        other => panic!("unknown argument after the replay log: {other}"),
                     }
-                    Some(other) => panic!("unknown argument after the replay log: {other}"),
-                    None => {}
                 }
-                let passed = test_mode::run_replay_mode(&project_dir, &log_path, frame_divisor);
+                let passed = test_mode::run_replay_mode(
+                    &project_dir,
+                    &log_path,
+                    frame_divisor,
+                    shuffle_seed,
+                );
                 std::process::exit(if passed { 0 } else { 1 });
             }
             Some(other) => panic!("unknown argument after project dir: {other}"),

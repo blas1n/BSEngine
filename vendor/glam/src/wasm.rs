@@ -7,6 +7,27 @@ pub const fn v128_from_f32x4(a: [f32; 4]) -> v128 {
     f32x4(a[0], a[1], a[2], a[3])
 }
 
+const PS_SIGN_MASK: v128 = v128_from_f32x4([-0.0; 4]);
+
+/// Rounds each lane to the nearest integer, rounding half-way cases away from
+/// zero, matching `f32::round`.
+#[inline]
+pub(crate) fn f32x4_round(v: v128) -> v128 {
+    // `f32x4_nearest` rounds half-way cases to the nearest even integer. The two
+    // roundings only differ on half-way cases that it rounded towards zero, and
+    // those are exactly the lanes where the difference between the input and the
+    // result is `0.5` with the sign of the input, so move those one further away
+    // from zero.
+    let rounded = f32x4_nearest(v);
+    let sign = v128_and(v, PS_SIGN_MASK);
+    let ties_down = f32x4_eq(f32x4_sub(v, rounded), v128_or(f32x4_splat(0.5), sign));
+    v128_bitselect(
+        f32x4_add(rounded, v128_or(f32x4_splat(1.0), sign)),
+        rounded,
+        ties_down,
+    )
+}
+
 /// Calculates the vector 3 dot product and returns answer in x lane of v128.
 #[inline(always)]
 pub(crate) fn dot3_in_x(lhs: v128, rhs: v128) -> v128 {
@@ -20,11 +41,7 @@ pub(crate) fn dot3_in_x(lhs: v128, rhs: v128) -> v128 {
 /// Calculates the vector 4 dot product and returns answer in x lane of v128.
 #[inline(always)]
 pub(crate) fn dot4_in_x(lhs: v128, rhs: v128) -> v128 {
-    let x2_y2_z2_w2 = f32x4_mul(lhs, rhs);
-    let z2_w2_0_0 = i32x4_shuffle::<2, 3, 0, 0>(x2_y2_z2_w2, x2_y2_z2_w2);
-    let x2z2_y2w2_0_0 = f32x4_add(x2_y2_z2_w2, z2_w2_0_0);
-    let y2w2_0_0_0 = i32x4_shuffle::<1, 0, 0, 0>(x2z2_y2w2_0_0, x2z2_y2w2_0_0);
-    f32x4_add(x2z2_y2w2_0_0, y2w2_0_0_0)
+    dot4_into_v128(lhs, rhs)
 }
 
 #[inline]
@@ -43,8 +60,11 @@ pub(crate) fn dot4(lhs: v128, rhs: v128) -> f32 {
     f32x4_extract_lane::<0>(dot4_in_x(lhs, rhs))
 }
 
+/// Calculates the vector 4 dot product and returns the answer in every lane of v128.
 #[inline]
 pub(crate) fn dot4_into_v128(lhs: v128, rhs: v128) -> v128 {
-    let dot_in_x = dot4_in_x(lhs, rhs);
-    i32x4_shuffle::<0, 0, 0, 0>(dot_in_x, dot_in_x)
+    let products = f32x4_mul(lhs, rhs);
+    // Sum both pairs in every lane, keeping the (x + z) + (y + w) grouping.
+    let pairs = f32x4_add(products, i32x4_shuffle::<2, 3, 0, 1>(products, products));
+    f32x4_add(pairs, i32x4_shuffle::<1, 0, 3, 2>(pairs, pairs))
 }

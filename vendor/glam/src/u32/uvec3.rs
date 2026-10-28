@@ -31,10 +31,10 @@ use crate::USizeVec3;
 
 use core::fmt;
 use core::iter::{Product, Sum};
-use core::{f32, ops::*};
+use core::ops::*;
 
-#[cfg(feature = "zerocopy")]
-use zerocopy_derive::*;
+#[cfg(feature = "zerocopy-08")]
+use zerocopy_derive_08::*;
 
 /// Creates a 3-dimensional vector.
 #[inline(always)]
@@ -47,7 +47,7 @@ pub const fn uvec3(x: u32, y: u32, z: u32) -> UVec3 {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Pod, bytemuck::Zeroable))]
 #[cfg_attr(
-    feature = "zerocopy",
+    feature = "zerocopy-08",
     derive(FromBytes, Immutable, IntoBytes, KnownLayout)
 )]
 #[repr(C)]
@@ -94,7 +94,7 @@ impl UVec3 {
     #[inline]
     #[must_use]
     pub const fn splat(v: u32) -> Self {
-        Self { x: v, y: v, z: v }
+        Self::new(v, v, v)
     }
 
     /// Returns a vector containing each element of `self` modified by a mapping function `f`.
@@ -115,11 +115,11 @@ impl UVec3 {
     #[inline]
     #[must_use]
     pub fn select(mask: BVec3, if_true: Self, if_false: Self) -> Self {
-        Self {
-            x: if mask.test(0) { if_true.x } else { if_false.x },
-            y: if mask.test(1) { if_true.y } else { if_false.y },
-            z: if mask.test(2) { if_true.z } else { if_false.z },
-        }
+        Self::new(
+            if mask.test(0) { if_true.x } else { if_false.x },
+            if mask.test(1) { if_true.y } else { if_false.y },
+            if mask.test(2) { if_true.z } else { if_false.z },
+        )
     }
 
     /// Creates a new vector from an array.
@@ -143,6 +143,7 @@ impl UVec3 {
     /// Panics if `slice` is less than 3 elements long.
     #[inline]
     #[must_use]
+    #[track_caller]
     pub const fn from_slice(slice: &[u32]) -> Self {
         assert!(slice.len() >= 3);
         Self::new(slice[0], slice[1], slice[2])
@@ -154,6 +155,7 @@ impl UVec3 {
     ///
     /// Panics if `slice` is less than 3 elements long.
     #[inline]
+    #[track_caller]
     pub fn write_to_slice(self, slice: &mut [u32]) {
         slice[..3].copy_from_slice(&self.to_array());
     }
@@ -163,11 +165,7 @@ impl UVec3 {
     #[inline]
     #[must_use]
     pub(crate) fn from_vec4(v: UVec4) -> Self {
-        Self {
-            x: v.x,
-            y: v.y,
-            z: v.z,
-        }
+        Self::new(v.x, v.y, v.z)
     }
 
     /// Creates a 4D vector from `self` and the given `w` value.
@@ -229,11 +227,11 @@ impl UVec3 {
     #[inline]
     #[must_use]
     pub fn cross(self, rhs: Self) -> Self {
-        Self {
-            x: self.y * rhs.z - rhs.y * self.z,
-            y: self.z * rhs.x - rhs.z * self.x,
-            z: self.x * rhs.y - rhs.x * self.y,
-        }
+        Self::new(
+            self.y * rhs.z - rhs.y * self.z,
+            self.z * rhs.x - rhs.z * self.x,
+            self.x * rhs.y - rhs.x * self.y,
+        )
     }
 
     /// Returns a vector containing the minimum values for each element of `self` and `rhs`.
@@ -242,11 +240,11 @@ impl UVec3 {
     #[inline]
     #[must_use]
     pub fn min(self, rhs: Self) -> Self {
-        Self {
-            x: if self.x < rhs.x { self.x } else { rhs.x },
-            y: if self.y < rhs.y { self.y } else { rhs.y },
-            z: if self.z < rhs.z { self.z } else { rhs.z },
-        }
+        Self::new(
+            if self.x < rhs.x { self.x } else { rhs.x },
+            if self.y < rhs.y { self.y } else { rhs.y },
+            if self.z < rhs.z { self.z } else { rhs.z },
+        )
     }
 
     /// Returns a vector containing the maximum values for each element of `self` and `rhs`.
@@ -255,11 +253,11 @@ impl UVec3 {
     #[inline]
     #[must_use]
     pub fn max(self, rhs: Self) -> Self {
-        Self {
-            x: if self.x > rhs.x { self.x } else { rhs.x },
-            y: if self.y > rhs.y { self.y } else { rhs.y },
-            z: if self.z > rhs.z { self.z } else { rhs.z },
-        }
+        Self::new(
+            if self.x > rhs.x { self.x } else { rhs.x },
+            if self.y > rhs.y { self.y } else { rhs.y },
+            if self.z > rhs.z { self.z } else { rhs.z },
+        )
     }
 
     /// Component-wise clamping of values, similar to [`u32::clamp`].
@@ -271,6 +269,7 @@ impl UVec3 {
     /// Will panic if `min` is greater than `max` when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn clamp(self, min: Self, max: Self) -> Self {
         glam_assert!(min.cmple(max).all(), "clamp: expected min <= max");
         self.max(min).min(max)
@@ -815,11 +814,7 @@ impl Div for UVec3 {
     type Output = Self;
     #[inline]
     fn div(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.div(rhs.x),
-            y: self.y.div(rhs.y),
-            z: self.z.div(rhs.z),
-        }
+        Self::new(self.x.div(rhs.x), self.y.div(rhs.y), self.z.div(rhs.z))
     }
 }
 
@@ -867,11 +862,7 @@ impl Div<u32> for UVec3 {
     type Output = Self;
     #[inline]
     fn div(self, rhs: u32) -> Self {
-        Self {
-            x: self.x.div(rhs),
-            y: self.y.div(rhs),
-            z: self.z.div(rhs),
-        }
+        Self::new(self.x.div(rhs), self.y.div(rhs), self.z.div(rhs))
     }
 }
 
@@ -919,11 +910,7 @@ impl Div<UVec3> for u32 {
     type Output = UVec3;
     #[inline]
     fn div(self, rhs: UVec3) -> UVec3 {
-        UVec3 {
-            x: self.div(rhs.x),
-            y: self.div(rhs.y),
-            z: self.div(rhs.z),
-        }
+        UVec3::new(self.div(rhs.x), self.div(rhs.y), self.div(rhs.z))
     }
 }
 
@@ -955,11 +942,7 @@ impl Mul for UVec3 {
     type Output = Self;
     #[inline]
     fn mul(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.mul(rhs.x),
-            y: self.y.mul(rhs.y),
-            z: self.z.mul(rhs.z),
-        }
+        Self::new(self.x.mul(rhs.x), self.y.mul(rhs.y), self.z.mul(rhs.z))
     }
 }
 
@@ -1007,11 +990,7 @@ impl Mul<u32> for UVec3 {
     type Output = Self;
     #[inline]
     fn mul(self, rhs: u32) -> Self {
-        Self {
-            x: self.x.mul(rhs),
-            y: self.y.mul(rhs),
-            z: self.z.mul(rhs),
-        }
+        Self::new(self.x.mul(rhs), self.y.mul(rhs), self.z.mul(rhs))
     }
 }
 
@@ -1059,11 +1038,7 @@ impl Mul<UVec3> for u32 {
     type Output = UVec3;
     #[inline]
     fn mul(self, rhs: UVec3) -> UVec3 {
-        UVec3 {
-            x: self.mul(rhs.x),
-            y: self.mul(rhs.y),
-            z: self.mul(rhs.z),
-        }
+        UVec3::new(self.mul(rhs.x), self.mul(rhs.y), self.mul(rhs.z))
     }
 }
 
@@ -1095,11 +1070,7 @@ impl Add for UVec3 {
     type Output = Self;
     #[inline]
     fn add(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.add(rhs.x),
-            y: self.y.add(rhs.y),
-            z: self.z.add(rhs.z),
-        }
+        Self::new(self.x.add(rhs.x), self.y.add(rhs.y), self.z.add(rhs.z))
     }
 }
 
@@ -1147,11 +1118,7 @@ impl Add<u32> for UVec3 {
     type Output = Self;
     #[inline]
     fn add(self, rhs: u32) -> Self {
-        Self {
-            x: self.x.add(rhs),
-            y: self.y.add(rhs),
-            z: self.z.add(rhs),
-        }
+        Self::new(self.x.add(rhs), self.y.add(rhs), self.z.add(rhs))
     }
 }
 
@@ -1199,11 +1166,7 @@ impl Add<UVec3> for u32 {
     type Output = UVec3;
     #[inline]
     fn add(self, rhs: UVec3) -> UVec3 {
-        UVec3 {
-            x: self.add(rhs.x),
-            y: self.add(rhs.y),
-            z: self.add(rhs.z),
-        }
+        UVec3::new(self.add(rhs.x), self.add(rhs.y), self.add(rhs.z))
     }
 }
 
@@ -1235,11 +1198,7 @@ impl Sub for UVec3 {
     type Output = Self;
     #[inline]
     fn sub(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.sub(rhs.x),
-            y: self.y.sub(rhs.y),
-            z: self.z.sub(rhs.z),
-        }
+        Self::new(self.x.sub(rhs.x), self.y.sub(rhs.y), self.z.sub(rhs.z))
     }
 }
 
@@ -1287,11 +1246,7 @@ impl Sub<u32> for UVec3 {
     type Output = Self;
     #[inline]
     fn sub(self, rhs: u32) -> Self {
-        Self {
-            x: self.x.sub(rhs),
-            y: self.y.sub(rhs),
-            z: self.z.sub(rhs),
-        }
+        Self::new(self.x.sub(rhs), self.y.sub(rhs), self.z.sub(rhs))
     }
 }
 
@@ -1339,11 +1294,7 @@ impl Sub<UVec3> for u32 {
     type Output = UVec3;
     #[inline]
     fn sub(self, rhs: UVec3) -> UVec3 {
-        UVec3 {
-            x: self.sub(rhs.x),
-            y: self.sub(rhs.y),
-            z: self.sub(rhs.z),
-        }
+        UVec3::new(self.sub(rhs.x), self.sub(rhs.y), self.sub(rhs.z))
     }
 }
 
@@ -1375,11 +1326,7 @@ impl Rem for UVec3 {
     type Output = Self;
     #[inline]
     fn rem(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.rem(rhs.x),
-            y: self.y.rem(rhs.y),
-            z: self.z.rem(rhs.z),
-        }
+        Self::new(self.x.rem(rhs.x), self.y.rem(rhs.y), self.z.rem(rhs.z))
     }
 }
 
@@ -1427,11 +1374,7 @@ impl Rem<u32> for UVec3 {
     type Output = Self;
     #[inline]
     fn rem(self, rhs: u32) -> Self {
-        Self {
-            x: self.x.rem(rhs),
-            y: self.y.rem(rhs),
-            z: self.z.rem(rhs),
-        }
+        Self::new(self.x.rem(rhs), self.y.rem(rhs), self.z.rem(rhs))
     }
 }
 
@@ -1479,11 +1422,7 @@ impl Rem<UVec3> for u32 {
     type Output = UVec3;
     #[inline]
     fn rem(self, rhs: UVec3) -> UVec3 {
-        UVec3 {
-            x: self.rem(rhs.x),
-            y: self.rem(rhs.y),
-            z: self.rem(rhs.z),
-        }
+        UVec3::new(self.rem(rhs.x), self.rem(rhs.y), self.rem(rhs.z))
     }
 }
 
@@ -1569,11 +1508,7 @@ impl Not for UVec3 {
     type Output = Self;
     #[inline]
     fn not(self) -> Self {
-        Self {
-            x: self.x.not(),
-            y: self.y.not(),
-            z: self.z.not(),
-        }
+        Self::new(self.x.not(), self.y.not(), self.z.not())
     }
 }
 
@@ -1589,11 +1524,11 @@ impl BitAnd for UVec3 {
     type Output = Self;
     #[inline]
     fn bitand(self, rhs: Self) -> Self::Output {
-        Self {
-            x: self.x.bitand(rhs.x),
-            y: self.y.bitand(rhs.y),
-            z: self.z.bitand(rhs.z),
-        }
+        Self::new(
+            self.x.bitand(rhs.x),
+            self.y.bitand(rhs.y),
+            self.z.bitand(rhs.z),
+        )
     }
 }
 
@@ -1639,11 +1574,11 @@ impl BitOr for UVec3 {
     type Output = Self;
     #[inline]
     fn bitor(self, rhs: Self) -> Self::Output {
-        Self {
-            x: self.x.bitor(rhs.x),
-            y: self.y.bitor(rhs.y),
-            z: self.z.bitor(rhs.z),
-        }
+        Self::new(
+            self.x.bitor(rhs.x),
+            self.y.bitor(rhs.y),
+            self.z.bitor(rhs.z),
+        )
     }
 }
 
@@ -1689,11 +1624,11 @@ impl BitXor for UVec3 {
     type Output = Self;
     #[inline]
     fn bitxor(self, rhs: Self) -> Self::Output {
-        Self {
-            x: self.x.bitxor(rhs.x),
-            y: self.y.bitxor(rhs.y),
-            z: self.z.bitxor(rhs.z),
-        }
+        Self::new(
+            self.x.bitxor(rhs.x),
+            self.y.bitxor(rhs.y),
+            self.z.bitxor(rhs.z),
+        )
     }
 }
 
@@ -1739,11 +1674,7 @@ impl BitAnd<u32> for UVec3 {
     type Output = Self;
     #[inline]
     fn bitand(self, rhs: u32) -> Self::Output {
-        Self {
-            x: self.x.bitand(rhs),
-            y: self.y.bitand(rhs),
-            z: self.z.bitand(rhs),
-        }
+        Self::new(self.x.bitand(rhs), self.y.bitand(rhs), self.z.bitand(rhs))
     }
 }
 
@@ -1789,11 +1720,7 @@ impl BitOr<u32> for UVec3 {
     type Output = Self;
     #[inline]
     fn bitor(self, rhs: u32) -> Self::Output {
-        Self {
-            x: self.x.bitor(rhs),
-            y: self.y.bitor(rhs),
-            z: self.z.bitor(rhs),
-        }
+        Self::new(self.x.bitor(rhs), self.y.bitor(rhs), self.z.bitor(rhs))
     }
 }
 
@@ -1839,11 +1766,7 @@ impl BitXor<u32> for UVec3 {
     type Output = Self;
     #[inline]
     fn bitxor(self, rhs: u32) -> Self::Output {
-        Self {
-            x: self.x.bitxor(rhs),
-            y: self.y.bitxor(rhs),
-            z: self.z.bitxor(rhs),
-        }
+        Self::new(self.x.bitxor(rhs), self.y.bitxor(rhs), self.z.bitxor(rhs))
     }
 }
 
@@ -1889,11 +1812,7 @@ impl Shl<i8> for UVec3 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: i8) -> Self::Output {
-        Self {
-            x: self.x.shl(rhs),
-            y: self.y.shl(rhs),
-            z: self.z.shl(rhs),
-        }
+        Self::new(self.x.shl(rhs), self.y.shl(rhs), self.z.shl(rhs))
     }
 }
 
@@ -1939,11 +1858,7 @@ impl Shr<i8> for UVec3 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: i8) -> Self::Output {
-        Self {
-            x: self.x.shr(rhs),
-            y: self.y.shr(rhs),
-            z: self.z.shr(rhs),
-        }
+        Self::new(self.x.shr(rhs), self.y.shr(rhs), self.z.shr(rhs))
     }
 }
 
@@ -1989,11 +1904,7 @@ impl Shl<i16> for UVec3 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: i16) -> Self::Output {
-        Self {
-            x: self.x.shl(rhs),
-            y: self.y.shl(rhs),
-            z: self.z.shl(rhs),
-        }
+        Self::new(self.x.shl(rhs), self.y.shl(rhs), self.z.shl(rhs))
     }
 }
 
@@ -2039,11 +1950,7 @@ impl Shr<i16> for UVec3 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: i16) -> Self::Output {
-        Self {
-            x: self.x.shr(rhs),
-            y: self.y.shr(rhs),
-            z: self.z.shr(rhs),
-        }
+        Self::new(self.x.shr(rhs), self.y.shr(rhs), self.z.shr(rhs))
     }
 }
 
@@ -2089,11 +1996,7 @@ impl Shl<i32> for UVec3 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: i32) -> Self::Output {
-        Self {
-            x: self.x.shl(rhs),
-            y: self.y.shl(rhs),
-            z: self.z.shl(rhs),
-        }
+        Self::new(self.x.shl(rhs), self.y.shl(rhs), self.z.shl(rhs))
     }
 }
 
@@ -2139,11 +2042,7 @@ impl Shr<i32> for UVec3 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: i32) -> Self::Output {
-        Self {
-            x: self.x.shr(rhs),
-            y: self.y.shr(rhs),
-            z: self.z.shr(rhs),
-        }
+        Self::new(self.x.shr(rhs), self.y.shr(rhs), self.z.shr(rhs))
     }
 }
 
@@ -2189,11 +2088,7 @@ impl Shl<i64> for UVec3 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: i64) -> Self::Output {
-        Self {
-            x: self.x.shl(rhs),
-            y: self.y.shl(rhs),
-            z: self.z.shl(rhs),
-        }
+        Self::new(self.x.shl(rhs), self.y.shl(rhs), self.z.shl(rhs))
     }
 }
 
@@ -2239,11 +2134,7 @@ impl Shr<i64> for UVec3 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: i64) -> Self::Output {
-        Self {
-            x: self.x.shr(rhs),
-            y: self.y.shr(rhs),
-            z: self.z.shr(rhs),
-        }
+        Self::new(self.x.shr(rhs), self.y.shr(rhs), self.z.shr(rhs))
     }
 }
 
@@ -2289,11 +2180,7 @@ impl Shl<u8> for UVec3 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: u8) -> Self::Output {
-        Self {
-            x: self.x.shl(rhs),
-            y: self.y.shl(rhs),
-            z: self.z.shl(rhs),
-        }
+        Self::new(self.x.shl(rhs), self.y.shl(rhs), self.z.shl(rhs))
     }
 }
 
@@ -2339,11 +2226,7 @@ impl Shr<u8> for UVec3 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: u8) -> Self::Output {
-        Self {
-            x: self.x.shr(rhs),
-            y: self.y.shr(rhs),
-            z: self.z.shr(rhs),
-        }
+        Self::new(self.x.shr(rhs), self.y.shr(rhs), self.z.shr(rhs))
     }
 }
 
@@ -2389,11 +2272,7 @@ impl Shl<u16> for UVec3 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: u16) -> Self::Output {
-        Self {
-            x: self.x.shl(rhs),
-            y: self.y.shl(rhs),
-            z: self.z.shl(rhs),
-        }
+        Self::new(self.x.shl(rhs), self.y.shl(rhs), self.z.shl(rhs))
     }
 }
 
@@ -2439,11 +2318,7 @@ impl Shr<u16> for UVec3 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: u16) -> Self::Output {
-        Self {
-            x: self.x.shr(rhs),
-            y: self.y.shr(rhs),
-            z: self.z.shr(rhs),
-        }
+        Self::new(self.x.shr(rhs), self.y.shr(rhs), self.z.shr(rhs))
     }
 }
 
@@ -2489,11 +2364,7 @@ impl Shl<u32> for UVec3 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: u32) -> Self::Output {
-        Self {
-            x: self.x.shl(rhs),
-            y: self.y.shl(rhs),
-            z: self.z.shl(rhs),
-        }
+        Self::new(self.x.shl(rhs), self.y.shl(rhs), self.z.shl(rhs))
     }
 }
 
@@ -2539,11 +2410,7 @@ impl Shr<u32> for UVec3 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: u32) -> Self::Output {
-        Self {
-            x: self.x.shr(rhs),
-            y: self.y.shr(rhs),
-            z: self.z.shr(rhs),
-        }
+        Self::new(self.x.shr(rhs), self.y.shr(rhs), self.z.shr(rhs))
     }
 }
 
@@ -2589,11 +2456,7 @@ impl Shl<u64> for UVec3 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: u64) -> Self::Output {
-        Self {
-            x: self.x.shl(rhs),
-            y: self.y.shl(rhs),
-            z: self.z.shl(rhs),
-        }
+        Self::new(self.x.shl(rhs), self.y.shl(rhs), self.z.shl(rhs))
     }
 }
 
@@ -2639,11 +2502,7 @@ impl Shr<u64> for UVec3 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: u64) -> Self::Output {
-        Self {
-            x: self.x.shr(rhs),
-            y: self.y.shr(rhs),
-            z: self.z.shr(rhs),
-        }
+        Self::new(self.x.shr(rhs), self.y.shr(rhs), self.z.shr(rhs))
     }
 }
 
@@ -2690,11 +2549,7 @@ impl Shl<IVec3> for UVec3 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: IVec3) -> Self {
-        Self {
-            x: self.x.shl(rhs.x),
-            y: self.y.shl(rhs.y),
-            z: self.z.shl(rhs.z),
-        }
+        Self::new(self.x.shl(rhs.x), self.y.shl(rhs.y), self.z.shl(rhs.z))
     }
 }
 
@@ -2730,11 +2585,7 @@ impl Shr<IVec3> for UVec3 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: IVec3) -> Self {
-        Self {
-            x: self.x.shr(rhs.x),
-            y: self.y.shr(rhs.y),
-            z: self.z.shr(rhs.z),
-        }
+        Self::new(self.x.shr(rhs.x), self.y.shr(rhs.y), self.z.shr(rhs.z))
     }
 }
 
@@ -2769,11 +2620,7 @@ impl Shl for UVec3 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.shl(rhs.x),
-            y: self.y.shl(rhs.y),
-            z: self.z.shl(rhs.z),
-        }
+        Self::new(self.x.shl(rhs.x), self.y.shl(rhs.y), self.z.shl(rhs.z))
     }
 }
 
@@ -2805,11 +2652,7 @@ impl Shr for UVec3 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.shr(rhs.x),
-            y: self.y.shr(rhs.y),
-            z: self.z.shr(rhs.z),
-        }
+        Self::new(self.x.shr(rhs.x), self.y.shr(rhs.y), self.z.shr(rhs.z))
     }
 }
 
@@ -2840,6 +2683,7 @@ impl Shr<UVec3> for &UVec3 {
 impl Index<usize> for UVec3 {
     type Output = u32;
     #[inline]
+    #[track_caller]
     fn index(&self, index: usize) -> &Self::Output {
         match index {
             0 => &self.x,
@@ -2852,6 +2696,7 @@ impl Index<usize> for UVec3 {
 
 impl IndexMut<usize> for UVec3 {
     #[inline]
+    #[track_caller]
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         match index {
             0 => &mut self.x,

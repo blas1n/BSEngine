@@ -1,6 +1,6 @@
 // Generated from vec.rs.tera template. Edit the template, not the generated file.
 
-use crate::{f64::math, BVec3, BVec3A, DQuat, DVec2, DVec4, FloatExt};
+use crate::{f64::math, BVec3, BVec3A, DQuat, DVec2, DVec4};
 
 use crate::Vec3;
 
@@ -12,10 +12,10 @@ use crate::UVec3;
 
 use core::fmt;
 use core::iter::{Product, Sum};
-use core::{f32, ops::*};
+use core::ops::*;
 
-#[cfg(feature = "zerocopy")]
-use zerocopy_derive::*;
+#[cfg(feature = "zerocopy-08")]
+use zerocopy_derive_08::*;
 
 /// Creates a 3-dimensional vector.
 #[inline(always)]
@@ -28,7 +28,7 @@ pub const fn dvec3(x: f64, y: f64, z: f64) -> DVec3 {
 #[derive(Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Pod, bytemuck::Zeroable))]
 #[cfg_attr(
-    feature = "zerocopy",
+    feature = "zerocopy-08",
     derive(FromBytes, Immutable, IntoBytes, KnownLayout)
 )]
 #[repr(C)]
@@ -109,7 +109,7 @@ impl DVec3 {
     #[inline]
     #[must_use]
     pub const fn splat(v: f64) -> Self {
-        Self { x: v, y: v, z: v }
+        Self::new(v, v, v)
     }
 
     /// Returns a vector containing each element of `self` modified by a mapping function `f`.
@@ -130,11 +130,11 @@ impl DVec3 {
     #[inline]
     #[must_use]
     pub fn select(mask: BVec3, if_true: Self, if_false: Self) -> Self {
-        Self {
-            x: if mask.test(0) { if_true.x } else { if_false.x },
-            y: if mask.test(1) { if_true.y } else { if_false.y },
-            z: if mask.test(2) { if_true.z } else { if_false.z },
-        }
+        Self::new(
+            if mask.test(0) { if_true.x } else { if_false.x },
+            if mask.test(1) { if_true.y } else { if_false.y },
+            if mask.test(2) { if_true.z } else { if_false.z },
+        )
     }
 
     /// Creates a new vector from an array.
@@ -158,6 +158,7 @@ impl DVec3 {
     /// Panics if `slice` is less than 3 elements long.
     #[inline]
     #[must_use]
+    #[track_caller]
     pub const fn from_slice(slice: &[f64]) -> Self {
         assert!(slice.len() >= 3);
         Self::new(slice[0], slice[1], slice[2])
@@ -169,6 +170,7 @@ impl DVec3 {
     ///
     /// Panics if `slice` is less than 3 elements long.
     #[inline]
+    #[track_caller]
     pub fn write_to_slice(self, slice: &mut [f64]) {
         slice[..3].copy_from_slice(&self.to_array());
     }
@@ -178,11 +180,7 @@ impl DVec3 {
     #[inline]
     #[must_use]
     pub(crate) fn from_vec4(v: DVec4) -> Self {
-        Self {
-            x: v.x,
-            y: v.y,
-            z: v.z,
-        }
+        Self::new(v.x, v.y, v.z)
     }
 
     /// Creates a 4D vector from `self` and the given `w` value.
@@ -209,6 +207,7 @@ impl DVec3 {
     /// Will panic if `v.w` is `0` when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn from_homogeneous(v: DVec4) -> Self {
         glam_assert!(v.w != 0.0);
         Self::from_vec4(v) / v.w
@@ -263,11 +262,11 @@ impl DVec3 {
     #[inline]
     #[must_use]
     pub fn cross(self, rhs: Self) -> Self {
-        Self {
-            x: self.y * rhs.z - rhs.y * self.z,
-            y: self.z * rhs.x - rhs.z * self.x,
-            z: self.x * rhs.y - rhs.x * self.y,
-        }
+        Self::new(
+            self.y * rhs.z - rhs.y * self.z,
+            self.z * rhs.x - rhs.z * self.x,
+            self.x * rhs.y - rhs.x * self.y,
+        )
     }
 
     /// Returns a vector containing the minimum values for each element of `self` and `rhs`.
@@ -279,11 +278,11 @@ impl DVec3 {
     #[inline]
     #[must_use]
     pub fn min(self, rhs: Self) -> Self {
-        Self {
-            x: if self.x < rhs.x { self.x } else { rhs.x },
-            y: if self.y < rhs.y { self.y } else { rhs.y },
-            z: if self.z < rhs.z { self.z } else { rhs.z },
-        }
+        Self::new(
+            if self.x < rhs.x { self.x } else { rhs.x },
+            if self.y < rhs.y { self.y } else { rhs.y },
+            if self.z < rhs.z { self.z } else { rhs.z },
+        )
     }
 
     /// Returns a vector containing the maximum values for each element of `self` and `rhs`.
@@ -295,11 +294,11 @@ impl DVec3 {
     #[inline]
     #[must_use]
     pub fn max(self, rhs: Self) -> Self {
-        Self {
-            x: if self.x > rhs.x { self.x } else { rhs.x },
-            y: if self.y > rhs.y { self.y } else { rhs.y },
-            z: if self.z > rhs.z { self.z } else { rhs.z },
-        }
+        Self::new(
+            if self.x > rhs.x { self.x } else { rhs.x },
+            if self.y > rhs.y { self.y } else { rhs.y },
+            if self.z > rhs.z { self.z } else { rhs.z },
+        )
     }
 
     /// Component-wise clamping of values, similar to [`f64::clamp`].
@@ -314,6 +313,7 @@ impl DVec3 {
     /// Will panic if `min` is greater than `max` when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn clamp(self, min: Self, max: Self) -> Self {
         glam_assert!(min.cmple(max).all(), "clamp: expected min <= max");
         self.max(min).min(max)
@@ -467,11 +467,7 @@ impl DVec3 {
     #[inline]
     #[must_use]
     pub fn abs(self) -> Self {
-        Self {
-            x: math::abs(self.x),
-            y: math::abs(self.y),
-            z: math::abs(self.z),
-        }
+        Self::new(math::abs(self.x), math::abs(self.y), math::abs(self.z))
     }
 
     /// Returns a vector with elements representing the sign of `self`.
@@ -482,22 +478,22 @@ impl DVec3 {
     #[inline]
     #[must_use]
     pub fn signum(self) -> Self {
-        Self {
-            x: math::signum(self.x),
-            y: math::signum(self.y),
-            z: math::signum(self.z),
-        }
+        Self::new(
+            math::signum(self.x),
+            math::signum(self.y),
+            math::signum(self.z),
+        )
     }
 
     /// Returns a vector with signs of `rhs` and the magnitudes of `self`.
     #[inline]
     #[must_use]
     pub fn copysign(self, rhs: Self) -> Self {
-        Self {
-            x: math::copysign(self.x, rhs.x),
-            y: math::copysign(self.y, rhs.y),
-            z: math::copysign(self.z, rhs.z),
-        }
+        Self::new(
+            math::copysign(self.x, rhs.x),
+            math::copysign(self.y, rhs.y),
+            math::copysign(self.z, rhs.z),
+        )
     }
 
     /// Returns a bitmask with the lowest 3 bits set to the sign bits from the elements of `self`.
@@ -513,6 +509,20 @@ impl DVec3 {
         (self.x.is_sign_negative() as u32)
             | ((self.y.is_sign_negative() as u32) << 1)
             | ((self.z.is_sign_negative() as u32) << 2)
+    }
+
+    /// Returns a mask indicating which components are negative.
+    ///
+    /// An element is negative if it has a negative sign, including -0.0, NaNs with negative sign
+    /// bit and negative infinity.
+    #[inline]
+    #[must_use]
+    pub fn is_negative_mask(self) -> BVec3 {
+        BVec3::new(
+            self.x.is_sign_negative(),
+            self.y.is_sign_negative(),
+            self.z.is_sign_negative(),
+        )
     }
 
     /// Returns `true` if, and only if, all elements are finite.  If any element is either
@@ -556,6 +566,12 @@ impl DVec3 {
         math::sqrt(self.dot(self))
     }
 
+    /// Returns `true` if the vector is not the zero vector (also rejects NaN).
+    #[allow(dead_code)]
+    fn is_non_zero(self) -> bool {
+        self.length_squared() > 0.0
+    }
+
     /// Computes the squared length of `self`.
     ///
     /// This is faster than `length()` as it avoids a square root operation.
@@ -572,7 +588,7 @@ impl DVec3 {
     #[inline]
     #[must_use]
     pub fn length_recip(self) -> f64 {
-        self.length().recip()
+        1.0 / self.length()
     }
 
     /// Computes the Euclidean distance between two points in space.
@@ -624,6 +640,7 @@ impl DVec3 {
     /// Will panic if the resulting normalized vector is not finite when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn normalize(self) -> Self {
         #[allow(clippy::let_and_return)]
         let normalized = self.mul(self.length_recip());
@@ -711,10 +728,11 @@ impl DVec3 {
     /// Will panic if `rhs` is zero length when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn project_onto(self, rhs: Self) -> Self {
-        let other_len_sq_rcp = rhs.dot(rhs).recip();
-        glam_assert!(other_len_sq_rcp.is_finite());
-        rhs * self.dot(rhs) * other_len_sq_rcp
+        let rhs_len_sq = rhs.dot(rhs);
+        glam_assert!(rhs_len_sq != 0.0);
+        rhs * (self.dot(rhs) / rhs_len_sq)
     }
 
     /// Returns the vector rejection of `self` from `rhs`.
@@ -730,6 +748,7 @@ impl DVec3 {
     #[doc(alias("plane"))]
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn reject_from(self, rhs: Self) -> Self {
         self - self.project_onto(rhs)
     }
@@ -743,6 +762,7 @@ impl DVec3 {
     /// Will panic if `rhs` is not normalized when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn project_onto_normalized(self, rhs: Self) -> Self {
         glam_assert!(rhs.is_normalized());
         rhs * self.dot(rhs)
@@ -761,6 +781,7 @@ impl DVec3 {
     #[doc(alias("plane"))]
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn reject_from_normalized(self, rhs: Self) -> Self {
         self - self.project_onto_normalized(rhs)
     }
@@ -770,11 +791,11 @@ impl DVec3 {
     #[inline]
     #[must_use]
     pub fn round(self) -> Self {
-        Self {
-            x: math::round(self.x),
-            y: math::round(self.y),
-            z: math::round(self.z),
-        }
+        Self::new(
+            math::round(self.x),
+            math::round(self.y),
+            math::round(self.z),
+        )
     }
 
     /// Returns a vector containing the largest integer less than or equal to a number for each
@@ -782,11 +803,11 @@ impl DVec3 {
     #[inline]
     #[must_use]
     pub fn floor(self) -> Self {
-        Self {
-            x: math::floor(self.x),
-            y: math::floor(self.y),
-            z: math::floor(self.z),
-        }
+        Self::new(
+            math::floor(self.x),
+            math::floor(self.y),
+            math::floor(self.z),
+        )
     }
 
     /// Returns a vector containing the smallest integer greater than or equal to a number for
@@ -794,11 +815,7 @@ impl DVec3 {
     #[inline]
     #[must_use]
     pub fn ceil(self) -> Self {
-        Self {
-            x: math::ceil(self.x),
-            y: math::ceil(self.y),
-            z: math::ceil(self.z),
-        }
+        Self::new(math::ceil(self.x), math::ceil(self.y), math::ceil(self.z))
     }
 
     /// Returns a vector containing the integer part each element of `self`. This means numbers are
@@ -806,11 +823,11 @@ impl DVec3 {
     #[inline]
     #[must_use]
     pub fn trunc(self) -> Self {
-        Self {
-            x: math::trunc(self.x),
-            y: math::trunc(self.y),
-            z: math::trunc(self.z),
-        }
+        Self::new(
+            math::trunc(self.x),
+            math::trunc(self.y),
+            math::trunc(self.z),
+        )
     }
 
     /// Returns a vector containing `0.0` if `rhs < self` and 1.0 otherwise.
@@ -820,6 +837,25 @@ impl DVec3 {
     #[must_use]
     pub fn step(self, rhs: Self) -> Self {
         Self::select(rhs.cmplt(self), Self::ZERO, Self::ONE)
+    }
+
+    /// Performs Hermite interpolation between `0.0` and `1.0` using `x` normalized to `[edge0, edge1]`.
+    ///
+    /// This is equivalent to `t * t * (3.0 - 2.0 * t)`, where `t` is clamped to `[0.0, 1.0]`.
+    /// Results are undefined if any element of `edge0` is greater than or equal to the corresponding
+    /// element of `edge1`.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if any element of `edge0` is greater than or equal to the corresponding element
+    /// of `edge1`, when `glam_assert` is enabled.
+    #[inline]
+    #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
+    pub fn smoothstep(self, edge0: Self, edge1: Self) -> Self {
+        glam_assert!(edge0.cmplt(edge1).all());
+        let t = ((self - edge0) / (edge1 - edge0)).saturate();
+        t * t * (Self::splat(3.0) - Self::splat(2.0) * t)
     }
 
     /// Returns a vector containing all elements of `self` clamped to the range of `[0, 1]`.
@@ -935,23 +971,48 @@ impl DVec3 {
     #[inline]
     #[must_use]
     pub fn recip(self) -> Self {
-        Self {
-            x: 1.0 / self.x,
-            y: 1.0 / self.y,
-            z: 1.0 / self.z,
-        }
+        Self::new(1.0 / self.x, 1.0 / self.y, 1.0 / self.z)
     }
 
-    /// Performs a linear interpolation between `self` and `rhs` based on the value `s`.
+    /// Performs a linear interpolation between `self` and `rhs` based on the value `s`, using the
+    /// form `self * (1.0 - s) + rhs * s`.
     ///
-    /// When `s` is `0.0`, the result will be equal to `self`.  When `s` is `1.0`, the result
-    /// will be equal to `rhs`. When `s` is outside of range `[0, 1]`, the result is linearly
+    /// When `s` is `0.0`, the result will be equal to `self`. When `s` is `1.0`, the result will
+    /// be equal to `rhs`. When `s` is outside of the range `[0, 1]`, the result is linearly
     /// extrapolated.
+    ///
+    /// The result is guaranteed to be `self` at `s == 0.0` and `rhs` at `s == 1.0`, even when the
+    /// values differ greatly in magnitude, but it is not monotonic in `s` for nearly equal inputs
+    /// and may not preserve equal inputs exactly. Consider [`lerp_monotonic`](Self::lerp_monotonic)
+    /// instead when interpolating between values that may be equal or nearly equal.
     #[doc(alias = "mix")]
     #[inline]
     #[must_use]
     pub fn lerp(self, rhs: Self, s: f64) -> Self {
         self * (1.0 - s) + rhs * s
+    }
+
+    /// Performs a linear interpolation between `self` and `rhs` based on the value `s`, using the
+    /// monotonic form `self + (rhs - self) * s`.
+    ///
+    /// When `s` is `0.0`, the result will be equal to `self`. When `s` is `1.0`, the result will
+    /// be equal to `rhs`. When `s` is outside of the range `[0, 1]`, the result is linearly
+    /// extrapolated.
+    ///
+    /// Prefer this over [`lerp`](Self::lerp) when interpolating between values that may be equal or
+    /// nearly equal: the result is monotonic in `s` and equal inputs are preserved exactly, avoiding
+    /// the rounding jitter that [`lerp`](Self::lerp) can introduce. The tradeoff is that
+    /// `rhs - self` is evaluated first, so this is less accurate than [`lerp`](Self::lerp) when
+    /// `self` and `rhs` differ greatly in magnitude, and overflows to infinity when they have
+    /// opposite signs and large magnitudes.
+    ///
+    /// On SIMD back-ends the multiply and add are fused when the target supports it, which has a
+    /// single rounding step and can be more accurate than a separate multiply and add.
+    #[doc(alias = "mix")]
+    #[inline]
+    #[must_use]
+    pub fn lerp_monotonic(self, rhs: Self, s: f64) -> Self {
+        self + (rhs - self) * s
     }
 
     /// Moves towards `rhs` based on the value `d`.
@@ -1001,6 +1062,7 @@ impl DVec3 {
     /// Will panic if `min` is greater than `max`, or if either `min` or `max` is negative, when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn clamp_length(self, min: f64, max: f64) -> Self {
         glam_assert!(0.0 <= min);
         glam_assert!(min <= max);
@@ -1021,6 +1083,7 @@ impl DVec3 {
     /// Will panic if `max` is negative when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn clamp_length_max(self, max: f64) -> Self {
         glam_assert!(0.0 <= max);
         let length_sq = self.length_squared();
@@ -1038,6 +1101,7 @@ impl DVec3 {
     /// Will panic if `min` is negative when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn clamp_length_min(self, min: f64) -> Self {
         glam_assert!(0.0 <= min);
         let length_sq = self.length_squared();
@@ -1075,6 +1139,7 @@ impl DVec3 {
     /// Will panic if `normal` is not normalized when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn reflect(self, normal: Self) -> Self {
         glam_assert!(normal.is_normalized());
         self - 2.0 * self.dot(normal) * normal
@@ -1091,6 +1156,7 @@ impl DVec3 {
     /// Will panic if `self` or `normal` is not normalized when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn refract(self, normal: Self, eta: f64) -> Self {
         glam_assert!(self.is_normalized());
         glam_assert!(normal.is_normalized());
@@ -1105,14 +1171,50 @@ impl DVec3 {
 
     /// Returns the angle (in radians) between two vectors in the range `[0, +π]`.
     ///
+    /// For the full rotation between two vectors as a quaternion, see
+    /// [`DQuat::from_rotation_arc`].
+    ///
     /// The inputs do not need to be unit vectors however they must be non-zero.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if `self` or `rhs` has zero length when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn angle_between(self, rhs: Self) -> f64 {
+        glam_assert!(self.is_non_zero());
+        glam_assert!(rhs.is_non_zero());
         math::acos_approx(
             self.dot(rhs)
                 .div(math::sqrt(self.length_squared().mul(rhs.length_squared()))),
         )
+    }
+
+    /// Returns the signed angle (in radians) from `self` to `rhs` around `axis`
+    /// in the range `[-π, +π]`.
+    ///
+    /// The `axis` must be a unit vector. The angle follows the right-hand rule
+    /// around `axis` and can be used with [`Self::rotate_axis`], e.g.
+    /// `self.rotate_axis(axis, self.angle_to(rhs, axis))` will be equal to `rhs`.
+    ///
+    /// For the unsigned angle without a reference axis, see [`Self::angle_between`].
+    ///
+    /// The inputs do not need to be unit vectors however they must be non-zero.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if `axis` is not normalized when `glam_assert` is enabled.
+    /// Will panic if `self` or `rhs` has zero length when `glam_assert` is enabled.
+    #[doc(alias = "signed_angle")]
+    #[inline]
+    #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
+    pub fn angle_to(self, rhs: Self, axis: Self) -> f64 {
+        glam_assert!(axis.is_normalized());
+        glam_assert!(self.is_non_zero());
+        glam_assert!(rhs.is_non_zero());
+        math::atan2(self.cross(rhs).dot(axis), self.dot(rhs))
     }
 
     /// Rotates around the x axis by `angle` (in radians).
@@ -1160,6 +1262,7 @@ impl DVec3 {
     /// Will panic if `axis` is not normalized when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn rotate_axis(self, axis: Self, angle: f64) -> Self {
         DQuat::from_axis_angle(axis, angle) * self
     }
@@ -1169,8 +1272,13 @@ impl DVec3 {
     /// When `max_angle` is `0.0`, the result will be equal to `self`. When `max_angle` is equal to
     /// `self.angle_between(rhs)`, the result will be parallel to `rhs`. If `max_angle` is negative,
     /// rotates towards the exact opposite of `rhs`. Will not go past the target.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if `self` or `rhs` are zero length when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn rotate_towards(self, rhs: Self, max_angle: f64) -> Self {
         let angle_between = self.angle_between(rhs);
         // When `max_angle < 0`, rotate no further than `PI` radians away
@@ -1208,6 +1316,7 @@ impl DVec3 {
     /// Will panic if `self` is not normalized when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn any_orthonormal_vector(self) -> Self {
         glam_assert!(self.is_normalized());
         // From https://graphics.pixar.com/library/OrthonormalB/paper.pdf
@@ -1225,6 +1334,7 @@ impl DVec3 {
     /// Will panic if `self` is not normalized when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn any_orthonormal_pair(self) -> (Self, Self) {
         glam_assert!(self.is_normalized());
         // From https://graphics.pixar.com/library/OrthonormalB/paper.pdf
@@ -1242,9 +1352,16 @@ impl DVec3 {
     /// When `s` is `0.0`, the result will be equal to `self`.  When `s` is `1.0`, the result
     /// will be equal to `rhs`. When `s` is outside of range `[0, 1]`, the result is linearly
     /// extrapolated.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if `self` or `rhs` has zero length when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn slerp(self, rhs: Self, s: f64) -> Self {
+        glam_assert!(self.is_non_zero());
+        glam_assert!(rhs.is_non_zero());
         let self_length = self.length();
         let rhs_length = rhs.length();
         // Cosine of the angle between the vectors [-1, 1], or NaN if either vector has a zero length
@@ -1255,15 +1372,15 @@ impl DVec3 {
             let theta = math::acos_approx(dot);
             // Sine of the angle between vectors [0, 1]
             let sin_theta = math::sin(theta);
-            let t1 = math::sin(theta * (1. - s));
+            let t1 = math::sin(theta * (1.0 - s));
             let t2 = math::sin(theta * s);
 
-            // Interpolate vector lengths
-            let result_length = self_length.lerp(rhs_length, s);
+            // Interpolate vector lengths using the monotone form to keep equal lengths exact.
+            let result_length = self_length + (rhs_length - self_length) * s;
             // Scale the vectors to the target length and interpolate them
             return (self * (result_length / self_length) * t1
                 + rhs * (result_length / rhs_length) * t2)
-                * sin_theta.recip();
+                * (1.0 / sin_theta);
         }
         if dot < 0.0 {
             // Vectors are almost parallel in opposing directions
@@ -1271,8 +1388,8 @@ impl DVec3 {
             // Create a rotation from self to rhs along some axis
             let axis = self.any_orthogonal_vector().normalize();
             let rotation = DQuat::from_axis_angle(axis, core::f64::consts::PI * s);
-            // Interpolate vector lengths
-            let result_length = self_length.lerp(rhs_length, s);
+            // Interpolate vector lengths using the monotone form to keep equal lengths exact.
+            let result_length = self_length + (rhs_length - self_length) * s;
             rotation * self * (result_length / self_length)
         } else {
             // Vectors are almost parallel in the same direction, or dot was NaN
@@ -1386,11 +1503,7 @@ impl Div for DVec3 {
     type Output = Self;
     #[inline]
     fn div(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.div(rhs.x),
-            y: self.y.div(rhs.y),
-            z: self.z.div(rhs.z),
-        }
+        Self::new(self.x.div(rhs.x), self.y.div(rhs.y), self.z.div(rhs.z))
     }
 }
 
@@ -1438,11 +1551,7 @@ impl Div<f64> for DVec3 {
     type Output = Self;
     #[inline]
     fn div(self, rhs: f64) -> Self {
-        Self {
-            x: self.x.div(rhs),
-            y: self.y.div(rhs),
-            z: self.z.div(rhs),
-        }
+        Self::new(self.x.div(rhs), self.y.div(rhs), self.z.div(rhs))
     }
 }
 
@@ -1490,11 +1599,7 @@ impl Div<DVec3> for f64 {
     type Output = DVec3;
     #[inline]
     fn div(self, rhs: DVec3) -> DVec3 {
-        DVec3 {
-            x: self.div(rhs.x),
-            y: self.div(rhs.y),
-            z: self.div(rhs.z),
-        }
+        DVec3::new(self.div(rhs.x), self.div(rhs.y), self.div(rhs.z))
     }
 }
 
@@ -1526,11 +1631,7 @@ impl Mul for DVec3 {
     type Output = Self;
     #[inline]
     fn mul(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.mul(rhs.x),
-            y: self.y.mul(rhs.y),
-            z: self.z.mul(rhs.z),
-        }
+        Self::new(self.x.mul(rhs.x), self.y.mul(rhs.y), self.z.mul(rhs.z))
     }
 }
 
@@ -1578,11 +1679,7 @@ impl Mul<f64> for DVec3 {
     type Output = Self;
     #[inline]
     fn mul(self, rhs: f64) -> Self {
-        Self {
-            x: self.x.mul(rhs),
-            y: self.y.mul(rhs),
-            z: self.z.mul(rhs),
-        }
+        Self::new(self.x.mul(rhs), self.y.mul(rhs), self.z.mul(rhs))
     }
 }
 
@@ -1630,11 +1727,7 @@ impl Mul<DVec3> for f64 {
     type Output = DVec3;
     #[inline]
     fn mul(self, rhs: DVec3) -> DVec3 {
-        DVec3 {
-            x: self.mul(rhs.x),
-            y: self.mul(rhs.y),
-            z: self.mul(rhs.z),
-        }
+        DVec3::new(self.mul(rhs.x), self.mul(rhs.y), self.mul(rhs.z))
     }
 }
 
@@ -1666,11 +1759,7 @@ impl Add for DVec3 {
     type Output = Self;
     #[inline]
     fn add(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.add(rhs.x),
-            y: self.y.add(rhs.y),
-            z: self.z.add(rhs.z),
-        }
+        Self::new(self.x.add(rhs.x), self.y.add(rhs.y), self.z.add(rhs.z))
     }
 }
 
@@ -1718,11 +1807,7 @@ impl Add<f64> for DVec3 {
     type Output = Self;
     #[inline]
     fn add(self, rhs: f64) -> Self {
-        Self {
-            x: self.x.add(rhs),
-            y: self.y.add(rhs),
-            z: self.z.add(rhs),
-        }
+        Self::new(self.x.add(rhs), self.y.add(rhs), self.z.add(rhs))
     }
 }
 
@@ -1770,11 +1855,7 @@ impl Add<DVec3> for f64 {
     type Output = DVec3;
     #[inline]
     fn add(self, rhs: DVec3) -> DVec3 {
-        DVec3 {
-            x: self.add(rhs.x),
-            y: self.add(rhs.y),
-            z: self.add(rhs.z),
-        }
+        DVec3::new(self.add(rhs.x), self.add(rhs.y), self.add(rhs.z))
     }
 }
 
@@ -1806,11 +1887,7 @@ impl Sub for DVec3 {
     type Output = Self;
     #[inline]
     fn sub(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.sub(rhs.x),
-            y: self.y.sub(rhs.y),
-            z: self.z.sub(rhs.z),
-        }
+        Self::new(self.x.sub(rhs.x), self.y.sub(rhs.y), self.z.sub(rhs.z))
     }
 }
 
@@ -1858,11 +1935,7 @@ impl Sub<f64> for DVec3 {
     type Output = Self;
     #[inline]
     fn sub(self, rhs: f64) -> Self {
-        Self {
-            x: self.x.sub(rhs),
-            y: self.y.sub(rhs),
-            z: self.z.sub(rhs),
-        }
+        Self::new(self.x.sub(rhs), self.y.sub(rhs), self.z.sub(rhs))
     }
 }
 
@@ -1910,11 +1983,7 @@ impl Sub<DVec3> for f64 {
     type Output = DVec3;
     #[inline]
     fn sub(self, rhs: DVec3) -> DVec3 {
-        DVec3 {
-            x: self.sub(rhs.x),
-            y: self.sub(rhs.y),
-            z: self.sub(rhs.z),
-        }
+        DVec3::new(self.sub(rhs.x), self.sub(rhs.y), self.sub(rhs.z))
     }
 }
 
@@ -1946,11 +2015,7 @@ impl Rem for DVec3 {
     type Output = Self;
     #[inline]
     fn rem(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.rem(rhs.x),
-            y: self.y.rem(rhs.y),
-            z: self.z.rem(rhs.z),
-        }
+        Self::new(self.x.rem(rhs.x), self.y.rem(rhs.y), self.z.rem(rhs.z))
     }
 }
 
@@ -1998,11 +2063,7 @@ impl Rem<f64> for DVec3 {
     type Output = Self;
     #[inline]
     fn rem(self, rhs: f64) -> Self {
-        Self {
-            x: self.x.rem(rhs),
-            y: self.y.rem(rhs),
-            z: self.z.rem(rhs),
-        }
+        Self::new(self.x.rem(rhs), self.y.rem(rhs), self.z.rem(rhs))
     }
 }
 
@@ -2050,11 +2111,7 @@ impl Rem<DVec3> for f64 {
     type Output = DVec3;
     #[inline]
     fn rem(self, rhs: DVec3) -> DVec3 {
-        DVec3 {
-            x: self.rem(rhs.x),
-            y: self.rem(rhs.y),
-            z: self.rem(rhs.z),
-        }
+        DVec3::new(self.rem(rhs.x), self.rem(rhs.y), self.rem(rhs.z))
     }
 }
 
@@ -2140,11 +2197,7 @@ impl Neg for DVec3 {
     type Output = Self;
     #[inline]
     fn neg(self) -> Self {
-        Self {
-            x: self.x.neg(),
-            y: self.y.neg(),
-            z: self.z.neg(),
-        }
+        Self::new(self.x.neg(), self.y.neg(), self.z.neg())
     }
 }
 
@@ -2159,6 +2212,7 @@ impl Neg for &DVec3 {
 impl Index<usize> for DVec3 {
     type Output = f64;
     #[inline]
+    #[track_caller]
     fn index(&self, index: usize) -> &Self::Output {
         match index {
             0 => &self.x,
@@ -2171,6 +2225,7 @@ impl Index<usize> for DVec3 {
 
 impl IndexMut<usize> for DVec3 {
     #[inline]
+    #[track_caller]
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         match index {
             0 => &mut self.x,

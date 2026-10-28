@@ -10,11 +10,13 @@
   * square matrices: [`Mat2`], [`Mat3`], [`Mat3A`] and [`Mat4`]
   * a quaternion type: [`Quat`]
   * affine transformation types: [`Affine2`], [`Affine3`] and [`Affine3A`]
+  * camera: [`camera`] module with view and projection constructors
 * [`f64`](mod@f64) types
   * vectors: [`DVec2`], [`DVec3`] and [`DVec4`]
   * square matrices: [`DMat2`], [`DMat3`] and [`DMat4`]
   * a quaternion type: [`DQuat`]
   * affine transformation types: [`DAffine2`] and [`DAffine3`]
+  * camera: [`dcamera`] module with view and projection constructors
 * [`i8`](mod@i8) types
   * vectors: [`I8Vec2`], [`I8Vec3`] and [`I8Vec4`]
 * [`u8`](mod@u8) types
@@ -49,12 +51,12 @@ and/or implementation. The use of SIMD generally enables better performance than
 numeric types such as `f32`.
 
 Some `glam` types use SIMD for storage meaning they are 16 byte aligned, these types include
-`Mat2`, `Mat3A`, `Mat4`, `Quat`, `Vec3A`, `Vec4`, `Affine2` an `Affine3A`. Types
+`Mat2`, `Mat3A`, `Mat4`, `Quat`, `Vec3A`, `Vec4`, `Affine2` and `Affine3A`. Types
 with an `A` suffix are a SIMD alternative to a scalar type, e.g. `Vec3` uses `f32` storage and
 `Vec3A` uses SIMD storage.
 
 When SIMD is not available on the target the types will maintain 16 byte alignment and internal
-padding so that object sizes and layouts will not change between architectures. There are scalar
+padding so that object sizes and layouts will not change between architectures. Scalar
 math fallback implementations exist when SIMD is not available. It is intended to add support for
 other SIMD architectures once they appear in stable Rust.
 
@@ -107,7 +109,7 @@ assert_eq!(Vec3A::new(1.0, 2.0, 3.0), v3a);
 translation. The represent 2D and 3D affine transformations which are commonly used in games.
 
 `Affine3` is composed from `Vec3` and `Mat3` whereas `Affine3A` is composed from `Mat3A` and
-`Vec3A`. `Affine3A` will generally be faster but is 16 byte aligned and 64 btyes verses `Affine3`
+`Vec3A`. `Affine3A` will generally be faster but is 16 byte aligned and 64 bytes versus `Affine3`
 which is 48 bytes.
 
 The table below shows the performance advantage of `Affine2` over `Mat3A` and `Mat3A` over `Mat3`.
@@ -150,6 +152,18 @@ Matrices are stored in memory in column-major order.
 
 All angles are in radians. Rust provides the `f32::to_radians()` and `f64::to_radians()` methods to
 convert from degrees.
+
+## Camera
+
+`glam` provides a [`camera`] module with view matrix (`look_at`, `look_to`) and
+projection matrix (`perspective`, `orthographic`, `frustum`) constructors.
+
+View functions transform world space points into Y-up view space. Choose [`camera::rh`] or
+[`camera::lh`] based on your world space handedness.
+
+Projection functions expect Y-up view space input with matching handedness. Within
+each sub-module, constructors are available for common graphics API conventions,
+including OpenGL, DirectX, Vulkan, and WebGPU.
 
 ## Direct element access
 
@@ -246,43 +260,68 @@ assert_eq!(format!("{}", a), "[1, 2, 3, 4]");
 * `glam-assert` - adds assertions to all builds which check the validity of parameters passed to
   `glam` to help catch runtime errors.
 * `cuda` - forces `glam` types to match expected cuda alignment
-* `fast-math` - By default, glam attempts to provide bit-for-bit identical results on all platforms.
-  Using this feature will enable platform specific optimizations that may not be identical to other
-  platforms. **Intermediate libraries should not use this feature and defer the decision to the
-  final binary build**.
+* `fast-math` - **Deprecated.** This feature no longer has any effect and will be removed in a
+  future release.
 * `core-simd` - enables SIMD support via the portable simd module. This is an unstable feature which
   requires a nightly Rust toolchain and `std` support.
 
-## Optional features
+## Optional dependencies
 
 All `glam` dependencies are optional, however some are required for tests
 and benchmarks.
 
-* `approx` - traits and macros for approximate float comparisons
+Pre-1.0 dependencies that appear in `glam`'s public API use versioned feature names
+(e.g. `rand-010`), so a new version can be added without a breaking change.
+
+* `approx` - **Deprecated.** Alias for the `approx-05` feature, will be removed in
+  the next major release.
+* `approx-05` - `approx` 0.5 traits and macros for approximate float comparisons.
 * `arbitrary` - implementations of `Arbitrary` trait for all `glam` types.
 * `bytemuck` - for casting into slices of bytes
-* `encase` - `encase` trait implementations for `glam` types.
+* `encase` - **Deprecated.** Alias for the `encase-012` feature, will be removed in
+  the next major release.
+* `encase-012` - `encase` 0.12 trait implementations for `glam` types.
+* `encase-013` - `encase` 0.13 trait implementations for `glam` types.
+* `float_eq` - traits and macros for comparing float types using various tolerances.
 * `libm` - uses `libm` math functions instead of `std`
-* `mint` - for interoperating with other 3D math libraries
-* `rand` - implementations of `Distribution` trait for all `glam` types.
-* `rkyv` - implementations of `Archive`, `Serialize` and `Deserialize` for all
-  `glam` types. Note that serialization is not interoperable with and without the
-  `scalar-math` feature. It should work between all other builds of `glam`.
-  Endian conversion is currently not supported
-* `bytecheck` - to perform archive validation when using the `rkyv` feature
+* `mint` - **Deprecated.** Alias for the `mint-05` feature, will be removed in the
+  next major release.
+* `mint-05` - `mint` 0.5 for interoperating with other 3D math libraries.
+* `rand` - **Deprecated.** Alias for the `rand-010` feature, will be removed in the
+  next major release.
+* `rand-010` - `rand` 0.10 `Distribution` implementations for all `glam` types.
+* `rkyv` - **Deprecated.** The current implementation is unsound and will be removed in the next
+  major release. Use `rkyv-08` instead.
+* `rkyv-08` - `rkyv` 0.8 `Archive`, `Serialize` and `Deserialize` implementations for all
+  `glam` types, archiving to `glam::rkyv_08` types instead of the native type.
+* `bytecheck` - enables `rkyv`'s archive validation; only has an effect when an `rkyv`
+  feature is enabled
 * `serde` - implementations of `Serialize` and `Deserialize` for all `glam`
   types. Note that serialization should work between builds of `glam` with and without SIMD enabled
-* `speedy` - implementations of `speedy`'s `Readable` and `Writable` for all `glam` types.
-* `zerocopy` - implementations of zerocopy traits for safe transmutes.
+* `speedy` - **Deprecated.** Alias for the `speedy-08` feature, will be removed in
+  the next major release.
+* `speedy-08` - `speedy` 0.8 implementations of `Readable` and `Writable` for all
+  `glam` types.
+* `zerocopy` - **Deprecated.** Alias for the `zerocopy-08` feature, will be removed in
+  the next major release.
+* `zerocopy-08` - `zerocopy` 0.8 implementations of zerocopy traits for safe transmutes.
 
 ## Minimum Supported Rust Version (MSRV)
 
-The minimum supported Rust version is `1.68.2`.
+The minimum supported version of Rust is `1.68.2`.
+
+Raising the MSRV is treated as a non-breaking change, following Cargo's [semver guidance].
+
+`glam` itself and all of its features are expected to build with the MSRV unless otherwise
+documented. Optional dependencies are exempt, per Cargo's [support expectations]: they are not
+required to build with `glam`'s MSRV, so a feature that enables one may require a newer toolchain
+than `glam` itself.
+
+[semver guidance]: https://doc.rust-lang.org/cargo/reference/semver.html#env-new-rust
+[support expectations]: https://doc.rust-lang.org/cargo/reference/rust-version.html#support-expectations
 
 */
-#![doc(html_root_url = "https://docs.rs/glam/0.33.1")]
 #![cfg_attr(not(feature = "std"), no_std)]
-#![cfg_attr(target_arch = "spirv", feature(repr_simd))]
 #![cfg_attr(target_arch = "wasm64", feature(simd_wasm64))]
 #![deny(
     rust_2018_compatibility,
@@ -306,6 +345,13 @@ compile_error!(
     "You must specify a math backend. Consider enabling either `std`, `libm`, or `nostd-libm`."
 );
 
+// The `zerocopy` dependency is renamed to `zerocopy-08` (see Cargo.toml), but the
+// `zerocopy-derive` macros reference the crate as `zerocopy`. An `extern crate`
+// alias puts `zerocopy` in the crate root so the generated impls resolve without a
+// per-type `#[zerocopy(crate = "...")]` attribute.
+#[cfg(feature = "zerocopy-08")]
+extern crate zerocopy_08 as zerocopy;
+
 #[macro_use]
 mod macros;
 
@@ -313,6 +359,12 @@ mod align16;
 mod deref;
 mod euler;
 mod features;
+
+#[cfg(feature = "rkyv-08")]
+pub use features::impl_rkyv_08 as rkyv_08;
+
+#[cfg(all(feature = "rkyv", not(feature = "rkyv-08")))]
+pub use features::impl_rkyv as rkyv;
 
 #[cfg(all(
     target_arch = "aarch64",
@@ -347,6 +399,11 @@ use align16::Align16;
 /** `bool` vector mask types. */
 pub mod bool;
 pub use self::bool::*;
+
+pub mod camera;
+
+#[cfg(feature = "f64")]
+pub mod dcamera;
 
 /** `f32` vector, quaternion and matrix types. */
 pub mod f32;
@@ -417,6 +474,9 @@ pub use self::usize::*;
 pub mod isize;
 #[cfg(feature = "isize")]
 pub use self::isize::*;
+
+/** The glam prelude, including all common types but excluding camera modules. */
+pub mod prelude;
 
 /** Traits adding swizzle methods to all vector types. */
 pub mod swizzles;

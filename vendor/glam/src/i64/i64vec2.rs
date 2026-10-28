@@ -31,10 +31,10 @@ use crate::USizeVec2;
 
 use core::fmt;
 use core::iter::{Product, Sum};
-use core::{f32, ops::*};
+use core::ops::*;
 
-#[cfg(feature = "zerocopy")]
-use zerocopy_derive::*;
+#[cfg(feature = "zerocopy-08")]
+use zerocopy_derive_08::*;
 
 /// Creates a 2-dimensional vector.
 #[inline(always)]
@@ -47,7 +47,7 @@ pub const fn i64vec2(x: i64, y: i64) -> I64Vec2 {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Pod, bytemuck::Zeroable))]
 #[cfg_attr(
-    feature = "zerocopy",
+    feature = "zerocopy-08",
     derive(FromBytes, Immutable, IntoBytes, KnownLayout)
 )]
 #[cfg_attr(feature = "cuda", repr(align(16)))]
@@ -100,7 +100,7 @@ impl I64Vec2 {
     #[inline]
     #[must_use]
     pub const fn splat(v: i64) -> Self {
-        Self { x: v, y: v }
+        Self::new(v, v)
     }
 
     /// Returns a vector containing each element of `self` modified by a mapping function `f`.
@@ -121,10 +121,10 @@ impl I64Vec2 {
     #[inline]
     #[must_use]
     pub fn select(mask: BVec2, if_true: Self, if_false: Self) -> Self {
-        Self {
-            x: if mask.test(0) { if_true.x } else { if_false.x },
-            y: if mask.test(1) { if_true.y } else { if_false.y },
-        }
+        Self::new(
+            if mask.test(0) { if_true.x } else { if_false.x },
+            if mask.test(1) { if_true.y } else { if_false.y },
+        )
     }
 
     /// Creates a new vector from an array.
@@ -148,6 +148,7 @@ impl I64Vec2 {
     /// Panics if `slice` is less than 2 elements long.
     #[inline]
     #[must_use]
+    #[track_caller]
     pub const fn from_slice(slice: &[i64]) -> Self {
         assert!(slice.len() >= 2);
         Self::new(slice[0], slice[1])
@@ -159,6 +160,7 @@ impl I64Vec2 {
     ///
     /// Panics if `slice` is less than 2 elements long.
     #[inline]
+    #[track_caller]
     pub fn write_to_slice(self, slice: &mut [i64]) {
         slice[..2].copy_from_slice(&self.to_array());
     }
@@ -206,10 +208,10 @@ impl I64Vec2 {
     #[inline]
     #[must_use]
     pub fn min(self, rhs: Self) -> Self {
-        Self {
-            x: if self.x < rhs.x { self.x } else { rhs.x },
-            y: if self.y < rhs.y { self.y } else { rhs.y },
-        }
+        Self::new(
+            if self.x < rhs.x { self.x } else { rhs.x },
+            if self.y < rhs.y { self.y } else { rhs.y },
+        )
     }
 
     /// Returns a vector containing the maximum values for each element of `self` and `rhs`.
@@ -218,10 +220,10 @@ impl I64Vec2 {
     #[inline]
     #[must_use]
     pub fn max(self, rhs: Self) -> Self {
-        Self {
-            x: if self.x > rhs.x { self.x } else { rhs.x },
-            y: if self.y > rhs.y { self.y } else { rhs.y },
-        }
+        Self::new(
+            if self.x > rhs.x { self.x } else { rhs.x },
+            if self.y > rhs.y { self.y } else { rhs.y },
+        )
     }
 
     /// Component-wise clamping of values, similar to [`i64::clamp`].
@@ -233,6 +235,7 @@ impl I64Vec2 {
     /// Will panic if `min` is greater than `max` when `glam_assert` is enabled.
     #[inline]
     #[must_use]
+    #[cfg_attr(any(debug_assertions, feature = "glam-assert"), track_caller)]
     pub fn clamp(self, min: Self, max: Self) -> Self {
         glam_assert!(min.cmple(max).all(), "clamp: expected min <= max");
         self.max(min).min(max)
@@ -370,10 +373,7 @@ impl I64Vec2 {
     #[inline]
     #[must_use]
     pub fn abs(self) -> Self {
-        Self {
-            x: self.x.abs(),
-            y: self.y.abs(),
-        }
+        Self::new(self.x.abs(), self.y.abs())
     }
 
     /// Returns a vector with elements representing the sign of `self`.
@@ -384,10 +384,7 @@ impl I64Vec2 {
     #[inline]
     #[must_use]
     pub fn signum(self) -> Self {
-        Self {
-            x: self.x.signum(),
-            y: self.y.signum(),
-        }
+        Self::new(self.x.signum(), self.y.signum())
     }
 
     /// Returns a bitmask with the lowest 2 bits set to the sign bits from the elements of `self`.
@@ -401,6 +398,16 @@ impl I64Vec2 {
     #[must_use]
     pub fn is_negative_bitmask(self) -> u32 {
         (self.x.is_negative() as u32) | ((self.y.is_negative() as u32) << 1)
+    }
+
+    /// Returns a mask indicating which components are negative.
+    ///
+    /// An element is negative if it has a negative sign, including -0.0, NaNs with negative sign
+    /// bit and negative infinity.
+    #[inline]
+    #[must_use]
+    pub fn is_negative_mask(self) -> BVec2 {
+        BVec2::new(self.x.is_negative(), self.y.is_negative())
     }
 
     /// Computes the squared length of `self`.
@@ -483,10 +490,7 @@ impl I64Vec2 {
     #[inline]
     #[must_use]
     pub fn perp(self) -> Self {
-        Self {
-            x: -self.y,
-            y: self.x,
-        }
+        Self::new(-self.y, self.x)
     }
 
     /// The perpendicular dot product of `self` and `rhs`.
@@ -509,10 +513,10 @@ impl I64Vec2 {
     #[inline]
     #[must_use]
     pub fn rotate(self, rhs: Self) -> Self {
-        Self {
-            x: self.x * rhs.x - self.y * rhs.y,
-            y: self.y * rhs.x + self.x * rhs.y,
-        }
+        Self::new(
+            self.x * rhs.x - self.y * rhs.y,
+            self.y * rhs.x + self.x * rhs.y,
+        )
     }
 
     /// Casts all elements of `self` to `f32`.
@@ -872,10 +876,7 @@ impl Div for I64Vec2 {
     type Output = Self;
     #[inline]
     fn div(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.div(rhs.x),
-            y: self.y.div(rhs.y),
-        }
+        Self::new(self.x.div(rhs.x), self.y.div(rhs.y))
     }
 }
 
@@ -922,10 +923,7 @@ impl Div<i64> for I64Vec2 {
     type Output = Self;
     #[inline]
     fn div(self, rhs: i64) -> Self {
-        Self {
-            x: self.x.div(rhs),
-            y: self.y.div(rhs),
-        }
+        Self::new(self.x.div(rhs), self.y.div(rhs))
     }
 }
 
@@ -972,10 +970,7 @@ impl Div<I64Vec2> for i64 {
     type Output = I64Vec2;
     #[inline]
     fn div(self, rhs: I64Vec2) -> I64Vec2 {
-        I64Vec2 {
-            x: self.div(rhs.x),
-            y: self.div(rhs.y),
-        }
+        I64Vec2::new(self.div(rhs.x), self.div(rhs.y))
     }
 }
 
@@ -1007,10 +1002,7 @@ impl Mul for I64Vec2 {
     type Output = Self;
     #[inline]
     fn mul(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.mul(rhs.x),
-            y: self.y.mul(rhs.y),
-        }
+        Self::new(self.x.mul(rhs.x), self.y.mul(rhs.y))
     }
 }
 
@@ -1057,10 +1049,7 @@ impl Mul<i64> for I64Vec2 {
     type Output = Self;
     #[inline]
     fn mul(self, rhs: i64) -> Self {
-        Self {
-            x: self.x.mul(rhs),
-            y: self.y.mul(rhs),
-        }
+        Self::new(self.x.mul(rhs), self.y.mul(rhs))
     }
 }
 
@@ -1107,10 +1096,7 @@ impl Mul<I64Vec2> for i64 {
     type Output = I64Vec2;
     #[inline]
     fn mul(self, rhs: I64Vec2) -> I64Vec2 {
-        I64Vec2 {
-            x: self.mul(rhs.x),
-            y: self.mul(rhs.y),
-        }
+        I64Vec2::new(self.mul(rhs.x), self.mul(rhs.y))
     }
 }
 
@@ -1142,10 +1128,7 @@ impl Add for I64Vec2 {
     type Output = Self;
     #[inline]
     fn add(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.add(rhs.x),
-            y: self.y.add(rhs.y),
-        }
+        Self::new(self.x.add(rhs.x), self.y.add(rhs.y))
     }
 }
 
@@ -1192,10 +1175,7 @@ impl Add<i64> for I64Vec2 {
     type Output = Self;
     #[inline]
     fn add(self, rhs: i64) -> Self {
-        Self {
-            x: self.x.add(rhs),
-            y: self.y.add(rhs),
-        }
+        Self::new(self.x.add(rhs), self.y.add(rhs))
     }
 }
 
@@ -1242,10 +1222,7 @@ impl Add<I64Vec2> for i64 {
     type Output = I64Vec2;
     #[inline]
     fn add(self, rhs: I64Vec2) -> I64Vec2 {
-        I64Vec2 {
-            x: self.add(rhs.x),
-            y: self.add(rhs.y),
-        }
+        I64Vec2::new(self.add(rhs.x), self.add(rhs.y))
     }
 }
 
@@ -1277,10 +1254,7 @@ impl Sub for I64Vec2 {
     type Output = Self;
     #[inline]
     fn sub(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.sub(rhs.x),
-            y: self.y.sub(rhs.y),
-        }
+        Self::new(self.x.sub(rhs.x), self.y.sub(rhs.y))
     }
 }
 
@@ -1327,10 +1301,7 @@ impl Sub<i64> for I64Vec2 {
     type Output = Self;
     #[inline]
     fn sub(self, rhs: i64) -> Self {
-        Self {
-            x: self.x.sub(rhs),
-            y: self.y.sub(rhs),
-        }
+        Self::new(self.x.sub(rhs), self.y.sub(rhs))
     }
 }
 
@@ -1377,10 +1348,7 @@ impl Sub<I64Vec2> for i64 {
     type Output = I64Vec2;
     #[inline]
     fn sub(self, rhs: I64Vec2) -> I64Vec2 {
-        I64Vec2 {
-            x: self.sub(rhs.x),
-            y: self.sub(rhs.y),
-        }
+        I64Vec2::new(self.sub(rhs.x), self.sub(rhs.y))
     }
 }
 
@@ -1412,10 +1380,7 @@ impl Rem for I64Vec2 {
     type Output = Self;
     #[inline]
     fn rem(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.rem(rhs.x),
-            y: self.y.rem(rhs.y),
-        }
+        Self::new(self.x.rem(rhs.x), self.y.rem(rhs.y))
     }
 }
 
@@ -1462,10 +1427,7 @@ impl Rem<i64> for I64Vec2 {
     type Output = Self;
     #[inline]
     fn rem(self, rhs: i64) -> Self {
-        Self {
-            x: self.x.rem(rhs),
-            y: self.y.rem(rhs),
-        }
+        Self::new(self.x.rem(rhs), self.y.rem(rhs))
     }
 }
 
@@ -1512,10 +1474,7 @@ impl Rem<I64Vec2> for i64 {
     type Output = I64Vec2;
     #[inline]
     fn rem(self, rhs: I64Vec2) -> I64Vec2 {
-        I64Vec2 {
-            x: self.rem(rhs.x),
-            y: self.rem(rhs.y),
-        }
+        I64Vec2::new(self.rem(rhs.x), self.rem(rhs.y))
     }
 }
 
@@ -1601,10 +1560,7 @@ impl Neg for I64Vec2 {
     type Output = Self;
     #[inline]
     fn neg(self) -> Self {
-        Self {
-            x: self.x.neg(),
-            y: self.y.neg(),
-        }
+        Self::new(self.x.neg(), self.y.neg())
     }
 }
 
@@ -1620,10 +1576,7 @@ impl Not for I64Vec2 {
     type Output = Self;
     #[inline]
     fn not(self) -> Self {
-        Self {
-            x: self.x.not(),
-            y: self.y.not(),
-        }
+        Self::new(self.x.not(), self.y.not())
     }
 }
 
@@ -1639,10 +1592,7 @@ impl BitAnd for I64Vec2 {
     type Output = Self;
     #[inline]
     fn bitand(self, rhs: Self) -> Self::Output {
-        Self {
-            x: self.x.bitand(rhs.x),
-            y: self.y.bitand(rhs.y),
-        }
+        Self::new(self.x.bitand(rhs.x), self.y.bitand(rhs.y))
     }
 }
 
@@ -1688,10 +1638,7 @@ impl BitOr for I64Vec2 {
     type Output = Self;
     #[inline]
     fn bitor(self, rhs: Self) -> Self::Output {
-        Self {
-            x: self.x.bitor(rhs.x),
-            y: self.y.bitor(rhs.y),
-        }
+        Self::new(self.x.bitor(rhs.x), self.y.bitor(rhs.y))
     }
 }
 
@@ -1737,10 +1684,7 @@ impl BitXor for I64Vec2 {
     type Output = Self;
     #[inline]
     fn bitxor(self, rhs: Self) -> Self::Output {
-        Self {
-            x: self.x.bitxor(rhs.x),
-            y: self.y.bitxor(rhs.y),
-        }
+        Self::new(self.x.bitxor(rhs.x), self.y.bitxor(rhs.y))
     }
 }
 
@@ -1786,10 +1730,7 @@ impl BitAnd<i64> for I64Vec2 {
     type Output = Self;
     #[inline]
     fn bitand(self, rhs: i64) -> Self::Output {
-        Self {
-            x: self.x.bitand(rhs),
-            y: self.y.bitand(rhs),
-        }
+        Self::new(self.x.bitand(rhs), self.y.bitand(rhs))
     }
 }
 
@@ -1835,10 +1776,7 @@ impl BitOr<i64> for I64Vec2 {
     type Output = Self;
     #[inline]
     fn bitor(self, rhs: i64) -> Self::Output {
-        Self {
-            x: self.x.bitor(rhs),
-            y: self.y.bitor(rhs),
-        }
+        Self::new(self.x.bitor(rhs), self.y.bitor(rhs))
     }
 }
 
@@ -1884,10 +1822,7 @@ impl BitXor<i64> for I64Vec2 {
     type Output = Self;
     #[inline]
     fn bitxor(self, rhs: i64) -> Self::Output {
-        Self {
-            x: self.x.bitxor(rhs),
-            y: self.y.bitxor(rhs),
-        }
+        Self::new(self.x.bitxor(rhs), self.y.bitxor(rhs))
     }
 }
 
@@ -1933,10 +1868,7 @@ impl Shl<i8> for I64Vec2 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: i8) -> Self::Output {
-        Self {
-            x: self.x.shl(rhs),
-            y: self.y.shl(rhs),
-        }
+        Self::new(self.x.shl(rhs), self.y.shl(rhs))
     }
 }
 
@@ -1982,10 +1914,7 @@ impl Shr<i8> for I64Vec2 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: i8) -> Self::Output {
-        Self {
-            x: self.x.shr(rhs),
-            y: self.y.shr(rhs),
-        }
+        Self::new(self.x.shr(rhs), self.y.shr(rhs))
     }
 }
 
@@ -2031,10 +1960,7 @@ impl Shl<i16> for I64Vec2 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: i16) -> Self::Output {
-        Self {
-            x: self.x.shl(rhs),
-            y: self.y.shl(rhs),
-        }
+        Self::new(self.x.shl(rhs), self.y.shl(rhs))
     }
 }
 
@@ -2080,10 +2006,7 @@ impl Shr<i16> for I64Vec2 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: i16) -> Self::Output {
-        Self {
-            x: self.x.shr(rhs),
-            y: self.y.shr(rhs),
-        }
+        Self::new(self.x.shr(rhs), self.y.shr(rhs))
     }
 }
 
@@ -2129,10 +2052,7 @@ impl Shl<i32> for I64Vec2 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: i32) -> Self::Output {
-        Self {
-            x: self.x.shl(rhs),
-            y: self.y.shl(rhs),
-        }
+        Self::new(self.x.shl(rhs), self.y.shl(rhs))
     }
 }
 
@@ -2178,10 +2098,7 @@ impl Shr<i32> for I64Vec2 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: i32) -> Self::Output {
-        Self {
-            x: self.x.shr(rhs),
-            y: self.y.shr(rhs),
-        }
+        Self::new(self.x.shr(rhs), self.y.shr(rhs))
     }
 }
 
@@ -2227,10 +2144,7 @@ impl Shl<i64> for I64Vec2 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: i64) -> Self::Output {
-        Self {
-            x: self.x.shl(rhs),
-            y: self.y.shl(rhs),
-        }
+        Self::new(self.x.shl(rhs), self.y.shl(rhs))
     }
 }
 
@@ -2276,10 +2190,7 @@ impl Shr<i64> for I64Vec2 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: i64) -> Self::Output {
-        Self {
-            x: self.x.shr(rhs),
-            y: self.y.shr(rhs),
-        }
+        Self::new(self.x.shr(rhs), self.y.shr(rhs))
     }
 }
 
@@ -2325,10 +2236,7 @@ impl Shl<u8> for I64Vec2 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: u8) -> Self::Output {
-        Self {
-            x: self.x.shl(rhs),
-            y: self.y.shl(rhs),
-        }
+        Self::new(self.x.shl(rhs), self.y.shl(rhs))
     }
 }
 
@@ -2374,10 +2282,7 @@ impl Shr<u8> for I64Vec2 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: u8) -> Self::Output {
-        Self {
-            x: self.x.shr(rhs),
-            y: self.y.shr(rhs),
-        }
+        Self::new(self.x.shr(rhs), self.y.shr(rhs))
     }
 }
 
@@ -2423,10 +2328,7 @@ impl Shl<u16> for I64Vec2 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: u16) -> Self::Output {
-        Self {
-            x: self.x.shl(rhs),
-            y: self.y.shl(rhs),
-        }
+        Self::new(self.x.shl(rhs), self.y.shl(rhs))
     }
 }
 
@@ -2472,10 +2374,7 @@ impl Shr<u16> for I64Vec2 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: u16) -> Self::Output {
-        Self {
-            x: self.x.shr(rhs),
-            y: self.y.shr(rhs),
-        }
+        Self::new(self.x.shr(rhs), self.y.shr(rhs))
     }
 }
 
@@ -2521,10 +2420,7 @@ impl Shl<u32> for I64Vec2 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: u32) -> Self::Output {
-        Self {
-            x: self.x.shl(rhs),
-            y: self.y.shl(rhs),
-        }
+        Self::new(self.x.shl(rhs), self.y.shl(rhs))
     }
 }
 
@@ -2570,10 +2466,7 @@ impl Shr<u32> for I64Vec2 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: u32) -> Self::Output {
-        Self {
-            x: self.x.shr(rhs),
-            y: self.y.shr(rhs),
-        }
+        Self::new(self.x.shr(rhs), self.y.shr(rhs))
     }
 }
 
@@ -2619,10 +2512,7 @@ impl Shl<u64> for I64Vec2 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: u64) -> Self::Output {
-        Self {
-            x: self.x.shl(rhs),
-            y: self.y.shl(rhs),
-        }
+        Self::new(self.x.shl(rhs), self.y.shl(rhs))
     }
 }
 
@@ -2668,10 +2558,7 @@ impl Shr<u64> for I64Vec2 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: u64) -> Self::Output {
-        Self {
-            x: self.x.shr(rhs),
-            y: self.y.shr(rhs),
-        }
+        Self::new(self.x.shr(rhs), self.y.shr(rhs))
     }
 }
 
@@ -2718,10 +2605,7 @@ impl Shl<IVec2> for I64Vec2 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: IVec2) -> Self {
-        Self {
-            x: self.x.shl(rhs.x),
-            y: self.y.shl(rhs.y),
-        }
+        Self::new(self.x.shl(rhs.x), self.y.shl(rhs.y))
     }
 }
 
@@ -2757,10 +2641,7 @@ impl Shr<IVec2> for I64Vec2 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: IVec2) -> Self {
-        Self {
-            x: self.x.shr(rhs.x),
-            y: self.y.shr(rhs.y),
-        }
+        Self::new(self.x.shr(rhs.x), self.y.shr(rhs.y))
     }
 }
 
@@ -2796,10 +2677,7 @@ impl Shl<UVec2> for I64Vec2 {
     type Output = Self;
     #[inline]
     fn shl(self, rhs: UVec2) -> Self {
-        Self {
-            x: self.x.shl(rhs.x),
-            y: self.y.shl(rhs.y),
-        }
+        Self::new(self.x.shl(rhs.x), self.y.shl(rhs.y))
     }
 }
 
@@ -2835,10 +2713,7 @@ impl Shr<UVec2> for I64Vec2 {
     type Output = Self;
     #[inline]
     fn shr(self, rhs: UVec2) -> Self {
-        Self {
-            x: self.x.shr(rhs.x),
-            y: self.y.shr(rhs.y),
-        }
+        Self::new(self.x.shr(rhs.x), self.y.shr(rhs.y))
     }
 }
 
@@ -2872,6 +2747,7 @@ impl Shr<UVec2> for &I64Vec2 {
 impl Index<usize> for I64Vec2 {
     type Output = i64;
     #[inline]
+    #[track_caller]
     fn index(&self, index: usize) -> &Self::Output {
         match index {
             0 => &self.x,
@@ -2883,6 +2759,7 @@ impl Index<usize> for I64Vec2 {
 
 impl IndexMut<usize> for I64Vec2 {
     #[inline]
+    #[track_caller]
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         match index {
             0 => &mut self.x,

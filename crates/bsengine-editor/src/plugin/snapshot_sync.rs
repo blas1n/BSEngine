@@ -180,7 +180,7 @@ pub(super) fn populate_reflected_component_snapshot(world: &mut World) {
                 let Some(cloned_value) = registration
                     .data::<bevy_reflect::ReflectFromReflect>()
                     .and_then(|rfr| rfr.from_reflect(value.as_partial_reflect()))
-                    .or_else(|| value.to_dynamic().try_into_reflect().ok())
+                    .or_else(|| value.to_dynamic().ok()?.try_into_reflect().ok())
                 else {
                     tracing::warn!(
                         "inspector: '{}' has no FromReflect, so it cannot be shown",

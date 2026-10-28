@@ -13,6 +13,28 @@ macro_rules! impl_mat3_tests {
             [13.0, 14.0, 15.0, 16.0],
         ];
 
+        glam_test!(test_inverse_tiny_entries, {
+            // A subnormal determinant makes `1.0 / det` overflow to infinity; the
+            // fallible inverse reports this instead of returning inf.
+            let t: $t = $t::MIN_POSITIVE / 8.0;
+            let m = $mat3::from_diagonal($vec3::new(t, 1.0, 1.0));
+            assert!(m.try_inverse().is_none());
+            assert_eq!(m.inverse_or_zero(), $mat3::ZERO);
+            should_glam_assert!({ m.inverse() });
+        });
+
+        glam_test!(test_inverse_cofactor_overflow, {
+            // The determinant and its reciprocal are finite, but a cofactor
+            // overflows, so the resulting inverse is not finite.
+            let a: $t = $t::MAX.sqrt() * 2.0;
+            let m = $mat3::from_diagonal($vec3::new(a, a, 1.0 / a));
+            assert!(m.determinant().is_finite());
+            assert!((1.0 / m.determinant()).is_finite());
+            assert!(m.try_inverse().is_none());
+            assert_eq!(m.inverse_or_zero(), $mat3::ZERO);
+            should_glam_assert!({ m.inverse() });
+        });
+
         glam_test!(test_const, {
             const M0: $mat3 = $mat3::from_cols(
                 $newvec3(1.0, 2.0, 3.0),
@@ -87,6 +109,51 @@ macro_rules! impl_mat3_tests {
                 m.col_mut(3);
             });
             should_panic!({ $mat3::ZERO.row(3) });
+        });
+
+        glam_test!(test_mat3_rows, {
+            // ARRAY1X9 is column major, so the same matrix in row major order is:
+            const ROW_MAJOR: [$t; 9] = [1.0, 4.0, 7.0, 2.0, 5.0, 8.0, 3.0, 6.0, 9.0];
+
+            let m = $mat3::from_cols_array(&ARRAY1X9);
+
+            assert_eq!(ROW_MAJOR, m.to_rows_array());
+            assert_eq!(m, $mat3::from_rows_array(&ROW_MAJOR));
+            assert_eq!(m, $mat3::from_rows_slice(&ROW_MAJOR));
+            assert_eq!(m, $mat3::from_rows(m.row(0), m.row(1), m.row(2)));
+
+            // rows are just the columns of the transpose
+            assert_eq!(m.to_rows_array(), m.transpose().to_cols_array());
+            assert_eq!(
+                $mat3::from_rows_array(&ARRAY1X9),
+                $mat3::from_cols_array(&ARRAY1X9).transpose()
+            );
+
+            let mut m2 = $mat3::ZERO;
+            m2.set_row(0, m.row(0));
+            m2.set_row(1, m.row(1));
+            m2.set_row(2, m.row(2));
+            assert_eq!(m, m2);
+
+            // these are all const
+            const M0: $mat3 = $mat3::from_rows(
+                $newvec3(1.0, 4.0, 7.0),
+                $newvec3(2.0, 5.0, 8.0),
+                $newvec3(3.0, 6.0, 9.0),
+            );
+            const M1: $mat3 = $mat3::from_rows_array(&ROW_MAJOR);
+            const M2: $mat3 = $mat3::from_rows_slice(&ROW_MAJOR);
+            const A: [$t; 9] = M0.to_rows_array();
+            assert_eq!(ARRAY1X9, M0.to_cols_array());
+            assert_eq!(ARRAY1X9, M1.to_cols_array());
+            assert_eq!(ARRAY1X9, M2.to_cols_array());
+            assert_eq!(ROW_MAJOR, A);
+
+            should_panic!({
+                let mut m = $mat3::ZERO;
+                m.set_row(3, $newvec3(0.0, 0.0, 0.0));
+            });
+            should_panic!({ $mat3::from_rows_slice(&[0.0; 8]) });
         });
 
         glam_test!(test_mat3_from_axes, {
@@ -178,6 +245,8 @@ macro_rules! impl_mat3_tests {
             assert_eq!($vec2::new(0.0, 4.0), m.transform_point2($vec2::Y));
 
             should_glam_assert!({ $mat3::from_scale($vec2::ZERO) });
+            should_glam_assert!({ $mat3::ZERO.transform_point2($vec2::ZERO) });
+            should_glam_assert!({ $mat3::ZERO.transform_vector2($vec2::ZERO) });
 
             let m = $mat3::from_scale_angle_translation(
                 $vec2::new(0.5, 1.5),
@@ -256,30 +325,6 @@ macro_rules! impl_mat3_tests {
             }
             should_panic!({ $mat3::from_mat4_minor(m4, 4, 0) });
             should_panic!({ $mat3::from_mat4_minor(m4, 0, 4) });
-        });
-
-        glam_test!(test_mat3_look_at, {
-            let eye = $vec3::new(0.0, 0.0, -5.0);
-            let center = $vec3::new(0.0, 0.0, 0.0);
-            let up = $vec3::new(1.0, 0.0, 0.0);
-
-            let point = $vec3::new(1.0, 0.0, 0.0);
-
-            let lh = $mat3::look_at_lh(eye, center, up);
-            let rh = $mat3::look_at_rh(eye, center, up);
-            assert_approx_eq!(lh * point, $vec3::new(0.0, 1.0, 0.0));
-            assert_approx_eq!(rh * point, $vec3::new(0.0, 1.0, 0.0));
-
-            let dir = (center - eye).normalize();
-            let lh = $mat3::look_to_lh(dir, up);
-            let rh = $mat3::look_to_rh(dir, up);
-            assert_approx_eq!(lh * point, $vec3::new(0.0, 1.0, 0.0));
-            assert_approx_eq!(rh * point, $vec3::new(0.0, 1.0, 0.0));
-
-            should_glam_assert!({ $mat3::look_to_lh($vec3::ONE, $vec3::ZERO) });
-            should_glam_assert!({ $mat3::look_to_lh($vec3::ZERO, $vec3::ONE) });
-            should_glam_assert!({ $mat3::look_to_rh($vec3::ONE, $vec3::ZERO) });
-            should_glam_assert!({ $mat3::look_to_rh($vec3::ZERO, $vec3::ONE) });
         });
 
         glam_test!(test_mat3_transpose, {
@@ -454,6 +499,11 @@ macro_rules! impl_mat3_tests {
                 format!("{:.1}", a),
                 "[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]]"
             );
+            let debug = format!("{:?}", a);
+            assert!(debug.starts_with(&format!("{} {{", stringify!($mat3))));
+            assert!(debug.contains("x_axis"));
+            assert!(debug.contains("y_axis"));
+            assert!(debug.contains("z_axis"));
         });
 
         glam_test!(test_mat3_to_from_slice, {

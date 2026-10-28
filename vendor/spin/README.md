@@ -1,8 +1,9 @@
 # spin-rs
 
-[![Crates.io version](https://img.shields.io/crates/v/spin.svg)](https://crates.io/crates/spin)
-[![docs.rs](https://docs.rs/spin/badge.svg)](https://docs.rs/spin/)
-[![Build Status](https://travis-ci.org/mvdnes/spin-rs.svg)](https://travis-ci.org/mvdnes/spin-rs)
+[![crates.io](https://img.shields.io/crates/v/spin.svg)](https://crates.io/crates/spin)
+[![License](https://img.shields.io/crates/l/spin.svg)](https://codeberg.org/zesterer/spin)
+[![crates.io](https://docs.rs/spin/badge.svg)](https://docs.rs/spin)
+![actions-badge](https://codeberg.org/zesterer/spin/badges/workflows/rust.yml/badge.svg?branch=master)
 
 Spin-based synchronization primitives.
 
@@ -18,7 +19,7 @@ spinlocks. If you have access to `std`, it's likely that the primitives in
 
 ## Features
 
-- `Mutex`, `RwLock`, `Once`, `Lazy` and `Barrier` equivalents
+- `Mutex`, `RwLock`, `Once`, `LazyLock` and `Barrier` equivalents
 - Support for `no_std` environments
 - [`lock_api`](https://crates.io/crates/lock_api) compatibility
 - Upgradeable `RwLock` guards
@@ -84,7 +85,7 @@ The crate comes with a few feature flags that you may wish to use.
 
 - `once` enables the `Once` type.
 
-- `lazy` enables the `Lazy` type.
+- `lazylock` enables the `LazyLock` type.
 
 - `barrier` enables the `Barrier` type.
 
@@ -126,7 +127,7 @@ spin = { version = "x.y", default-features = false, features = [...] }
 
 ## Minimum Safe Rust Version (MSRV)
 
-This crate is guaranteed to compile on a Minimum Safe Rust Version (MSRV) of 1.60.0 and above.
+This crate is guaranteed to compile on a Minimum Safe Rust Version (MSRV) of 1.71.0 and above.
 This version will not be changed without a minor version bump.
 
 ## License

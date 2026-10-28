@@ -430,6 +430,45 @@ jobs:
           echo "replayed ${#logs[@]} recording(s)"
           exit $status
 
+      # The same recordings with every schedule's unordered systems shuffled
+      # (`--shuffle-seed`, Bevy's `ScheduleBuildSettings::shuffle_seed`). The
+      # executor is single-threaded, so without this two systems with no
+      # declared order always run the same way round, and a recording can pass
+      # only because of an order nobody wrote down -- the step above can never
+      # see that. Fixed seeds, so a failure reproduces locally with the command
+      # it prints; Ubuntu only, because the step above already makes Windows
+      # the slowest job and an ordering bug is the same on every platform.
+      - name: E2E replays, shuffled schedules
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        env:
+          RUST_MIN_STACK: 16777216
+        run: |
+          bin="$CARGO_TARGET_DIR/debug/bsengine-runtime"
+          status=0
+          count=0
+          for seed in 1 2; do
+            for log in games/*/assets/tests/*.testlog.json; do
+              project="$(dirname "$(dirname "$(dirname "$log")")")"
+              count=$((count + 1))
+              if "$bin" --test "$project" --replay "$log" --frame-divisor 8 --shuffle-seed "$seed" > /tmp/shuffled.log 2>&1; then
+                echo "PASS seed=$seed $log"
+              else
+                echo "::group::FAIL seed=$seed $log"
+                cat /tmp/shuffled.log
+                echo "::endgroup::"
+                echo "reproduce: bsengine-runtime --test $project --replay $log --frame-divisor 8 --shuffle-seed $seed"
+                status=1
+              fi
+            done
+          done
+          if [ "$count" -eq 0 ]; then
+            echo "no recordings matched games/*/assets/tests/*.testlog.json -- the glob is wrong"
+            exit 1
+          fi
+          echo "replayed $count shuffled run(s)"
+          exit $status
+
       # Packages every project in the repository, not just the one
       # `crates/bsengine-runtime/tests/package.rs` builds and replays. That
       # test proves a packaged build *runs*; this step proves every game's

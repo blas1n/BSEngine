@@ -596,16 +596,50 @@ struct RecordedLog {
     actions: Vec<Command>,
 }
 
+/// Sets `shuffle_seed` on every schedule `app` has, leaving each schedule's
+/// other build settings as they are (`App::configure_schedules` would reset
+/// them all to the defaults).
+///
+/// Only takes effect on a schedule that has not run yet: a schedule is built
+/// on its first run, and changing its settings afterwards does not rebuild it.
+/// `build_test_app_sized` returns an app that has not been updated.
+pub(crate) fn shuffle_every_schedule(app: &mut App, seed: u64) {
+    let mut schedules = app
+        .world_mut()
+        .resource_mut::<bevy_ecs::schedule::Schedules>();
+    for (_, schedule) in schedules.iter_mut() {
+        let mut settings = schedule.get_build_settings();
+        settings.shuffle_seed = Some(seed);
+        schedule.set_build_settings(settings);
+    }
+}
+
 /// Runs a saved action log to completion with no stdin/AI involvement.
 /// Returns `true` if every command succeeded and every `Assert` passed;
 /// on the first failure, prints details to stderr and returns `false`.
-pub fn run_replay_mode(project_dir: &str, log_path: &str, frame_divisor: u32) -> bool {
+///
+/// With `shuffle_seed`, every schedule runs its systems in an order shuffled
+/// by that seed, within the orderings the systems declare (Bevy 0.20's
+/// `ScheduleBuildSettings::shuffle_seed`). The executor here is
+/// single-threaded, so without it two systems with no declared order between
+/// them always run in the same order -- and a recording can pass only because
+/// of an order nobody wrote down. Replaying under a few seeds is how that
+/// shows: the same log has to pass whichever way the undeclared ones fall.
+pub fn run_replay_mode(
+    project_dir: &str,
+    log_path: &str,
+    frame_divisor: u32,
+    shuffle_seed: Option<u64>,
+) -> bool {
     let log_str = std::fs::read_to_string(log_path)
         .unwrap_or_else(|e| panic!("cannot read replay log {log_path}: {e}"));
     let log: RecordedLog = serde_json::from_str(&log_str)
         .unwrap_or_else(|e| panic!("cannot parse replay log {log_path}: {e}"));
 
     let mut app = build_test_app_sized(project_dir, log.scene.as_deref(), true, frame_divisor);
+    if let Some(seed) = shuffle_seed {
+        shuffle_every_schedule(&mut app, seed);
+    }
     let mut frame: u64 = 0;
 
     for command in log.actions {
@@ -2117,6 +2151,53 @@ mod tests {
         send(&mut app, press("A"));
         send(&mut app, Command::Step { frames: 1 });
         assert_eq!(position(&mut app).1, -1.0, "A is left");
+    }
+
+    /// The premise of `--shuffle-seed`: a seed really does reorder the systems
+    /// nothing orders. If it did not -- the setting arriving after the
+    /// schedules were built, or every system already pinned -- a replay passing
+    /// under a seed would say nothing. Checked on a real game's Update
+    /// schedule: some seed changes the order, and none adds or loses a system.
+    #[test]
+    fn a_shuffle_seed_reorders_the_systems_nothing_orders() {
+        let project_dir = format!("{}/../../games/cube-evader", env!("CARGO_MANIFEST_DIR"));
+        let order = |seed: Option<u64>| -> Vec<String> {
+            let mut app = build_simulation_app(&project_dir, None, true);
+            if let Some(seed) = seed {
+                super::shuffle_every_schedule(&mut app, seed);
+            }
+            app.update();
+            let schedules = app.world().resource::<bevy_ecs::schedule::Schedules>();
+            schedules
+                .get(bevy_app::Update)
+                .expect("an Update schedule")
+                .systems()
+                .expect("Update has run, so it is initialized")
+                .map(|(_, system)| system.name().to_string())
+                .collect()
+        };
+        let unshuffled = order(None);
+        assert!(
+            unshuffled.len() > 20,
+            "premise: a real Update schedule: {}",
+            unshuffled.len()
+        );
+        let shuffled: Vec<Vec<String>> = (1..=3).map(|seed| order(Some(seed))).collect();
+        assert!(
+            shuffled.iter().any(|o| *o != unshuffled),
+            "no seed changed the order of Update's systems"
+        );
+        let sorted = |mut v: Vec<String>| {
+            v.sort();
+            v
+        };
+        for o in shuffled {
+            assert_eq!(
+                sorted(o),
+                sorted(unshuffled.clone()),
+                "the same systems, reordered"
+            );
+        }
     }
 
     /// A typo in a binding stops the game at start, naming the action and

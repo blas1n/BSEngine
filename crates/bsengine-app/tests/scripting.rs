@@ -11,7 +11,7 @@ fn scripting_plugin_in_full_app() {
 
     let result = app
         .world_mut()
-        .get_non_send_resource_mut::<ScriptRuntimeResource>()
+        .get_non_send_mut::<ScriptRuntimeResource>()
         .expect("ScriptRuntimeResource not found")
         .0
         .eval("'BSEngine ' + 'scripting'");
@@ -28,7 +28,7 @@ fn log_op_callable_in_full_app() {
 
     let result = app
         .world_mut()
-        .get_non_send_resource_mut::<ScriptRuntimeResource>()
+        .get_non_send_mut::<ScriptRuntimeResource>()
         .expect("ScriptRuntimeResource not found")
         .0
         .eval(

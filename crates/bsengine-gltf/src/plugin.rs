@@ -2039,7 +2039,7 @@ mod tests {
             .expect("a recorded id must be live before the rebuild");
         {
             let mut assets = app.world_mut().resource_mut::<Assets<LoadedGltf>>();
-            let data = assets
+            let mut data = assets
                 .get_mut(asset_id)
                 .expect("the retained handle keeps the asset mutable in place");
             for v in &mut data.meshes[0].vertices {
@@ -2284,7 +2284,7 @@ mod tests {
         // trigger `rebuild_modified_gltf` has.
         {
             let mut assets = app.world_mut().resource_mut::<Assets<LoadedGltf>>();
-            let data = assets
+            let mut data = assets
                 .get_mut(asset_id)
                 .expect("the retained handle keeps the asset mutable in place");
             for v in &mut data.meshes[0].vertices {
@@ -2439,7 +2439,7 @@ mod tests {
 
         {
             let mut assets = app.world_mut().resource_mut::<Assets<LoadedGltf>>();
-            let data = assets
+            let mut data = assets
                 .get_mut(asset_id)
                 .expect("the retained handle keeps the asset mutable in place");
             data.meshes[0].vertices.truncate(3);

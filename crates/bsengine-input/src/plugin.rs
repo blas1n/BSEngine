@@ -81,7 +81,7 @@ impl Plugin for InputPlugin {
 
         match gilrs::Gilrs::new() {
             Ok(g) => {
-                app.insert_non_send_resource(GilrsResource(g));
+                app.insert_non_send(GilrsResource(g));
                 app.add_systems(
                     PreUpdate,
                     poll_gamepad_events

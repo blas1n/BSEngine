@@ -29,7 +29,7 @@ impl BsWinitApp {
         let open = self
             .ecs_app
             .world()
-            .get_non_send_resource::<FirstFrameGate>()
+            .get_non_send::<FirstFrameGate>()
             .is_none_or(|gate| gate.ready.iter().all(|ready| ready()));
         self.started = open;
         open
@@ -68,7 +68,7 @@ impl ApplicationHandler for BsWinitApp {
         if let Some(mut gate) = self
             .ecs_app
             .world_mut()
-            .get_non_send_resource_mut::<FirstFrameGate>()
+            .get_non_send_mut::<FirstFrameGate>()
         {
             for hook in std::mem::take(&mut gate.on_window) {
                 hook(window.clone());

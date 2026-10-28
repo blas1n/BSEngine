@@ -1488,7 +1488,7 @@ mod tests {
 
             let entity = app
                 .world_mut()
-                .query::<bevy_ecs::world::EntityRef>()
+                .query_filtered::<bevy_ecs::world::EntityRef, bevy_ecs::query::Without<bevy_ecs::resource::IsResource>>()
                 .iter(app.world())
                 .next()
                 .expect("the entity should exist")
@@ -1673,7 +1673,7 @@ mod tests {
 
         let entity = app
             .world_mut()
-            .query::<bevy_ecs::world::EntityRef>()
+            .query_filtered::<bevy_ecs::world::EntityRef, bevy_ecs::query::Without<bevy_ecs::resource::IsResource>>()
             .iter(app.world())
             .next()
             .expect("the entity should exist")
@@ -1739,7 +1739,7 @@ mod tests {
 
         let entity = app
             .world_mut()
-            .query::<bevy_ecs::world::EntityRef>()
+            .query_filtered::<bevy_ecs::world::EntityRef, bevy_ecs::query::Without<bevy_ecs::resource::IsResource>>()
             .iter(app.world())
             .next()
             .expect("the entity should exist")

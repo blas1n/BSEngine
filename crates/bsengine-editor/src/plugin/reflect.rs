@@ -224,12 +224,24 @@ mod tests {
             "a freed row is not alive"
         );
 
-        // The row comes back with a new generation; the id an editor holds is
-        // the bare index, which now means the new occupant.
-        let reused = world.spawn_empty().id();
-        assert_eq!(reused.index(), dead.index(), "premise: the row was reused");
-        assert_ne!(reused, dead, "premise: under a new generation");
-        assert_eq!(live_entity(&world, dead.index_u32() as u64), Some(reused));
+        // The index comes back with a new generation; the id an editor holds
+        // is the bare index, which now means the new occupant. Made to happen
+        // rather than waited for: Bevy 0.19's allocator hands a freed index
+        // back whenever it likes (not the next spawn, not after a flush), so
+        // the fixture despawns without freeing and spawns the next
+        // generation at the same index itself.
+        let old = world.spawn_empty().id();
+        world.despawn_no_free(old);
+        let reused = world
+            .spawn_empty_at(Entity::from_index_and_generation(
+                old.index(),
+                old.generation().after_versions(1),
+            ))
+            .expect("the index is free for its next generation")
+            .id();
+        assert_eq!(reused.index(), old.index(), "premise: the same index");
+        assert_ne!(reused, old, "premise: under a new generation");
+        assert_eq!(live_entity(&world, old.index_u32() as u64), Some(reused));
 
         assert_eq!(live_entity(&world, 1_000_000), None, "a row never reserved");
         assert_eq!(live_entity(&world, u32::MAX as u64), None);

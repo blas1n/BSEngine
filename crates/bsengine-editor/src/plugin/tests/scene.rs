@@ -103,6 +103,54 @@ fn mcp_terrain_write_threads_an_optional_splatmap_path_through_when_given() {
 }
 
 #[test]
+fn mcp_clear_scene_leaves_the_resources_alone() {
+    // Since Bevy 0.19 every resource is an entity (`IsResource`), and a query
+    // over all entities -- ClearScene's -- sees them. Clearing the scene must
+    // not take the engine down with it: InspectorState is what the editor
+    // reads every frame.
+    let mut app = new_app();
+    app.add_plugins(McpPlugin);
+    app.add_plugins(EditorPlugin);
+    app.world_mut().spawn(bsengine_scene::Name("A".to_string()));
+    app.update();
+    let resources_before = app
+        .world_mut()
+        .query::<&bevy_ecs::resource::IsResource>()
+        .iter(app.world())
+        .count();
+    assert!(resources_before > 0, "premise: resources are entities here");
+    assert!(app
+        .world()
+        .contains_resource::<bsengine_core::InspectorState>());
+
+    {
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        mcp.0
+            .lock()
+            .unwrap()
+            .execute("clear_scene", json!({}))
+            .expect("clear_scene not found");
+    }
+    app.update();
+    app.update();
+
+    assert!(
+        app.world()
+            .contains_resource::<bsengine_core::InspectorState>(),
+        "ClearScene despawned a resource"
+    );
+    let resources_after = app
+        .world_mut()
+        .query::<&bevy_ecs::resource::IsResource>()
+        .iter(app.world())
+        .count();
+    assert!(
+        resources_after >= resources_before,
+        "resources went missing: {resources_before} before, {resources_after} after"
+    );
+}
+
+#[test]
 fn mcp_clear_scene_with_a_hierarchy_removes_everything_once() {
     // ClearScene despawns every entity it sees, children included, while a
     // parent's despawn already takes its children: the second despawn of a

@@ -12,7 +12,7 @@
 [package]
 edition = "2024"
 name = "bevy_diagnostic"
-version = "0.18.1"
+version = "0.19.1"
 build = false
 autolib = false
 autobins = false
@@ -25,12 +25,12 @@ readme = "README.md"
 keywords = ["bevy"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/bevyengine/bevy"
-resolver = "2"
 
 [package.metadata.docs.rs]
 rustdoc-args = [
     "-Zunstable-options",
     "--generate-link-to-definition",
+    "--generate-macro-expansion",
 ]
 all-features = true
 
@@ -70,24 +70,24 @@ version = "1"
 default-features = false
 
 [dependencies.bevy_app]
-version = "0.18.0"
+version = "0.19.1"
 default-features = false
 
 [dependencies.bevy_ecs]
-version = "0.18.0"
+version = "0.19.1"
 default-features = false
 
 [dependencies.bevy_platform]
-version = "0.18.0"
+version = "0.19.1"
 features = ["alloc"]
 default-features = false
 
 [dependencies.bevy_tasks]
-version = "0.18.0"
+version = "0.19.1"
 default-features = false
 
 [dependencies.bevy_time]
-version = "0.18.0"
+version = "0.19.1"
 default-features = false
 
 [dependencies.const-fnv1a-hash]
@@ -107,7 +107,7 @@ default-features = false
 version = "1.0"
 
 [target.'cfg(all(target_os="macos"))'.dependencies.sysinfo]
-version = "0.37.0"
+version = "0.38.4"
 features = [
     "apple-app-store",
     "system",
@@ -115,8 +115,8 @@ features = [
 optional = true
 default-features = false
 
-[target.'cfg(any(target_os = "linux", target_os = "windows", target_os = "android", target_os = "freebsd"))'.dependencies.sysinfo]
-version = "0.37.0"
+[target.'cfg(any(target_os = "linux", target_os = "windows", target_os = "android", target_os = "freebsd", target_os = "netbsd"))'.dependencies.sysinfo]
+version = "0.38.4"
 features = ["system"]
 optional = true
 default-features = false

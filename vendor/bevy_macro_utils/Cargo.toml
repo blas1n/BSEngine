@@ -12,7 +12,7 @@
 [package]
 edition = "2024"
 name = "bevy_macro_utils"
-version = "0.18.1"
+version = "0.19.1"
 build = false
 autolib = false
 autobins = false
@@ -25,12 +25,12 @@ readme = "README.md"
 keywords = ["bevy"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/bevyengine/bevy"
-resolver = "2"
 
 [package.metadata.docs.rs]
 rustdoc-args = [
     "-Zunstable-options",
     "--generate-link-to-definition",
+    "--generate-macro-expansion",
 ]
 all-features = true
 
@@ -48,7 +48,7 @@ version = "1.0"
 version = "2.0"
 
 [dependencies.toml_edit]
-version = "0.23.2"
+version = "0.25.1"
 features = ["parse"]
 default-features = false
 

@@ -395,8 +395,20 @@ fn apply_component_value_fixes_up_a_stale_entity_field_generation() {
     // generation is now > 0 -- Entity::from_raw(index) (generation 0)
     // would NOT equal this live entity.
     let throwaway = app.world_mut().spawn(Name("Throwaway".to_string())).id();
-    app.world_mut().despawn(throwaway);
-    let target = app.world_mut().spawn(Name("Target".to_string())).id();
+    // Despawned without freeing and respawned at its next generation by
+    // hand: Bevy 0.19's allocator does not hand a freed index straight back.
+    app.world_mut().despawn_no_free(throwaway);
+    let target = app
+        .world_mut()
+        .spawn_at(
+            bevy_ecs::prelude::Entity::from_index_and_generation(
+                throwaway.index(),
+                throwaway.generation().after_versions(1),
+            ),
+            Name("Target".to_string()),
+        )
+        .expect("the index is free for its next generation")
+        .id();
     assert_eq!(
         target.index(),
         throwaway.index(),
@@ -470,8 +482,20 @@ fn apply_component_value_fixes_up_stale_entity_generations_inside_array_and_map_
     // would NOT equal this live entity (same technique as
     // `apply_component_value_fixes_up_a_stale_entity_field_generation`).
     let throwaway = app.world_mut().spawn(Name("Throwaway".to_string())).id();
-    app.world_mut().despawn(throwaway);
-    let target = app.world_mut().spawn(Name("Target".to_string())).id();
+    // Despawned without freeing and respawned at its next generation by
+    // hand: Bevy 0.19's allocator does not hand a freed index straight back.
+    app.world_mut().despawn_no_free(throwaway);
+    let target = app
+        .world_mut()
+        .spawn_at(
+            bevy_ecs::prelude::Entity::from_index_and_generation(
+                throwaway.index(),
+                throwaway.generation().after_versions(1),
+            ),
+            Name("Target".to_string()),
+        )
+        .expect("the index is free for its next generation")
+        .id();
     assert_eq!(
         target.index(),
         throwaway.index(),

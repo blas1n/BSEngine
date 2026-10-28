@@ -2517,7 +2517,7 @@ mod tests {
         // `set_reflected_component` call: a value naming only the reflected
         // field, since the ignored ones are not in the type's reflected shape
         // and cannot be spelled at all.
-        let mut patch = bevy_reflect::DynamicStruct::default();
+        let mut patch = bevy_reflect::structs::DynamicStruct::default();
         patch.insert("mesh_id", 42u64);
         let mut entity_mut = world.entity_mut(entity);
         reflect_component.apply_or_insert_mapped(
@@ -2552,7 +2552,7 @@ mod tests {
 
     #[test]
     fn the_reflected_shape_is_mesh_id_and_nothing_else() {
-        use bevy_reflect::Struct;
+        use bevy_reflect::structs::Struct;
 
         let mesh = skinned_mesh_with_bulk_data(5);
         let names: Vec<&str> = mesh

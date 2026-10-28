@@ -5,27 +5,34 @@ use super::*;
 pub(super) fn update_editor_snapshot(
     snapshot_res: Res<EditorSnapshotResource>,
     selection_res: Res<EditorSelectionResource>,
-    query: Query<(
-        Entity,
-        Option<&Name>,
-        Option<&Transform>,
-        Option<&MeshRenderer>,
-        Option<&PointLight>,
-        Option<&DirectionalLight>,
-        Option<&SpotLight>,
-        Option<&Camera>,
-        Option<&ChildOf>,
-        Option<&Tags>,
-        Option<&Visible>,
-        Option<&Material>,
+    query: Query<
         (
-            Option<&PrimitiveMesh>,
-            Option<&bsengine_scene::ScriptPath>,
-            Option<&bsengine_core::TexturePath>,
-            Option<&bsengine_scene::PhysicsBodyDesc>,
-            Option<&bsengine_core::PrefabInstance>,
+            Entity,
+            Option<&Name>,
+            Option<&Transform>,
+            Option<&MeshRenderer>,
+            Option<&PointLight>,
+            Option<&DirectionalLight>,
+            Option<&SpotLight>,
+            Option<&Camera>,
+            Option<&ChildOf>,
+            Option<&Tags>,
+            Option<&Visible>,
+            Option<&Material>,
+            (
+                Option<&PrimitiveMesh>,
+                Option<&bsengine_scene::ScriptPath>,
+                Option<&bsengine_core::TexturePath>,
+                Option<&bsengine_scene::PhysicsBodyDesc>,
+                Option<&bsengine_core::PrefabInstance>,
+            ),
         ),
-    )>,
+        // Every field above is an `Option`, so without this the query matches
+        // every entity -- and since Bevy 0.19 that includes one per resource:
+        // the editor listed twenty-odd nameless "entities" and MCP's scene
+        // stats counted them.
+        bevy_ecs::query::Without<bevy_ecs::resource::IsResource>,
+    >,
 ) {
     let selection = selection_res.0.lock().unwrap().clone();
     let mut snapshot = snapshot_res.0.lock().unwrap();
@@ -435,7 +442,7 @@ pub(super) fn populate_snapshot_extra_components(world: &mut World) {
     // `query` wants it mutably. `EntityRef` needs no component registered, so
     // there is always a state to build.
     let mut every_entity = world
-        .try_query::<bevy_ecs::world::EntityRef>()
+        .try_query_filtered::<bevy_ecs::world::EntityRef, bevy_ecs::query::Without<bevy_ecs::resource::IsResource>>()
         .expect("EntityRef reads no component, so its query always builds");
     for entity_ref in every_entity.iter(world) {
         let id = entity_ref.id().index_u32() as u64;

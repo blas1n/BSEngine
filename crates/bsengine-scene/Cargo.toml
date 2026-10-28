@@ -36,4 +36,7 @@ bsengine-app.workspace = true
 # probe directory, and assert on the warnings that come out — both of which
 # `bsengine-asset` already has helpers for.
 bsengine-asset = { workspace = true, features = ["test-support"] }
+# Only for the types `AudioPlugin` registers, so the reflected-value guard can
+# read a shipped scene's `AudioEmitter` the way the runtime does.
+bsengine-audio.workspace = true
 tempfile = "3"

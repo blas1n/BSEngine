@@ -1,3 +1,8 @@
+#![expect(
+    unsafe_op_in_unsafe_fn,
+    reason = "See #11590. To be removed once all applicable unsafe code has an unsafe block with a safety comment."
+)]
+
 //! Types for handling [`Bundle`]s.
 //!
 //! This module contains the [`Bundle`] trait and some other helper types.
@@ -9,6 +14,7 @@ mod remove;
 mod spawner;
 #[cfg(test)]
 mod tests;
+mod writer;
 
 pub(crate) use insert::BundleInserter;
 pub(crate) use remove::BundleRemover;
@@ -17,6 +23,7 @@ pub(crate) use spawner::BundleSpawner;
 use bevy_ptr::MovingPtr;
 use core::mem::MaybeUninit;
 pub use info::*;
+pub use writer::*;
 
 /// Derive the [`Bundle`] trait
 ///

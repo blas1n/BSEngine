@@ -370,7 +370,7 @@ fn release_if_asked(
     if !wants_release {
         return;
     }
-    if let Some(tex) = textures.get_mut(handle) {
+    if let Some(mut tex) = textures.get_mut(handle) {
         tex.release_pixels();
         tracing::debug!("[texture] '{path}' is on the GPU; its pixels are released from RAM");
     }
@@ -783,7 +783,7 @@ mod tests {
             let mut textures = app
                 .world_mut()
                 .resource_mut::<bevy_asset::Assets<TextureAsset>>();
-            let tex = textures.get_mut(&handle).expect("the asset is loaded");
+            let mut tex = textures.get_mut(&handle).expect("the asset is loaded");
             tex.width = 256;
             tex.height = 256;
             tex.data = vec![90u8; 256 * 256 * 4];
@@ -855,7 +855,7 @@ mod tests {
         let mut textures = app
             .world_mut()
             .resource_mut::<bevy_asset::Assets<TextureAsset>>();
-        let tex = textures.get_mut(&handle).expect("the asset is loaded");
+        let mut tex = textures.get_mut(&handle).expect("the asset is loaded");
         tex.width = 256;
         tex.height = 256;
         tex.data = vec![90u8; 256 * 256 * 4];
@@ -1162,7 +1162,7 @@ mod tests {
             let mut textures = app
                 .world_mut()
                 .resource_mut::<bevy_asset::Assets<TextureAsset>>();
-            let tex = textures.get_mut(&handle).unwrap();
+            let mut tex = textures.get_mut(&handle).unwrap();
             tex.width = 256;
             tex.height = 256;
             tex.data = vec![90u8; 256 * 256 * 4];
@@ -1202,7 +1202,7 @@ mod tests {
             let mut textures = app
                 .world_mut()
                 .resource_mut::<bevy_asset::Assets<TextureAsset>>();
-            let tex = textures.get_mut(&handle).unwrap();
+            let mut tex = textures.get_mut(&handle).unwrap();
             tex.width = 128;
             tex.height = 128;
             tex.data = vec![7u8; 128 * 128 * 4];
@@ -1269,7 +1269,7 @@ mod tests {
             let mut textures = app
                 .world_mut()
                 .resource_mut::<bevy_asset::Assets<TextureAsset>>();
-            let tex = textures.get_mut(&handle).expect("the asset is loaded");
+            let mut tex = textures.get_mut(&handle).expect("the asset is loaded");
             tex.width = 2;
             tex.height = 2;
             tex.data = vec![0u8; 16];

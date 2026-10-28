@@ -97,7 +97,7 @@ impl Plugin for WgpuRHIPlugin {
             }));
             gate.ready
                 .push(Box::new(|| ARRIVED_SURFACE.with(|s| s.borrow().is_some())));
-            app.insert_non_send_resource(gate);
+            app.insert_non_send(gate);
             app.add_systems(bevy_app::PreStartup, install_arrived_surface);
         }
         app.add_systems(Update, handle_window_resize);

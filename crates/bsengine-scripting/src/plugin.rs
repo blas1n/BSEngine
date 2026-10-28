@@ -95,7 +95,7 @@ struct ScriptLoad {
 }
 
 /// Non-Send wrapper around the entity's V8 isolate; stored as a non-send
-/// resource via `insert_non_send_resource` since `JsRuntime` isn't `Send`/`Sync`.
+/// resource via `insert_non_send` since `JsRuntime` isn't `Send`/`Sync`.
 pub struct ScriptRuntimeResource(pub ScriptRuntime);
 
 /// Stores kira sound handles by script-assigned id for stopSound support.
@@ -320,7 +320,7 @@ impl Plugin for ScriptingPlugin {
         // always has somewhere to land and `tr` returns the key.
         app.init_resource::<bsengine_core::Localization>();
         app.init_resource::<SoundLoads>();
-        app.insert_non_send_resource(ScriptRuntimeResource(ScriptRuntime::new_with_ops()));
+        app.insert_non_send(ScriptRuntimeResource(ScriptRuntime::new_with_ops()));
         // Wall clock by default. `bsengine-runtime --test` overwrites this
         // with `ScriptTimingState::fixed` so replays are reproducible.
         app.insert_resource(ScriptTimingState::wall_clock());
@@ -556,7 +556,7 @@ pub fn load_scripts_with(world: &mut World, bootstrap: Bootstrap) {
     }
 
     if bootstrap == Bootstrap::Reset {
-        if let Some(mut rt) = world.get_non_send_resource_mut::<ScriptRuntimeResource>() {
+        if let Some(mut rt) = world.get_non_send_mut::<ScriptRuntimeResource>() {
             if let Err(e) = rt.0.exec_source(BOOTSTRAP_JS, "<bootstrap>") {
                 tracing::error!("[scripting] bootstrap failed: {e}");
                 return;
@@ -706,7 +706,7 @@ fn adopt_script_source(
         // slot out of `GaveUp`.
         load.slot.mark_arrived();
     }
-    let mut rt = world.get_non_send_resource_mut::<ScriptRuntimeResource>()?;
+    let mut rt = world.get_non_send_mut::<ScriptRuntimeResource>()?;
     Some(rt.0.exec_source(&wrapped, path))
 }
 
@@ -1027,7 +1027,7 @@ fn run_scripts(world: &mut World) {
             });
             refresh_transform_snapshot(world, name);
 
-            if let Some(mut rt) = world.get_non_send_resource_mut::<ScriptRuntimeResource>() {
+            if let Some(mut rt) = world.get_non_send_mut::<ScriptRuntimeResource>() {
                 let call = format!("Bsengine._runOne(\"{bits}\", \"{name}\");");
                 if let Err(e) = rt.0.exec_source(&call, "<replay>") {
                     tracing::error!("[scripting] replay of {name} failed: {e}");
@@ -1043,7 +1043,7 @@ fn run_scripts(world: &mut World) {
         });
     }
 
-    if let Some(mut rt) = world.get_non_send_resource_mut::<ScriptRuntimeResource>() {
+    if let Some(mut rt) = world.get_non_send_mut::<ScriptRuntimeResource>() {
         // Dispatch collision events to JS before update
         if collision_json != "[]" {
             let call = format!("Bsengine._runCollisions({collision_json});");
@@ -4540,7 +4540,7 @@ mod tests {
         app.add_plugins(ScriptingPlugin::default());
         assert!(app
             .world()
-            .get_non_send_resource::<ScriptRuntimeResource>()
+            .get_non_send::<ScriptRuntimeResource>()
             .is_some());
     }
 
@@ -4552,7 +4552,7 @@ mod tests {
 
         let result = app
             .world_mut()
-            .get_non_send_resource_mut::<ScriptRuntimeResource>()
+            .get_non_send_mut::<ScriptRuntimeResource>()
             .expect("ScriptRuntimeResource not found")
             .0
             .eval("40 + 2");
@@ -5079,7 +5079,7 @@ mod tests {
             // A non-send resource, and `eval` needs `&mut`.
             let registered = app
                 .world_mut()
-                .non_send_resource_mut::<ScriptRuntimeResource>()
+                .non_send_mut::<ScriptRuntimeResource>()
                 .0
                 .eval("typeof Bsengine._rpcs.onHit")
                 .is_ok_and(|t| t.contains("object"));

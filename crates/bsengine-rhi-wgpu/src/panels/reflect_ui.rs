@@ -242,35 +242,35 @@ pub fn draw_reflect_ui(
 /// `ReflectDefault` (a safe no-op switch in that case, rather than a partial
 /// / panicking one).
 fn build_default_variant(
-    enum_info: &bevy_reflect::EnumInfo,
+    enum_info: &bevy_reflect::enums::EnumInfo,
     variant_name: &str,
     registry: &bevy_reflect::TypeRegistry,
-) -> Option<bevy_reflect::DynamicEnum> {
+) -> Option<bevy_reflect::enums::DynamicEnum> {
     let variant_info = enum_info.variant(variant_name)?;
     let dynamic_variant = match variant_info {
-        bevy_reflect::VariantInfo::Unit(_) => bevy_reflect::DynamicVariant::Unit,
-        bevy_reflect::VariantInfo::Tuple(tuple_info) => {
-            let mut t = bevy_reflect::DynamicTuple::default();
+        bevy_reflect::enums::VariantInfo::Unit(_) => bevy_reflect::enums::DynamicVariant::Unit,
+        bevy_reflect::enums::VariantInfo::Tuple(tuple_info) => {
+            let mut t = bevy_reflect::tuple::DynamicTuple::default();
             for field in tuple_info.iter() {
                 let default = registry
                     .get_type_data::<bevy_reflect::std_traits::ReflectDefault>(field.type_id())?
                     .default();
                 t.insert_boxed(default);
             }
-            bevy_reflect::DynamicVariant::Tuple(t)
+            bevy_reflect::enums::DynamicVariant::Tuple(t)
         }
-        bevy_reflect::VariantInfo::Struct(struct_info) => {
-            let mut s = bevy_reflect::DynamicStruct::default();
+        bevy_reflect::enums::VariantInfo::Struct(struct_info) => {
+            let mut s = bevy_reflect::structs::DynamicStruct::default();
             for field in struct_info.iter() {
                 let default = registry
                     .get_type_data::<bevy_reflect::std_traits::ReflectDefault>(field.type_id())?
                     .default();
                 s.insert_boxed(field.name(), default);
             }
-            bevy_reflect::DynamicVariant::Struct(s)
+            bevy_reflect::enums::DynamicVariant::Struct(s)
         }
     };
-    Some(bevy_reflect::DynamicEnum::new(
+    Some(bevy_reflect::enums::DynamicEnum::new(
         variant_name,
         dynamic_variant,
     ))

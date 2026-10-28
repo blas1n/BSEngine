@@ -18,7 +18,8 @@ use bevy_asset::io::Reader;
 use bevy_asset::{AssetLoader, LoadContext};
 
 /// Backs `LoadMode::Async` for custom shaders via `AssetServer::load`.
-#[derive(Default)]
+// `TypePath`: Bevy 0.18 makes it a supertrait of `AssetLoader`.
+#[derive(Default, bevy_reflect::TypePath)]
 pub struct ShaderSourceLoader;
 
 impl AssetLoader for ShaderSourceLoader {

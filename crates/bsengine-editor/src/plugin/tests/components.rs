@@ -24,7 +24,7 @@ fn mcp_attach_mesh_adds_mesh_renderer() {
             .unwrap()
             .execute(
                 "attach_mesh",
-                json!({"entity_id": eid.index() as u64, "mesh_id": 42u64}),
+                json!({"entity_id": eid.index_u32() as u64, "mesh_id": 42u64}),
             )
             .expect("attach_mesh not found");
         assert!(result.is_ok(), "{:?}", result.error);
@@ -63,7 +63,7 @@ fn mcp_attach_physics_body_adds_physics_body_desc() {
             .execute(
                 "attach_physics_body",
                 json!({
-                    "entity_id": eid.index() as u64,
+                    "entity_id": eid.index_u32() as u64,
                     "rigidbody": "Dynamic",
                     "collider_shape": "Sphere",
                     "radius": 0.75,
@@ -174,7 +174,7 @@ fn mcp_update_directional_light_direction_rotates_transform() {
         let mut q = app
             .world_mut()
             .query::<(bevy_ecs::entity::Entity, &bsengine_core::DirectionalLight)>();
-        q.iter(app.world()).next().unwrap().0.index() as u64
+        q.iter(app.world()).next().unwrap().0.index_u32() as u64
     };
 
     {
@@ -222,7 +222,7 @@ fn mcp_remove_light_removes_point_light() {
         mcp.0
             .lock()
             .unwrap()
-            .execute("remove_light", json!({"entity_id": eid.index() as u64}))
+            .execute("remove_light", json!({"entity_id": eid.index_u32() as u64}))
             .expect("remove_light not found");
     }
     app.update();
@@ -641,7 +641,7 @@ fn mcp_update_point_light_changes_intensity() {
             .unwrap()
             .execute(
                 "update_point_light",
-                json!({"entity_id": eid.index() as u64, "intensity": 5.0, "range": 20.0}),
+                json!({"entity_id": eid.index_u32() as u64, "intensity": 5.0, "range": 20.0}),
             )
             .expect("update_point_light not found");
         assert!(result.is_ok(), "{:?}", result.error);
@@ -680,7 +680,7 @@ fn mcp_update_directional_light_changes_color() {
             .unwrap()
             .execute(
                 "update_directional_light",
-                json!({"entity_id": eid.index() as u64, "color": [0.5, 0.5, 0.5]}),
+                json!({"entity_id": eid.index_u32() as u64, "color": [0.5, 0.5, 0.5]}),
             )
             .expect("update_directional_light not found");
         assert!(result.is_ok(), "{:?}", result.error);
@@ -717,7 +717,7 @@ fn mcp_detach_mesh_removes_mesh_renderer() {
         mcp.0
             .lock()
             .unwrap()
-            .execute("detach_mesh", json!({"entity_id": eid.index() as u64}))
+            .execute("detach_mesh", json!({"entity_id": eid.index_u32() as u64}))
             .expect("detach_mesh not found");
     }
     app.update();
@@ -765,7 +765,7 @@ fn mcp_detach_physics_body_removes_physics_body_desc() {
             .unwrap()
             .execute(
                 "detach_physics_body",
-                json!({"entity_id": eid.index() as u64}),
+                json!({"entity_id": eid.index_u32() as u64}),
             )
             .expect("detach_physics_body not found");
     }

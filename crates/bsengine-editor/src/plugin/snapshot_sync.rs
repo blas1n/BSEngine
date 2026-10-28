@@ -69,7 +69,7 @@ pub(super) fn update_editor_snapshot(
                     .or_else(|| dir.map(|l| l.bake_mode))
                     .or_else(|| spot.map(|l| l.bake_mode));
                 EntityInfo {
-                    id: e.index() as u64,
+                    id: e.index_u32() as u64,
                     name: name.map(|n| n.0.clone()),
                     position: transform.map(|t| t.position.to_array()),
                     rotation: transform.map(|t| {
@@ -98,10 +98,10 @@ pub(super) fn update_editor_snapshot(
                     material_metallic: mat.map(|m| m.metallic),
                     material_roughness: mat.map(|m| m.roughness),
                     material_emissive: mat.map(|m| m.emissive.to_array()),
-                    parent_id: parent.map(|p| p.0.index() as u64),
+                    parent_id: parent.map(|p| p.0.index_u32() as u64),
                     tags: tags.map(|t| t.0.clone()).unwrap_or_default(),
                     visible: vis.map(|v| v.is_visible).unwrap_or(true),
-                    selected: selection.contains(&(e.index() as u64)),
+                    selected: selection.contains(&(e.index_u32() as u64)),
                     extra_components: Vec::new(),
                     physics_body: physics_body.cloned(),
                     is_prefab_instance: prefab_instance.is_some(),
@@ -438,7 +438,7 @@ pub(super) fn populate_snapshot_extra_components(world: &mut World) {
         .try_query::<bevy_ecs::world::EntityRef>()
         .expect("EntityRef reads no component, so its query always builds");
     for entity_ref in every_entity.iter(world) {
-        let id = entity_ref.id().index() as u64;
+        let id = entity_ref.id().index_u32() as u64;
         let Some(&idx) = index_by_id.get(&id) else {
             continue;
         };
@@ -487,7 +487,7 @@ pub(super) fn populate_snapshot_particles(
         return;
     };
     for (entity, emitter) in emitters.iter() {
-        let id = entity.index() as u64;
+        let id = entity.index_u32() as u64;
         if let Some(info) = inspector.entities.iter_mut().find(|e| e.id == id) {
             info.particles = Some(bsengine_core::ParticleSnapshot {
                 alive: emitter.live.len(),

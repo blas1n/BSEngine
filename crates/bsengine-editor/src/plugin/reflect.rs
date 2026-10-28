@@ -7,15 +7,15 @@ use super::*;
 ///
 /// Was `world.query::<bevy_ecs::world::EntityRef>().iter(world).find(|e| e.id().index() == index)`, a walk over
 /// every entity; `iter_entities` is deprecated in Bevy 0.17. `Entities` already
-/// knows the current generation of every row, so this is a lookup. Whether the
-/// row is *occupied* is a separate question: a freed row's generation has
-/// already been bumped, so `resolve_from_id` hands back an entity that
+/// knows the current generation of every index, so this is a lookup. Whether the
+/// index is *occupied* is a separate question: a freed index's generation has
+/// already been bumped, so `resolve_from_index` hands back an entity that
 /// `Entities::contains` (a generation compare) calls present. `get_entity`
 /// asks whether it has a location, which is what the walk's "it is in the
 /// world" meant.
 pub(super) fn live_entity(world: &World, index: u64) -> Option<Entity> {
-    let row = Entity::from_raw_u32(u32::try_from(index).ok()?)?.row();
-    let entity = world.entities().resolve_from_id(row)?;
+    let index = Entity::from_raw_u32(u32::try_from(index).ok()?)?.index();
+    let entity = world.entities().resolve_from_index(index);
     world.get_entity(entity).ok().map(|e| e.id())
 }
 
@@ -31,7 +31,7 @@ pub(super) fn live_entity(world: &World, index: u64) -> Option<Entity> {
 /// available, before the value is applied to a live component.
 pub(super) fn fixup_entity_fields(value: &mut dyn bevy_reflect::PartialReflect, world: &World) {
     if let Some(entity) = value.try_downcast_mut::<bevy_ecs::prelude::Entity>() {
-        if let Some(live) = live_entity(world, entity.index() as u64) {
+        if let Some(live) = live_entity(world, entity.index_u32() as u64) {
             *entity = live;
         }
         return;
@@ -214,12 +214,12 @@ mod tests {
         // shapes an editor id can arrive in.
         let mut world = World::new();
         let alive = world.spawn_empty().id();
-        assert_eq!(live_entity(&world, alive.index() as u64), Some(alive));
+        assert_eq!(live_entity(&world, alive.index_u32() as u64), Some(alive));
 
         let dead = world.spawn_empty().id();
         world.despawn(dead);
         assert_eq!(
-            live_entity(&world, dead.index() as u64),
+            live_entity(&world, dead.index_u32() as u64),
             None,
             "a freed row is not alive"
         );
@@ -229,7 +229,7 @@ mod tests {
         let reused = world.spawn_empty().id();
         assert_eq!(reused.index(), dead.index(), "premise: the row was reused");
         assert_ne!(reused, dead, "premise: under a new generation");
-        assert_eq!(live_entity(&world, dead.index() as u64), Some(reused));
+        assert_eq!(live_entity(&world, dead.index_u32() as u64), Some(reused));
 
         assert_eq!(live_entity(&world, 1_000_000), None, "a row never reserved");
         assert_eq!(live_entity(&world, u32::MAX as u64), None);

@@ -12,7 +12,7 @@
 [package]
 edition = "2024"
 name = "bevy_reflect_derive"
-version = "0.17.3"
+version = "0.18.1"
 build = false
 autolib = false
 autobins = false
@@ -42,8 +42,8 @@ auto_register_static = [
     "dep:uuid",
 ]
 default = []
-documentation = []
 functions = []
+reflect_documentation = []
 
 [lib]
 name = "bevy_reflect_derive"
@@ -51,7 +51,7 @@ path = "src/lib.rs"
 proc-macro = true
 
 [dependencies.bevy_macro_utils]
-version = "0.17.3"
+version = "0.18.0"
 
 [dependencies.indexmap]
 version = "2.0"

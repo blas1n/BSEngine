@@ -1,21 +1,28 @@
 use core::hash::{BuildHasher, Hash};
 
 use crate::{
-    binary_heap::Kind as BinaryHeapKind, BinaryHeap, Deque, IndexMap, IndexSet, LinearMap, String,
-    Vec,
+    binary_heap::{BinaryHeapInner, Kind as BinaryHeapKind},
+    deque::DequeInner,
+    history_buf::{HistoryBufInner, HistoryBufStorage},
+    len_type::LenType,
+    linear_map::{LinearMapInner, LinearMapStorage},
+    string::{StringInner, StringStorage},
+    vec::{VecInner, VecStorage},
+    IndexMap, IndexSet,
 };
-use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
+use serde_core::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 
 // Sequential containers
 
-impl<T, KIND, const N: usize> Serialize for BinaryHeap<T, KIND, N>
+impl<T, KIND, S> Serialize for BinaryHeapInner<T, KIND, S>
 where
     T: Ord + Serialize,
     KIND: BinaryHeapKind,
+    S: VecStorage<T> + ?Sized,
 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    fn serialize<SER>(&self, serializer: SER) -> Result<SER::Ok, SER::Error>
     where
-        S: Serializer,
+        SER: Serializer,
     {
         let mut seq = serializer.serialize_seq(Some(self.len()))?;
         for element in self {
@@ -42,7 +49,7 @@ where
     }
 }
 
-impl<T, const N: usize> Serialize for Vec<T, N>
+impl<T, LenT: LenType, St: VecStorage<T>> Serialize for VecInner<T, LenT, St>
 where
     T: Serialize,
 {
@@ -58,16 +65,32 @@ where
     }
 }
 
-impl<T, const N: usize> Serialize for Deque<T, N>
+impl<T, S: VecStorage<T> + ?Sized> Serialize for DequeInner<T, S>
 where
     T: Serialize,
 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    fn serialize<SER>(&self, serializer: SER) -> Result<SER::Ok, SER::Error>
     where
-        S: Serializer,
+        SER: Serializer,
+    {
+        let mut seq = serializer.serialize_seq(Some(self.storage_len()))?;
+        for element in self {
+            seq.serialize_element(element)?;
+        }
+        seq.end()
+    }
+}
+
+impl<T, S: HistoryBufStorage<T> + ?Sized> Serialize for HistoryBufInner<T, S>
+where
+    T: Serialize,
+{
+    fn serialize<SER>(&self, serializer: SER) -> Result<SER::Ok, SER::Error>
+    where
+        SER: Serializer,
     {
         let mut seq = serializer.serialize_seq(Some(self.len()))?;
-        for element in self {
+        for element in self.oldest_ordered() {
             seq.serialize_element(element)?;
         }
         seq.end()
@@ -94,7 +117,7 @@ where
     }
 }
 
-impl<K, V, const N: usize> Serialize for LinearMap<K, V, N>
+impl<K, V, S: LinearMapStorage<K, V> + ?Sized> Serialize for LinearMapInner<K, V, S>
 where
     K: Eq + Serialize,
     V: Serialize,
@@ -113,11 +136,11 @@ where
 
 // String containers
 
-impl<const N: usize> Serialize for String<N> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+impl<LenT: LenType, S: StringStorage + ?Sized> Serialize for StringInner<LenT, S> {
+    fn serialize<SER>(&self, serializer: SER) -> Result<SER::Ok, SER::Error>
     where
-        S: Serializer,
+        SER: Serializer,
     {
-        serializer.serialize_str(&*self)
+        serializer.serialize_str(self)
     }
 }

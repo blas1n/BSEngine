@@ -39,7 +39,7 @@ fn mcp_get_entity_returns_info() {
         .0
         .lock()
         .unwrap()
-        .execute("get_entity", json!({"entity_id": eid.index() as u64}))
+        .execute("get_entity", json!({"entity_id": eid.index_u32() as u64}))
         .expect("get_entity not found");
     assert!(result.is_ok(), "error: {:?}", result.error);
     assert_eq!(result.content["entity"]["name"], "Shield");
@@ -127,7 +127,7 @@ fn mcp_get_entity_reads_a_behaviour_trees_branch_and_blackboard() {
         .0
         .lock()
         .unwrap()
-        .execute("get_entity", json!({"entity_id": e.index() as u64}))
+        .execute("get_entity", json!({"entity_id": e.index_u32() as u64}))
         .unwrap();
     assert!(out.is_ok());
     let components = &out.content["entity"]["components"];
@@ -518,7 +518,7 @@ fn get_entity_includes_light_props_for_directional_light() {
         .0
         .lock()
         .unwrap()
-        .execute("get_entity", json!({"entity_id": eid.index() as u64}))
+        .execute("get_entity", json!({"entity_id": eid.index_u32() as u64}))
         .unwrap();
     let color = result.content["entity"]["light_color"].as_array().unwrap();
     assert!((color[0].as_f64().unwrap() - 0.8).abs() < 1e-3);
@@ -597,7 +597,7 @@ fn mcp_query_entities_selects_through_the_registry_and_reports_errors() {
             crate::snapshot::Tags(vec!["prop".to_string()]),
         ))
         .id()
-        .index() as u64;
+        .index_u32() as u64;
     let other = app
         .world_mut()
         .spawn((
@@ -605,7 +605,7 @@ fn mcp_query_entities_selects_through_the_registry_and_reports_errors() {
             crate::snapshot::Tags(vec!["static".to_string()]),
         ))
         .id()
-        .index() as u64;
+        .index_u32() as u64;
     app.update();
 
     {
@@ -777,7 +777,7 @@ fn get_entity_includes_light_type_directional() {
         .0
         .lock()
         .unwrap()
-        .execute("get_entity", json!({"entity_id": eid.index() as u64}))
+        .execute("get_entity", json!({"entity_id": eid.index_u32() as u64}))
         .unwrap();
     assert_eq!(result.content["entity"]["light_type"], "directional");
 }
@@ -832,7 +832,7 @@ fn get_entity_includes_mesh_id_when_present() {
         .0
         .lock()
         .unwrap()
-        .execute("get_entity", json!({"entity_id": eid.index() as u64}))
+        .execute("get_entity", json!({"entity_id": eid.index_u32() as u64}))
         .expect("get_entity not found");
     assert!(result.is_ok());
     assert_eq!(result.content["entity"]["mesh_id"], 55);
@@ -864,7 +864,7 @@ fn mcp_save_load_scene_round_trip_preserves_reflected_component_attached_via_set
                 .execute(
                     "set_reflected_component",
                     json!({
-                        "entity_id": eid.index() as u64,
+                        "entity_id": eid.index_u32() as u64,
                         "type_path": "bsengine_core::nav_mesh_agent::NavMeshAgent",
                         "value_json": r#"{"destination": null, "speed": 3.5, "angular_speed": 2.0, "acceleration": 8.0, "stopping_distance": 0.1, "radius": 0.3, "height": 1.8, "state": "Idle", "enabled": true}"#,
                     }),
@@ -929,7 +929,7 @@ fn set_reflected_component_attaches_nav_mesh_agent_with_given_speed() {
         let mcp = app.world().resource::<McpRegistryResource>();
         let registry = mcp.0.lock().unwrap();
         registry.execute("set_reflected_component", json!({
-            "entity_id": eid.index() as u64,
+            "entity_id": eid.index_u32() as u64,
             "type_path": "bsengine_core::nav_mesh_agent::NavMeshAgent",
             "value_json": r#"{"destination": null, "speed": 3.5, "angular_speed": 2.0, "acceleration": 8.0, "stopping_distance": 0.1, "radius": 0.3, "height": 1.8, "state": "Idle", "enabled": true}"#,
         })).expect("tool should be registered")
@@ -976,7 +976,7 @@ fn set_reflected_component_attaches_animation_state_machine_with_states() {
             let mcp = app.world().resource::<McpRegistryResource>();
             let registry = mcp.0.lock().unwrap();
             registry.execute("set_reflected_component", json!({
-            "entity_id": eid.index() as u64,
+            "entity_id": eid.index_u32() as u64,
             "type_path": "bsengine_core::animation_state_machine::AnimationStateMachine",
             "value_json": value_json,
         })).expect("tool should be registered")
@@ -1009,7 +1009,7 @@ fn set_reflected_component_rejects_unknown_type_path() {
             .execute(
                 "set_reflected_component",
                 json!({
-                    "entity_id": eid.index() as u64,
+                    "entity_id": eid.index_u32() as u64,
                     "type_path": "not::a::real::Type",
                     "value_json": "{}",
                 }),
@@ -1035,7 +1035,7 @@ fn set_reflected_component_rejects_json_not_matching_the_type() {
             .execute(
                 "set_reflected_component",
                 json!({
-                    "entity_id": eid.index() as u64,
+                    "entity_id": eid.index_u32() as u64,
                     "type_path": "bsengine_core::nav_mesh_agent::NavMeshAgent",
                     "value_json": r#"{"speed": "not a number"}"#,
                 }),

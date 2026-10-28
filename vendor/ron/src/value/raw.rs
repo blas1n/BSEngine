@@ -2,7 +2,8 @@
 // https://github.com/serde-rs/json/blob/master/src/raw.rs
 // Licensed under either of Apache License, Version 2.0 or MIT license at your option.
 
-use std::{fmt, ops::Range};
+use alloc::{borrow::ToOwned, boxed::Box, format, string::String};
+use core::{fmt, ops::Range};
 
 use serde::{de, ser, Deserialize, Serialize};
 
@@ -30,12 +31,12 @@ impl RawValue {
 
     fn from_boxed_str(ron: Box<str>) -> Box<Self> {
         // Safety: RawValue is a transparent newtype around str
-        unsafe { std::mem::transmute::<Box<str>, Box<RawValue>>(ron) }
+        unsafe { core::mem::transmute::<Box<str>, Box<RawValue>>(ron) }
     }
 
     fn into_boxed_str(raw_value: Box<Self>) -> Box<str> {
         // Safety: RawValue is a transparent newtype around str
-        unsafe { std::mem::transmute::<Box<RawValue>, Box<str>>(raw_value) }
+        unsafe { core::mem::transmute::<Box<RawValue>, Box<str>>(raw_value) }
     }
 
     #[allow(clippy::expect_used)]
@@ -105,7 +106,19 @@ impl RawValue {
             ))));
         }
 
-        let _ = <&Self>::deserialize(&mut deserializer).map_err(|e| deserializer.span_error(e))?;
+        // neither can global attributes like `#![type = ".."]`
+        if deserializer.parser.global_attributes {
+            return Err(deserializer.span_error(Error::Message(String::from(
+                "ron::value::RawValue cannot contain attributes",
+            ))));
+        }
+
+        let _ = de::Deserializer::deserialize_newtype_struct(
+            &mut deserializer,
+            RAW_VALUE_TOKEN,
+            de::IgnoredAny,
+        )
+        .map_err(|e| deserializer.span_error(e))?;
 
         deserializer.end().map_err(|e| deserializer.span_error(e))?;
 
@@ -143,18 +156,13 @@ impl RawValue {
     }
 
     #[must_use]
-    #[allow(unsafe_code)]
     /// Trims any leadning and trailing whitespace off the boxed raw RON string,
     /// including whitespace characters and comments.
     pub fn trim_boxed(self: Box<Self>) -> Box<Self> {
         let trim_range = RawValue::trim_range(&self.ron);
         let mut boxed_ron = RawValue::into_boxed_str(self).into_string();
-        // SAFETY: ron[trim_range] is a valid str, so draining everything
-        //         before and after leaves a valid str
-        unsafe {
-            boxed_ron.as_mut_vec().drain(trim_range.end..);
-            boxed_ron.as_mut_vec().drain(0..trim_range.start);
-        }
+        boxed_ron.truncate(trim_range.end);
+        boxed_ron.drain(..trim_range.start);
         RawValue::from_boxed_str(boxed_ron.into_boxed_str())
     }
 }
@@ -184,12 +192,9 @@ impl<'de: 'a, 'a> Deserialize<'de> for &'a RawValue {
             }
 
             fn visit_borrowed_str<E: de::Error>(self, ron: &'de str) -> Result<Self::Value, E> {
-                match Options::default().from_str::<de::IgnoredAny>(ron) {
-                    Ok(_) => Ok(RawValue::from_borrowed_str(ron)),
-                    Err(err) => Err(de::Error::custom(format!(
-                        "invalid RON value at {}: {}",
-                        err.position, err.code
-                    ))),
+                match RawValue::from_ron(ron) {
+                    Ok(raw_value) => Ok(raw_value),
+                    Err(err) => Err(de::Error::custom(format!("invalid RON value at {}", err))),
                 }
             }
 
@@ -218,22 +223,16 @@ impl<'de> Deserialize<'de> for Box<RawValue> {
             }
 
             fn visit_str<E: de::Error>(self, ron: &str) -> Result<Self::Value, E> {
-                match Options::default().from_str::<de::IgnoredAny>(ron) {
-                    Ok(_) => Ok(RawValue::from_boxed_str(ron.to_owned().into_boxed_str())),
-                    Err(err) => Err(de::Error::custom(format!(
-                        "invalid RON value at {}: {}",
-                        err.position, err.code
-                    ))),
+                match RawValue::from_ron(ron) {
+                    Ok(raw_value) => Ok(raw_value.to_owned()),
+                    Err(err) => Err(de::Error::custom(format!("invalid RON value at {}", err))),
                 }
             }
 
             fn visit_string<E: de::Error>(self, ron: String) -> Result<Self::Value, E> {
-                match Options::default().from_str::<de::IgnoredAny>(&ron) {
-                    Ok(_) => Ok(RawValue::from_boxed_str(ron.into_boxed_str())),
-                    Err(err) => Err(de::Error::custom(format!(
-                        "invalid RON value at {}: {}",
-                        err.position, err.code
-                    ))),
+                match RawValue::from_boxed_ron(ron.into_boxed_str()) {
+                    Ok(raw_value) => Ok(raw_value),
+                    Err(err) => Err(de::Error::custom(format!("invalid RON value at {}", err))),
                 }
             }
 

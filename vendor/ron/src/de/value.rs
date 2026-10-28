@@ -1,4 +1,5 @@
-use std::fmt;
+use alloc::{borrow::ToOwned, boxed::Box, string::String, vec::Vec};
+use core::fmt;
 
 use serde::{
     de::{Error, MapAccess, SeqAccess, Visitor},
@@ -10,7 +11,7 @@ use crate::{
     value::{Map, Number, Value},
 };
 
-impl std::str::FromStr for Value {
+impl core::str::FromStr for Value {
     type Err = crate::error::SpannedError;
 
     /// Creates a value from a string reference.
@@ -206,7 +207,7 @@ impl<'de> Visitor<'de> for ValueVisitor {
     {
         let mut vec = Vec::new();
         if let Some(cap) = seq.size_hint() {
-            vec.reserve_exact(cap);
+            vec.reserve_exact(cautious_size_hint::<Value>(cap));
         }
 
         while let Some(x) = seq.next_element()? {
@@ -224,7 +225,8 @@ impl<'de> Visitor<'de> for ValueVisitor {
 
         #[cfg(feature = "indexmap")]
         if let Some(cap) = map.size_hint() {
-            res.0.reserve_exact(cap);
+            res.0
+                .reserve_exact(cautious_size_hint::<(Value, Value)>(cap));
         }
 
         while let Some(entry) = map.next_entry::<Value, Value>()? {
@@ -235,9 +237,21 @@ impl<'de> Visitor<'de> for ValueVisitor {
     }
 }
 
+/// Caps a size hint to at most 1 MiB of preallocation, like serde's own
+/// collection impls, since other formats read it from untrusted input
+fn cautious_size_hint<T>(hint: usize) -> usize {
+    const MAX_PREALLOC_BYTES: usize = 1024 * 1024;
+
+    match core::mem::size_of::<T>() {
+        0 => 0,
+        size => hint.min(MAX_PREALLOC_BYTES / size),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
+    use alloc::vec;
+    use core::str::FromStr;
 
     use super::*;
 
@@ -286,13 +300,16 @@ mod tests {
 
     #[test]
     fn test_tuples_error() {
-        use crate::de::{Error, Position, SpannedError};
+        use crate::de::{Error, Position, Span, SpannedError};
 
         assert_eq!(
             Value::from_str("Foo:").unwrap_err(),
             SpannedError {
                 code: Error::TrailingCharacters,
-                position: Position { col: 4, line: 1 }
+                span: Span {
+                    start: Position { line: 1, col: 4 },
+                    end: Position { line: 1, col: 4 }
+                }
             },
         );
     }
@@ -302,9 +319,9 @@ mod tests {
         assert_eq!(
             eval("(inf, -inf, NaN)"),
             Value::Seq(vec![
-                Value::Number(Number::new(std::f32::INFINITY)),
-                Value::Number(Number::new(std::f32::NEG_INFINITY)),
-                Value::Number(Number::new(std::f32::NAN)),
+                Value::Number(Number::new(core::f32::INFINITY)),
+                Value::Number(Number::new(core::f32::NEG_INFINITY)),
+                Value::Number(Number::new(core::f32::NAN)),
             ]),
         );
     }
@@ -418,7 +435,10 @@ mod tests {
             "(r#:42)".parse::<Value>().unwrap_err(),
             crate::error::SpannedError {
                 code: crate::Error::ExpectedString,
-                position: crate::error::Position { line: 1, col: 4 },
+                span: crate::error::Span {
+                    start: crate::error::Position { line: 1, col: 3 },
+                    end: crate::error::Position { line: 1, col: 4 },
+                }
             },
         );
 
@@ -429,7 +449,10 @@ mod tests {
             "( /*".parse::<Value>().unwrap_err(),
             crate::error::SpannedError {
                 code: crate::Error::UnclosedBlockComment,
-                position: crate::error::Position { line: 1, col: 5 },
+                span: crate::error::Span {
+                    start: crate::error::Position { line: 1, col: 3 },
+                    end: crate::error::Position { line: 1, col: 5 },
+                }
             },
         );
     }

@@ -3,25 +3,26 @@
 //! # Example usage
 //!
 //! ```
+//! use core::ptr::addr_of_mut;
 //! use heapless::{arc_pool, pool::arc::{Arc, ArcBlock}};
 //!
-//! arc_pool!(P: u128);
+//! arc_pool!(MyArcPool: u128);
 //!
 //! // cannot allocate without first giving memory blocks to the pool
-//! assert!(P.alloc(42).is_err());
+//! assert!(MyArcPool.alloc(42).is_err());
 //!
 //! // (some `no_std` runtimes have safe APIs to create `&'static mut` references)
 //! let block: &'static mut ArcBlock<u128> = unsafe {
-//!     static mut B: ArcBlock<u128> = ArcBlock::new();
-//!     &mut B
+//!     static mut BLOCK: ArcBlock<u128> = ArcBlock::new();
+//!     addr_of_mut!(BLOCK).as_mut().unwrap()
 //! };
 //!
-//! P.manage(block);
+//! MyArcPool.manage(block);
 //!
-//! let arc = P.alloc(1).unwrap();
+//! let arc = MyArcPool.alloc(1).unwrap();
 //!
 //! // number of smart pointers is limited to the number of blocks managed by the pool
-//! let res = P.alloc(2);
+//! let res = MyArcPool.alloc(2);
 //! assert!(res.is_err());
 //!
 //! // but cloning does not consume an `ArcBlock`
@@ -34,7 +35,7 @@
 //! drop(arc); // release memory
 //!
 //! // it's now possible to allocate a new `Arc` smart pointer
-//! let res = P.alloc(3);
+//! let res = MyArcPool.alloc(3);
 //!
 //! assert!(res.is_ok());
 //! ```
@@ -45,20 +46,21 @@
 //! to the `ArcPool`. This requires an intermediate `const` value as shown below:
 //!
 //! ```
+//! use core::ptr::addr_of_mut;
 //! use heapless::{arc_pool, pool::arc::ArcBlock};
 //!
-//! arc_pool!(P: u128);
+//! arc_pool!(MyArcPool: u128);
 //!
 //! const POOL_CAPACITY: usize = 8;
 //!
 //! let blocks: &'static mut [ArcBlock<u128>] = {
 //!     const BLOCK: ArcBlock<u128> = ArcBlock::new(); // <=
 //!     static mut BLOCKS: [ArcBlock<u128>; POOL_CAPACITY] = [BLOCK; POOL_CAPACITY];
-//!     unsafe { &mut BLOCKS }
+//!     unsafe { addr_of_mut!(BLOCKS).as_mut().unwrap() }
 //! };
 //!
 //! for block in blocks {
-//!     P.manage(block);
+//!     MyArcPool.manage(block);
 //! }
 //! ```
 
@@ -70,10 +72,16 @@
 use core::{
     fmt,
     hash::{Hash, Hasher},
-    mem::{ManuallyDrop, MaybeUninit},
+    mem::MaybeUninit,
     ops, ptr,
-    sync::atomic::{self, AtomicUsize, Ordering},
 };
+
+#[cfg(not(feature = "portable-atomic"))]
+use core::sync::atomic;
+#[cfg(feature = "portable-atomic")]
+use portable_atomic as atomic;
+
+use atomic::{AtomicUsize, Ordering};
 
 use super::treiber::{NonNullPtr, Stack, UnionNode};
 
@@ -89,6 +97,9 @@ macro_rules! arc_pool {
             type Data = $data_type;
 
             fn singleton() -> &'static $crate::pool::arc::ArcPoolImpl<$data_type> {
+                // Even though the static variable is not exposed to user code, it is
+                // still useful to have a descriptive symbol name for debugging.
+                #[allow(non_upper_case_globals)]
                 static $name: $crate::pool::arc::ArcPoolImpl<$data_type> =
                     $crate::pool::arc::ArcPoolImpl::new();
 
@@ -139,7 +150,7 @@ pub trait ArcPool: Sized {
 
     /// Add a statically allocated memory block to the memory pool
     fn manage(block: &'static mut ArcBlock<Self::Data>) {
-        Self::singleton().manage(block)
+        Self::singleton().manage(block);
     }
 }
 
@@ -153,6 +164,7 @@ pub struct ArcPoolImpl<T> {
 impl<T> ArcPoolImpl<T> {
     /// `arc_pool!` implementation detail
     #[doc(hidden)]
+    #[allow(clippy::new_without_default)]
     pub const fn new() -> Self {
         Self {
             stack: Stack::new(),
@@ -176,6 +188,11 @@ impl<T> ArcPoolImpl<T> {
     fn manage(&self, block: &'static mut ArcBlock<T>) {
         let node: &'static mut _ = &mut block.node;
 
+        // SAFETY: The node within an `ArcBlock` is always properly initialized for linking because
+        // the only way for         client code to construct an `ArcBlock` is through
+        // `ArcBlock::new`. The `NonNullPtr` comes from a         reference, so it is
+        // guaranteed to be dereferencable. It is also unique because the `ArcBlock` itself
+        //         is passed as a `&mut`
         unsafe { self.stack.push(NonNullPtr::from_static_mut_ref(node)) }
     }
 }
@@ -221,7 +238,7 @@ where
     P: ArcPool,
 {
     fn as_ref(&self) -> &P::Data {
-        &**self
+        self
     }
 }
 
@@ -305,7 +322,7 @@ where
     where
         H: Hasher,
     {
-        (**self).hash(state)
+        (**self).hash(state);
     }
 }
 
@@ -371,80 +388,85 @@ impl<T> ArcBlock<T> {
     /// Creates a new memory block
     pub const fn new() -> Self {
         Self {
-            node: UnionNode {
-                data: ManuallyDrop::new(MaybeUninit::uninit()),
-            },
+            node: UnionNode::unlinked(),
         }
+    }
+}
+
+impl<T> Default for ArcBlock<T> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ptr::addr_of_mut;
 
     #[test]
     fn cannot_alloc_if_empty() {
-        arc_pool!(P: i32);
+        arc_pool!(MyArcPool: i32);
 
-        assert_eq!(Err(42), P.alloc(42),);
+        assert_eq!(Err(42), MyArcPool.alloc(42),);
     }
 
     #[test]
     fn can_alloc_if_manages_one_block() {
-        arc_pool!(P: i32);
+        arc_pool!(MyArcPool: i32);
 
         let block = unsafe {
-            static mut B: ArcBlock<i32> = ArcBlock::new();
-            &mut B
+            static mut BLOCK: ArcBlock<i32> = ArcBlock::new();
+            addr_of_mut!(BLOCK).as_mut().unwrap()
         };
-        P.manage(block);
+        MyArcPool.manage(block);
 
-        assert_eq!(42, *P.alloc(42).unwrap());
+        assert_eq!(42, *MyArcPool.alloc(42).unwrap());
     }
 
     #[test]
     fn alloc_drop_alloc() {
-        arc_pool!(P: i32);
+        arc_pool!(MyArcPool: i32);
 
         let block = unsafe {
-            static mut B: ArcBlock<i32> = ArcBlock::new();
-            &mut B
+            static mut BLOCK: ArcBlock<i32> = ArcBlock::new();
+            addr_of_mut!(BLOCK).as_mut().unwrap()
         };
-        P.manage(block);
+        MyArcPool.manage(block);
 
-        let arc = P.alloc(1).unwrap();
+        let arc = MyArcPool.alloc(1).unwrap();
 
         drop(arc);
 
-        assert_eq!(2, *P.alloc(2).unwrap());
+        assert_eq!(2, *MyArcPool.alloc(2).unwrap());
     }
 
     #[test]
     fn strong_count_starts_at_one() {
-        arc_pool!(P: i32);
+        arc_pool!(MyArcPool: i32);
 
         let block = unsafe {
-            static mut B: ArcBlock<i32> = ArcBlock::new();
-            &mut B
+            static mut BLOCK: ArcBlock<i32> = ArcBlock::new();
+            addr_of_mut!(BLOCK).as_mut().unwrap()
         };
-        P.manage(block);
+        MyArcPool.manage(block);
 
-        let arc = P.alloc(1).ok().unwrap();
+        let arc = MyArcPool.alloc(1).ok().unwrap();
 
         assert_eq!(1, arc.inner().strong.load(Ordering::Relaxed));
     }
 
     #[test]
     fn clone_increases_strong_count() {
-        arc_pool!(P: i32);
+        arc_pool!(MyArcPool: i32);
 
         let block = unsafe {
-            static mut B: ArcBlock<i32> = ArcBlock::new();
-            &mut B
+            static mut BLOCK: ArcBlock<i32> = ArcBlock::new();
+            addr_of_mut!(BLOCK).as_mut().unwrap()
         };
-        P.manage(block);
+        MyArcPool.manage(block);
 
-        let arc = P.alloc(1).ok().unwrap();
+        let arc = MyArcPool.alloc(1).ok().unwrap();
 
         let before = arc.inner().strong.load(Ordering::Relaxed);
 
@@ -457,15 +479,15 @@ mod tests {
 
     #[test]
     fn drop_decreases_strong_count() {
-        arc_pool!(P: i32);
+        arc_pool!(MyArcPool: i32);
 
         let block = unsafe {
-            static mut B: ArcBlock<i32> = ArcBlock::new();
-            &mut B
+            static mut BLOCK: ArcBlock<i32> = ArcBlock::new();
+            addr_of_mut!(BLOCK).as_mut().unwrap()
         };
-        P.manage(block);
+        MyArcPool.manage(block);
 
-        let arc = P.alloc(1).ok().unwrap();
+        let arc = MyArcPool.alloc(1).ok().unwrap();
         let arc2 = arc.clone();
 
         let before = arc.inner().strong.load(Ordering::Relaxed);
@@ -480,23 +502,23 @@ mod tests {
     fn runs_destructor_exactly_once_when_strong_count_reaches_zero() {
         static COUNT: AtomicUsize = AtomicUsize::new(0);
 
-        pub struct S;
+        pub struct MyStruct;
 
-        impl Drop for S {
+        impl Drop for MyStruct {
             fn drop(&mut self) {
                 COUNT.fetch_add(1, Ordering::Relaxed);
             }
         }
 
-        arc_pool!(P: S);
+        arc_pool!(MyArcPool: MyStruct);
 
         let block = unsafe {
-            static mut B: ArcBlock<S> = ArcBlock::new();
-            &mut B
+            static mut BLOCK: ArcBlock<MyStruct> = ArcBlock::new();
+            addr_of_mut!(BLOCK).as_mut().unwrap()
         };
-        P.manage(block);
+        MyArcPool.manage(block);
 
-        let arc = P.alloc(S).ok().unwrap();
+        let arc = MyArcPool.alloc(MyStruct).ok().unwrap();
 
         assert_eq!(0, COUNT.load(Ordering::Relaxed));
 
@@ -510,17 +532,17 @@ mod tests {
         #[repr(align(4096))]
         pub struct Zst4096;
 
-        arc_pool!(P: Zst4096);
+        arc_pool!(MyArcPool: Zst4096);
 
         let block = unsafe {
-            static mut B: ArcBlock<Zst4096> = ArcBlock::new();
-            &mut B
+            static mut BLOCK: ArcBlock<Zst4096> = ArcBlock::new();
+            addr_of_mut!(BLOCK).as_mut().unwrap()
         };
-        P.manage(block);
+        MyArcPool.manage(block);
 
-        let arc = P.alloc(Zst4096).ok().unwrap();
+        let arc = MyArcPool.alloc(Zst4096).ok().unwrap();
 
-        let raw = &*arc as *const Zst4096;
+        let raw = std::ptr::from_ref::<Zst4096>(&*arc);
         assert_eq!(0, raw as usize % 4096);
     }
 }

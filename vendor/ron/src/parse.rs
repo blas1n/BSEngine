@@ -1,6 +1,11 @@
 #![allow(clippy::identity_op)]
 
-use std::{
+use alloc::{
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
+use core::{
     char::from_u32 as char_from_u32,
     str::{self, from_utf8, FromStr, Utf8Error},
 };
@@ -8,7 +13,7 @@ use std::{
 use unicode_ident::{is_xid_continue, is_xid_start};
 
 use crate::{
-    error::{Error, Position, Result, SpannedError, SpannedResult},
+    error::{Error, Position, Result, Span, SpannedError, SpannedResult},
     extensions::Extensions,
     value::Number,
 };
@@ -45,6 +50,10 @@ pub const fn is_whitespace_char(c: char) -> bool {
     )
 }
 
+const fn is_string_continuation_whitespace(c: char) -> bool {
+    matches!(c, ' ' | '\t' | '\n' | '\r')
+}
+
 #[cfg(feature = "integer128")]
 pub(crate) type LargeUInt = u128;
 #[cfg(not(feature = "integer128"))]
@@ -57,8 +66,12 @@ pub(crate) type LargeSInt = i64;
 pub struct Parser<'a> {
     /// Bits set according to the [`Extensions`] enum.
     pub exts: Extensions,
+    /// Set if the document starts with global attributes, like
+    /// `#![type = ".."]`, that do not affect parsing.
+    pub(crate) global_attributes: bool,
     src: &'a str,
     cursor: ParserCursor,
+    prev_cursor: ParserCursor,
 }
 
 #[derive(Copy, Clone)] // GRCOV_EXCL_LINE
@@ -66,6 +79,12 @@ pub struct ParserCursor {
     cursor: usize,
     pre_ws_cursor: usize,
     last_ws_len: usize,
+}
+
+enum ParsedAttribute {
+    None,
+    Extensions(Extensions),
+    Ignored,
 }
 
 const WS_CURSOR_UNCLOSED_LINE: usize = usize::MAX;
@@ -77,7 +96,7 @@ impl PartialEq for ParserCursor {
 }
 
 impl PartialOrd for ParserCursor {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         self.cursor.partial_cmp(&other.cursor)
     }
 }
@@ -87,8 +106,14 @@ impl<'a> Parser<'a> {
     pub fn new(src: &'a str) -> SpannedResult<Self> {
         let mut parser = Parser {
             exts: Extensions::empty(),
+            global_attributes: false,
             src,
             cursor: ParserCursor {
+                cursor: 0,
+                pre_ws_cursor: 0,
+                last_ws_len: 0,
+            },
+            prev_cursor: ParserCursor {
                 cursor: 0,
                 pre_ws_cursor: 0,
                 last_ws_len: 0,
@@ -97,15 +122,18 @@ impl<'a> Parser<'a> {
 
         parser.skip_ws().map_err(|e| parser.span_error(e))?;
 
-        // Loop over all extensions attributes
+        // Loop over all document attributes
         loop {
-            let attribute = parser.extensions().map_err(|e| parser.span_error(e))?;
-
-            if attribute.is_empty() {
-                break;
+            match parser.attribute().map_err(|e| parser.span_error(e))? {
+                ParsedAttribute::None => break,
+                ParsedAttribute::Extensions(extensions) => {
+                    parser.exts |= extensions;
+                }
+                ParsedAttribute::Ignored => {
+                    parser.global_attributes = true;
+                }
             }
 
-            parser.exts |= attribute;
             parser.skip_ws().map_err(|e| parser.span_error(e))?;
         }
 
@@ -119,11 +147,19 @@ impl<'a> Parser<'a> {
     pub fn span_error(&self, code: Error) -> SpannedError {
         SpannedError {
             code,
-            position: Position::from_src_end(&self.src[..self.cursor.cursor]),
+            span: Span {
+                start: Position::from_src_end(&self.src[..self.prev_cursor.cursor]),
+                end: Position::from_src_end(&self.src[..self.cursor.cursor]),
+            },
         }
     }
 
+    pub fn is_number_start(&self, c: char) -> bool {
+        matches!(c, '0'..='9' | '+' | '-' | '.' | 'b') && (c != 'b' || self.src().starts_with("b'"))
+    }
+
     pub fn advance_bytes(&mut self, bytes: usize) {
+        self.prev_cursor = self.cursor;
         self.cursor.cursor += bytes;
     }
 
@@ -134,7 +170,7 @@ impl<'a> Parser<'a> {
     }
 
     pub fn skip_next_char(&mut self) {
-        std::mem::drop(self.next_char());
+        core::mem::drop(self.next_char());
     }
 
     pub fn peek_char(&self) -> Option<char> {
@@ -159,6 +195,12 @@ impl<'a> Parser<'a> {
 
     pub fn pre_ws_src(&self) -> &'a str {
         &self.src[self.cursor.pre_ws_cursor..]
+    }
+
+    /// Whether no source has been consumed before the last whitespace,
+    /// i.e. whether we are at the start of the top-level value.
+    pub fn is_at_start(&self) -> bool {
+        self.cursor.pre_ws_cursor == 0
     }
 
     pub fn consume_str(&mut self, s: &str) -> bool {
@@ -254,14 +296,7 @@ impl<'a> Parser<'a> {
         Ok(num_acc)
     }
 
-    fn parse_integer<T: Num>(&mut self, sign: i8) -> Result<T> {
-        let base = match () {
-            () if self.consume_str("0b") => 2,
-            () if self.consume_str("0o") => 8,
-            () if self.consume_str("0x") => 16,
-            () => 10,
-        };
-
+    fn parse_integer<T: Num>(&mut self, sign: i8, base: u8) -> Result<T> {
         let num_bytes = self.next_chars_while_len(is_int_char);
 
         if num_bytes == 0 {
@@ -322,6 +357,13 @@ impl<'a> Parser<'a> {
         };
         let sign = if is_negative { -1 } else { 1 };
 
+        let base = match () {
+            () if self.consume_str("0b") => 2,
+            () if self.consume_str("0o") => 8,
+            () if self.consume_str("0x") => 16,
+            () => 10,
+        };
+
         let num_bytes = self.next_chars_while_len(is_int_char);
 
         if self.src()[num_bytes..].starts_with(['i', 'u']) {
@@ -334,56 +376,62 @@ impl<'a> Parser<'a> {
                     let suffix_bytes = self.src();
                     self.set_cursor(int_cursor);
                     (
-                        self.parse_integer::<i8>(sign).map(ParsedInteger::I8),
+                        self.parse_integer::<i8>(sign, base).map(ParsedInteger::I8),
                         suffix_bytes,
                     )
                 } else if self.consume_ident("i16") {
                     let suffix_bytes = self.src();
                     self.set_cursor(int_cursor);
                     (
-                        self.parse_integer::<i16>(sign).map(ParsedInteger::I16),
+                        self.parse_integer::<i16>(sign, base)
+                            .map(ParsedInteger::I16),
                         suffix_bytes,
                     )
                 } else if self.consume_ident("i32") {
                     let suffix_bytes = self.src();
                     self.set_cursor(int_cursor);
                     (
-                        self.parse_integer::<i32>(sign).map(ParsedInteger::I32),
+                        self.parse_integer::<i32>(sign, base)
+                            .map(ParsedInteger::I32),
                         suffix_bytes,
                     )
                 } else if self.consume_ident("i64") {
                     let suffix_bytes = self.src();
                     self.set_cursor(int_cursor);
                     (
-                        self.parse_integer::<i64>(sign).map(ParsedInteger::I64),
+                        self.parse_integer::<i64>(sign, base)
+                            .map(ParsedInteger::I64),
                         suffix_bytes,
                     )
                 } else if self.consume_ident("u8") {
                     let suffix_bytes = self.src();
                     self.set_cursor(int_cursor);
                     (
-                        self.parse_integer::<u8>(sign).map(ParsedInteger::U8),
+                        self.parse_integer::<u8>(sign, base).map(ParsedInteger::U8),
                         suffix_bytes,
                     )
                 } else if self.consume_ident("u16") {
                     let suffix_bytes = self.src();
                     self.set_cursor(int_cursor);
                     (
-                        self.parse_integer::<u16>(sign).map(ParsedInteger::U16),
+                        self.parse_integer::<u16>(sign, base)
+                            .map(ParsedInteger::U16),
                         suffix_bytes,
                     )
                 } else if self.consume_ident("u32") {
                     let suffix_bytes = self.src();
                     self.set_cursor(int_cursor);
                     (
-                        self.parse_integer::<u32>(sign).map(ParsedInteger::U32),
+                        self.parse_integer::<u32>(sign, base)
+                            .map(ParsedInteger::U32),
                         suffix_bytes,
                     )
                 } else if self.consume_ident("u64") {
                     let suffix_bytes = self.src();
                     self.set_cursor(int_cursor);
                     (
-                        self.parse_integer::<u64>(sign).map(ParsedInteger::U64),
+                        self.parse_integer::<u64>(sign, base)
+                            .map(ParsedInteger::U64),
                         suffix_bytes,
                     )
                 } else {
@@ -392,14 +440,16 @@ impl<'a> Parser<'a> {
                         let suffix_bytes = self.src();
                         self.set_cursor(int_cursor);
                         (
-                            self.parse_integer::<i128>(sign).map(ParsedInteger::I128),
+                            self.parse_integer::<i128>(sign, base)
+                                .map(ParsedInteger::I128),
                             suffix_bytes,
                         )
                     } else if self.consume_ident("u128") {
                         let suffix_bytes = self.src();
                         self.set_cursor(int_cursor);
                         (
-                            self.parse_integer::<u128>(sign).map(ParsedInteger::U128),
+                            self.parse_integer::<u128>(sign, base)
+                                .map(ParsedInteger::U128),
                             suffix_bytes,
                         )
                     } else {
@@ -427,10 +477,38 @@ impl<'a> Parser<'a> {
             self.set_cursor(int_cursor);
         }
 
-        T::parse(self, sign)
+        T::parse(self, sign, base)
+    }
+
+    /// Check whether [`Parser::any_number`] has a number literal to parse at
+    /// the cursor. The `inf` and `NaN` literals start with a letter, so they
+    /// are not covered by [`Parser::is_number_start`].
+    pub fn check_any_number_start(&mut self) -> bool {
+        match self.peek_char() {
+            None => false,
+            Some(c) => {
+                self.is_number_start(c)
+                    || self.check_ident("inf")
+                    || self.check_ident("inff32")
+                    || self.check_ident("inff64")
+                    || self.check_ident("NaN")
+                    || self.check_ident("NaNf32")
+                    || self.check_ident("NaNf64")
+            }
+        }
     }
 
     pub fn any_number(&mut self) -> Result<Number> {
+        if self.consume_ident("inf") || self.consume_ident("inff32") {
+            return Ok(Number::F32(crate::value::F32(core::f32::INFINITY)));
+        } else if self.consume_ident("inff64") {
+            return Ok(Number::F64(crate::value::F64(core::f64::INFINITY)));
+        } else if self.consume_ident("NaN") || self.consume_ident("NaNf32") {
+            return Ok(Number::F32(crate::value::F32(core::f32::NAN)));
+        } else if self.consume_ident("NaNf64") {
+            return Ok(Number::F64(crate::value::F64(core::f64::NAN)));
+        }
+
         if self.next_bytes_is_float() {
             return match self.float::<ParsedFloat>()? {
                 ParsedFloat::F32(v) => Ok(Number::F32(v.into())),
@@ -609,19 +687,26 @@ impl<'a> Parser<'a> {
                 let cursor_backup = parser.cursor;
                 match parser.string() {
                     Ok(_) => (),
-                    // prevent quadratic complexity backtracking for unterminated string
-                    Err(err @ (Error::ExpectedStringEnd | Error::Eof)) => return Err(err),
-                    Err(_) => parser.set_cursor(cursor_backup),
+                    // not a string, so backtrack
+                    Err(Error::ExpectedString) => parser.set_cursor(cursor_backup),
+                    // prevent quadratic complexity backtracking for malformed string,
+                    // e.g. with an invalid escape or without a terminating quote
+                    Err(err) => return Err(err),
                 }
                 let cursor_backup = parser.cursor;
                 // we have already checked for strings, which subsume base64 byte strings
                 match parser.byte_string_no_base64() {
                     Ok(_) => (),
-                    // prevent quadratic complexity backtracking for unterminated byte string
-                    Err(err @ (Error::ExpectedStringEnd | Error::Eof)) => return Err(err),
-                    Err(_) => parser.set_cursor(cursor_backup),
+                    // not a byte string, so backtrack
+                    Err(Error::ExpectedByteString) => parser.set_cursor(cursor_backup),
+                    // prevent quadratic complexity backtracking for malformed byte string,
+                    // e.g. with an invalid escape or without a terminating quote
+                    Err(err) => return Err(err),
                 }
 
+                // Skip whitespace and comments directly after a skipped literal,
+                // otherwise e.g. the `/*,*/` in `("a"/*,*/)` would be read as a comma
+                parser.skip_ws()?;
                 let c = parser.next_char()?;
                 if matches!(c, '(' | '[' | '{') {
                     braces += 1;
@@ -697,17 +782,54 @@ impl<'a> Parser<'a> {
         Ok(true)
     }
 
-    /// Returns the extensions bit mask.
-    fn extensions(&mut self) -> Result<Extensions> {
+    /// Parse a document attribute at the current cursor position.
+    fn attribute(&mut self) -> Result<ParsedAttribute> {
         if !self.check_char('#') {
-            return Ok(Extensions::empty());
+            return Ok(ParsedAttribute::None);
         }
 
-        if !self.consume_all(&["#", "!", "[", "enable", "("])? {
+        if !self.consume_all(&["#", "!", "["])? {
             return Err(Error::ExpectedAttribute);
         }
 
         self.skip_ws()?;
+        if self.consume_ident("enable") {
+            self.skip_ws()?;
+            if !self.consume_str("(") {
+                return Err(Error::ExpectedAttribute);
+            }
+
+            self.skip_ws()?;
+            let extensions = self.extension_list()?;
+            self.skip_ws()?;
+
+            if self.consume_all(&[")", "]"])? {
+                Ok(ParsedAttribute::Extensions(extensions))
+            } else {
+                Err(Error::ExpectedAttributeEnd)
+            }
+        } else if self.consume_ident("type") || self.consume_ident("schema") {
+            self.skip_ws()?;
+            if !self.consume_str("=") {
+                return Err(Error::ExpectedAttribute);
+            }
+
+            self.skip_ws()?;
+            self.string()?;
+            self.skip_ws()?;
+
+            if self.consume_str("]") {
+                Ok(ParsedAttribute::Ignored)
+            } else {
+                Err(Error::ExpectedAttributeEnd)
+            }
+        } else {
+            Err(Error::ExpectedAttribute)
+        }
+    }
+
+    /// Returns the extensions bit mask.
+    fn extension_list(&mut self) -> Result<Extensions> {
         let mut extensions = Extensions::empty();
 
         loop {
@@ -732,13 +854,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        self.skip_ws()?;
-
-        if self.consume_all(&[")", "]"])? {
-            Ok(extensions)
-        } else {
-            Err(Error::ExpectedAttributeEnd)
-        }
+        Ok(extensions)
     }
 
     pub fn float<T: Float>(&mut self) -> Result<T> {
@@ -776,7 +892,9 @@ impl<'a> Parser<'a> {
             }
         }
 
-        let num_bytes = self.next_chars_while_len(is_float_char);
+        let raw_bytes = self.next_chars_while_len(is_float_char);
+        let src = &self.src()[..raw_bytes];
+        let num_bytes = src.find("..").unwrap_or(raw_bytes);
 
         if num_bytes == 0 {
             return Err(Error::ExpectedFloat);
@@ -958,7 +1076,22 @@ impl<'a> Parser<'a> {
                 '+' | '-' => 1,
                 _ => 0,
             };
-            let valid_float_len = self.next_chars_while_from_len(skip, is_float_char);
+            let raw_float_len = self.next_chars_while_from_len(skip, is_float_char);
+            // Trim at ".." to avoid treating range operators as float chars.
+            //
+            // Only search within the float-char run: the result is clamped to
+            // `raw_float_len` anyway, so a match at or beyond it cannot change the
+            // outcome. Searching the whole remaining input made this O(remaining)
+            // per number, i.e. quadratic in the number count for documents that
+            // contain no ".." at all (every number then scanned to EOF).
+            //
+            // A ".." cannot straddle the end of the run: that would require
+            // `src[raw_float_len] == '.'`, but '.' is a float char and would have
+            // been part of the run. `any_number` above already uses this same
+            // bounded-slice form.
+            let valid_float_len = self.src()[skip..][..raw_float_len]
+                .find("..")
+                .map_or(raw_float_len, |i| i.min(raw_float_len));
             let valid_int_len = self.next_chars_while_from_len(skip, is_int_char);
             valid_float_len > valid_int_len
         } else {
@@ -1010,7 +1143,7 @@ impl<'a> Parser<'a> {
                 ParsedByteStr::Slice(b) => b,
             }
             .iter()
-            .flat_map(|c| std::ascii::escape_default(*c))
+            .flat_map(|c| core::ascii::escape_default(*c))
             .map(char::from)
             .collect::<String>();
             let base64_str = match &base64_str {
@@ -1024,35 +1157,23 @@ impl<'a> Parser<'a> {
             }
         }
 
+        // FIXME @juntyr: remove in v0.13, since only byte_string_no_base64 will
+        //                be used
         if self.consume_char('"') {
             let base64_str = self.escaped_string()?;
             let base64_result = ParsedByteStr::try_from_base64(&base64_str);
 
-            if cfg!(not(test)) {
-                // FIXME @juntyr: remove in v0.10
-                #[allow(deprecated)]
-                base64_result.map_err(Error::Base64Error)
-            } else {
-                match base64_result {
-                    // FIXME @juntyr: enable in v0.10
-                    Ok(byte_str) => Err(expected_byte_string_found_base64(&base64_str, &byte_str)),
-                    Err(_) => Err(Error::ExpectedByteString),
-                }
+            match base64_result {
+                Some(byte_str) => Err(expected_byte_string_found_base64(&base64_str, &byte_str)),
+                None => Err(Error::ExpectedByteString),
             }
         } else if self.consume_char('r') {
             let base64_str = self.raw_string()?;
             let base64_result = ParsedByteStr::try_from_base64(&base64_str);
 
-            if cfg!(not(test)) {
-                // FIXME @juntyr: remove in v0.10
-                #[allow(deprecated)]
-                base64_result.map_err(Error::Base64Error)
-            } else {
-                match base64_result {
-                    // FIXME @juntyr: enable in v0.10
-                    Ok(byte_str) => Err(expected_byte_string_found_base64(&base64_str, &byte_str)),
-                    Err(_) => Err(Error::ExpectedByteString),
-                }
+            match base64_result {
+                Some(byte_str) => Err(expected_byte_string_found_base64(&base64_str, &byte_str)),
+                None => Err(Error::ExpectedByteString),
             }
         } else {
             self.byte_string_no_base64()
@@ -1135,29 +1256,38 @@ impl<'a> Parser<'a> {
             loop {
                 self.advance_bytes(i + 1);
 
-                match self.parse_escape(encoding, false)? {
-                    EscapeCharacter::Ascii(c) => s.push(c),
-                    EscapeCharacter::Utf8(c) => match c.len_utf8() {
-                        1 => s.push(c as u8),
-                        len => {
-                            let start = s.len();
-                            s.extend(std::iter::repeat(0).take(len));
-                            c.encode_utf8(&mut s[start..]);
-                        }
-                    },
+                if !self.consume_string_continuation() {
+                    match self.parse_escape(encoding, false)? {
+                        EscapeCharacter::Ascii(c) => s.push(c),
+                        EscapeCharacter::Utf8(c) => match c.len_utf8() {
+                            1 => s.push(c as u8),
+                            len => {
+                                let start = s.len();
+                                s.extend(core::iter::repeat(0).take(len));
+                                c.encode_utf8(&mut s[start..]);
+                            }
+                        },
+                    }
                 }
 
-                // Checking for '"' and '\\' separately is faster than searching for both at the same time
-                let new_str_end = self.src().find('"').ok_or(Error::ExpectedStringEnd)?;
-                let new_escape = self.src()[..new_str_end].find('\\');
+                // Unlike the non-escaped case above, searching for '"' and '\\'
+                // separately is *not* sound here: `find('"')` scans all the way to
+                // the closing quote, but the cursor only advances by one escape per
+                // iteration, so a string with N escapes rescans the tail N times.
+                // Only the first of '"' / '\\' is needed, and scanning just to the
+                // nearest delimiter keeps the loop linear.
+                let next = self
+                    .src()
+                    .find(['"', '\\'])
+                    .ok_or(Error::ExpectedStringEnd)?;
+                s.extend_from_slice(&self.src().as_bytes()[..next]);
 
-                if let Some(new_escape) = new_escape {
-                    s.extend_from_slice(&self.src().as_bytes()[..new_escape]);
-                    i = new_escape;
+                // `next` indexes an ASCII byte, so byte indexing is valid here.
+                if self.src().as_bytes()[next] == b'\\' {
+                    i = next;
                 } else {
-                    s.extend_from_slice(&self.src().as_bytes()[..new_str_end]);
                     // Advance to the end of the string + 1 for the `"`.
-                    break Ok((ParsedByteStr::Allocated(s), new_str_end + 1));
+                    break Ok((ParsedByteStr::Allocated(s), next + 1));
                 }
             }
         } else {
@@ -1166,6 +1296,27 @@ impl<'a> Parser<'a> {
             // Advance by the number of bytes of the string + 1 for the `"`.
             Ok((ParsedByteStr::Slice(s), str_end + 1))
         }
+    }
+
+    /// Consumes a string continuation after its leading `\`.
+    ///
+    /// Rust [normalizes CRLF before lexing](https://doc.rust-lang.org/reference/input-format.html#crlf-normalization),
+    /// so RON accepts CRLF directly too.
+    fn consume_string_continuation(&mut self) -> bool {
+        let line_ending_len = if self.check_str("\r\n") {
+            2
+        } else if self.check_char('\n') {
+            1
+        } else {
+            return false;
+        };
+
+        self.advance_bytes(line_ending_len);
+
+        let whitespace = self.next_chars_while_len(is_string_continuation_whitespace);
+        self.advance_bytes(whitespace);
+
+        true
     }
 
     fn raw_byte_buf(&mut self) -> Result<(ParsedByteStr<'a>, usize)> {
@@ -1420,7 +1571,7 @@ impl_num! { i8 i16 i32 i64 u8 u16 u32 u64 }
 impl_num! { i128 u128 }
 
 pub trait Integer: Sized {
-    fn parse(parser: &mut Parser, sign: i8) -> Result<Self>;
+    fn parse(parser: &mut Parser, sign: i8, base: u8) -> Result<Self>;
 
     fn try_from_parsed_integer(parsed: ParsedInteger, ron: &str) -> Result<Self>;
 }
@@ -1428,8 +1579,8 @@ pub trait Integer: Sized {
 macro_rules! impl_integer {
     ($wrap:ident($ty:ty)) => {
         impl Integer for $ty {
-            fn parse(parser: &mut Parser, sign: i8) -> Result<Self> {
-                parser.parse_integer(sign)
+            fn parse(parser: &mut Parser, sign: i8, base: u8) -> Result<Self> {
+                parser.parse_integer(sign, base)
             }
 
             fn try_from_parsed_integer(parsed: ParsedInteger, ron: &str) -> Result<Self> {
@@ -1477,9 +1628,9 @@ pub enum ParsedInteger {
 }
 
 impl Integer for ParsedInteger {
-    fn parse(parser: &mut Parser, sign: i8) -> Result<Self> {
+    fn parse(parser: &mut Parser, sign: i8, base: u8) -> Result<Self> {
         if sign < 0 {
-            let signed = parser.parse_integer::<LargeSInt>(-1)?;
+            let signed = parser.parse_integer::<LargeSInt>(-1, base)?;
 
             return if let Ok(x) = i8::try_from(signed) {
                 Ok(ParsedInteger::I8(x))
@@ -1501,7 +1652,7 @@ impl Integer for ParsedInteger {
             };
         }
 
-        let unsigned = parser.parse_integer::<LargeUInt>(1)?;
+        let unsigned = parser.parse_integer::<LargeUInt>(1, base)?;
 
         if let Ok(x) = u8::try_from(unsigned) {
             Ok(ParsedInteger::U8(x))
@@ -1570,6 +1721,17 @@ impl Float for ParsedFloat {
     fn parse(float: &str) -> Result<Self> {
         let value = f64::from_str(float).map_err(|_| Error::ExpectedFloat)?;
 
+        // Casting a NaN with `as` gives an unspecified NaN, and some targets
+        // (e.g. riscv64) drop the sign, so build the f32 NaN by hand.
+        if value.is_nan() {
+            let nan = if value.is_sign_negative() {
+                -f32::NAN
+            } else {
+                f32::NAN
+            };
+            return Ok(ParsedFloat::F32(nan));
+        }
+
         #[allow(clippy::cast_possible_truncation)]
         if value.total_cmp(&f64::from(value as f32)).is_eq() {
             Ok(ParsedFloat::F32(value as f32))
@@ -1626,14 +1788,75 @@ impl<'a> ParsedStr<'a> {
 }
 
 impl<'a> ParsedByteStr<'a> {
-    pub fn try_from_base64(str: &ParsedStr<'a>) -> Result<Self, base64::DecodeError> {
+    pub fn try_from_base64(str: &ParsedStr<'a>) -> Option<Self> {
+        // Adapted from MIT licensed Jenin Sutradhar's base 64 decoder
+        // https://github.com/JeninSutradhar/base64-Rust-Encoder-Decoder/blob/ee1fb08cbb78024ec8cf5e786815acb239169f02/src/lib.rs#L84-L128
+        fn try_decode_base64(str: &str) -> Option<Vec<u8>> {
+            const CHARSET: &[u8; 64] =
+                b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            const PADDING: u8 = b'=';
+
+            // fast reject for missing padding
+            if (str.len() % 4) != 0 {
+                return None;
+            }
+
+            let bstr_no_padding = str.trim_end_matches(char::from(PADDING)).as_bytes();
+
+            // fast reject for excessive padding
+            if (str.len() - bstr_no_padding.len()) > 2 {
+                return None;
+            }
+
+            // fast reject for extraneous bytes after padding
+            if bstr_no_padding.contains(&PADDING) {
+                return None;
+            }
+
+            // fast reject for non-ASCII
+            if !str.is_ascii() {
+                return None;
+            }
+
+            let mut collected_bits = 0_u8;
+            let mut byte_buffer = 0_u16;
+            let mut bytes = bstr_no_padding.iter().copied();
+            let mut binary = Vec::new();
+
+            'decodeloop: loop {
+                while collected_bits < 8 {
+                    if let Some(nextbyte) = bytes.next() {
+                        #[allow(clippy::cast_possible_truncation)]
+                        if let Some(idx) = CHARSET.iter().position(|&x| x == nextbyte) {
+                            byte_buffer |= ((idx & 0b0011_1111) as u16) << (10 - collected_bits);
+                            collected_bits += 6;
+                        } else {
+                            return None;
+                        }
+                    } else {
+                        break 'decodeloop;
+                    }
+                }
+
+                binary.push(((0b1111_1111_0000_0000 & byte_buffer) >> 8) as u8);
+                byte_buffer &= 0b0000_0000_1111_1111;
+                byte_buffer <<= 8;
+                collected_bits -= 8;
+            }
+
+            if usize::from(collected_bits) != ((str.len() - bstr_no_padding.len()) * 2) {
+                return None;
+            }
+
+            Some(binary)
+        }
+
         let base64_str = match str {
             ParsedStr::Allocated(string) => string.as_str(),
             ParsedStr::Slice(str) => str,
         };
 
-        base64::engine::Engine::decode(&base64::engine::general_purpose::STANDARD, base64_str)
-            .map(ParsedByteStr::Allocated)
+        try_decode_base64(base64_str).map(ParsedByteStr::Allocated)
     }
 }
 
@@ -1771,7 +1994,7 @@ mod tests {
     }
 
     #[test]
-    fn v0_10_base64_deprecation_error() {
+    fn base64_deprecation_error() {
         let err = crate::from_str::<bytes::Bytes>("\"SGVsbG8gcm9uIQ==\"").unwrap_err();
 
         assert_eq!(
@@ -1781,7 +2004,10 @@ mod tests {
                     expected: String::from("the Rusty byte string b\"Hello ron!\""),
                     found: String::from("the ambiguous base64 string \"SGVsbG8gcm9uIQ==\"")
                 },
-                position: Position { line: 1, col: 19 },
+                span: Span {
+                    start: Position { line: 1, col: 2 },
+                    end: Position { line: 1, col: 19 },
+                }
             }
         );
 
@@ -1792,16 +2018,39 @@ mod tests {
         assert_eq!(
             crate::from_str::<bytes::Bytes>("\"invalid=\"").unwrap_err(),
             SpannedError {
-                code: Error::ExpectedByteString,
-                position: Position { line: 1, col: 11 },
+                code: Error::InvalidValueForType {
+                    expected: String::from("the Rusty byte string b\"\\x8a{\\xda\\x96\\'\""),
+                    found: String::from("the ambiguous base64 string \"invalid=\"")
+                },
+                span: Span {
+                    start: Position { line: 1, col: 2 },
+                    end: Position { line: 1, col: 11 },
+                }
             }
         );
 
         assert_eq!(
             crate::from_str::<bytes::Bytes>("r\"invalid=\"").unwrap_err(),
             SpannedError {
+                code: Error::InvalidValueForType {
+                    expected: String::from("the Rusty byte string b\"\\x8a{\\xda\\x96\\'\""),
+                    found: String::from("the ambiguous base64 string \"invalid=\"")
+                },
+                span: Span {
+                    start: Position { line: 1, col: 3 },
+                    end: Position { line: 1, col: 12 },
+                }
+            }
+        );
+
+        assert_eq!(
+            crate::from_str::<bytes::Bytes>("r\"invalid\"").unwrap_err(),
+            SpannedError {
                 code: Error::ExpectedByteString,
-                position: Position { line: 1, col: 12 },
+                span: Span {
+                    start: Position { line: 1, col: 3 },
+                    end: Position { line: 1, col: 11 },
+                }
             }
         );
     }

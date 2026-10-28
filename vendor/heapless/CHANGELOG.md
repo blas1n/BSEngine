@@ -7,6 +7,183 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+## [v0.9.3] 2025-04-15
+
+- Fixed unsoundness in `Deque::clear`, `HistoryBuf::clear` and `IndexMap::clear` in the context
+of panicking drop implementations.
+- Added `from_bytes_truncating_at_nul` to `CString`
+- Added `CString::{into_bytes, into_bytes_with_nul, into_string}`
+- Added `pop_front_if` and `pop_back_if` to `Deque`
+- Made `Vec::from_array` const.
+
+## [v0.9.2] 2025-11-12
+
+- Added `from_bytes_truncating_at_nul` to `CString`
+- Added missing `?Sized` bounds in `PartialEq` implementations 
+- Make `PartialEq` implementation for `DequeInner` and `HistoryBufInner` generic over the storage of the RHS
+- Minor fixes to module docs.
+- Make MSRV of 1.87.0 explicit.
+- Implement `Default` for `CapacityError`.
+- Implement `defmt::Format` for `CapacityError`.
+- Implement `TryFrom` for `Deque` from array.
+- Switch from `serde` to `serde_core` for enabling faster compilations.
+- Implement `Zeroize` trait for all data structures with the `zeroize` feature to securely clear sensitive data from memory.
+- Added `truncate` to `Deque`
+- Added `retain` to `Deque`
+- Added `retain_mut` to `Deque`
+- Added `into_raw` to `Box`
+- Added `from_raw` to `Box`
+- Added `FusedIterator` to `vec::IntoIter`, `deque::IntoIter`, `index_map::IntoIter` and `linear_map::IntoIter`.
+- Added `ExactSizeIterator` to `vec::IntoIter`, `deque::IntoIter`, `index_map::IntoIter` and `linear_map::IntoIter`.
+- Added `DoubleEndedIterator` to `vec::IntoIter` and `deque::IntoIter`.
+- Deprecate `mpmc` (see [#583](https://github.com/rust-embedded/heapless/issues/583#issuecomment-3469297720))
+- Fixed initialization of the `ArcBlock<T>` and `BoxBlock<T>` types, fixing possible Undefined Behavior
+
+## [v0.9.1] - 2025-08-19
+
+### Added
+
+- Added `String::insert` and `String::insert_str`.
+
+### Added
+
+- Added optional `embedded_io::Write` impl for `Vec`.
+
+### Changed
+
+- `bytes::BufMut` is now implemented on `VecInner`.
+- Removed generic from `history_buf::OldestOrdered`.
+- Made `LenType` opt-in.
+- Minor fixes to `pool::boxed` docs.
+- Add missing `Debug` derive to `vec::IntoIter`.
+- Removed generic from `spsc::Consumer`, `spsc::Producer` and `spsc::Iter`.
+- Added `LinearMap::entry()` API.
+- Added `LinearMap::retain()`.
+
+### Fixed
+
+- CI now uses flags specified in `Cargo.toml` for `rustdoc` tests.
+- Fixed clippy lints.
+- Fixed the memory layout of the internal `UnionNode<T>` type, fixing possible Undefined Behaviour.
+
+### Removed
+
+- Removed invalid `bytes::Buf` implementation.
+- Removed `DefaultLenType` struct.
+
+## [v0.9.0] - 2025-04-28 [YANKED]
+
+### Added
+
+- Added `bytes::Buf` and `bytes::BufMut` implementations for `Vec`.
+- Added `format` macro.
+- Added `String::from_utf16`.
+- Added `is_full`, `recent_index`, `oldest`, and `oldest_index` to `HistoryBuffer`
+- Added `is_full` to `BinaryHeap`
+- Added `is_full` to `IndexMap`
+- Added `is_full` to `IndexSet`
+- Added `is_full` to `LinearMap`
+- Added infallible conversions from arrays to `Vec`.
+- Added `Vec::spare_capacity_mut`.
+- Added `Extend` impls for `Deque`.
+- Added `Deque::make_contiguous`.
+- Added `VecView`, the `!Sized` version of `Vec`.
+- Added pool implementations for 64-bit architectures.
+- Added `IntoIterator` implementation for `LinearMap`
+- Added `Deque::{get, get_mut, get_unchecked, get_unchecked_mut}`.
+- Added `serde::Serialize` and `serde::Deserialize` implementations to `HistoryBuffer`.
+- Added `Vec::drain`.
+- Added `String::drain`.
+- Implemented `DoubleEndedIterator` for `OldestOrdered`.
+- Added std `Entry` methods to indexmap `Entry`.
+- Added `StringView`, the `!Sized` version of `String`.
+- Added `BinaryHeapView`, the `!Sized` version of `BinaryHeap`.
+- Added `MpMcQueueView`, the `!Sized` version of `MpMcQueue`.
+- Added `LinearMapView`, the `!Sized` version of `LinearMap`.
+- Added `HistoryBufferView`, the `!Sized` version of `HistoryBuffer`.
+- Added `DequeView`, the `!Sized` version of `Deque`.
+- Added `QueueView`, the `!Sized` version of `Queue`.
+- Added `SortedLinkedListView`, the `!Sized` version of `SortedLinkedList`.
+- Added implementation of `Borrow` and `BorrowMut` for `String` and `Vec`.
+- Added `Deque::{swap, swap_unchecked, swap_remove_front, swap_remove_back}`.
+- Make `String::from_utf8_unchecked` const.
+- Implemented `PartialEq` and `Eq` for `Deque`.
+- Added `alloc` feature to enable `alloc`-Vec interoperability.
+- Added `TryFrom<alloc::vec::Vec>` impl for `Vec`.
+- Added `TryFrom<Vec>` impl for `alloc::vec::Vec`.
+- Added `truncate` to `IndexMap`.
+- Added `get_index` and `get_index_mut` to `IndexMap`.
+- Added `String::uDisplay`.
+- Added `CString`.
+- Added `LenT` generic to `Vec<T, N>` and `VecView<T>` to save memory when using a sane capacity value.
+- Added the `index_set` module.
+- Added the `index_map` module.
+- Migrated `Idx` generic for `SortedLinkedList` to use the new `LenType` trait, allowing for `Idx` inference.
+- Added similar `LenT` generic to `String`.
+- Optimize size of zero capacity `Vec<T, 0>` to be 0 bytes
+
+### Changed
+
+- Updated defmt from 0.3 to 1.0.1
+  - Changed the feature name from `defmt-03` to `defmt`.
+- Changed the error type of these methods from `()` to `CapacityError`.
+  - `String::push_str`
+  - `String::push`
+  - `Vec::extend_from_slice`
+  - `Vec::from_slice`
+  - `Vec::resize_default`
+  - `Vec::resize`
+- Renamed `FromUtf16Error::DecodeUtf16Error` to `FromUtf16Error::DecodeUtf16`.
+- Changed `stable_deref_trait` to a platform-dependent dependency.
+- Changed `SortedLinkedList::pop` return type from `Result<T, ()>` to `Option<T>` to match `std::vec::pop`.
+- `Vec::capacity` is no longer a `const` function.
+- Relaxed bounds on `PartialEq` for `IndexMap` from `V: Eq` to `V1: PartialEq<V2>`.
+- Relaxed bounds on `PartialEq` for `LinearMap` from `V: PartialEq` to `V1: PartialEq<V2>`.
+- The `FnvIndexSet` type is now inside the `index_set` module.
+- The `IndexSetIter` type is now inside the `index_set` module and has been renamed to `Iter`.
+- The `Bucket` type is now inside the `index_map` module.
+- The `Entry` type is now inside the `index_map` module.
+- The `FnvIndexMap` type is now inside the `index_map` module.
+- The `IndexMapIter` type is now inside the `index_map` module and has been renamed to `Iter`.
+- The `IndexMapIterMut` type is now inside the `index_map` module and has been renamed to `IterMut`.
+- The `IndexMapKeys` type is now inside the `index_map` module and has been renamed to `Keys`.
+- The `OccupiedEntry` type is now inside the `index_map` module.
+- The `Pos` type is now inside the `index_map` module.
+- The `VacantEntry` type is now inside the `index_map` module.
+- The `VacantEntry` type is now inside the `index_map` module.
+- The `IndexMapValues` type is now inside the `index_map` module and has been renamed to `Values`.
+- The `IndexMapValuesMut` type is now inside the `index_map` module and has been renamed to `ValuesMut`.
+- The `histbuf` module has been renamed to `history_buf`.
+- The `HistoryBuffer` type has been renamed to `HistoryBuf`.
+- The `HistoryBufferView` type has been renamed to `HistoryBufView`.
+- The `OwnedHistBufStorage` type has been renamed to `OwnedHistoryBufStorage`.
+- The `ViewHistBufStorage` type has been renamed to `ViewHistoryBufStorage`.
+- The `MpMcQueue` type has been renamed to `Queue`.
+- The `MpMcQueueView` type has been renamed to `QueueView`.
+- The `MpMcQueueInner` type has been renamed to `QueueInner`.
+- Remove `Q*` type aliases for `MpMcQueue`, and rename it to just `Queue`
+- Changed `Queue::split` to be `const`.
+
+### Fixed
+
+- Fixed bug in `IndexMap::truncate` that left the map in an inconsistent state.
+- Fixed compilation on `thumbv6m-none-eabi` without `portable-atomic` feature.
+- Fixed clippy lints.
+- Fixed `{arc,box,object}_pool!` emitting clippy lints.
+- Fixed the list of implemented data structures in the crate docs, by adding `Deque`,
+  `HistoryBuffer` and `SortedLinkedList` to the list.
+- Fixed `MpMcQueue` with `mpmc_large` feature.
+- Fix missing `Drop` for `MpMcQueue`
+
+### Removed
+
+- `Vec::storage_capacity` has been removed and `Vec::capacity` must be used instead.
+- Removed `sorted_linked_list::Iter` and `sorted_linked_list::IterInner`.
+- Removed `sorted_linked_list::FindMut` and `sorted_linked_list::FindMutInner`.
+- The `Q2`, `Q4`, `Q8`, `Q16`, `Q32` and `Q64` aliases for `MpMcQueue` have been removed.
+- `doc_auto_cfg` feature which was merged into `doc_cfg`. Presence of the feature led to doc
+  build failures on nightly.
+
 ## [v0.8.0] - 2023-11-07
 
 ### Added
@@ -42,6 +219,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   - `ufmt-impl` is now `ufmt`
   - `cas` is removed, atomic polyfilling is now opt-in via the `portable-atomic` feature.
 - `Vec::as_mut_slice` is now a public method.
+- `ufmt` functions are annotated with `inline`.
 
 ### Fixed
 
@@ -563,7 +741,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 - Initial release
 
-[Unreleased]: https://github.com/rust-embedded/heapless/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/rust-embedded/heapless/compare/v0.9.3...HEAD
+[v0.9.3]: https://github.com/rust-embedded/heapless/compare/v0.9.2...v0.9.3
+[v0.9.2]: https://github.com/rust-embedded/heapless/compare/v0.9.1...v0.9.2
+[v0.9.1]: https://github.com/rust-embedded/heapless/compare/v0.9.0...v0.9.1
+[v0.9.0]: https://github.com/rust-embedded/heapless/compare/v0.8.0...v0.9.0
 [v0.8.0]: https://github.com/rust-embedded/heapless/compare/v0.7.16...v0.8.0
 [v0.7.16]: https://github.com/rust-embedded/heapless/compare/v0.7.15...v0.7.16
 [v0.7.15]: https://github.com/rust-embedded/heapless/compare/v0.7.14...v0.7.15

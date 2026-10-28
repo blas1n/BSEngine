@@ -13,7 +13,7 @@
 edition = "2024"
 rust-version = "1.85.0"
 name = "bevy_reflect"
-version = "0.17.3"
+version = "0.18.1"
 build = false
 autolib = false
 autobins = false
@@ -52,17 +52,19 @@ debug_stack = ["std"]
 default = [
     "std",
     "smallvec",
+    "indexmap",
     "debug",
     "auto_register_inventory",
 ]
-documentation = ["bevy_reflect_derive/documentation"]
 functions = ["bevy_reflect_derive/functions"]
 glam = ["dep:glam"]
 hashbrown = ["dep:hashbrown"]
+indexmap = ["dep:indexmap"]
 petgraph = [
     "dep:petgraph",
     "std",
 ]
+reflect_documentation = ["bevy_reflect_derive/reflect_documentation"]
 smallvec = ["dep:smallvec"]
 std = [
     "erased-serde/std",
@@ -88,13 +90,13 @@ path = "src/lib.rs"
 [[example]]
 name = "reflect_docs"
 path = "examples/reflect_docs.rs"
-required-features = ["documentation"]
+required-features = ["reflect_documentation"]
 
 [dependencies.assert_type_match]
 version = "0.1.1"
 
 [dependencies.bevy_platform]
-version = "0.17.3"
+version = "0.18.0"
 features = [
     "alloc",
     "serialize",
@@ -102,13 +104,13 @@ features = [
 default-features = false
 
 [dependencies.bevy_ptr]
-version = "0.17.3"
+version = "0.18.0"
 
 [dependencies.bevy_reflect_derive]
-version = "0.17.3"
+version = "0.18.0"
 
 [dependencies.bevy_utils]
-version = "0.17.3"
+version = "0.18.0"
 default-features = false
 
 [dependencies.derive_more]
@@ -134,13 +136,18 @@ version = "0.2.0"
 default-features = false
 
 [dependencies.glam]
-version = "0.30.1"
+version = "0.30.7"
 features = ["serde"]
 optional = true
 default-features = false
 
 [dependencies.hashbrown]
 version = "0.16.0"
+optional = true
+default-features = false
+
+[dependencies.indexmap]
+version = "2.5.0"
 optional = true
 default-features = false
 
@@ -186,7 +193,7 @@ default-features = false
 version = "1.1"
 
 [dependencies.wgpu-types]
-version = "26"
+version = "27"
 features = ["serde"]
 optional = true
 default-features = false
@@ -199,7 +206,7 @@ features = ["serde"]
 version = "1.1"
 
 [dev-dependencies.ron]
-version = "0.10"
+version = "0.12"
 
 [dev-dependencies.serde]
 version = "1"

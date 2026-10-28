@@ -59,7 +59,8 @@ pub fn encode_heightmap_png(width: u32, height: u32, data: &[u16]) -> Result<Vec
 
 /// Backs `LoadMode::Async` for heightmaps via `AssetServer::load` --
 /// see `load_mode.rs` for how `TextureAssetLoader` is wired the same way.
-#[derive(Default)]
+// `TypePath`: Bevy 0.18 makes it a supertrait of `AssetLoader`.
+#[derive(Default, bevy_reflect::TypePath)]
 pub struct HeightmapAssetLoader;
 
 impl AssetLoader for HeightmapAssetLoader {

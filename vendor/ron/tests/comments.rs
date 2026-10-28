@@ -1,4 +1,4 @@
-use ron::de::{from_str, Error, Position, SpannedError as RonErr};
+use ron::de::{from_str, Error, Position, Span, SpannedError as RonErr};
 
 #[test]
 fn test_simple() {
@@ -36,7 +36,10 @@ fn test_unclosed() {
         from_str::<String>("\"hi\" /*"),
         Err(RonErr {
             code: Error::UnclosedBlockComment,
-            position: Position { line: 1, col: 8 }
+            span: Span {
+                start: Position { line: 1, col: 6 },
+                end: Position { line: 1, col: 8 }
+            }
         })
     );
     assert_eq!(
@@ -53,7 +56,10 @@ fn test_unclosed() {
         ),
         Err(RonErr {
             code: Error::UnclosedBlockComment,
-            position: Position { line: 9, col: 1 }
+            span: Span {
+                start: Position { line: 7, col: 3 },
+                end: Position { line: 9, col: 1 }
+            }
         })
     );
 }
@@ -64,7 +70,59 @@ fn test_unexpected_byte() {
         from_str::<u8>("42 /q"),
         Err(RonErr {
             code: Error::UnexpectedChar('q'),
-            position: Position { line: 1, col: 6 },
+            span: Span {
+                start: Position { line: 1, col: 4 },
+                end: Position { line: 1, col: 6 },
+            }
         })
     );
+}
+
+#[test]
+fn test_comment_after_literal_in_newtype_lookahead() {
+    #[derive(Debug, PartialEq, serde::Deserialize)]
+    enum Cmd {
+        Echo(Msg),
+    }
+
+    #[derive(Debug, PartialEq, serde::Deserialize)]
+    #[serde(untagged)]
+    enum Msg {
+        One(ron::Value),
+        Many(Vec<ron::Value>),
+    }
+
+    #[derive(Debug, PartialEq, serde::Deserialize)]
+    #[serde(untagged)]
+    enum Untagged {
+        Cmd(Cmd),
+    }
+
+    // A comment directly after a literal must not be scanned as code
+    for (ron, inner) in [
+        ("\"hi\"", ron::Value::String(String::from("hi"))),
+        ("'h'", ron::Value::Char('h')),
+        ("b\"hi\"", ron::Value::Bytes(b"hi".to_vec())),
+    ] {
+        let expected = Cmd::Echo(Msg::One(inner));
+
+        for comment in ["", "/*,x*/", "// note\n"] {
+            let ron = format!("Echo({}{})", ron, comment);
+
+            assert_eq!(
+                from_str::<Cmd>(&format!("#![enable(unwrap_variant_newtypes)] {}", ron)).as_ref(),
+                Ok(&expected),
+                "{}",
+                ron,
+            );
+            assert_eq!(
+                from_str::<Untagged>(&ron)
+                    .map(|Untagged::Cmd(cmd)| cmd)
+                    .as_ref(),
+                Ok(&expected),
+                "{}",
+                ron,
+            );
+        }
+    }
 }

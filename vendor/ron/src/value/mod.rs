@@ -1,6 +1,7 @@
 //! Value module.
 
-use std::{borrow::Cow, cmp::Eq, hash::Hash};
+use alloc::{borrow::Cow, boxed::Box, format, string::String, vec::Vec};
+use core::{cmp::Eq, hash::Hash};
 
 use serde::{
     de::{DeserializeOwned, DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor},
@@ -15,6 +16,7 @@ pub(crate) mod raw;
 
 pub use map::Map;
 pub use number::{Number, F32, F64};
+pub(crate) use number::{NumberDeserializer, NumberSerializer};
 #[allow(clippy::useless_attribute, clippy::module_name_repetitions)]
 pub use raw::RawValue;
 
@@ -256,7 +258,8 @@ impl<'a, 'de> MapAccess<'de> for MapAccessor<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, fmt::Debug};
+    use alloc::{collections::BTreeMap, vec};
+    use core::fmt::Debug;
 
     use serde::Deserialize;
 
@@ -454,7 +457,7 @@ mod tests {
             type Value = ();
 
             // GRCOV_EXCL_START
-            fn expecting(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+            fn expecting(&self, fmt: &mut core::fmt::Formatter) -> core::fmt::Result {
                 fmt.write_str("a map")
             }
             // GRCOV_EXCL_STOP

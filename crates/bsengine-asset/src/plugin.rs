@@ -125,8 +125,9 @@ impl Plugin for PakAssetPlugin {
         let project_dir = self.project_dir.clone();
         app.register_asset_source(
             bevy_asset::io::AssetSourceId::Default,
-            bevy_asset::io::AssetSourceBuilder::default()
-                .with_reader(move || crate::pak_reader::erased(pak.clone(), project_dir.clone())),
+            bevy_asset::io::AssetSourceBuilder::new(move || {
+                crate::pak_reader::erased(pak.clone(), project_dir.clone())
+            }),
         );
     }
 }

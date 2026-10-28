@@ -11,9 +11,9 @@
 
 [package]
 edition = "2024"
-rust-version = "1.86.0"
+rust-version = "1.89.0"
 name = "bevy_ecs"
-version = "0.17.3"
+version = "0.18.1"
 build = false
 autolib = false
 autobins = false
@@ -55,6 +55,10 @@ bevy_reflect = ["dep:bevy_reflect"]
 critical-section = [
     "bevy_platform/critical-section",
     "bevy_reflect?/critical-section",
+]
+debug = [
+    "bevy_utils/debug",
+    "bevy_reflect?/debug",
 ]
 default = [
     "std",
@@ -98,7 +102,6 @@ std = [
 trace = [
     "std",
     "dep:tracing",
-    "bevy_utils/debug",
 ]
 track_location = []
 
@@ -124,28 +127,31 @@ optional = true
 default-features = false
 
 [dependencies.bevy_ecs_macros]
-version = "0.17.3"
+version = "0.18.0"
 
 [dependencies.bevy_platform]
-version = "0.17.3"
+version = "0.18.0"
 features = ["alloc"]
 default-features = false
 
 [dependencies.bevy_ptr]
-version = "0.17.3"
+version = "0.18.0"
 
 [dependencies.bevy_reflect]
-version = "0.17.3"
-features = ["smallvec"]
+version = "0.18.0"
+features = [
+    "smallvec",
+    "indexmap",
+]
 optional = true
 default-features = false
 
 [dependencies.bevy_tasks]
-version = "0.17.3"
+version = "0.18.0"
 default-features = false
 
 [dependencies.bevy_utils]
-version = "0.17.3"
+version = "0.18.0"
 default-features = false
 
 [dependencies.bitflags]

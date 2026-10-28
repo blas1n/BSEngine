@@ -12,7 +12,7 @@
 
 RON is a simple readable data serialization format that looks similar to Rust syntax.
 It's designed to support all of [Serde's data model](https://serde.rs/data-model.html), so
-structs, enums, tuples, arrays, generic maps, and primitive values.
+structs, enums, tuples, arrays, generic maps, ranges, and primitive values.
 
 ## Example
 
@@ -56,7 +56,9 @@ GameConfig( // optional struct name
 * Tuples: `("abc", 1.23, true)`, `()`
 * Lists: `["abc", "def"]`
 * Structs: `( foo: 1.0, bar: ( baz: "I'm nested" ) )`
+* Enums: `Unit`, `Newtype(1.5)`, `Tuple(1, "two")`, `Struct(x: 1.0, y: 2.0)`
 * Maps: `{ "arbitrary": "keys", "are": "allowed" }`
+* Ranges: `3..5`, `-2.1..=7.3`, `..-15`, `..10.5`, `..=13`, `..`
 
 > **Note:** Serde's data model represents fixed-size Rust arrays as tuple (instead of as list)
 
@@ -135,7 +137,7 @@ Note the following advantages of RON over JSON:
 
 ```toml
 [dependencies]
-ron = "0.8"
+ron = "0.12"
 serde = { version = "1", features = ["derive"] }
 ```
 
@@ -161,18 +163,48 @@ fn main() {
 }
 ```
 
+### `no_std`
+
+To use RON without the standard library, disable the default features for both
+RON and Serde:
+
+```toml
+[dependencies]
+ron = { version = "0.12", default-features = false }
+serde = { version = "1", default-features = false, features = ["alloc", "derive"] }
+```
+
+RON still requires the `alloc` crate, so your application must provide a global
+allocator. Disabling `std` does not make RON allocation-free: even deserializing
+into types that do not allocate can require allocations when reporting errors.
+
+String and byte-slice deserialization and string serialization remain available.
+The `std::io` interfaces, such as `ron::de::from_reader` and
+`ron::Options::to_io_writer`, require the `std` feature. The `indexmap` feature
+also enables `std`; ensure other dependencies do not enable RON's or Serde's
+`std` features through Cargo's feature unification.
+
 ## Tooling
 
-| Editor       | Plugin                                                      |
-| ------------ | ----------------------------------------------------------- |
-| IntelliJ     | [intellij-ron](https://github.com/ron-rs/intellij-ron)      |
-| VS Code      | [a5huynh/vscode-ron](https://github.com/a5huynh/vscode-ron) |
-| Sublime Text | [RON](https://packagecontrol.io/packages/RON)               |
-| Atom         | [language-ron](https://atom.io/packages/language-ron)       |
-| Vim          | [ron-rs/ron.vim](https://github.com/ron-rs/ron.vim)         |
-| EMACS        | [emacs-ron]                                                 |
+| Editor         | Plugin                                                                   |
+| -------------- | ------------------------------------------------------------------------ |
+| IntelliJ       | [intellij-ron](https://github.com/ron-rs/intellij-ron)                   |
+| VS Code        | [a5huynh/vscode-ron](https://github.com/a5huynh/vscode-ron)              |
+| Sublime Text   | [RON](https://packagecontrol.io/packages/RON)                            |
+| Atom           | [language-ron](https://atom.io/packages/language-ron)                    |
+| Vim            | [ron-rs/ron.vim](https://github.com/ron-rs/ron.vim)                      |
+| EMACS          | [emacs-ron](https://chiselapp.com/user/Hutzdog/repository/ron-mode/home) |
+| Zed            | [RON](https://zed.dev/extensions/ron)                                    |
+| Multiple / LSP | [ron-lsp](https://github.com/jasonjmcghee/ron-lsp)                       |
 
-[emacs-ron]: https://chiselapp.com/user/Hutzdog/repository/ron-mode/home
+## Other Implementations
+
+| Source     | Implementation                                                                                                       |
+| ---------- | -------------------------------------------------------------------------------------------------------------------- |
+| Jackson    | [jackson-dataformat-ron](https://github.com/chriskilding/jackson-dataformat-ron)                                     |
+| Python     | [Python Script](https://github.com/sdfgeoff/blender_bevy_toolkit/blob/master/blender_bevy_toolkit/rust_types/ron.py) |
+| Javascript | [ron-js](https://github.com/whiteand/ron-js)                                                                         |
+| C#         | [RonCS](https://github.com/CriusNyx/RonCS)                                                                           |
 
 ## Limitations
 
@@ -225,7 +257,7 @@ Please file a [new issue](https://github.com/ron-rs/ron/issues/new) if you come 
 
 While RON guarantees roundtrips like Rust -> RON -> Rust for Rust types using non-`deserialize_any`-based implementations, RON does not yet make any guarantees about roundtrips through `ron::Value`. For instance, even when RON -> Rust works, RON -> `ron::Value` -> Rust, or RON -> `ron::Value` -> RON -> Rust may not work. We plan on improving `ron::Value` in an upcoming version of RON, though this work is partially blocked on [serde#1183](https://github.com/serde-rs/serde/issues/1183).
 
-[^serde-enum-hack]: Deserialising an internally, adjacently, or un-tagged enum requires detecting `serde`'s internal `serde::__private::de::content::Content` content type so that RON can describe the deserialised data structure in serde's internal JSON-like format. This detection only works for the automatically-derived [`Deserialize`](https://docs.rs/serde/latest/serde/de/trait.Deserialize.html) impls on enums. See [#451](https://github.com/ron-rs/ron/pull/451) for more details.
+[^serde-enum-hack]: Deserialising an internally, adjacently, or un-tagged enum requires detecting `serde`'s internal default buffer/content type so that RON can describe the deserialised data structure in serde's internal JSON-like format. A more robust implementation is blocked on [serde#1183](https://github.com/serde-rs/serde/issues/1183).
 
 [^serde-flatten-hack]: Deserialising a flattened struct from a map requires that the struct's [`Visitor::expecting`](https://docs.rs/serde/latest/serde/de/trait.Visitor.html#tymethod.expecting) implementation formats a string starting with `"struct "`. This is the case for automatically-derived [`Deserialize`](https://docs.rs/serde/latest/serde/de/trait.Deserialize.html) impls on structs. See [#455](https://github.com/ron-rs/ron/pull/455) for more details.
 

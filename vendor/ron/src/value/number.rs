@@ -1,8 +1,9 @@
-use std::{
+use core::{
     cmp::{Eq, Ordering},
     hash::{Hash, Hasher},
 };
 
+use crate::error::{Error, Result};
 use serde::{de::Visitor, Serialize, Serializer};
 
 /// A wrapper for any numeric primitive type in Rust.
@@ -17,7 +18,8 @@ use serde::{de::Visitor, Serialize, Serializer};
 /// <summary>Exhaustively matching on <code>Number</code> in tests</summary>
 ///
 /// If you want to ensure that you exhaustively handle every variant, you can
-/// match on the hidden `Number::__NonExhaustive` variant.
+/// match on the hidden `Number::__NonExhaustive(x)` variant by using the
+/// `x.never() -> !` method.
 ///
 /// <div class="warning">
 /// Matching on this variant means that your code may break when RON is
@@ -54,8 +56,61 @@ pub enum Number {
 }
 
 mod private {
+    #[derive(Debug, PartialEq, PartialOrd, Eq, Hash, Ord)]
+    enum _Never {}
+
     #[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Hash, Ord)]
-    pub enum Never {}
+    pub struct Never {
+        never: &'static _Never,
+    }
+
+    impl Never {
+        pub fn never(self) -> ! {
+            match *self.never {}
+        }
+    }
+
+    #[cfg(not(feature = "integer128"))]
+    /// ```compile_fail
+    /// # use ron::Number;
+    /// fn match_number(x: Number) {
+    ///     match x {
+    ///         Number::I8(v) => println!("i8: {}", v),
+    ///         Number::I16(v) => println!("i16: {}", v),
+    ///         Number::I32(v) => println!("i32: {}", v),
+    ///         Number::I64(v) => println!("i64: {}", v),
+    ///         Number::U8(v) => println!("u8: {}", v),
+    ///         Number::U16(v) => println!("u16: {}", v),
+    ///         Number::U32(v) => println!("u32: {}", v),
+    ///         Number::U64(v) => println!("u64: {}", v),
+    ///         Number::F32(v) => println!("f32: {}", v.0),
+    ///         Number::F64(v) => println!("f64: {}", v.0),
+    ///     }
+    /// }
+    /// ```
+    fn _assert_non_exhaustive_check_fails_not_integer128() {}
+
+    #[cfg(feature = "integer128")]
+    /// ```compile_fail
+    /// # use ron::Number;
+    /// fn match_number(x: Number) {
+    ///     match x {
+    ///         Number::I8(v) => println!("i8: {}", v),
+    ///         Number::I16(v) => println!("i16: {}", v),
+    ///         Number::I32(v) => println!("i32: {}", v),
+    ///         Number::I64(v) => println!("i64: {}", v),
+    ///         Number::I128(v) => println!("i128: {}", v),
+    ///         Number::U8(v) => println!("u8: {}", v),
+    ///         Number::U16(v) => println!("u16: {}", v),
+    ///         Number::U32(v) => println!("u32: {}", v),
+    ///         Number::U64(v) => println!("u64: {}", v),
+    ///         Number::U128(v) => println!("u128: {}", v),
+    ///         Number::F32(v) => println!("f32: {}", v.0),
+    ///         Number::F64(v) => println!("f64: {}", v.0),
+    ///     }
+    /// }
+    /// ```
+    fn _assert_non_exhaustive_check_fails_integer128() {}
 }
 
 impl Serialize for Number {
@@ -76,7 +131,7 @@ impl Serialize for Number {
             Self::F32(v) => serializer.serialize_f32(v.get()),
             Self::F64(v) => serializer.serialize_f64(v.get()),
             #[cfg(not(doc))]
-            Self::__NonExhaustive(never) => match *never {},
+            Self::__NonExhaustive(never) => never.never(),
         }
     }
 }
@@ -102,7 +157,7 @@ impl Number {
             Self::F32(v) => visitor.visit_f32(v.get()),
             Self::F64(v) => visitor.visit_f64(v.get()),
             #[cfg(not(doc))]
-            Self::__NonExhaustive(never) => match *never {},
+            Self::__NonExhaustive(never) => never.never(),
         }
     }
 }
@@ -240,22 +295,22 @@ impl Number {
     pub fn into_f64(self) -> f64 {
         #[allow(clippy::cast_precision_loss)]
         match self {
-            Number::I8(v) => f64::from(v),
-            Number::I16(v) => f64::from(v),
-            Number::I32(v) => f64::from(v),
-            Number::I64(v) => v as f64,
+            Self::I8(v) => f64::from(v),
+            Self::I16(v) => f64::from(v),
+            Self::I32(v) => f64::from(v),
+            Self::I64(v) => v as f64,
             #[cfg(feature = "integer128")]
-            Number::I128(v) => v as f64,
-            Number::U8(v) => f64::from(v),
-            Number::U16(v) => f64::from(v),
-            Number::U32(v) => f64::from(v),
-            Number::U64(v) => v as f64,
+            Self::I128(v) => v as f64,
+            Self::U8(v) => f64::from(v),
+            Self::U16(v) => f64::from(v),
+            Self::U32(v) => f64::from(v),
+            Self::U64(v) => v as f64,
             #[cfg(feature = "integer128")]
-            Number::U128(v) => v as f64,
-            Number::F32(v) => f64::from(v.get()),
-            Number::F64(v) => v.get(),
+            Self::U128(v) => v as f64,
+            Self::F32(v) => f64::from(v.get()),
+            Self::F64(v) => v.get(),
             #[cfg(not(doc))]
-            Self::__NonExhaustive(never) => match never {},
+            Self::__NonExhaustive(never) => never.never(),
         }
     }
 }
@@ -292,24 +347,238 @@ number_from_impl! { Number::U128(u128) }
 number_from_impl! { Number::F32(F32(f32)) }
 number_from_impl! { Number::F64(F64(f64)) }
 
+/// A serializer that only accepts numeric values, returning a [`Number`].
+/// Used by [`crate::ser::RangeCompound`] to detect whether range bounds are numeric.
+#[allow(clippy::module_name_repetitions)]
+pub struct NumberSerializer;
+
+impl serde::Serializer for NumberSerializer {
+    type Ok = Number;
+    type Error = Error;
+    type SerializeSeq = serde::ser::Impossible<Number, Error>;
+    type SerializeTuple = serde::ser::Impossible<Number, Error>;
+    type SerializeTupleStruct = serde::ser::Impossible<Number, Error>;
+    type SerializeTupleVariant = serde::ser::Impossible<Number, Error>;
+    type SerializeMap = serde::ser::Impossible<Number, Error>;
+    type SerializeStruct = serde::ser::Impossible<Number, Error>;
+    type SerializeStructVariant = serde::ser::Impossible<Number, Error>;
+
+    fn serialize_i8(self, v: i8) -> Result<Number> {
+        Ok(Number::new(v))
+    }
+    fn serialize_i16(self, v: i16) -> Result<Number> {
+        Ok(Number::new(v))
+    }
+    fn serialize_i32(self, v: i32) -> Result<Number> {
+        Ok(Number::new(v))
+    }
+    fn serialize_i64(self, v: i64) -> Result<Number> {
+        Ok(Number::new(v))
+    }
+    fn serialize_u8(self, v: u8) -> Result<Number> {
+        Ok(Number::new(v))
+    }
+    fn serialize_u16(self, v: u16) -> Result<Number> {
+        Ok(Number::new(v))
+    }
+    fn serialize_u32(self, v: u32) -> Result<Number> {
+        Ok(Number::new(v))
+    }
+    fn serialize_u64(self, v: u64) -> Result<Number> {
+        Ok(Number::new(v))
+    }
+    fn serialize_f32(self, v: f32) -> Result<Number> {
+        Ok(Number::new(v))
+    }
+    fn serialize_f64(self, v: f64) -> Result<Number> {
+        Ok(Number::new(v))
+    }
+    #[cfg(feature = "integer128")]
+    fn serialize_i128(self, v: i128) -> Result<Number> {
+        Ok(Number::new(v))
+    }
+    #[cfg(feature = "integer128")]
+    fn serialize_u128(self, v: u128) -> Result<Number> {
+        Ok(Number::new(v))
+    }
+
+    fn serialize_bool(self, _: bool) -> Result<Number> {
+        Err(Error::InvalidValueForType {
+            expected: alloc::string::String::from("number"),
+            found: alloc::string::String::from("bool"),
+        })
+    }
+    fn serialize_char(self, _: char) -> Result<Number> {
+        Err(Error::InvalidValueForType {
+            expected: alloc::string::String::from("number"),
+            found: alloc::string::String::from("char"),
+        })
+    }
+    fn serialize_str(self, _: &str) -> Result<Number> {
+        Err(Error::InvalidValueForType {
+            expected: alloc::string::String::from("number"),
+            found: alloc::string::String::from("string"),
+        })
+    }
+    fn serialize_bytes(self, _: &[u8]) -> Result<Number> {
+        Err(Error::InvalidValueForType {
+            expected: alloc::string::String::from("number"),
+            found: alloc::string::String::from("bytes"),
+        })
+    }
+    fn serialize_none(self) -> Result<Number> {
+        Err(Error::InvalidValueForType {
+            expected: alloc::string::String::from("number"),
+            found: alloc::string::String::from("None"),
+        })
+    }
+    fn serialize_some<T: ?Sized + Serialize>(self, _: &T) -> Result<Number> {
+        Err(Error::InvalidValueForType {
+            expected: alloc::string::String::from("number"),
+            found: alloc::string::String::from("Some"),
+        })
+    }
+    fn serialize_unit(self) -> Result<Number> {
+        Err(Error::InvalidValueForType {
+            expected: alloc::string::String::from("number"),
+            found: alloc::string::String::from("unit"),
+        })
+    }
+    fn serialize_unit_struct(self, _: &'static str) -> Result<Number> {
+        Err(Error::InvalidValueForType {
+            expected: alloc::string::String::from("number"),
+            found: alloc::string::String::from("unit struct"),
+        })
+    }
+    fn serialize_unit_variant(self, _: &'static str, _: u32, _: &'static str) -> Result<Number> {
+        Err(Error::InvalidValueForType {
+            expected: alloc::string::String::from("number"),
+            found: alloc::string::String::from("unit variant"),
+        })
+    }
+    fn serialize_newtype_struct<T: ?Sized + Serialize>(
+        self,
+        _: &'static str,
+        _: &T,
+    ) -> Result<Number> {
+        Err(Error::InvalidValueForType {
+            expected: alloc::string::String::from("number"),
+            found: alloc::string::String::from("newtype struct"),
+        })
+    }
+    fn serialize_newtype_variant<T: ?Sized + Serialize>(
+        self,
+        _: &'static str,
+        _: u32,
+        _: &'static str,
+        _: &T,
+    ) -> Result<Number> {
+        Err(Error::InvalidValueForType {
+            expected: alloc::string::String::from("number"),
+            found: alloc::string::String::from("newtype variant"),
+        })
+    }
+    fn serialize_seq(self, _: Option<usize>) -> Result<Self::SerializeSeq> {
+        Err(Error::InvalidValueForType {
+            expected: alloc::string::String::from("number"),
+            found: alloc::string::String::from("seq"),
+        })
+    }
+    fn serialize_tuple(self, _: usize) -> Result<Self::SerializeTuple> {
+        Err(Error::InvalidValueForType {
+            expected: alloc::string::String::from("number"),
+            found: alloc::string::String::from("tuple"),
+        })
+    }
+    fn serialize_tuple_struct(
+        self,
+        _: &'static str,
+        _: usize,
+    ) -> Result<Self::SerializeTupleStruct> {
+        Err(Error::InvalidValueForType {
+            expected: alloc::string::String::from("number"),
+            found: alloc::string::String::from("tuple struct"),
+        })
+    }
+    fn serialize_tuple_variant(
+        self,
+        _: &'static str,
+        _: u32,
+        _: &'static str,
+        _: usize,
+    ) -> Result<Self::SerializeTupleVariant> {
+        Err(Error::InvalidValueForType {
+            expected: alloc::string::String::from("number"),
+            found: alloc::string::String::from("tuple variant"),
+        })
+    }
+    fn serialize_map(self, _: Option<usize>) -> Result<Self::SerializeMap> {
+        Err(Error::InvalidValueForType {
+            expected: alloc::string::String::from("number"),
+            found: alloc::string::String::from("map"),
+        })
+    }
+    fn serialize_struct(self, _: &'static str, _: usize) -> Result<Self::SerializeStruct> {
+        Err(Error::InvalidValueForType {
+            expected: alloc::string::String::from("number"),
+            found: alloc::string::String::from("struct"),
+        })
+    }
+    fn serialize_struct_variant(
+        self,
+        _: &'static str,
+        _: u32,
+        _: &'static str,
+        _: usize,
+    ) -> Result<Self::SerializeStructVariant> {
+        Err(Error::InvalidValueForType {
+            expected: alloc::string::String::from("number"),
+            found: alloc::string::String::from("struct variant"),
+        })
+    }
+}
+
+pub(crate) struct NumberDeserializer(pub(crate) Number);
+
+impl<'de> serde::de::Deserializer<'de> for NumberDeserializer {
+    type Error = crate::error::Error;
+
+    fn deserialize_any<V: serde::de::Visitor<'de>>(
+        self,
+        visitor: V,
+    ) -> crate::error::Result<V::Value> {
+        self.0.visit(visitor)
+    }
+
+    serde::forward_to_deserialize_any! {
+        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64
+        char str string bytes byte_buf option unit unit_struct
+        newtype_struct seq tuple tuple_struct map struct enum identifier ignored_any
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
     use super::*;
-
-    fn hash<T: Hash>(v: &T) -> u64 {
-        let mut state = DefaultHasher::new();
-        v.hash(&mut state);
-        state.finish()
-    }
 
     #[test]
     fn test_nan() {
         assert_eq!(F32(f32::NAN), F32(f32::NAN));
         assert_eq!(F32(-f32::NAN), F32(-f32::NAN));
         assert_ne!(F32(f32::NAN), F32(-f32::NAN));
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn test_nan_hash() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        fn hash<T: Hash>(v: &T) -> u64 {
+            let mut state = DefaultHasher::new();
+            v.hash(&mut state);
+            state.finish()
+        }
 
         assert_eq!(hash(&F32(f32::NAN)), hash(&F32(f32::NAN)));
         assert_eq!(hash(&F32(-f32::NAN)), hash(&F32(-f32::NAN)));

@@ -12,7 +12,7 @@
 [package]
 edition = "2024"
 name = "bevy_utils"
-version = "0.17.3"
+version = "0.18.1"
 build = false
 autolib = false
 autobins = false
@@ -48,7 +48,7 @@ name = "bevy_utils"
 path = "src/lib.rs"
 
 [dependencies.bevy_platform]
-version = "0.17.3"
+version = "0.18.0"
 default-features = false
 
 [dependencies.disqualified]

@@ -99,8 +99,8 @@ fn inspector_cmd_set_and_remove_parent_reparents_via_existing_pipeline() {
     {
         let mut insp = app.world_mut().resource_mut::<InspectorState>();
         insp.cmd_queue.push(InspectorCmd::SetParent {
-            id: child.index() as u64,
-            parent_id: parent.index() as u64,
+            id: child.index_u32() as u64,
+            parent_id: parent.index_u32() as u64,
         });
     }
     app.update();
@@ -113,7 +113,7 @@ fn inspector_cmd_set_and_remove_parent_reparents_via_existing_pipeline() {
     {
         let mut insp = app.world_mut().resource_mut::<InspectorState>();
         insp.cmd_queue.push(InspectorCmd::RemoveParent {
-            id: child.index() as u64,
+            id: child.index_u32() as u64,
         });
     }
     app.update();

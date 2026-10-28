@@ -1,30 +1,33 @@
 /// Deserialization module.
-use std::{
-    io::{self, Write},
-    str,
+use alloc::{
+    borrow::ToOwned,
+    string::{String, ToString},
+    vec::Vec,
 };
+use core::str;
 
 use serde::{
     de::{self, DeserializeSeed, Deserializer as _, Visitor},
     Deserialize,
 };
 
-pub use crate::error::{Error, Position, SpannedError};
+pub use crate::error::{Error, Position, Span, SpannedError};
 use crate::{
     error::{Result, SpannedResult},
     extensions::Extensions,
     options::Options,
     parse::{NewtypeMode, ParsedByteStr, ParsedStr, Parser, StructType, TupleMode},
+    value::NumberDeserializer,
 };
+
+#[cfg(feature = "std")]
+use std::io;
 
 mod id;
 mod tag;
 #[cfg(test)]
 mod tests;
 mod value;
-
-const SERDE_CONTENT_CANARY: &str = "serde::__private::de::content::Content";
-const SERDE_TAG_KEY_CANARY: &str = "serde::__private::de::content::TagOrContent";
 
 /// The RON deserializer.
 ///
@@ -78,7 +81,10 @@ impl<'de> Deserializer<'de> {
 
         Err(SpannedError {
             code: err.into(),
-            position: Position::from_src_end(valid_input),
+            span: Span {
+                start: Position { line: 1, col: 1 },
+                end: Position::from_src_end(valid_input),
+            },
         })
     }
 
@@ -100,6 +106,7 @@ impl<'de> Deserializer<'de> {
 
 /// A convenience function for building a deserializer
 /// and deserializing a value of type `T` from a reader.
+#[cfg(feature = "std")]
 pub fn from_reader<R, T>(rdr: R) -> SpannedResult<T>
 where
     R: io::Read,
@@ -124,6 +131,19 @@ where
     T: de::Deserialize<'a>,
 {
     Options::default().from_bytes(s)
+}
+
+/// A convenience function for deserializing a value of type `T`
+/// from a [`Value`](crate::Value).
+///
+/// Unlike the other convenience functions this returns a plain [`Error`]
+/// rather than a [`SpannedError`], since an in-memory [`Value`](crate::Value)
+/// has no source text to point a span into.
+pub fn from_value<T>(value: crate::Value) -> Result<T>
+where
+    T: de::DeserializeOwned,
+{
+    value.into_rust()
 }
 
 macro_rules! guard_recursion {
@@ -169,9 +189,9 @@ impl<'de> Deserializer<'de> {
         V: Visitor<'de>,
     {
         // HACK: switch to JSON enum semantics for JSON content
-        // Robust impl blocked on https://github.com/serde-rs/serde/pull/2420
-        let is_serde_content = std::any::type_name::<V::Value>() == SERDE_CONTENT_CANARY
-            || std::any::type_name::<V::Value>() == SERDE_TAG_KEY_CANARY;
+        // Robust impl blocked on https://github.com/serde-rs/serde/issues/1183
+        let is_serde_content =
+            is_serde_content::<V::Value>() || is_serde_tag_or_content::<V::Value>();
 
         let old_serde_content_newtype = self.serde_content_newtype;
         self.serde_content_newtype = false;
@@ -194,10 +214,12 @@ impl<'de> Deserializer<'de> {
             (StructType::Unit, _) => visitor.visit_unit(),
             (_, Some(ident)) if is_serde_content => {
                 // serde's Content type uses a singleton map encoding for enums
-                visitor.visit_map(SerdeEnumContent {
-                    de: self,
-                    ident: Some(ident),
-                })
+                guard_recursion! { self =>
+                    visitor.visit_map(SerdeEnumContent {
+                        de: &mut *self,
+                        ident: Some(ident),
+                    })
+                }
             }
             (StructType::Named, _) => {
                 // giving no name results in worse errors but is necessary here
@@ -207,11 +229,14 @@ impl<'de> Deserializer<'de> {
                 // deserialize a newtype struct or variant
                 self.parser.consume_char('(');
                 self.parser.skip_ws()?;
-                let result = self.deserialize_any(visitor);
-                self.parser.skip_ws()?;
-                self.parser.consume_char(')');
+                let value = guard_recursion! { self => self.deserialize_any(visitor)? };
+                self.parser.comma()?;
 
-                result
+                if self.parser.consume_char(')') {
+                    Ok(value)
+                } else {
+                    Err(Error::ExpectedStructLikeEnd)
+                }
             }
             (
                 StructType::AnyTuple
@@ -224,6 +249,27 @@ impl<'de> Deserializer<'de> {
                 self.deserialize_tuple(0, visitor)
             }
         }
+    }
+
+    fn handle_float_range_or_value<V>(
+        &mut self,
+        number: crate::value::Number,
+        visitor: V,
+    ) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        if self.parser.consume_str("..=") {
+            let end = self.parser.any_number()?;
+            return visitor.visit_map(RangeMapAccess::new(number, end, "end"));
+        } else if self.parser.consume_str("..") {
+            if !self.parser.check_any_number_start() {
+                return visitor.visit_map(RangeFromMapAccess::new(number));
+            }
+            let end = self.parser.any_number()?;
+            return visitor.visit_map(RangeMapAccess::new(number, end, "end"));
+        }
+        number.visit(visitor)
     }
 
     /// Called from
@@ -323,13 +369,17 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         } else if self.parser.consume_str("()") {
             return visitor.visit_unit();
         } else if self.parser.consume_ident("inf") || self.parser.consume_ident("inff32") {
-            return visitor.visit_f32(std::f32::INFINITY);
+            let number = crate::value::Number::F32(crate::value::F32(core::f32::INFINITY));
+            return self.handle_float_range_or_value(number, visitor);
         } else if self.parser.consume_ident("inff64") {
-            return visitor.visit_f64(std::f64::INFINITY);
+            let number = crate::value::Number::F64(crate::value::F64(core::f64::INFINITY));
+            return self.handle_float_range_or_value(number, visitor);
         } else if self.parser.consume_ident("NaN") || self.parser.consume_ident("NaNf32") {
-            return visitor.visit_f32(std::f32::NAN);
+            let number = crate::value::Number::F32(crate::value::F32(core::f32::NAN));
+            return self.handle_float_range_or_value(number, visitor);
         } else if self.parser.consume_ident("NaNf64") {
-            return visitor.visit_f64(std::f64::NAN);
+            let number = crate::value::Number::F64(crate::value::F64(core::f64::NAN));
+            return self.handle_float_range_or_value(number, visitor);
         }
 
         // `skip_identifier` does not change state if it fails
@@ -343,10 +393,30 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
             '(' => self.handle_any_struct(visitor, None),
             '[' => self.deserialize_seq(visitor),
             '{' => self.deserialize_map(visitor),
-            '0'..='9' | '+' | '-' | '.' => self.parser.any_number()?.visit(visitor),
+            '0'..='9' | '+' | '-' | '.' | 'b' => {
+                if self.parser.check_char('b') && !self.parser.src().starts_with("b'") {
+                    return self.deserialize_byte_buf(visitor);
+                }
+
+                if self.parser.check_str("..=") {
+                    self.parser.consume_str("..=");
+                    let end = self.parser.any_number()?;
+                    return visitor.visit_map(RangeToMapAccess::new(end, "end"));
+                }
+
+                if self.parser.consume_str("..") {
+                    if self.parser.check_any_number_start() {
+                        let end = self.parser.any_number()?;
+                        return visitor.visit_map(RangeToMapAccess::new(end, "end"));
+                    }
+                    return visitor.visit_unit();
+                }
+
+                let start = self.parser.any_number()?;
+
+                self.handle_float_range_or_value(start, visitor)
+            }
             '"' | 'r' => self.deserialize_string(visitor),
-            'b' if self.parser.src().starts_with("b'") => self.parser.any_number()?.visit(visitor),
-            'b' => self.deserialize_byte_buf(visitor),
             '\'' => self.deserialize_char(visitor),
             other => Err(Error::UnexpectedChar(other)),
         }
@@ -544,6 +614,10 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
+        if name == "RangeFull" && self.parser.consume_str("..") {
+            return visitor.visit_unit();
+        }
+
         if self.newtype_variant || self.parser.consume_struct_name(name)? {
             self.newtype_variant = false;
 
@@ -559,8 +633,10 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     {
         if name == crate::value::raw::RAW_VALUE_TOKEN {
             let src_before = self.parser.pre_ws_src();
+            let is_nested = !self.parser.is_at_start();
             self.parser.skip_ws()?;
-            let _ignored = self.deserialize_ignored_any(serde::de::IgnoredAny)?;
+            let _ignored = self.deserialize_ignored_any(de::IgnoredAny)?;
+            let src_value_end = self.parser.src();
             self.parser.skip_ws()?;
             let src_after = self.parser.src();
 
@@ -568,7 +644,11 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
                 return Err(Error::UnclosedLineComment);
             }
 
-            let ron_str = &src_before[..src_before.len() - src_after.len()];
+            let ron_str = if is_nested {
+                trim_raw_value_whitespace(src_before, src_value_end, src_after)
+            } else {
+                &src_before[..src_before.len() - src_after.len()]
+            };
 
             return visitor
                 .visit_borrowed_str::<Error>(ron_str)
@@ -670,25 +750,21 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        // Detect `#[serde(flatten)]` as a struct deserialised as a map
-        const SERDE_FLATTEN_CANARY: &[u8] = b"struct ";
-
         struct VisitorExpecting<V>(V);
-        impl<'de, V: Visitor<'de>> std::fmt::Display for VisitorExpecting<&'_ V> {
-            fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        impl<'de, V: Visitor<'de>> core::fmt::Display for VisitorExpecting<&'_ V> {
+            fn fmt(&self, fmt: &mut core::fmt::Formatter) -> core::fmt::Result {
                 self.0.expecting(fmt)
             }
         }
 
         self.newtype_variant = false;
 
-        let mut canary_buffer = [0u8; SERDE_FLATTEN_CANARY.len()];
-        std::mem::drop(write!(
-            canary_buffer.as_mut(),
-            "{}",
-            VisitorExpecting(&visitor)
-        ));
-        let terminator = if canary_buffer == SERDE_FLATTEN_CANARY {
+        // TODO: Avoid allocating to perform this check.
+        let serde_flatten_canary = VisitorExpecting(&visitor)
+            .to_string()
+            .starts_with("struct ");
+
+        let terminator = if serde_flatten_canary {
             Terminator::MapAsStruct
         } else {
             Terminator::Map
@@ -713,12 +789,85 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     fn deserialize_struct<V>(
         self,
         name: &'static str,
-        _fields: &'static [&'static str],
+        fields: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
+        // `RangeInclusive` used `last` as field name before it was renamed to `end` in a newer Rust version
+        if (name == "Range" && fields == ["start", "end"])
+            || (name == "RangeInclusive" && matches!(fields, ["start", "end" | "last"]))
+        {
+            let end_field = fields[1];
+            if self.parser.check_any_number_start() {
+                let start = self.parser.any_number()?;
+
+                let inclusive = if self.parser.consume_str("..=") {
+                    true
+                } else if self.parser.consume_str("..") {
+                    false
+                } else {
+                    return Err(Error::ExpectedRangeSyntax);
+                };
+
+                if inclusive && name == "Range" {
+                    return Err(Error::Message(String::from(
+                        "expected `..` for `Range`, found `..=`",
+                    )));
+                }
+                if !inclusive && name == "RangeInclusive" {
+                    return Err(Error::Message(String::from(
+                        "expected `..=` for `RangeInclusive`, found `..`",
+                    )));
+                }
+
+                let end = self.parser.any_number()?;
+                return visitor.visit_map(RangeMapAccess::new(start, end, end_field));
+            }
+        }
+
+        if fields == ["start"] && name == "RangeFrom" && self.parser.check_any_number_start() {
+            let start = self.parser.any_number()?;
+            if self.parser.consume_str("..=") {
+                return Err(Error::Message(String::from(
+                    "expected `..` for `RangeFrom`, found `..=`",
+                )));
+            } else if !self.parser.consume_str("..") {
+                return Err(Error::ExpectedRangeSyntax);
+            }
+            return visitor.visit_map(RangeFromMapAccess::new(start));
+        }
+
+        if fields == ["end"]
+            && name == "RangeTo"
+            && (self.parser.check_str("..=") || self.parser.check_str(".."))
+        {
+            if self.parser.consume_str("..=") {
+                return Err(Error::Message(String::from(
+                    "expected `..` for `RangeTo`, found `..=`",
+                )));
+            }
+            self.parser.consume_str("..");
+            let end = self.parser.any_number()?;
+            return visitor.visit_map(RangeToMapAccess::new(end, "end"));
+        }
+
+        // `last` is the old field name for `RangeToInclusive`, replaced by `end` in a newer Rust version
+        if matches!(fields, ["end" | "last"])
+            && name == "RangeToInclusive"
+            && (self.parser.check_str("..=") || self.parser.check_str(".."))
+        {
+            if !self.parser.consume_str("..=") {
+                self.parser.consume_str("..");
+                return Err(Error::Message(String::from(
+                    "expected `..=` for `RangeToInclusive`, found `..`",
+                )));
+            }
+            let end = self.parser.any_number()?;
+            return visitor.visit_map(RangeToMapAccess::new(end, fields[0]));
+        }
+
         if !self.newtype_variant {
             self.parser.consume_struct_name(name)?;
         }
@@ -825,6 +974,142 @@ impl<'a, 'de> CommaSeparated<'a, 'de> {
     }
 }
 
+enum RangeMapState {
+    StartKey,
+    StartValue,
+    EndKey,
+    EndValue,
+    Done,
+}
+
+struct RangeMapAccess {
+    start: crate::value::Number,
+    end: crate::value::Number,
+    state: RangeMapState,
+    end_key: &'static str,
+}
+
+impl RangeMapAccess {
+    fn new(start: crate::value::Number, end: crate::value::Number, end_key: &'static str) -> Self {
+        RangeMapAccess {
+            start,
+            end,
+            state: RangeMapState::StartKey,
+            end_key,
+        }
+    }
+}
+
+impl<'de> de::MapAccess<'de> for RangeMapAccess {
+    type Error = Error;
+
+    fn next_key_seed<K: de::DeserializeSeed<'de>>(&mut self, seed: K) -> Result<Option<K::Value>> {
+        match self.state {
+            RangeMapState::StartKey => {
+                self.state = RangeMapState::StartValue;
+                seed.deserialize(de::value::StrDeserializer::<Error>::new("start"))
+                    .map(Some)
+            }
+            RangeMapState::EndKey => {
+                self.state = RangeMapState::EndValue;
+                seed.deserialize(de::value::StrDeserializer::<Error>::new(self.end_key))
+                    .map(Some)
+            }
+            _ => Ok(None),
+        }
+    }
+
+    fn next_value_seed<V: de::DeserializeSeed<'de>>(&mut self, seed: V) -> Result<V::Value> {
+        match self.state {
+            RangeMapState::StartValue => {
+                self.state = RangeMapState::EndKey;
+                seed.deserialize(NumberDeserializer(self.start))
+            }
+            RangeMapState::EndValue => {
+                self.state = RangeMapState::Done;
+                seed.deserialize(NumberDeserializer(self.end))
+            }
+            _ => Err(Error::ExpectedDifferentLength {
+                expected: String::from("map of length 2"),
+                found: 3,
+            }),
+        }
+    }
+}
+
+struct RangeFromMapAccess {
+    start: crate::value::Number,
+    done: bool,
+}
+
+impl RangeFromMapAccess {
+    fn new(start: crate::value::Number) -> Self {
+        RangeFromMapAccess { start, done: false }
+    }
+}
+
+impl<'de> de::MapAccess<'de> for RangeFromMapAccess {
+    type Error = Error;
+
+    fn next_key_seed<K: de::DeserializeSeed<'de>>(&mut self, seed: K) -> Result<Option<K::Value>> {
+        if self.done {
+            return Ok(None);
+        }
+        seed.deserialize(de::value::StrDeserializer::<Error>::new("start"))
+            .map(Some)
+    }
+
+    fn next_value_seed<V: de::DeserializeSeed<'de>>(&mut self, seed: V) -> Result<V::Value> {
+        if self.done {
+            return Err(Error::ExpectedDifferentLength {
+                expected: String::from("map of length 1"),
+                found: 2,
+            });
+        }
+        self.done = true;
+        seed.deserialize(NumberDeserializer(self.start))
+    }
+}
+
+struct RangeToMapAccess {
+    end: crate::value::Number,
+    end_key: &'static str,
+    done: bool,
+}
+
+impl RangeToMapAccess {
+    fn new(end: crate::value::Number, end_key: &'static str) -> Self {
+        RangeToMapAccess {
+            end,
+            end_key,
+            done: false,
+        }
+    }
+}
+
+impl<'de> de::MapAccess<'de> for RangeToMapAccess {
+    type Error = Error;
+
+    fn next_key_seed<K: de::DeserializeSeed<'de>>(&mut self, seed: K) -> Result<Option<K::Value>> {
+        if self.done {
+            return Ok(None);
+        }
+        seed.deserialize(de::value::StrDeserializer::<Error>::new(self.end_key))
+            .map(Some)
+    }
+
+    fn next_value_seed<V: de::DeserializeSeed<'de>>(&mut self, seed: V) -> Result<V::Value> {
+        if self.done {
+            return Err(Error::ExpectedDifferentLength {
+                expected: String::from("map of length 1"),
+                found: 2,
+            });
+        }
+        self.done = true;
+        seed.deserialize(NumberDeserializer(self.end))
+    }
+}
+
 impl<'de, 'a> de::SeqAccess<'de> for CommaSeparated<'a, 'de> {
     type Error = Error;
 
@@ -852,8 +1137,7 @@ impl<'de, 'a> de::MapAccess<'de> for CommaSeparated<'a, 'de> {
         K: DeserializeSeed<'de>,
     {
         if self.has_element()? {
-            self.inside_internally_tagged_enum =
-                std::any::type_name::<K::Value>() == SERDE_TAG_KEY_CANARY;
+            self.inside_internally_tagged_enum = is_serde_tag_or_content::<K::Value>();
 
             match self.terminator {
                 Terminator::Struct => guard_recursion! { self.de =>
@@ -878,9 +1162,7 @@ impl<'de, 'a> de::MapAccess<'de> for CommaSeparated<'a, 'de> {
         if self.de.parser.consume_char(':') {
             self.de.parser.skip_ws()?;
 
-            let res = if self.inside_internally_tagged_enum
-                && std::any::type_name::<V::Value>() != SERDE_CONTENT_CANARY
-            {
+            let res = if self.inside_internally_tagged_enum && !is_serde_content::<V::Value>() {
                 guard_recursion! { self.de =>
                     seed.deserialize(&mut tag::Deserializer::new(&mut *self.de))?
                 }
@@ -1015,6 +1297,49 @@ fn struct_error_name(error: Error, name: Option<&str>) -> Error {
     }
 }
 
+// Note: OnceLock is only stable with MSRV 1.70 and requires std
+struct OnceBox<T> {
+    ptr: core::sync::atomic::AtomicPtr<T>,
+}
+
+impl<T> OnceBox<T> {
+    const fn new() -> Self {
+        Self {
+            ptr: core::sync::atomic::AtomicPtr::new(core::ptr::null_mut()),
+        }
+    }
+
+    #[allow(unsafe_code)]
+    fn get_or_init<F>(&self, f: F) -> &T
+    where
+        F: FnOnce() -> T,
+    {
+        let mut ptr = self.ptr.load(core::sync::atomic::Ordering::Acquire);
+        if ptr.is_null() {
+            let val = f();
+            let new_ptr = alloc::boxed::Box::into_raw(alloc::boxed::Box::new(val));
+
+            match self.ptr.compare_exchange(
+                core::ptr::null_mut(),
+                new_ptr,
+                core::sync::atomic::Ordering::AcqRel,
+                core::sync::atomic::Ordering::Acquire,
+            ) {
+                Ok(_) => ptr = new_ptr,
+                Err(actual) => {
+                    // SAFETY: `new_ptr` was created via `Box::into_raw` above and lost the CAS race, so it is safe to deallocate.
+                    unsafe {
+                        drop(alloc::boxed::Box::from_raw(new_ptr));
+                    }
+                    ptr = actual;
+                }
+            }
+        }
+        // SAFETY: `ptr` points to a valid, leaked `T` stored in the atomic static that lives for `'static`.
+        unsafe { &*ptr }
+    }
+}
+
 struct SerdeEnumContent<'a, 'de: 'a> {
     de: &'a mut Deserializer<'de>,
     ident: Option<&'a str>,
@@ -1029,7 +1354,7 @@ impl<'de, 'a> de::MapAccess<'de> for SerdeEnumContent<'a, 'de> {
     {
         self.ident
             .take()
-            .map(|ident| seed.deserialize(serde::de::value::StrDeserializer::new(ident)))
+            .map(|ident| seed.deserialize(de::value::StrDeserializer::new(ident)))
             .transpose()
     }
 
@@ -1046,4 +1371,171 @@ impl<'de, 'a> de::MapAccess<'de> for SerdeEnumContent<'a, 'de> {
 
         result
     }
+}
+
+fn is_serde_content<T>() -> bool {
+    #[derive(serde_derive::Deserialize)]
+    enum A {}
+    type B = A;
+
+    #[derive(serde_derive::Deserialize)]
+    #[serde(untagged)]
+    enum UntaggedEnum {
+        A(A),
+        B(B),
+    }
+
+    struct TypeIdDeserializer;
+
+    impl<'de> de::Deserializer<'de> for TypeIdDeserializer {
+        type Error = TypeIdError;
+
+        fn deserialize_any<V: Visitor<'de>>(self, _visitor: V) -> Result<V::Value, Self::Error> {
+            Err(TypeIdError(typeid::of::<V::Value>()))
+        }
+
+        serde::forward_to_deserialize_any! {
+            bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
+            bytes byte_buf option unit unit_struct newtype_struct seq tuple
+            tuple_struct map struct enum identifier ignored_any
+        }
+    }
+
+    #[derive(Debug)]
+    struct TypeIdError(core::any::TypeId);
+
+    impl core::fmt::Display for TypeIdError {
+        fn fmt(&self, _fmt: &mut core::fmt::Formatter) -> core::fmt::Result {
+            Ok(())
+        }
+    }
+
+    impl de::Error for TypeIdError {
+        #[allow(clippy::unreachable)]
+        fn custom<T: core::fmt::Display>(_msg: T) -> Self {
+            unreachable!()
+        }
+    }
+
+    impl de::StdError for TypeIdError {}
+
+    fn type_id_of_untagged_enum_default_buffer() -> core::any::TypeId {
+        static TYPE_ID: OnceBox<core::any::TypeId> = OnceBox::new();
+
+        *TYPE_ID.get_or_init(|| match Deserialize::deserialize(TypeIdDeserializer) {
+            Ok(UntaggedEnum::A(void) | UntaggedEnum::B(void)) => match void {},
+            Err(TypeIdError(typeid)) => typeid,
+        })
+    }
+
+    typeid::of::<T>() == type_id_of_untagged_enum_default_buffer()
+}
+
+fn is_serde_tag_or_content<T>() -> bool {
+    #[derive(serde_derive::Deserialize)]
+    enum A {}
+
+    #[derive(serde_derive::Deserialize)]
+    #[serde(tag = "tag")]
+    enum InternallyTaggedEnum {
+        A { a: A },
+    }
+
+    struct TypeIdDeserializer;
+
+    impl<'de> de::Deserializer<'de> for TypeIdDeserializer {
+        type Error = TypeIdError;
+
+        fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+        where
+            V: Visitor<'de>,
+        {
+            visitor.visit_map(self)
+        }
+
+        serde::forward_to_deserialize_any! {
+            bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
+            bytes byte_buf option unit unit_struct newtype_struct seq tuple
+            tuple_struct map struct enum identifier ignored_any
+        }
+    }
+
+    impl<'de> de::MapAccess<'de> for TypeIdDeserializer {
+        type Error = TypeIdError;
+
+        fn next_key_seed<K: DeserializeSeed<'de>>(
+            &mut self,
+            _seed: K,
+        ) -> Result<Option<K::Value>, Self::Error> {
+            Err(TypeIdError(typeid::of::<K::Value>()))
+        }
+
+        #[allow(clippy::unreachable)]
+        fn next_value_seed<V: DeserializeSeed<'de>>(
+            &mut self,
+            _seed: V,
+        ) -> Result<V::Value, Self::Error> {
+            unreachable!()
+        }
+    }
+
+    #[derive(Debug)]
+    struct TypeIdError(core::any::TypeId);
+
+    impl core::fmt::Display for TypeIdError {
+        fn fmt(&self, _fmt: &mut core::fmt::Formatter) -> core::fmt::Result {
+            Ok(())
+        }
+    }
+
+    impl de::Error for TypeIdError {
+        #[allow(clippy::unreachable)]
+        fn custom<T: core::fmt::Display>(_msg: T) -> Self {
+            unreachable!()
+        }
+    }
+
+    impl de::StdError for TypeIdError {}
+
+    fn type_id_of_internally_tagged_enum_default_tag_or_buffer() -> core::any::TypeId {
+        static TYPE_ID: OnceBox<core::any::TypeId> = OnceBox::new();
+
+        *TYPE_ID.get_or_init(|| match Deserialize::deserialize(TypeIdDeserializer) {
+            Ok(InternallyTaggedEnum::A { a: void }) => match void {},
+            Err(TypeIdError(typeid)) => typeid,
+        })
+    }
+
+    typeid::of::<T>() == type_id_of_internally_tagged_enum_default_tag_or_buffer()
+}
+
+/// Trim the plain (non-comment) whitespace around a `RawValue`, so that
+/// re-serialising it, e.g. with pretty-printing, does not accumulate whitespace.
+/// Comments are kept, and whitespace is only trimmed from the end if that does
+/// not leave an unclosed line comment behind.
+///
+/// `src_before` is the source from the start of the whitespace before the value,
+/// `src_value_end` the source right after the value (before the trailing
+/// whitespace), and `src_after` the source after the trailing whitespace.
+fn trim_raw_value_whitespace<'a>(
+    src_before: &'a str,
+    src_value_end: &str,
+    src_after: &str,
+) -> &'a str {
+    let start = src_before.len() - src_before.trim_start().len();
+
+    let trailing_start = src_before.len() - src_value_end.len();
+    let trailing = &src_before[trailing_start..src_before.len() - src_after.len()];
+    let trimmed = trailing.trim_end();
+    let mut end = trailing_start + trimmed.len();
+
+    // Only the (trimmed) trailing whitespace needs to be re-parsed to find out
+    // if it ends in a line comment that the trimmed whitespace would leave open
+    if Parser::new(trimmed).map_or(false, |parser| parser.has_unclosed_line_comment()) {
+        // Keep the whitespace up to and including the line break that closes the comment
+        let rest = &trailing[trimmed.len()..];
+        end += rest.find('\n').map_or(rest.len(), |i| i + 1);
+    }
+
+    &src_before[start..end]
 }

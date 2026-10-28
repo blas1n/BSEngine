@@ -21,7 +21,10 @@ pub(super) fn reconcile_to_snapshot(
 ) {
     let mut live_by_id: std::collections::HashMap<u64, Entity> = std::collections::HashMap::new();
     {
-        let mut q = world.query::<Entity>();
+        // Not resources, which are entities since Bevy 0.19 and no history
+        // entry ever names.
+        let mut q = world
+            .query_filtered::<Entity, bevy_ecs::query::Without<bevy_ecs::resource::IsResource>>();
         for e in q.iter(world) {
             live_by_id.insert(e.index_u32() as u64, e);
         }

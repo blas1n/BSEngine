@@ -640,11 +640,16 @@ fn read_scene(path: &str) -> Option<SceneDescriptor> {
 /// The recording is a diff of the world rather than a tag applied per entity,
 /// because a `prefab:` entry spawns a subtree whose children the spawner never
 /// names -- see [`LoadedScenes`].
+///
+/// Resources are left out of both sides of the diff. Since Bevy 0.19 each one
+/// is an entity, so a resource first inserted while the scene spawned would
+/// otherwise be recorded as the scene's -- and despawned with it when the
+/// scene streams out. Nothing in `spawn_scene_entities` or `lightmaps::apply`
+/// inserts one today; the diff is written so it cannot matter.
 fn spawn_and_record(world: &mut World, path: &str, scene: &SceneDescriptor) {
     let before: std::collections::HashSet<Entity> = world
-        .query::<bevy_ecs::world::EntityRef>()
+        .query_filtered::<Entity, bevy_ecs::query::Without<bevy_ecs::resource::IsResource>>()
         .iter(world)
-        .map(|e| e.id())
         .collect();
     spawn_scene_entities(world, &scene.entities);
     // A changed-to or streamed-in scene gets its baked lightmaps exactly as the
@@ -655,9 +660,8 @@ fn spawn_and_record(world: &mut World, path: &str, scene: &SceneDescriptor) {
         bsengine_scene::lightmaps::apply(world, path, &text);
     }
     let added: Vec<Entity> = world
-        .query::<bevy_ecs::world::EntityRef>()
+        .query_filtered::<Entity, bevy_ecs::query::Without<bevy_ecs::resource::IsResource>>()
         .iter(world)
-        .map(|e| e.id())
         .filter(|e| !before.contains(e))
         .collect();
     world

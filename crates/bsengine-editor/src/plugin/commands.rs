@@ -28,7 +28,9 @@ pub(super) fn process_editor_commands(
     project_dir: Option<Res<bsengine_core::ProjectDir>>,
     mut inspector: Option<ResMut<InspectorState>>,
     mut params: ParamSet<(
-        Query<Entity>,
+        // Every *scene* entity, which since Bevy 0.19 has to say so: resources
+        // are entities, and ClearScene despawning through this took them too.
+        Query<Entity, bevy_ecs::query::Without<bevy_ecs::resource::IsResource>>,
         Query<(Entity, &mut Transform)>,
         Query<(Entity, &mut PointLight)>,
         Query<(Entity, &mut DirectionalLight)>,

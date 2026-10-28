@@ -996,7 +996,8 @@ mod bus_tests {
         use bevy_ecs::prelude::Entity;
         let mut world = AudioWorld::silent();
         world.apply_bus_layout(&fixture());
-        let e = Entity::from_raw(7);
+        let e =
+            Entity::from_raw_u32(7).expect("an entity index from a live entity is never u32::MAX");
 
         world.set_emitter_position_on(e, Some("sfx"), Vec3::new(1.0, 0.0, 0.0));
         world.set_emitter_position_on(e, Some("music"), Vec3::new(1.0, 0.0, 0.0));
@@ -1024,7 +1025,8 @@ mod bus_tests {
         use bevy_ecs::prelude::Entity;
         let mut world = AudioWorld::silent();
         world.apply_bus_layout(&fixture());
-        let e = Entity::from_raw(7);
+        let e =
+            Entity::from_raw_u32(7).expect("an entity index from a live entity is never u32::MAX");
         world.set_emitter_position_on(e, Some("sfx"), Vec3::ZERO);
         world.set_emitter_position_on(e, Some("music"), Vec3::ZERO);
         assert_eq!(world.emitter_buses(e).len(), 2);

@@ -12,7 +12,7 @@
 [package]
 edition = "2024"
 name = "bevy_app"
-version = "0.16.1"
+version = "0.17.3"
 build = false
 autolib = false
 autobins = false
@@ -20,7 +20,7 @@ autoexamples = false
 autotests = false
 autobenches = false
 description = "Provides core App functionality for Bevy Engine"
-homepage = "https://bevyengine.org"
+homepage = "https://bevy.org"
 readme = "README.md"
 keywords = ["bevy"]
 license = "MIT OR Apache-2.0"
@@ -28,11 +28,12 @@ repository = "https://github.com/bevyengine/bevy"
 resolver = "2"
 
 [package.metadata.docs.rs]
-all-features = true
 rustdoc-args = [
     "-Zunstable-options",
     "--generate-link-to-definition",
 ]
+all-features = true
+features = ["bevy_reflect/auto_register_static"]
 
 [features]
 bevy_debug_stepping = []
@@ -41,7 +42,6 @@ bevy_reflect = [
     "bevy_ecs/bevy_reflect",
 ]
 critical-section = [
-    "bevy_tasks/critical-section",
     "bevy_ecs/critical-section",
     "bevy_platform/critical-section",
     "bevy_reflect?/critical-section",
@@ -53,6 +53,16 @@ default = [
     "error_panic_hook",
 ]
 error_panic_hook = []
+hotpatching = [
+    "bevy_ecs/hotpatching",
+    "dep:dioxus-devtools",
+    "dep:crossbeam-channel",
+]
+reflect_auto_register = [
+    "bevy_reflect",
+    "bevy_reflect/auto_register",
+    "bevy_ecs/reflect_auto_register",
+]
 reflect_functions = [
     "bevy_reflect",
     "bevy_reflect/functions",
@@ -63,14 +73,11 @@ std = [
     "bevy_ecs/std",
     "dep:ctrlc",
     "downcast-rs/std",
-    "bevy_utils/std",
-    "bevy_tasks/std",
     "bevy_platform/std",
 ]
 trace = ["dep:tracing"]
 web = [
     "bevy_platform/web",
-    "bevy_tasks/web",
     "bevy_reflect?/web",
     "dep:wasm-bindgen",
     "dep:web-sys",
@@ -82,32 +89,39 @@ name = "bevy_app"
 path = "src/lib.rs"
 
 [dependencies.bevy_derive]
-version = "0.16.1"
+version = "0.17.3"
 
 [dependencies.bevy_ecs]
-version = "0.16.1"
+version = "0.17.3"
 default-features = false
 
 [dependencies.bevy_platform]
-version = "0.16.1"
+version = "0.17.3"
 default-features = false
 
 [dependencies.bevy_reflect]
-version = "0.16.1"
+version = "0.17.3"
 optional = true
 default-features = false
 
 [dependencies.bevy_tasks]
-version = "0.16.1"
+version = "0.17.3"
 default-features = false
 
 [dependencies.bevy_utils]
-version = "0.16.1"
-features = ["alloc"]
+version = "0.17.3"
 default-features = false
 
 [dependencies.cfg-if]
 version = "1.0.0"
+
+[dependencies.crossbeam-channel]
+version = "0.5.0"
+optional = true
+
+[dependencies.dioxus-devtools]
+version = "0.7.0-alpha.1"
+optional = true
 
 [dependencies.downcast-rs]
 version = "2"
@@ -132,7 +146,7 @@ version = "1.1"
 [dev-dependencies.crossbeam-channel]
 version = "0.5.0"
 
-[target."cfg(any(unix, windows))".dependencies.ctrlc]
+[target.'cfg(any(all(unix, not(target_os = "horizon")), windows))'.dependencies.ctrlc]
 version = "3.4.4"
 optional = true
 

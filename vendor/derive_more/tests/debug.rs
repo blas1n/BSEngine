@@ -1,4 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(nightly, feature(never_type))]
 #![allow(dead_code)] // some code is tested for type checking only
 
 #[cfg(not(feature = "std"))]
@@ -22,8 +23,8 @@ mod structs {
 
         #[test]
         fn assert() {
-            assert_eq!(format!("{:?}", Unit), "Unit");
-            assert_eq!(format!("{:#?}", Unit), "Unit");
+            assert_eq!(format!("{Unit:?}"), "Unit");
+            assert_eq!(format!("{Unit:#?}",), "Unit");
             assert_eq!(format!("{:?}", Tuple()), "Tuple");
             assert_eq!(format!("{:#?}", Tuple()), "Tuple");
             assert_eq!(format!("{:?}", Struct {}), "Struct");
@@ -94,15 +95,15 @@ mod structs {
 
             #[test]
             fn assert() {
-                assert_eq!(format!("{:03?}", Display), "011");
-                assert_eq!(format!("{:03?}", StructDebug), "011");
-                assert_eq!(format!("{:07?}", Binary), "0001011");
-                assert_eq!(format!("{:07?}", Octal), "0000013");
-                assert_eq!(format!("{:03?}", LowerHex), "00b");
-                assert_eq!(format!("{:03?}", UpperHex), "00B");
-                assert_eq!(format!("{:07?}", LowerExp), "03.15e0");
-                assert_eq!(format!("{:07?}", UpperExp), "03.15E0");
-                assert_eq!(format!("{:018?}", Pointer), format!("{POINTER:018p}"));
+                assert_eq!(format!("{Display:03?}"), "011");
+                assert_eq!(format!("{StructDebug:03?}"), "011");
+                assert_eq!(format!("{Binary:07?}"), "0001011");
+                assert_eq!(format!("{Octal:07?}"), "0000013");
+                assert_eq!(format!("{LowerHex:03?}"), "00b");
+                assert_eq!(format!("{UpperHex:03?}"), "00B");
+                assert_eq!(format!("{LowerExp:07?}"), "03.15e0");
+                assert_eq!(format!("{UpperExp:07?}"), "03.15E0");
+                assert_eq!(format!("{Pointer:018?}"), format!("{POINTER:018p}"));
             }
 
             mod omitted {
@@ -149,14 +150,14 @@ mod structs {
 
                     #[test]
                     fn assert() {
-                        assert_eq!(format!("{:03?}", LowerDebug), "b");
-                        assert_eq!(format!("{:03?}", UpperDebug), "B");
-                        assert_eq!(format!("{:03?}", Align), "11");
-                        assert_eq!(format!("{:04?}", Sign), "+11");
-                        assert_eq!(format!("{:07?}", Alternate), "0b1011");
-                        assert_eq!(format!("{:07?}", ZeroPadded), "11");
-                        assert_eq!(format!("{:03?}", Width), "0000011");
-                        assert_eq!(format!("{:.3?}", Precision), "3.1");
+                        assert_eq!(format!("{LowerDebug:03?}"), "b");
+                        assert_eq!(format!("{UpperDebug:03?}"), "B");
+                        assert_eq!(format!("{Align:03?}"), "11");
+                        assert_eq!(format!("{Sign:04?}"), "+11");
+                        assert_eq!(format!("{Alternate:07?}"), "0b1011");
+                        assert_eq!(format!("{ZeroPadded:07?}"), "11");
+                        assert_eq!(format!("{Width:03?}"), "0000011");
+                        assert_eq!(format!("{Precision:.3?}"), "3.1");
                     }
                 }
             }
@@ -417,6 +418,112 @@ mod structs {
                 }
             }
         }
+
+        mod r#unsized {
+            #[cfg(not(feature = "std"))]
+            use alloc::format;
+            use core::ptr;
+
+            use derive_more::Debug;
+
+            #[derive(Debug)]
+            struct Tuple(str);
+
+            #[derive(Debug)]
+            struct Struct {
+                tail: str,
+            }
+
+            #[test]
+            fn assert() {
+                let dat = "14";
+
+                let t =
+                    unsafe { &*(ptr::addr_of!(*dat) as *const [i32] as *const Tuple) };
+                assert_eq!(format!("{t:?}"), r#"Tuple("14")"#);
+                let s =
+                    unsafe { &*(ptr::addr_of!(*dat) as *const [i32] as *const Struct) };
+                assert_eq!(format!("{s:?}"), r#"Struct { tail: "14" }"#);
+            }
+
+            mod interpolated {
+                #[cfg(not(feature = "std"))]
+                use alloc::format;
+                use core::ptr;
+
+                use derive_more::Debug;
+
+                #[derive(Debug)]
+                #[debug("{}.", _0)]
+                struct Tuple1(str);
+
+                #[derive(Debug)]
+                #[debug("{_0}.")]
+                struct Tuple2(str);
+
+                #[derive(Debug)]
+                #[debug("{}.", tail)]
+                struct Struct1 {
+                    tail: str,
+                }
+
+                #[derive(Debug)]
+                #[debug("{tail}.")]
+                struct Struct2 {
+                    tail: str,
+                }
+
+                #[test]
+                fn assert() {
+                    let dat = "14";
+
+                    let t1 = unsafe {
+                        &*(ptr::addr_of!(*dat) as *const [i32] as *const Tuple1)
+                    };
+                    assert_eq!(format!("{t1:?}"), "14.");
+                    let t2 = unsafe {
+                        &*(ptr::addr_of!(*dat) as *const [i32] as *const Tuple2)
+                    };
+                    assert_eq!(format!("{t2:?}"), "14.");
+                    let s1 = unsafe {
+                        &*(ptr::addr_of!(*dat) as *const [i32] as *const Struct1)
+                    };
+                    assert_eq!(format!("{s1:?}"), "14.");
+                    let s2 = unsafe {
+                        &*(ptr::addr_of!(*dat) as *const [i32] as *const Struct2)
+                    };
+                    assert_eq!(format!("{s2:?}"), "14.");
+                }
+            }
+        }
+
+        #[cfg(nightly)]
+        mod never {
+            use derive_more::Debug;
+
+            #[derive(Debug)]
+            struct Tuple(!);
+
+            #[derive(Debug)]
+            struct Struct {
+                field: !,
+            }
+        }
+
+        mod deprecated {
+            use derive_more::Debug;
+
+            #[derive(Debug)]
+            #[deprecated(note = "struct")]
+            struct Tuple(#[deprecated(note = "field")] i32);
+
+            #[derive(Debug)]
+            #[deprecated(note = "struct")]
+            struct Struct {
+                #[deprecated(note = "field")]
+                field: i32,
+            }
+        }
     }
 
     mod multi_field {
@@ -674,6 +781,102 @@ mod structs {
                     format!("{:.1?}", StructLowerExp { a: 7, b: 3.15 }),
                     "3.1e0",
                 );
+            }
+        }
+
+        #[cfg(target_endian = "little")]
+        mod r#unsized {
+            #[cfg(not(feature = "std"))]
+            use alloc::format;
+            use core::ptr;
+
+            use derive_more::Debug;
+
+            #[derive(Debug)]
+            struct Tuple(char, str);
+
+            #[derive(Debug)]
+            struct Struct {
+                head: char,
+                tail: str,
+            }
+
+            #[test]
+            fn assert() {
+                let dat = [51i32, 3028017];
+
+                let t =
+                    unsafe { &*(ptr::addr_of!(dat) as *const [i32] as *const Tuple) };
+                assert_eq!(format!("{t:?}"), r#"Tuple('3', "14")"#);
+                let s =
+                    unsafe { &*(ptr::addr_of!(dat) as *const [i32] as *const Struct) };
+                assert_eq!(format!("{s:?}"), r#"Struct { head: '3', tail: "14" }"#);
+            }
+
+            mod interpolated {
+                #[cfg(not(feature = "std"))]
+                use alloc::format;
+                use core::ptr;
+
+                use derive_more::Debug;
+
+                #[derive(Debug)]
+                #[debug("{}.{}", _0, _1)]
+                struct Tuple1(char, str);
+
+                #[derive(Debug)]
+                #[debug("{_0}.{_1}")]
+                struct Tuple2(char, str);
+
+                #[derive(Debug)]
+                #[debug("{}.{}", head, tail)]
+                struct Struct1 {
+                    head: char,
+                    tail: str,
+                }
+
+                #[derive(Debug)]
+                #[debug("{head}.{tail}")]
+                struct Struct2 {
+                    head: char,
+                    tail: str,
+                }
+
+                #[test]
+                fn assert() {
+                    let dat = [51i32, 3028017];
+
+                    let t1 = unsafe {
+                        &*(ptr::addr_of!(dat) as *const [i32] as *const Tuple1)
+                    };
+                    assert_eq!(format!("{t1:?}"), "3.14");
+                    let t2 = unsafe {
+                        &*(ptr::addr_of!(dat) as *const [i32] as *const Tuple2)
+                    };
+                    assert_eq!(format!("{t2:?}"), "3.14");
+                    let s1 = unsafe {
+                        &*(ptr::addr_of!(dat) as *const [i32] as *const Struct1)
+                    };
+                    assert_eq!(format!("{s1:?}"), "3.14");
+                    let s2 = unsafe {
+                        &*(ptr::addr_of!(dat) as *const [i32] as *const Struct2)
+                    };
+                    assert_eq!(format!("{s2:?}"), "3.14");
+                }
+            }
+        }
+
+        #[cfg(nightly)]
+        mod never {
+            use derive_more::Debug;
+
+            #[derive(Debug)]
+            struct Tuple(i32, !);
+
+            #[derive(Debug)]
+            struct Struct {
+                field: !,
+                other: i32,
             }
         }
     }
@@ -980,6 +1183,31 @@ mod enums {
                 }
             }
         }
+
+        #[cfg(nightly)]
+        mod never {
+            use derive_more::Debug;
+
+            #[derive(Debug)]
+            enum Enum {
+                Unnamed(!),
+                Named { field: ! },
+            }
+        }
+
+        mod deprecated {
+            use derive_more::Debug;
+
+            #[derive(Debug)]
+            #[deprecated(note = "enum")]
+            enum Enum {
+                #[deprecated(note = "variant")]
+                Variant {
+                    #[deprecated(note = "field")]
+                    field: i32,
+                },
+            }
+        }
     }
 
     mod multi_field_variant {
@@ -1153,6 +1381,17 @@ mod enums {
                     format!("{:.1?}", Enum::StructLowerExp { a: 7, b: 3.15 }),
                     "3.1e0",
                 );
+            }
+        }
+
+        #[cfg(nightly)]
+        mod never {
+            use derive_more::Debug;
+
+            #[derive(Debug)]
+            enum Enum {
+                Unnamed(i32, !),
+                Named { field: !, other: i32 },
             }
         }
     }
@@ -1655,8 +1894,8 @@ mod generic {
             }
 
             let e = AutoGenericEnumAssociated::<Struct>::Enumerator(10);
-            assert_eq!(format!("{:?}", e), "Enumerator(10)");
-            assert_eq!(format!("{:#?}", e), "Enumerator(\n    10,\n)");
+            assert_eq!(format!("{e:?}"), "Enumerator(10)");
+            assert_eq!(format!("{e:#?}"), "Enumerator(\n    10,\n)");
         }
     }
 
@@ -1711,9 +1950,9 @@ mod generic {
             }
 
             let e = AutoGenericEnumComplex::Enumerator(Struct(10));
-            assert_eq!(format!("{:?}", e), "Enumerator(Struct(10))");
+            assert_eq!(format!("{e:?}"), "Enumerator(Struct(10))");
             assert_eq!(
-                format!("{:#?}", e),
+                format!("{e:#?}"),
                 "Enumerator(\n    Struct(\n        10,\n    ),\n)",
             )
         }
@@ -1767,6 +2006,140 @@ mod generic {
                 format!("{s:#?}"),
                 "AutoGenericIndirect(\n    Struct(\n        10,\n    ),\n)",
             );
+        }
+    }
+
+    mod raw {
+        #[cfg(not(feature = "std"))]
+        use alloc::format;
+
+        use derive_more::Debug;
+
+        #[derive(Debug)]
+        struct StructOne<T> {
+            r#thing: T,
+        }
+
+        #[derive(Debug)]
+        struct StructOneKeyword<T> {
+            r#struct: T,
+        }
+
+        #[derive(Debug)]
+        enum Enum<T> {
+            One { r#thing: T },
+        }
+
+        #[derive(Debug)]
+        enum EnumKeyword<T> {
+            One { r#struct: T },
+        }
+
+        #[test]
+        fn assert() {
+            assert_eq!(
+                format!("{:?}", StructOne::<u8> { r#thing: 8 }),
+                "StructOne { thing: 8 }",
+            );
+            assert_eq!(
+                format!("{:?}", StructOneKeyword::<u8> { r#struct: 8 }),
+                "StructOneKeyword { struct: 8 }",
+            );
+            assert_eq!(
+                format!("{:?}", Enum::<u8>::One { r#thing: 8 }),
+                "One { thing: 8 }",
+            );
+            assert_eq!(
+                format!("{:?}", EnumKeyword::<u8>::One { r#struct: 8 }),
+                "One { struct: 8 }",
+            );
+        }
+
+        mod interpolated {
+            #[cfg(not(feature = "std"))]
+            use alloc::format;
+
+            use derive_more::Debug;
+
+            #[derive(Debug)]
+            #[debug("{thing}")]
+            struct StructOne<T> {
+                r#thing: T,
+            }
+
+            #[derive(Debug)]
+            #[debug("{struct}")]
+            struct StructOneKeyword<T> {
+                r#struct: T,
+            }
+
+            #[derive(Debug)]
+            enum Enum1<T> {
+                #[debug("{thing}")]
+                One { r#thing: T },
+            }
+
+            #[derive(Debug)]
+            enum Enum1Keyword<T> {
+                #[debug("{struct}")]
+                One { r#struct: T },
+            }
+
+            #[derive(Debug)]
+            #[debug("{a}:{b}")]
+            struct StructTwo<A, B> {
+                r#a: A,
+                b: B,
+            }
+
+            #[derive(Debug)]
+            #[debug("{pub}:{b}")]
+            struct StructTwoKeyword<A, B> {
+                r#pub: A,
+                b: B,
+            }
+
+            #[derive(Debug)]
+            enum Enum2<A, B> {
+                #[debug("{a}:{b}")]
+                Two { r#a: A, b: B },
+            }
+
+            #[derive(Debug)]
+            enum Enum2Keyword<A, B> {
+                #[debug("{pub}:{b}")]
+                Two { r#pub: A, b: B },
+            }
+
+            #[test]
+            fn assert() {
+                assert_eq!(format!("{:?}", StructOne::<u8> { r#thing: 8 }), "8");
+                assert_eq!(
+                    format!("{:?}", StructOneKeyword::<u8> { r#struct: 8 }),
+                    "8",
+                );
+                assert_eq!(format!("{:?}", Enum1::<u8>::One { r#thing: 8 }), "8");
+                assert_eq!(
+                    format!("{:?}", Enum1Keyword::<u8>::One { r#struct: 8 }),
+                    "8",
+                );
+                assert_eq!(
+                    format!("{:?}", StructTwo::<u8, u16> { r#a: 8, b: 16 }),
+                    "8:16",
+                );
+                assert_eq!(
+                    format!("{:?}", StructTwoKeyword::<u8, u16> { r#pub: 8, b: 16 }),
+                    "8:16",
+                );
+                assert_eq!(
+                    format!("{:?}", Enum2::<u8, u16>::Two { r#a: 8, b: 16 }),
+                    "8:16",
+                );
+                assert_eq!(
+                    format!("{:?}", Enum2Keyword::<u8, u16>::Two { r#pub: 8, b: 16 }),
+                    "8:16",
+                );
+            }
         }
     }
 
@@ -1994,6 +2367,85 @@ mod generic {
             }
         }
     }
+
+    mod r#unsized {
+        #[cfg(not(feature = "std"))]
+        use alloc::format;
+        use core::ptr;
+
+        use derive_more::Debug;
+
+        #[derive(Debug)]
+        struct Tuple<T: ?Sized>(T);
+
+        #[derive(Debug)]
+        struct Struct<T: ?Sized> {
+            tail: T,
+        }
+
+        #[test]
+        fn assert() {
+            let dat = "14";
+
+            let t =
+                unsafe { &*(ptr::addr_of!(*dat) as *const [i32] as *const Tuple<str>) };
+            assert_eq!(format!("{t:?}"), r#"Tuple("14")"#);
+            let s = unsafe {
+                &*(ptr::addr_of!(*dat) as *const [i32] as *const Struct<str>)
+            };
+            assert_eq!(format!("{s:?}"), r#"Struct { tail: "14" }"#);
+        }
+
+        mod interpolated {
+            #[cfg(not(feature = "std"))]
+            use alloc::format;
+            use core::ptr;
+
+            use derive_more::Debug;
+
+            #[derive(Debug)]
+            #[debug("{}.", _0)]
+            struct Tuple1<T: ?Sized>(T);
+
+            #[derive(Debug)]
+            #[debug("{_0}.")]
+            struct Tuple2<T: ?Sized>(T);
+
+            #[derive(Debug)]
+            #[debug("{}.", tail)]
+            struct Struct1<T: ?Sized> {
+                tail: T,
+            }
+
+            #[derive(Debug)]
+            #[debug("{tail}.")]
+            struct Struct2<T: ?Sized> {
+                tail: T,
+            }
+
+            #[test]
+            fn assert() {
+                let dat = "14";
+
+                let t1 = unsafe {
+                    &*(ptr::addr_of!(*dat) as *const [i32] as *const Tuple1<str>)
+                };
+                assert_eq!(format!("{t1:?}"), "14.");
+                let t2 = unsafe {
+                    &*(ptr::addr_of!(*dat) as *const [i32] as *const Tuple2<str>)
+                };
+                assert_eq!(format!("{t2:?}"), "14.");
+                let s1 = unsafe {
+                    &*(ptr::addr_of!(*dat) as *const [i32] as *const Struct1<str>)
+                };
+                assert_eq!(format!("{s1:?}"), "14.");
+                let s2 = unsafe {
+                    &*(ptr::addr_of!(*dat) as *const [i32] as *const Struct2<str>)
+                };
+                assert_eq!(format!("{s2:?}"), "14.");
+            }
+        }
+    }
 }
 
 // See: https://github.com/JelteF/derive_more/issues/301
@@ -2019,11 +2471,13 @@ mod type_variables {
     mod our_alloc {
         #[cfg(not(feature = "std"))]
         pub use alloc::{boxed::Box, format, vec, vec::Vec};
+        #[cfg(not(feature = "std"))]
+        pub use core::iter;
         #[cfg(feature = "std")]
-        pub use std::{boxed::Box, format, vec, vec::Vec};
+        pub use std::{boxed::Box, format, iter, vec, vec::Vec};
     }
 
-    use our_alloc::{format, vec, Box, Vec};
+    use our_alloc::{format, iter, vec, Box, Vec};
 
     use derive_more::Debug;
 
@@ -2110,6 +2564,25 @@ mod type_variables {
         t: Box<dyn MyTrait<T>>,
     }
 
+    #[derive(Debug)]
+    struct AssocType<I: Iterator> {
+        iter: I,
+        elem: Option<I::Item>,
+    }
+
+    #[derive(derive_more::Debug)]
+    struct CollidedPathName<Item> {
+        item: Item,
+        elem: Option<some_path::Item>,
+    }
+
+    mod some_path {
+        use super::Debug;
+
+        #[derive(Debug)]
+        pub struct Item;
+    }
+
     #[test]
     fn assert() {
         assert_eq!(
@@ -2148,6 +2621,28 @@ mod type_variables {
         assert_eq!(
             format!("{item:?}"),
             "Node { children: [Node { children: [], inner: 0 }, Leaf { inner: 1 }], inner: 2 }",
-        )
+        );
+
+        assert_eq!(
+            format!(
+                "{:?}",
+                AssocType {
+                    iter: iter::empty::<bool>(),
+                    elem: None,
+                },
+            ),
+            "AssocType { iter: Empty, elem: None }",
+        );
+
+        assert_eq!(
+            format!(
+                "{:?}",
+                CollidedPathName {
+                    item: true,
+                    elem: None,
+                },
+            ),
+            "CollidedPathName { item: true, elem: None }",
+        );
     }
 }

@@ -11,9 +11,9 @@
 
 [package]
 edition = "2021"
-rust-version = "1.75.0"
+rust-version = "1.81.0"
 name = "derive_more"
-version = "1.0.0"
+version = "2.1.1"
 authors = ["Jelte Fennema <github-tech@jeltef.nl>"]
 build = false
 include = [
@@ -25,6 +25,7 @@ include = [
     "tests/**/*.rs",
     "examples/**/*.rs",
 ]
+autolib = false
 autobins = false
 autoexamples = false
 autotests = false
@@ -54,6 +55,76 @@ rustdoc-args = [
     "--cfg",
     "docsrs",
 ]
+
+[package.metadata.playground]
+features = [
+    "full",
+    "std",
+]
+
+[badges.github]
+repository = "JelteF/derive_more"
+workflow = "CI"
+
+[features]
+add = ["derive_more-impl/add"]
+add_assign = ["derive_more-impl/add_assign"]
+as_ref = ["derive_more-impl/as_ref"]
+constructor = ["derive_more-impl/constructor"]
+debug = ["derive_more-impl/debug"]
+default = ["std"]
+deref = ["derive_more-impl/deref"]
+deref_mut = ["derive_more-impl/deref_mut"]
+display = ["derive_more-impl/display"]
+eq = ["derive_more-impl/eq"]
+error = ["derive_more-impl/error"]
+from = ["derive_more-impl/from"]
+from_str = ["derive_more-impl/from_str"]
+full = [
+    "add",
+    "add_assign",
+    "as_ref",
+    "constructor",
+    "debug",
+    "deref",
+    "deref_mut",
+    "display",
+    "eq",
+    "error",
+    "from",
+    "from_str",
+    "index",
+    "index_mut",
+    "into",
+    "into_iterator",
+    "is_variant",
+    "mul",
+    "mul_assign",
+    "not",
+    "sum",
+    "try_from",
+    "try_into",
+    "try_unwrap",
+    "unwrap",
+]
+index = ["derive_more-impl/index"]
+index_mut = ["derive_more-impl/index_mut"]
+into = ["derive_more-impl/into"]
+into_iterator = ["derive_more-impl/into_iterator"]
+is_variant = ["derive_more-impl/is_variant"]
+mul = ["derive_more-impl/mul"]
+mul_assign = ["derive_more-impl/mul_assign"]
+not = ["derive_more-impl/not"]
+std = []
+sum = ["derive_more-impl/sum"]
+testing-helpers = [
+    "derive_more-impl/testing-helpers",
+    "dep:rustc_version",
+]
+try_from = ["derive_more-impl/try_from"]
+try_into = ["derive_more-impl/try_into"]
+try_unwrap = ["derive_more-impl/try_unwrap"]
+unwrap = ["derive_more-impl/unwrap"]
 
 [lib]
 name = "derive_more"
@@ -100,6 +171,7 @@ required-features = [
     "into",
     "is_variant",
     "try_from",
+    "try_into",
 ]
 
 [[test]]
@@ -126,6 +198,11 @@ required-features = ["deref_mut"]
 name = "display"
 path = "tests/display.rs"
 required-features = ["display"]
+
+[[test]]
+name = "eq"
+path = "tests/eq.rs"
+required-features = ["eq"]
 
 [[test]]
 name = "error"
@@ -198,6 +275,11 @@ path = "tests/not.rs"
 required-features = ["not"]
 
 [[test]]
+name = "partial_eq"
+path = "tests/partial_eq.rs"
+required-features = ["eq"]
+
+[[test]]
 name = "sum"
 path = "tests/sum.rs"
 required-features = ["sum"]
@@ -223,7 +305,7 @@ path = "tests/unwrap.rs"
 required-features = ["unwrap"]
 
 [dependencies.derive_more-impl]
-version = "=1.0.0"
+version = "=2.1.1"
 
 [dev-dependencies.rustversion]
 version = "1.0"
@@ -237,68 +319,6 @@ version = "1.0.56"
 [build-dependencies.rustc_version]
 version = "0.4"
 optional = true
-
-[features]
-add = ["derive_more-impl/add"]
-add_assign = ["derive_more-impl/add_assign"]
-as_ref = ["derive_more-impl/as_ref"]
-constructor = ["derive_more-impl/constructor"]
-debug = ["derive_more-impl/debug"]
-default = ["std"]
-deref = ["derive_more-impl/deref"]
-deref_mut = ["derive_more-impl/deref_mut"]
-display = ["derive_more-impl/display"]
-error = ["derive_more-impl/error"]
-from = ["derive_more-impl/from"]
-from_str = ["derive_more-impl/from_str"]
-full = [
-    "add",
-    "add_assign",
-    "as_ref",
-    "constructor",
-    "debug",
-    "deref",
-    "deref_mut",
-    "display",
-    "error",
-    "from",
-    "from_str",
-    "index",
-    "index_mut",
-    "into",
-    "into_iterator",
-    "is_variant",
-    "mul",
-    "mul_assign",
-    "not",
-    "sum",
-    "try_from",
-    "try_into",
-    "try_unwrap",
-    "unwrap",
-]
-index = ["derive_more-impl/index"]
-index_mut = ["derive_more-impl/index_mut"]
-into = ["derive_more-impl/into"]
-into_iterator = ["derive_more-impl/into_iterator"]
-is_variant = ["derive_more-impl/is_variant"]
-mul = ["derive_more-impl/mul"]
-mul_assign = ["derive_more-impl/mul_assign"]
-not = ["derive_more-impl/not"]
-std = []
-sum = ["derive_more-impl/sum"]
-testing-helpers = [
-    "derive_more-impl/testing-helpers",
-    "dep:rustc_version",
-]
-try_from = ["derive_more-impl/try_from"]
-try_into = ["derive_more-impl/try_into"]
-try_unwrap = ["derive_more-impl/try_unwrap"]
-unwrap = ["derive_more-impl/unwrap"]
-
-[badges.github]
-repository = "JelteF/derive_more"
-workflow = "CI"
 
 [lints.rust.unexpected_cfgs]
 level = "warn"

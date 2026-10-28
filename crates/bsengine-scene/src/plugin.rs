@@ -1487,8 +1487,9 @@ mod tests {
             super::spawn_scene_entities(app.world_mut(), &scene.entities);
 
             let entity = app
-                .world()
-                .iter_entities()
+                .world_mut()
+                .query::<bevy_ecs::world::EntityRef>()
+                .iter(app.world())
                 .next()
                 .expect("the entity should exist")
                 .id();
@@ -1671,8 +1672,9 @@ mod tests {
         super::spawn_scene_entities(app.world_mut(), &scene.entities);
 
         let entity = app
-            .world()
-            .iter_entities()
+            .world_mut()
+            .query::<bevy_ecs::world::EntityRef>()
+            .iter(app.world())
             .next()
             .expect("the entity should exist")
             .id();
@@ -1736,8 +1738,9 @@ mod tests {
         super::spawn_scene_entities(app.world_mut(), &scene.entities);
 
         let entity = app
-            .world()
-            .iter_entities()
+            .world_mut()
+            .query::<bevy_ecs::world::EntityRef>()
+            .iter(app.world())
             .next()
             .expect("the entity should exist")
             .id();

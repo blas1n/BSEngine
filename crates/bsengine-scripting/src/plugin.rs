@@ -325,11 +325,11 @@ impl Plugin for ScriptingPlugin {
         // with `ScriptTimingState::fixed` so replays are reproducible.
         app.insert_resource(ScriptTimingState::wall_clock());
         // Register CollisionEvent so EventReader works even without PhysicsPlugin
-        app.add_event::<CollisionEvent>();
+        app.add_message::<CollisionEvent>();
         // Registered here as well as by `AnimationPlugin`: the capture system
         // below reads it, and a reader of an event nobody registered panics in
         // an app built without the animation plugin (this crate's own tests).
-        app.add_event::<bsengine_core::AnimationEventFired>();
+        app.add_message::<bsengine_core::AnimationEventFired>();
         app.add_systems(PostStartup, load_scripts);
         app.add_systems(
             Update,
@@ -399,7 +399,7 @@ impl Plugin for ScriptingPlugin {
 /// `Bsengine.onAnimationEvent`. Replaced every frame, like the collisions:
 /// an event is delivered in the frame it fired and not again.
 fn capture_animation_events(
-    mut events: EventReader<bsengine_core::AnimationEventFired>,
+    mut events: MessageReader<bsengine_core::AnimationEventFired>,
     name_query: Query<&Name>,
 ) {
     let fired: Vec<(String, String, String)> = events
@@ -414,7 +414,7 @@ fn capture_animation_events(
 
 /// Capture collision events each frame into a thread_local snapshot for scripts.
 fn capture_collision_events(
-    mut events: EventReader<CollisionEvent>,
+    mut events: MessageReader<CollisionEvent>,
     name_query: Query<(Entity, &Name)>,
 ) {
     let name_map: HashMap<Entity, String> =
@@ -774,12 +774,12 @@ fn adopt_script_source(
 fn reexecute_modified_scripts(
     world: &mut World,
     mut reader: Local<
-        bevy_ecs::event::EventCursor<bevy_asset::AssetEvent<crate::script_asset::ScriptSource>>,
+        bevy_ecs::message::MessageCursor<bevy_asset::AssetEvent<crate::script_asset::ScriptSource>>,
     >,
 ) {
     let changed: Vec<(bevy_asset::AssetId<crate::script_asset::ScriptSource>, bool)> = {
         let events =
-            world.resource::<Events<bevy_asset::AssetEvent<crate::script_asset::ScriptSource>>>();
+            world.resource::<Messages<bevy_asset::AssetEvent<crate::script_asset::ScriptSource>>>();
         reader
             .read(events)
             .filter_map(|event| match event {
@@ -1653,7 +1653,7 @@ fn run_scripts(world: &mut World) {
                 }
             }
             ScriptCommand::Quit => {
-                world.send_event(AppExit::Success);
+                world.write_message(AppExit::Success);
             }
             ScriptCommand::MoveEntity { name, dx, dy, dz } => {
                 let entity = {
@@ -5638,7 +5638,7 @@ mod tests {
     #[test]
     fn reloading_a_resident_sound_replaces_it_rather_than_evicting_it() {
         use bevy_asset::{AssetEvent, AssetServer, Assets};
-        use bevy_ecs::event::{EventCursor, Events};
+        use bevy_ecs::message::{MessageCursor, Messages};
         use bsengine_audio::AudioSourceAsset;
 
         let dir =
@@ -5734,16 +5734,16 @@ mod tests {
              after it means anything"
         );
 
-        let mut reader: EventCursor<AssetEvent<AudioSourceAsset>> = app
+        let mut reader: MessageCursor<AssetEvent<AudioSourceAsset>> = app
             .world_mut()
-            .resource_mut::<Events<AssetEvent<AudioSourceAsset>>>()
+            .resource_mut::<Messages<AssetEvent<AudioSourceAsset>>>()
             .get_cursor();
         // Discards the Added/LoadedWithDependencies of the original load, so
         // only what the reload itself emits is counted.
         {
             let events = app
                 .world()
-                .resource::<Events<AssetEvent<AudioSourceAsset>>>();
+                .resource::<Messages<AssetEvent<AudioSourceAsset>>>();
             let _ = reader.read(events).count();
         }
 
@@ -5762,7 +5762,7 @@ mod tests {
             app.update();
             let events = app
                 .world()
-                .resource::<Events<AssetEvent<AudioSourceAsset>>>();
+                .resource::<Messages<AssetEvent<AudioSourceAsset>>>();
             for event in reader.read(events) {
                 if matches!(event, AssetEvent::Modified { id } if *id == asset_id) {
                     modified_ours = true;
@@ -6716,7 +6716,7 @@ mod tests {
     #[test]
     fn quit_sends_app_exit_event() {
         use bevy_app::AppExit;
-        use bevy_ecs::event::Events;
+        use bevy_ecs::message::Messages;
 
         let script_path =
             std::env::temp_dir().join(format!("bsengine_test_quit_{}.js", std::process::id()));
@@ -6735,9 +6735,9 @@ mod tests {
         app.update();
         app.update();
 
-        let events = app.world().resource::<Events<AppExit>>();
+        let events = app.world().resource::<Messages<AppExit>>();
         assert!(
-            events.iter_current_update_events().next().is_some(),
+            events.iter_current_update_messages().next().is_some(),
             "AppExit should have been sent"
         );
 
@@ -7573,8 +7573,8 @@ mod tests {
         let x = |app: &bevy_app::App| app.world().get::<Transform>(entity).unwrap().position.x;
         let key = |app: &mut bevy_app::App, code, state| {
             app.world_mut()
-                .resource_mut::<bevy_ecs::event::Events<KeyInput>>()
-                .send(KeyInput {
+                .resource_mut::<bevy_ecs::message::Messages<KeyInput>>()
+                .write(KeyInput {
                     key_code: code,
                     state,
                     text: None,
@@ -7741,8 +7741,8 @@ mod tests {
         );
 
         app.world_mut()
-            .resource_mut::<bevy_ecs::event::Events<KeyInput>>()
-            .send(KeyInput {
+            .resource_mut::<bevy_ecs::message::Messages<KeyInput>>()
+            .write(KeyInput {
                 key_code: KeyCode::Escape,
                 state: ElementState::Pressed,
                 text: None,

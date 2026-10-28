@@ -37,7 +37,7 @@
 
 use bevy_app::{App, Plugin, Update};
 use bevy_asset::{AssetServer, LoadState, UntypedAssetLoadFailedEvent};
-use bevy_ecs::prelude::{EventReader, Res, ResMut, Resource};
+use bevy_ecs::prelude::{MessageReader, Res, ResMut, Resource};
 use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, Mutex, PoisonError};
 
@@ -302,7 +302,7 @@ pub(crate) fn record_asset_request(path: &str) {
 /// recompile either until something requests it again, because the same
 /// dropped handle is what stops `bevy_asset` from noticing the file changed.
 pub fn collect_asset_statuses(
-    mut failures: EventReader<UntypedAssetLoadFailedEvent>,
+    mut failures: MessageReader<UntypedAssetLoadFailedEvent>,
     asset_server: Res<AssetServer>,
     mut statuses: ResMut<AssetStatuses>,
 ) {

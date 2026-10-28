@@ -1330,7 +1330,7 @@ mod tests {
     fn a_saved_asset_is_reloaded_and_a_non_asset_file_is_not() {
         use crate::types::TextureAsset;
         use bevy_asset::{AssetEvent, Assets};
-        use bevy_ecs::event::{EventCursor, Events};
+        use bevy_ecs::message::{MessageCursor, Messages};
         use bsengine_app::new_app;
 
         const BEFORE: [u8; 4] = [10, 20, 30, 255];
@@ -1383,13 +1383,13 @@ mod tests {
         // then discard every event the initial load produced so anything read
         // below can only come from the writes.
         std::thread::sleep(DEBOUNCE * 3);
-        let mut reader: EventCursor<AssetEvent<TextureAsset>> = app
+        let mut reader: MessageCursor<AssetEvent<TextureAsset>> = app
             .world_mut()
-            .resource_mut::<Events<AssetEvent<TextureAsset>>>()
+            .resource_mut::<Messages<AssetEvent<TextureAsset>>>()
             .get_cursor();
         app.update();
         {
-            let events = app.world().resource::<Events<AssetEvent<TextureAsset>>>();
+            let events = app.world().resource::<Messages<AssetEvent<TextureAsset>>>();
             let _ = reader.read(events).count();
         }
 
@@ -1404,9 +1404,9 @@ mod tests {
         // subject, and it is not a question this test's timing can answer.
         let mut modified = (0usize, 0usize);
         let count = |app: &App,
-                     reader: &mut EventCursor<AssetEvent<TextureAsset>>,
+                     reader: &mut MessageCursor<AssetEvent<TextureAsset>>,
                      modified: &mut (usize, usize)| {
-            let events = app.world().resource::<Events<AssetEvent<TextureAsset>>>();
+            let events = app.world().resource::<Messages<AssetEvent<TextureAsset>>>();
             for event in reader.read(events) {
                 if let AssetEvent::Modified { id } = event {
                     if *id == texture_handle.id() {
@@ -1489,7 +1489,7 @@ mod tests {
     fn a_burst_of_saves_reloads_the_asset_exactly_once() {
         use crate::types::TextureAsset;
         use bevy_asset::{AssetEvent, Assets};
-        use bevy_ecs::event::{EventCursor, Events};
+        use bevy_ecs::message::{MessageCursor, Messages};
         use bsengine_app::new_app;
 
         /// Writes in the burst. Each is its own debounced batch (see above),
@@ -1531,13 +1531,13 @@ mod tests {
         // queued for the watcher, so what is counted below can only be the
         // burst.
         std::thread::sleep(DEBOUNCE * 3);
-        let mut reader: EventCursor<AssetEvent<TextureAsset>> = app
+        let mut reader: MessageCursor<AssetEvent<TextureAsset>> = app
             .world_mut()
-            .resource_mut::<Events<AssetEvent<TextureAsset>>>()
+            .resource_mut::<Messages<AssetEvent<TextureAsset>>>()
             .get_cursor();
         app.update();
         {
-            let events = app.world().resource::<Events<AssetEvent<TextureAsset>>>();
+            let events = app.world().resource::<Messages<AssetEvent<TextureAsset>>>();
             let _ = reader.read(events).count();
         }
 
@@ -1575,9 +1575,9 @@ mod tests {
 
         let mut modified = 0usize;
         let count = |app: &App,
-                     reader: &mut EventCursor<AssetEvent<TextureAsset>>,
+                     reader: &mut MessageCursor<AssetEvent<TextureAsset>>,
                      modified: &mut usize| {
-            let events = app.world().resource::<Events<AssetEvent<TextureAsset>>>();
+            let events = app.world().resource::<Messages<AssetEvent<TextureAsset>>>();
             for event in reader.read(events) {
                 if matches!(event, AssetEvent::Modified { id } if *id == handle.id()) {
                     *modified += 1;
@@ -1838,7 +1838,7 @@ mod tests {
         use crate::identity::{sidecar_path, AssetIdentityPlugin, Sidecar};
         use crate::types::TextureAsset;
         use bevy_asset::{AssetEvent, Assets};
-        use bevy_ecs::event::{EventCursor, Events};
+        use bevy_ecs::message::{MessageCursor, Messages};
         use bsengine_app::new_app;
 
         const BEFORE: [u8; 4] = [10, 20, 30, 255];
@@ -1879,13 +1879,13 @@ mod tests {
         std::fs::write(&temp, png_bytes(AFTER)).unwrap();
         std::thread::sleep(DEBOUNCE * 3);
 
-        let mut reader: EventCursor<AssetEvent<TextureAsset>> = app
+        let mut reader: MessageCursor<AssetEvent<TextureAsset>> = app
             .world_mut()
-            .resource_mut::<Events<AssetEvent<TextureAsset>>>()
+            .resource_mut::<Messages<AssetEvent<TextureAsset>>>()
             .get_cursor();
         app.update();
         {
-            let events = app.world().resource::<Events<AssetEvent<TextureAsset>>>();
+            let events = app.world().resource::<Messages<AssetEvent<TextureAsset>>>();
             let _ = reader.read(events).count();
         }
 
@@ -1893,9 +1893,9 @@ mod tests {
 
         let mut modified = 0usize;
         let count = |app: &App,
-                     reader: &mut EventCursor<AssetEvent<TextureAsset>>,
+                     reader: &mut MessageCursor<AssetEvent<TextureAsset>>,
                      modified: &mut usize| {
-            let events = app.world().resource::<Events<AssetEvent<TextureAsset>>>();
+            let events = app.world().resource::<Messages<AssetEvent<TextureAsset>>>();
             for event in reader.read(events) {
                 if matches!(event, AssetEvent::Modified { id } if *id == handle.id()) {
                     *modified += 1;

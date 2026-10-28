@@ -592,14 +592,14 @@ fn run_windowed(project_dir: &str, frame_limit: Option<u32>, force_crash: bool) 
 /// found no camera -- still ticks `Update` happily, and a frame count alone
 /// would call that a success.
 fn quit_after_frames(app: &mut bevy_app::App, frames: u32) {
-    app.add_event::<bevy_app::AppExit>();
+    app.add_message::<bevy_app::AppExit>();
 
     let mut seen = 0u32;
     let mut drawn = 0u32;
     app.add_systems(
         bevy_app::Last,
         move |surface: Option<bevy_ecs::prelude::Res<bsengine_rhi_wgpu::WgpuSurfaceResource>>,
-              mut exit: bevy_ecs::prelude::EventWriter<bevy_app::AppExit>| {
+              mut exit: bevy_ecs::prelude::MessageWriter<bevy_app::AppExit>| {
             seen += 1;
             if let Some(stats) = surface.and_then(|s| s.0.latest_frame_stats()) {
                 drawn = drawn.max(stats.draw_calls);

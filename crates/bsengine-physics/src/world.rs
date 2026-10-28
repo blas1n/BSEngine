@@ -1023,7 +1023,8 @@ mod tests {
 
         let mut world = PhysicsWorld::new(9.81);
         let mut add = |entity_index: u32, body: rapier3d::prelude::RigidBody, sensor: bool| {
-            let entity = bevy_ecs::prelude::Entity::from_raw(entity_index);
+            let entity = bevy_ecs::prelude::Entity::from_raw_u32(entity_index)
+                .expect("an entity index from a live entity is never u32::MAX");
             let body_handle = world.rigid_body_set.insert(body);
             let shape = crate::plugin::make_shape(&crate::components::ColliderShape::Box {
                 half_extents: Vec3::new(1.0, 1.0, 1.0).into(),
@@ -1069,7 +1070,8 @@ mod tests {
     fn set_collider_shape_changes_where_a_raycast_hits() {
         let mut world = PhysicsWorld::new(9.81);
         // A flat box collider at the origin, top surface at y = 0.5.
-        let entity = bevy_ecs::prelude::Entity::from_raw(0);
+        let entity = bevy_ecs::prelude::Entity::from_raw_u32(0)
+            .expect("an entity index from a live entity is never u32::MAX");
         let body = rapier3d::prelude::RigidBodyBuilder::fixed().build();
         let body_handle = world.rigid_body_set.insert(body);
         let shape = crate::plugin::make_shape(&crate::components::ColliderShape::Box {
@@ -1122,7 +1124,8 @@ mod tests {
     #[test]
     fn set_collider_shape_reports_failure_for_an_unknown_entity() {
         let mut world = PhysicsWorld::new(9.81);
-        let unknown = bevy_ecs::prelude::Entity::from_raw(999);
+        let unknown = bevy_ecs::prelude::Entity::from_raw_u32(999)
+            .expect("an entity index from a live entity is never u32::MAX");
         assert!(!world.set_collider_shape(
             unknown,
             &crate::components::ColliderShape::Sphere { radius: 1.0 }
@@ -1197,8 +1200,10 @@ mod tests {
     /// begin with.
     fn free_pair() -> (PhysicsWorld, Entity, Entity) {
         let mut world = PhysicsWorld::new(0.0);
-        let a = Entity::from_raw(1);
-        let b = Entity::from_raw(2);
+        let a =
+            Entity::from_raw_u32(1).expect("an entity index from a live entity is never u32::MAX");
+        let b =
+            Entity::from_raw_u32(2).expect("an entity index from a live entity is never u32::MAX");
         spawn_ball(&mut world, a, Vec3::ZERO);
         spawn_ball(&mut world, b, Vec3::new(2.0, 0.0, 0.0));
         (world, a, b)
@@ -1274,8 +1279,10 @@ mod tests {
         // along +X from it, and the hinge axis is +Y.
         fn hinge_then_torque(torque: Vec3) -> glam::Quat {
             let mut world = PhysicsWorld::new(0.0);
-            let frame = Entity::from_raw(1);
-            let door = Entity::from_raw(2);
+            let frame = Entity::from_raw_u32(1)
+                .expect("an entity index from a live entity is never u32::MAX");
+            let door = Entity::from_raw_u32(2)
+                .expect("an entity index from a live entity is never u32::MAX");
             spawn_anchor(&mut world, frame, Vec3::ZERO);
             spawn_ball(&mut world, door, Vec3::new(1.0, 0.0, 0.0));
             assert!(world.add_joint(
@@ -1321,8 +1328,10 @@ mod tests {
         // two coincide at rest.
         fn swing(torque: Vec3) -> (f32, f32) {
             let mut world = PhysicsWorld::new(0.0);
-            let pivot = Entity::from_raw(1);
-            let ball = Entity::from_raw(2);
+            let pivot = Entity::from_raw_u32(1)
+                .expect("an entity index from a live entity is never u32::MAX");
+            let ball = Entity::from_raw_u32(2)
+                .expect("an entity index from a live entity is never u32::MAX");
             spawn_anchor(&mut world, pivot, Vec3::ZERO);
             spawn_ball(&mut world, ball, Vec3::new(0.0, -2.0, 0.0));
             assert!(world.add_joint(
@@ -1388,7 +1397,8 @@ mod tests {
 
     #[test]
     fn a_point_inside_a_collider_projects_to_its_surface() {
-        let ball = Entity::from_raw(1);
+        let ball =
+            Entity::from_raw_u32(1).expect("an entity index from a live entity is never u32::MAX");
         let world = world_with_a_ball(ball);
 
         // A quarter of the way out from the centre, along a direction that is
@@ -1421,7 +1431,8 @@ mod tests {
 
     #[test]
     fn a_point_outside_projects_without_claiming_to_be_inside() {
-        let ball = Entity::from_raw(1);
+        let ball =
+            Entity::from_raw_u32(1).expect("an entity index from a live entity is never u32::MAX");
         let world = world_with_a_ball(ball);
 
         let outside = BALL_AT + Vec3::new(0.0, 2.0, 0.0);
@@ -1442,7 +1453,9 @@ mod tests {
         // cost nothing and change nothing. An implementation that ignored
         // `max_dist` would still "work" on a scene with one collider and would
         // drag every vertex toward it in a scene with two.
-        let world = world_with_a_ball(Entity::from_raw(1));
+        let world = world_with_a_ball(
+            Entity::from_raw_u32(1).expect("an entity index from a live entity is never u32::MAX"),
+        );
 
         let far = BALL_AT + Vec3::new(0.0, 50.0, 0.0);
         assert!(world.project_point(far, 1.0).is_none());
@@ -1457,7 +1470,8 @@ mod tests {
         // A trigger volume is deliberately not something to be pushed out of.
         // Without the filter every trigger in a scene becomes an invisible
         // obstacle that only cloth can feel.
-        let trigger = Entity::from_raw(1);
+        let trigger =
+            Entity::from_raw_u32(1).expect("an entity index from a live entity is never u32::MAX");
         let mut world = PhysicsWorld::new(0.0);
         spawn_ball(&mut world, trigger, BALL_AT);
         world.set_collider_sensor(trigger, true);
@@ -1475,8 +1489,10 @@ mod tests {
         // failure, never a panic. A joint meets it twice over, since either of
         // the two entities can be the stale one.
         let mut world = PhysicsWorld::new(0.0);
-        let real = Entity::from_raw(1);
-        let ghost = Entity::from_raw(999);
+        let real =
+            Entity::from_raw_u32(1).expect("an entity index from a live entity is never u32::MAX");
+        let ghost = Entity::from_raw_u32(999)
+            .expect("an entity index from a live entity is never u32::MAX");
         spawn_ball(&mut world, real, Vec3::ZERO);
 
         assert!(!world.add_joint(real, ghost, &JointKind::Fixed, Vec3::ZERO, Vec3::ZERO));

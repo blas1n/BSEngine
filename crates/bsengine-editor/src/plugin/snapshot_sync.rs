@@ -132,11 +132,7 @@ pub(super) fn populate_reflected_component_snapshot(world: &mut World) {
         return;
     };
 
-    let Some(entity) = world
-        .iter_entities()
-        .find(|e| e.id().index() as u64 == selected_id)
-        .map(|e| e.id())
-    else {
+    let Some(entity) = super::reflect::live_entity(world, selected_id) else {
         if let Some(mut insp) = world.get_resource_mut::<InspectorState>() {
             insp.reflected_components.clear();
         }
@@ -435,7 +431,13 @@ pub(super) fn populate_snapshot_extra_components(world: &mut World) {
         .map(|(idx, e)| (e.id, idx))
         .collect();
 
-    for entity_ref in world.iter_entities() {
+    // `try_query`, not `query`: `registry` above borrows the world, and
+    // `query` wants it mutably. `EntityRef` needs no component registered, so
+    // there is always a state to build.
+    let mut every_entity = world
+        .try_query::<bevy_ecs::world::EntityRef>()
+        .expect("EntityRef reads no component, so its query always builds");
+    for entity_ref in every_entity.iter(world) {
         let id = entity_ref.id().index() as u64;
         let Some(&idx) = index_by_id.get(&id) else {
             continue;

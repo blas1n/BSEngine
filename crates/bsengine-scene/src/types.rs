@@ -1222,7 +1222,8 @@ mod tests {
             anchor_a: [1.0, 2.0, 3.0],
             anchor_b: [4.0, 5.0, 6.0],
         };
-        let body_b = bevy_ecs::prelude::Entity::from_raw(7);
+        let body_b = bevy_ecs::prelude::Entity::from_raw_u32(7)
+            .expect("an entity index from a live entity is never u32::MAX");
         let joint = desc.to_joint(body_b);
 
         assert_eq!(joint.body_b, body_b);

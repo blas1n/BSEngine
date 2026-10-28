@@ -72,11 +72,17 @@ serde             = { version = "1.0", features = ["derive"] }
 # off. The workspace build never noticed -- bevy_asset turns `std` on for
 # everyone through feature unification -- but `cargo test -p bsengine-core` on
 # its own failed to compile AnimationStateMachine's maps.
-bevy_app          = { version = "0.16", default-features = false, features = ["bevy_reflect", "std"] }
-bevy_ecs          = { version = "0.16", default-features = false, features = ["bevy_reflect", "std"] }
-bevy_reflect      = { version = "0.16", default-features = false, features = ["std"] }
-bevy_asset        = { version = "0.16", default-features = false }
-bevy_tasks        = { version = "0.16", default-features = false, features = ["std"] }
+bevy_app          = { version = "0.17", default-features = false, features = ["bevy_reflect", "std"] }
+bevy_ecs          = { version = "0.17", default-features = false, features = ["bevy_reflect", "std"] }
+bevy_reflect      = { version = "0.17", default-features = false, features = ["std"] }
+bevy_asset        = { version = "0.17", default-features = false }
+bevy_tasks        = { version = "0.17", default-features = false }
+# Only for its `debug` feature. Since 0.17 a system's name is a `DebugName`,
+# which without `bevy_utils/debug` reads "Enable the debug feature to see the
+# name" -- in panic messages, ambiguity reports and every schedule test that
+# finds a system by name. Bevy turns it on through `bevy_internal`, which this
+# workspace does not use; depending on it here turns it on for bevy_ecs too.
+bevy_utils        = { version = "0.17", default-features = false, features = ["debug"] }
 tracing           = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 winit             = "0.30"

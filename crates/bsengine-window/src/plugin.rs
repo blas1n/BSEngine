@@ -16,9 +16,9 @@ impl Plugin for WindowPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(self.descriptor.clone())
             .init_resource::<CursorPos>()
-            .add_event::<WindowCreated>()
-            .add_event::<WindowResized>()
-            .add_event::<WindowClosed>()
+            .add_message::<WindowCreated>()
+            .add_message::<WindowResized>()
+            .add_message::<WindowClosed>()
             .add_systems(Update, apply_cursor_config)
             .set_runner(winit_runner);
     }
@@ -45,7 +45,7 @@ fn apply_cursor_config(config: Option<Res<CursorConfig>>, handle: Option<Res<Win
 #[cfg(test)]
 mod tests {
     use crate::{WindowClosed, WindowCreated, WindowDescriptor, WindowPlugin, WindowResized};
-    use bevy_ecs::event::Events;
+    use bevy_ecs::message::Messages;
     use bsengine_app::new_app;
 
     #[test]
@@ -63,13 +63,16 @@ mod tests {
         // Events<T> resources should exist after plugin build
         assert!(app
             .world()
-            .get_resource::<Events<WindowCreated>>()
+            .get_resource::<Messages<WindowCreated>>()
             .is_some());
         assert!(app
             .world()
-            .get_resource::<Events<WindowResized>>()
+            .get_resource::<Messages<WindowResized>>()
             .is_some());
-        assert!(app.world().get_resource::<Events<WindowClosed>>().is_some());
+        assert!(app
+            .world()
+            .get_resource::<Messages<WindowClosed>>()
+            .is_some());
     }
 
     #[test]

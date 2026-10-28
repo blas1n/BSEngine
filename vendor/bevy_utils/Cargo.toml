@@ -12,7 +12,7 @@
 [package]
 edition = "2024"
 name = "bevy_utils"
-version = "0.16.1"
+version = "0.17.3"
 build = false
 autolib = false
 autobins = false
@@ -20,7 +20,7 @@ autoexamples = false
 autotests = false
 autobenches = false
 description = "A collection of utils for Bevy Engine"
-homepage = "https://bevyengine.org"
+homepage = "https://bevy.org"
 readme = "README.md"
 keywords = ["bevy"]
 license = "MIT OR Apache-2.0"
@@ -28,32 +28,31 @@ repository = "https://github.com/bevyengine/bevy"
 resolver = "2"
 
 [package.metadata.docs.rs]
-all-features = true
 rustdoc-args = [
     "-Zunstable-options",
     "--generate-link-to-definition",
 ]
+all-features = true
 
 [features]
-alloc = ["bevy_platform/alloc"]
-critical-section = ["bevy_platform/critical-section"]
-default = [
-    "std",
-    "serde",
-]
-serde = ["bevy_platform/serialize"]
-std = [
-    "alloc",
+debug = ["bevy_platform/alloc"]
+default = ["parallel"]
+parallel = [
     "bevy_platform/std",
     "dep:thread_local",
 ]
+std = ["disqualified/alloc"]
 
 [lib]
 name = "bevy_utils"
 path = "src/lib.rs"
 
 [dependencies.bevy_platform]
-version = "0.16.1"
+version = "0.17.3"
+default-features = false
+
+[dependencies.disqualified]
+version = "1.0"
 default-features = false
 
 [dependencies.thread_local]

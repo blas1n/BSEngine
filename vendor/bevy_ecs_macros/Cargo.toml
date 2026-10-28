@@ -12,7 +12,7 @@
 [package]
 edition = "2024"
 name = "bevy_ecs_macros"
-version = "0.16.1"
+version = "0.17.3"
 build = false
 autolib = false
 autobins = false
@@ -25,11 +25,11 @@ license = "MIT OR Apache-2.0"
 resolver = "2"
 
 [package.metadata.docs.rs]
-all-features = true
 rustdoc-args = [
     "-Zunstable-options",
     "--generate-link-to-definition",
 ]
+all-features = true
 
 [lib]
 name = "bevy_ecs_macros"
@@ -37,7 +37,7 @@ path = "src/lib.rs"
 proc-macro = true
 
 [dependencies.bevy_macro_utils]
-version = "0.16.1"
+version = "0.17.3"
 
 [dependencies.proc-macro2]
 version = "1.0"

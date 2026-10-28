@@ -1,6 +1,0 @@
-{
-  "git": {
-    "sha1": "383b3510455c431f34cf3f2c6e3c2d40eddce744"
-  },
-  "path_in_vcs": "crates/bevy_math"
-}

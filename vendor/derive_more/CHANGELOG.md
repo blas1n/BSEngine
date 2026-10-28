@@ -5,16 +5,126 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## 1.0.1 - Unreleased
+## 2.1.1 - 2025-12-22
 
+### Fixed
 
+- `.as_dyn_error()` method hygiene inside `Error` derive expansion.
+  ([#527](https://github.com/JelteF/derive_more/pull/527))
+
+## 2.1.0 - 2025-12-02
+
+### Added
+
+- Support `#[display(rename_all = "<casing>")]` attribute to change output for
+  implicit naming of unit enum variants or unit structs when deriving `Display`.
+  ([#443](https://github.com/JelteF/derive_more/pull/443))
+- Support `#[from_str(rename_all = "<casing>")]` attribute for unit enum variants
+  and unit structs when deriving `FromStr`.
+  ([#467](https://github.com/JelteF/derive_more/pull/467))
+- Support `Option` fields for `Error::source()` in `Error` derive.
+  ([#459](https://github.com/JelteF/derive_more/pull/459))
+- Support structs with no fields in `FromStr` derive.
+  ([#469](https://github.com/JelteF/derive_more/pull/469))
+- Add `PartialEq` derive similar to `std`'s one, but considering generics correctly,
+  and implementing `ne()` method as well.
+  ([#473](https://github.com/JelteF/derive_more/pull/473),
+   [#475](https://github.com/JelteF/derive_more/pull/475))
+- Add `Eq` derive similar to `std`'s one, but considering generics correctly.
+  ([#479](https://github.com/JelteF/derive_more/pull/479))
+- Proxy-pass `#[allow]`/`#[expect]` attributes of the type in `Constructor` derive.
+  ([#477](https://github.com/JelteF/derive_more/pull/477))
+- Support `Deref` and `DerefMut` derives for enums.
+  ([#485](https://github.com/JelteF/derive_more/pull/485))
+- Support custom error in `FromStr` derive.
+  ([#494](https://github.com/JelteF/derive_more/pull/494))
+- Support custom error in `TryInto` derive.
+  ([#503](https://github.com/JelteF/derive_more/pull/503))
+- Support skipping fields in `Add`-like, `AddAssign`-like, `Mul`-like and
+  `MulAssign`-like derives.
+  ([#472](https://github.com/JelteF/derive_more/pull/472))
+
+### Changed
+
+- The minimum supported Rust version (MSRV) is now Rust 1.81.
+  ([#466](https://github.com/JelteF/derive_more/pull/466))
+- `Add`-like, `AddAssign`-like, `Mul`-like and `MulAssign`-like derives now
+  infer trait bounds for generics structurally (bound field types instead of
+  type parameters directly).
+  ([#472](https://github.com/JelteF/derive_more/pull/472))
+
+### Fixed
+
+- Suppress deprecation warnings in generated code.
+  ([#454](https://github.com/JelteF/derive_more/pull/454))
+- Silent no-op when `#[try_from(repr)]` attribute is not specified for `TryFrom` derive.
+  ([#458](https://github.com/JelteF/derive_more/pull/458))
+- Missing trait bounds in `AsRef`/`AsMut` derives when associative types are involved.
+  ([#474](https://github.com/JelteF/derive_more/pull/474))
+- Erroneous code generated in `Try`/`TryInto` derives when `Self` type is present in
+  the struct or enum definition.
+  ([#489](https://github.com/JelteF/derive_more/pull/489))
+- Dependency on unstable `feature(error_generic_member_access)` in `Error` derive when
+  using `Backtrace` on a non-nightly toolchain.
+  ([#513](https://github.com/JelteF/derive_more/pull/513))
+- Broken support for `#[<display-trait>("default formatting")]` attribute without `{_variant}`
+  being used as default for enum variants without explicit formatting.
+  ([#495](https://github.com/JelteF/derive_more/pull/495))
+
+## 2.0.1 - 2025-02-03
+
+### Added
+
+- Add crate metadata for the Rust Playground. This makes sure that the Rust
+Playground will have all `derive_more` features available once
+[`selectors`](https://docs.rs/selectors/latest/selectors) crate updates its
+`derive_more` version.
+([#445](https://github.com/JelteF/derive_more/pull/445))
+
+## 2.0.0 - 2025-02-03
+
+### Breaking changes
+
+- `use derive_more::SomeTrait` now imports macro only. Importing macro with
+  its trait along is possible now via `use derive_more::with_trait::SomeTrait`.
+  ([#406](https://github.com/JelteF/derive_more/pull/406))
+- Top-level `#[display("...")]` attribute on an enum now has defaulting behavior
+  instead of replacing when no wrapping is possible (no `_variant` placeholder).
+  ([#395](https://github.com/JelteF/derive_more/pull/395))
+
+### Fixed
+
+- Associated types of type parameters not being treated as generics in `Debug`
+  and `Display` expansions.
+  ([#399](https://github.com/JelteF/derive_more/pull/399))
+- `unreachable_code` warnings on generated code when `!` (never type) is used.
+  ([#404](https://github.com/JelteF/derive_more/pull/404))
+- Ambiguous associated item error when deriving `TryFrom`, `TryInto` or `FromStr`
+  with an associated item called `Error` or `Err` respectively.
+  ([#410](https://github.com/JelteF/derive_more/pull/410))
+- Top-level `#[display("...")]` attribute on an enum being incorrectly treated
+  as transparent or wrapping.
+  ([#395](https://github.com/JelteF/derive_more/pull/395))
+- Omitted raw identifiers in `Debug` and `Display` expansions.
+  ([#431](https://github.com/JelteF/derive_more/pull/431))
+- Incorrect rendering of raw identifiers as field names in `Debug` expansions.
+  ([#431](https://github.com/JelteF/derive_more/pull/431))
+- Top-level `#[display("...")]` attribute on an enum not working transparently
+  for directly specified fields.
+  ([#438](https://github.com/JelteF/derive_more/pull/438))
+- Incorrect dereferencing of unsized fields in `Debug` and `Display` expansions.
+  ([#440](https://github.com/JelteF/derive_more/pull/440))
+
+## 0.99.19 - 2025-02-03
+
+- Add crate metadata for the Rust Playground.
 
 ## 1.0.0 - 2024-08-07
 
 More than 8 years after the first commit and almost 5 years after the 0.99.0
 release, `derive_more` has finally reached its 1.0.0 release. This release
 contains a lot of changes (including some breaking ones) to make it easier to
-use the derives and make it possible to extend them without having to breaking
+use the derives and make it possible to extend them without having to break
 backwards compatibility again. There are five major changes that I would like
 to call out, but there are many more changes that are documented below:
 1. There is a new `Debug` derive that can be used to easily customize `Debug`
@@ -135,6 +245,11 @@ to call out, but there are many more changes that are documented below:
   `Debug`. Also document weirdness around `Pointer` formatting when using
   expressions, due to field variables being references.
   ([#381](https://github.com/JelteF/derive_more/pull/381))
+
+## 0.99.18 - 2024-06-15
+
+- Upgrade to `syn` 2.0.
+- The minimum supported Rust version (MSRV) is now Rust 1.65.
 
 ## 0.99.10 - 2020-09-11
 

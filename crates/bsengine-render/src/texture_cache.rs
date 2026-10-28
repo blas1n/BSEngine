@@ -303,7 +303,7 @@ fn poll_and_upload(
 /// updated. The sidecar path makes the gap visible in a way a pixel edit did
 /// not: toggling `srgb` in a `.meta` is *only* an upload change.
 pub fn reupload_modified_textures(
-    mut events: bevy_ecs::prelude::EventReader<bevy_asset::AssetEvent<TextureAsset>>,
+    mut events: bevy_ecs::prelude::MessageReader<bevy_asset::AssetEvent<TextureAsset>>,
     cache: Res<TextureCache>,
     mut textures: ResMut<bevy_asset::Assets<TextureAsset>>,
     mut registry: Option<ResMut<GpuTextureRegistry>>,

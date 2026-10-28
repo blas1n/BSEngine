@@ -25,7 +25,7 @@ pub struct PhysicsPlugin;
 impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(PhysicsWorld::default());
-        app.add_event::<CollisionEvent>();
+        app.add_message::<CollisionEvent>();
         // Reflection registration lives here rather than in
         // `bsengine_scene::register_gameplay_reflect_types` because
         // `bsengine-scene` does not (and must not) depend on this crate, and
@@ -44,6 +44,9 @@ impl Plugin for PhysicsPlugin {
         app.register_type::<CharacterBody>();
         app.register_type::<CharacterController>();
         app.register_type::<crate::SpringArm>();
+        // A body leaves the simulation with its entity -- see
+        // `take_body_out_of_the_simulation`.
+        app.add_observer(take_body_out_of_the_simulation);
         // After this frame's physics and gameplay have moved everything, and
         // before transforms are propagated -- so the camera on the arm's end
         // is drawn where the arm put it this frame, not last frame. Not paused
@@ -460,6 +463,29 @@ struct BuiltRagdoll {
 /// Builds a ragdoll's bone bodies and joints when it becomes active, and
 /// removes them when it stops.
 ///
+/// Takes an entity's Rapier body out of the simulation when its [`RigidBody`]
+/// goes -- removed, or the entity despawned (which removes every component).
+///
+/// [`spawn_bodies`] has never had a despawn-time counterpart (see
+/// [`PhysicsWorld::remove_body`]): a destroyed enemy or an expired projectile
+/// left its body behind, still falling, still colliding, and still in every
+/// raycast under a collider handle mapped to an entity that no longer exists.
+/// Only ragdoll bones were taken out, by hand. Since Bevy 0.16 a parent's
+/// despawn also takes its children unasked, which made the gap wider. Unity
+/// and Godot remove the body with the object; an observer on the component's
+/// removal is the 0.17 idiom for exactly this, and it runs at the moment of
+/// removal rather than a frame later, so nothing steps against a dead body.
+/// `remove_body` on an entity with no body (a bone `sync_ragdolls` already
+/// took out) does nothing.
+fn take_body_out_of_the_simulation(
+    remove: bevy_ecs::observer::On<bevy_ecs::lifecycle::Remove, RigidBody>,
+    physics: Option<ResMut<PhysicsWorld>>,
+) {
+    if let Some(mut physics) = physics {
+        physics.remove_body(remove.entity);
+    }
+}
+
 /// Mirrors [`sync_joints`]: the component says what the simulation should
 /// contain and this is the pass that makes it so. The bone entities are
 /// ordinary physics entities — `RigidBody`, `Collider`, `PhysicsInput`, and a
@@ -745,7 +771,7 @@ fn isolate_ragdoll_bones(
 fn step_world(
     mut world: ResMut<PhysicsWorld>,
     query: Query<(&PhysicsHandles, &PhysicsInput), With<RigidBody>>,
-    mut collision_events: EventWriter<CollisionEvent>,
+    mut collision_events: MessageWriter<CollisionEvent>,
 ) {
     for (handles, input) in query.iter() {
         if let Some(body) = world.rigid_body_set.get_mut(handles.body_handle) {
@@ -1679,6 +1705,91 @@ mod tests {
             "the surviving entity keeps its Joint component -- the component is \
              what the scene authored, and only the simulation's copy is stale"
         );
+    }
+
+    /// A body that stays where it is put, so a ray down through `at` hits it
+    /// for as long as it is in the simulation.
+    fn spawn_fixed_ball(app: &mut App, at: Vec3) -> Entity {
+        app.world_mut()
+            .spawn((
+                Transform::from_position(at),
+                RigidBody::fixed(),
+                Collider::ball(0.5),
+                PhysicsInput {
+                    position: at.into(),
+                    rotation: Quat::IDENTITY.into(),
+                },
+            ))
+            .id()
+    }
+
+    fn ray_down_hits(app: &App, x: f32) -> Option<Entity> {
+        app.world()
+            .resource::<PhysicsWorld>()
+            .cast_ray(Vec3::new(x, 5.0, 0.0), Vec3::NEG_Y, 20.0)
+            .and_then(|hit| hit.entity)
+    }
+
+    #[test]
+    fn a_despawned_entity_takes_its_body_out_of_the_simulation() {
+        // A destroyed enemy, an expired projectile: in Unity and Godot the
+        // physics body goes with the object. Here it used to stay -- still
+        // colliding, still in every ray and contact, under a collider handle
+        // that maps to an entity that no longer exists.
+        let mut app = new_app();
+        app.add_plugins(PhysicsPlugin);
+        let ball = spawn_fixed_ball(&mut app, Vec3::ZERO);
+        app.update();
+        assert_eq!(
+            ray_down_hits(&app, 0.0),
+            Some(ball),
+            "premise: the body is there"
+        );
+
+        app.world_mut().despawn(ball);
+        app.update();
+
+        assert!(
+            app.world()
+                .resource::<PhysicsWorld>()
+                .get_linvel(ball)
+                .is_none(),
+            "the body left the simulation"
+        );
+        assert_eq!(
+            ray_down_hits(&app, 0.0),
+            None,
+            "and nothing is hit where it was"
+        );
+    }
+
+    #[test]
+    fn a_child_despawned_with_its_parent_takes_its_body_too() {
+        // Despawn cascades through `Children` (Bevy 0.16), so a child goes
+        // without anyone despawning it by name -- the case where a body left
+        // behind is least likely to be noticed.
+        let mut app = new_app();
+        app.add_plugins(PhysicsPlugin);
+        let parent = app.world_mut().spawn(Transform::default()).id();
+        let wheel = spawn_fixed_ball(&mut app, Vec3::new(3.0, 0.0, 0.0));
+        app.world_mut()
+            .entity_mut(wheel)
+            .insert(bsengine_core::ChildOf(parent));
+        app.update();
+        assert_eq!(
+            ray_down_hits(&app, 3.0),
+            Some(wheel),
+            "premise: the body is there"
+        );
+
+        app.world_mut().despawn(parent);
+        app.update();
+
+        assert!(
+            app.world().get_entity(wheel).is_err(),
+            "premise: the cascade took it"
+        );
+        assert_eq!(ray_down_hits(&app, 3.0), None, "and its body with it");
     }
 
     #[test]

@@ -2,6 +2,23 @@
 
 use super::*;
 
+/// The live entity whose index is `index`, if one is alive -- what the editor
+/// and MCP mean by an entity id, since they name entities by index alone.
+///
+/// Was `world.query::<bevy_ecs::world::EntityRef>().iter(world).find(|e| e.id().index() == index)`, a walk over
+/// every entity; `iter_entities` is deprecated in Bevy 0.17. `Entities` already
+/// knows the current generation of every row, so this is a lookup. Whether the
+/// row is *occupied* is a separate question: a freed row's generation has
+/// already been bumped, so `resolve_from_id` hands back an entity that
+/// `Entities::contains` (a generation compare) calls present. `get_entity`
+/// asks whether it has a location, which is what the walk's "it is in the
+/// world" meant.
+pub(super) fn live_entity(world: &World, index: u64) -> Option<Entity> {
+    let row = Entity::from_raw_u32(u32::try_from(index).ok()?)?.row();
+    let entity = world.entities().resolve_from_id(row)?;
+    world.get_entity(entity).ok().map(|e| e.id())
+}
+
 /// Recursively walks `value`'s reflect tree and, for every leaf field whose
 /// declared type is `bevy_ecs::Entity`, replaces it with the live entity
 /// that currently has the same `.index()` (if any still does). The
@@ -14,12 +31,8 @@ use super::*;
 /// available, before the value is applied to a live component.
 pub(super) fn fixup_entity_fields(value: &mut dyn bevy_reflect::PartialReflect, world: &World) {
     if let Some(entity) = value.try_downcast_mut::<bevy_ecs::prelude::Entity>() {
-        let wanted_index = entity.index();
-        if let Some(live) = world
-            .iter_entities()
-            .find(|e| e.id().index() == wanted_index)
-        {
-            *entity = live.id();
+        if let Some(live) = live_entity(world, entity.index() as u64) {
+            *entity = live;
         }
         return;
     }
@@ -61,17 +74,17 @@ pub(super) fn fixup_entity_fields(value: &mut dyn bevy_reflect::PartialReflect, 
         }
         bevy_reflect::ReflectMut::Map(m) => {
             // `Map` only exposes a mutable reference to the *value* half of
-            // each entry (`get_at_mut`) -- keys are immutable through this
-            // trait, since mutating one in place would desync the map's
-            // internal hash bucket for it. That's fine here: recursing into
-            // the value covers the realistic shape (e.g. `HashMap<K,
-            // Entity>`); a key itself being an `Entity` is an unusual design
-            // this codebase doesn't use.
-            for i in 0..m.len() {
-                if let Some((_key, value)) = m.get_at_mut(i) {
-                    fixup_entity_fields(value, world);
-                }
-            }
+            // each entry -- keys are immutable through this trait, since
+            // mutating one in place would desync the map's internal hash
+            // bucket for it. That's fine here: recursing into the value covers
+            // the realistic shape (e.g. `HashMap<K, Entity>`); a key itself
+            // being an `Entity` is an unusual design this codebase doesn't use.
+            // Since Bevy 0.17 the only mutable walk over the values is
+            // `retain` (`get_at_mut` is gone), which keeps every entry here.
+            m.retain(&mut |_key, value| {
+                fixup_entity_fields(value, world);
+                true
+            });
         }
         _ => {}
     }
@@ -133,10 +146,8 @@ pub(super) fn process_reflect_commands(world: &mut World) {
                     continue;
                 };
                 let default_value = reflect_default.default();
-                let target = world
-                    .iter_entities()
-                    .find(|e| e.id().index() as u64 == entity_id);
-                if let Some(entity) = target.map(|e| e.id()) {
+                let target = live_entity(world, entity_id);
+                if let Some(entity) = target {
                     let mut entity_mut = world.entity_mut(entity);
                     reflect_component.insert(&mut entity_mut, default_value.as_ref(), &registry);
                 }
@@ -154,10 +165,8 @@ pub(super) fn process_reflect_commands(world: &mut World) {
                 else {
                     continue;
                 };
-                let target = world
-                    .iter_entities()
-                    .find(|e| e.id().index() as u64 == entity_id);
-                if let Some(entity) = target.map(|e| e.id()) {
+                let target = live_entity(world, entity_id);
+                if let Some(entity) = target {
                     let mut entity_mut = world.entity_mut(entity);
                     reflect_component.remove(&mut entity_mut);
                 }
@@ -178,10 +187,8 @@ pub(super) fn process_reflect_commands(world: &mut World) {
                     continue;
                 };
                 fixup_entity_fields(value.as_mut(), world);
-                let target = world
-                    .iter_entities()
-                    .find(|e| e.id().index() as u64 == entity_id);
-                if let Some(entity) = target.map(|e| e.id()) {
+                let target = live_entity(world, entity_id);
+                if let Some(entity) = target {
                     let mut entity_mut = world.entity_mut(entity);
                     reflect_component.apply_or_insert_mapped(
                         &mut entity_mut,
@@ -193,5 +200,39 @@ pub(super) fn process_reflect_commands(world: &mut World) {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn live_entity_finds_the_current_generation_and_nothing_dead() {
+        // The walk it replaced could only ever return a live entity, with
+        // whatever generation it had; the lookup has to agree on all four
+        // shapes an editor id can arrive in.
+        let mut world = World::new();
+        let alive = world.spawn_empty().id();
+        assert_eq!(live_entity(&world, alive.index() as u64), Some(alive));
+
+        let dead = world.spawn_empty().id();
+        world.despawn(dead);
+        assert_eq!(
+            live_entity(&world, dead.index() as u64),
+            None,
+            "a freed row is not alive"
+        );
+
+        // The row comes back with a new generation; the id an editor holds is
+        // the bare index, which now means the new occupant.
+        let reused = world.spawn_empty().id();
+        assert_eq!(reused.index(), dead.index(), "premise: the row was reused");
+        assert_ne!(reused, dead, "premise: under a new generation");
+        assert_eq!(live_entity(&world, dead.index() as u64), Some(reused));
+
+        assert_eq!(live_entity(&world, 1_000_000), None, "a row never reserved");
+        assert_eq!(live_entity(&world, u32::MAX as u64), None);
+        assert_eq!(live_entity(&world, u64::MAX), None);
     }
 }

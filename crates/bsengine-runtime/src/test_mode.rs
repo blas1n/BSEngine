@@ -6,7 +6,7 @@
 use std::io::{self, BufRead, Write};
 
 use bevy_app::App;
-use bevy_ecs::event::Events;
+use bevy_ecs::message::Messages;
 use bsengine_app::{
     AnimationPlugin, AnimationStateMachinePlugin, ClothPlugin, LifetimePlugin, NavMeshPlugin,
     ParticlePlugin, TerrainBrushPlugin, TerrainPlugin, TimePlugin,
@@ -412,8 +412,8 @@ pub fn execute_command(
         Command::PressKey { key } => match key_from_str(&key) {
             Some(code) => {
                 app.world_mut()
-                    .resource_mut::<Events<KeyInput>>()
-                    .send(KeyInput {
+                    .resource_mut::<Messages<KeyInput>>()
+                    .write(KeyInput {
                         key_code: code,
                         state: ElementState::Pressed,
                         text: None,
@@ -425,8 +425,8 @@ pub fn execute_command(
         Command::ReleaseKey { key } => match key_from_str(&key) {
             Some(code) => {
                 app.world_mut()
-                    .resource_mut::<Events<KeyInput>>()
-                    .send(KeyInput {
+                    .resource_mut::<Messages<KeyInput>>()
+                    .write(KeyInput {
                         key_code: code,
                         state: ElementState::Released,
                         text: None,
@@ -438,8 +438,8 @@ pub fn execute_command(
         Command::PressMouse { button } => match mouse_button_from_u8(button) {
             Some(b) => {
                 app.world_mut()
-                    .resource_mut::<Events<MouseInput>>()
-                    .send(MouseInput {
+                    .resource_mut::<Messages<MouseInput>>()
+                    .write(MouseInput {
                         button: b,
                         state: ElementState::Pressed,
                     });
@@ -453,8 +453,8 @@ pub fn execute_command(
         Command::ReleaseMouse { button } => match mouse_button_from_u8(button) {
             Some(b) => {
                 app.world_mut()
-                    .resource_mut::<Events<MouseInput>>()
-                    .send(MouseInput {
+                    .resource_mut::<Messages<MouseInput>>()
+                    .write(MouseInput {
                         button: b,
                         state: ElementState::Released,
                     });

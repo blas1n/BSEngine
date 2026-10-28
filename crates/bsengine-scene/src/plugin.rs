@@ -1595,6 +1595,9 @@ mod tests {
             .unwrap_or_else(|e| panic!("{shown} does not parse: {e}"));
             for entity in &entities {
                 for (path, value) in &entity.components {
+                    // Counted on the way in, so a value that fails below shows
+                    // up as the problem it is rather than as a short premise.
+                    checked += 1;
                     let at = format!("{shown}: '{}' {path}", entity.name);
                     let Some(registration) = registry.get_with_type_path(path) else {
                         problems.push(format!("{at}: not registered for reflection"));
@@ -1628,7 +1631,6 @@ mod tests {
                         panic!("{at}: wrote RON it cannot read: {e}\n{written}")
                     });
                     contained(&original, &round, &at, &mut problems);
-                    checked += 1;
                 }
             }
         }

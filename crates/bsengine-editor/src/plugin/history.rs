@@ -75,20 +75,17 @@ pub(super) fn sync_entity_to_info(world: &mut World, entity: Entity, info: &Enti
     }
 
     if let (Some(pos), Some(rot), Some(scale)) = (info.position, info.rotation, info.scale) {
-        e.insert((
-            Transform {
-                position: glam::Vec3::from(pos).into(),
-                rotation: glam::Quat::from_euler(
-                    glam::EulerRot::XYZ,
-                    rot[0].to_radians(),
-                    rot[1].to_radians(),
-                    rot[2].to_radians(),
-                )
-                .into(),
-                scale: glam::Vec3::from(scale).into(),
-            },
-            GlobalTransform::default(),
-        ));
+        e.insert((Transform {
+            position: glam::Vec3::from(pos).into(),
+            rotation: glam::Quat::from_euler(
+                glam::EulerRot::XYZ,
+                rot[0].to_radians(),
+                rot[1].to_radians(),
+                rot[2].to_radians(),
+            )
+            .into(),
+            scale: glam::Vec3::from(scale).into(),
+        },));
     } else {
         e.remove::<Transform>();
         e.remove::<GlobalTransform>();
@@ -212,20 +209,17 @@ pub(super) fn spawn_entity_from_info(world: &mut World, info: &EntityInfo) -> En
         e.insert(Name(name.clone()));
     }
     if let (Some(pos), Some(rot), Some(scale)) = (info.position, info.rotation, info.scale) {
-        e.insert((
-            Transform {
-                position: glam::Vec3::from(pos).into(),
-                rotation: glam::Quat::from_euler(
-                    glam::EulerRot::XYZ,
-                    rot[0].to_radians(),
-                    rot[1].to_radians(),
-                    rot[2].to_radians(),
-                )
-                .into(),
-                scale: glam::Vec3::from(scale).into(),
-            },
-            GlobalTransform::default(),
-        ));
+        e.insert((Transform {
+            position: glam::Vec3::from(pos).into(),
+            rotation: glam::Quat::from_euler(
+                glam::EulerRot::XYZ,
+                rot[0].to_radians(),
+                rot[1].to_radians(),
+                rot[2].to_radians(),
+            )
+            .into(),
+            scale: glam::Vec3::from(scale).into(),
+        },));
     }
     if let Some(mesh_id) = info.mesh_id {
         e.insert(MeshRenderer { mesh_id });

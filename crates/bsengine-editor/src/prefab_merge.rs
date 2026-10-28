@@ -566,20 +566,17 @@ pub(crate) fn apply_merged_descriptor(
 ) {
     match &merged.transform {
         Some(t) => {
-            world.entity_mut(entity).insert((
-                bsengine_core::Transform {
-                    position: glam::Vec3::from(t.position).into(),
-                    rotation: glam::Quat::from_xyzw(
-                        t.rotation[0],
-                        t.rotation[1],
-                        t.rotation[2],
-                        t.rotation[3],
-                    )
-                    .into(),
-                    scale: glam::Vec3::from(t.scale).into(),
-                },
-                bsengine_core::GlobalTransform::default(),
-            ));
+            world.entity_mut(entity).insert((bsengine_core::Transform {
+                position: glam::Vec3::from(t.position).into(),
+                rotation: glam::Quat::from_xyzw(
+                    t.rotation[0],
+                    t.rotation[1],
+                    t.rotation[2],
+                    t.rotation[3],
+                )
+                .into(),
+                scale: glam::Vec3::from(t.scale).into(),
+            },));
         }
         None => {
             world

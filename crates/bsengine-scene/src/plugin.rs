@@ -8,8 +8,7 @@ use bevy_reflect::prelude::ReflectDefault;
 use bevy_reflect::Reflect;
 use bsengine_asset::{AssetGuid, AssetIndex};
 use bsengine_core::{
-    Camera, DirectionalLight, GlobalTransform, Material, PointLight, ProjectDir, SkyboxPath,
-    SpotLight, Transform,
+    Camera, DirectionalLight, Material, PointLight, ProjectDir, SkyboxPath, SpotLight, Transform,
 };
 use bsengine_gltf::GltfAsset;
 use glam::{Quat, Vec3};
@@ -621,7 +620,7 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                 rotation: rotation.into(),
                 scale: Vec3::from(t.scale).into(),
             };
-            builder.insert((transform, GlobalTransform::default()));
+            builder.insert(transform);
         }
 
         if let Some(gltf_path) = gltf_path {
@@ -673,14 +672,11 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                 .as_ref()
                 .map(|t| (Vec3::from(t.position), Vec3::from(t.scale)))
                 .unwrap_or((Vec3::ZERO, Vec3::ONE));
-            builder.insert((
-                Transform {
-                    position: translation.into(),
-                    rotation: rotation.into(),
-                    scale: scale.into(),
-                },
-                GlobalTransform::default(),
-            ));
+            builder.insert((Transform {
+                position: translation.into(),
+                rotation: rotation.into(),
+                scale: scale.into(),
+            },));
         }
 
         if let Some(pl) = &entity.point_light {

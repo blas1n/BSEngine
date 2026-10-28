@@ -12,7 +12,7 @@ use bevy_app::{App, Plugin, Update};
 use bevy_ecs::prelude::ReflectComponent;
 use bevy_reflect::Reflect;
 use bsengine_asset::{AssetServer, Assets, HeightmapAsset, Polled, TextureAsset};
-use bsengine_core::{GlobalTransform, Transform};
+use bsengine_core::Transform;
 use bsengine_ecs::{Commands, Component, Entity, Query, Res, ResMut, Without};
 use bsengine_physics::{Collider, ColliderShape, PhysicsInput, RigidBody};
 use bsengine_render::components::{LodLevels, Occluder, TerrainSplat};
@@ -341,7 +341,6 @@ fn generate_terrain_chunks(
 
             commands.spawn((
                 Transform::from_position(world_min_corner),
-                GlobalTransform::default(),
                 MeshRenderer { mesh_id },
                 TerrainSplat {
                     weight_texture_id: weight_id,

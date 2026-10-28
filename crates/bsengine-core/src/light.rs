@@ -52,6 +52,7 @@ impl LightBakeMode {
 /// its direction comes from the entity's `Transform` rotation.
 #[derive(Component, Debug, Clone, Reflect)]
 #[reflect(Component, Default)]
+#[require(crate::Transform)]
 pub struct DirectionalLight {
     /// Light color, applied to all surfaces facing the light direction.
     pub color: ReflectColor,
@@ -75,6 +76,7 @@ impl Default for DirectionalLight {
 /// entity's position, falling off to zero at `range`.
 #[derive(Component, Debug, Clone, Reflect)]
 #[reflect(Component, Default)]
+#[require(crate::Transform)]
 pub struct PointLight {
     /// Light color.
     pub color: ReflectColor,
@@ -111,6 +113,7 @@ impl Default for PointLight {
 /// outer cone angles and to zero at `range`.
 #[derive(Component, Debug, Clone, Reflect)]
 #[reflect(Component, Default, Validate)]
+#[require(crate::Transform)]
 pub struct SpotLight {
     /// Light color.
     pub color: ReflectColor,
@@ -187,6 +190,7 @@ impl Validate for SpotLight {
 /// `width` and `height` say how big it is.
 #[derive(Component, Debug, Clone, Reflect)]
 #[reflect(Component, Default, Validate)]
+#[require(crate::Transform)]
 pub struct RectLight {
     /// Light color.
     pub color: ReflectColor,

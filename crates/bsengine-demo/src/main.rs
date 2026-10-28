@@ -1,7 +1,7 @@
 use bevy_ecs::prelude::*;
 use bsengine_app::{new_app, Update};
 use bsengine_asset::AssetPlugin;
-use bsengine_core::{Camera, DirectionalLight, GlobalTransform, Material, Transform};
+use bsengine_core::{Camera, DirectionalLight, Material, Transform};
 use bsengine_gltf::GltfPlugin;
 use bsengine_render::{MeshRenderer, RenderPlugin};
 use bsengine_rhi_wgpu::{cube_vertices, GpuMeshRegistry, WgpuRHIPlugin};
@@ -22,7 +22,6 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>, mut 
     commands.spawn((
         MeshRenderer { mesh_id },
         Transform::from_position(Vec3::new(0.0, 0.0, -4.0)),
-        GlobalTransform::default(),
         Material {
             metallic: 0.1,
             roughness: 0.6,
@@ -46,7 +45,6 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>, mut 
             rotation: Quat::from_rotation_arc(Vec3::NEG_Z, dir).into(),
             ..Default::default()
         },
-        GlobalTransform::default(),
     ));
 
     tracing::info!("Demo scene ready — cube spawned");

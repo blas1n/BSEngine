@@ -5,6 +5,7 @@ use bsengine_core::ReflectVec3;
 /// Marks an entity as drawable and identifies which mesh asset to render it with.
 #[derive(Component, Debug, Clone, Reflect)]
 #[reflect(Component)]
+#[require(bsengine_core::Transform)]
 pub struct MeshRenderer {
     /// Id of the mesh asset to draw, as registered with the mesh/asset store.
     pub mesh_id: u64,
@@ -91,6 +92,18 @@ pub struct Occluder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_mesh_renderer_brings_a_transform() {
+        // `render_frame` reads meshes only with a mandatory `&Transform`, so a
+        // bare MeshRenderer used to be skipped silently. See
+        // `every_spatial_component_brings_a_transform` in bsengine-core for
+        // the rest of the set.
+        let mut world = bevy_ecs::world::World::new();
+        let e = world.spawn(MeshRenderer { mesh_id: 1 }).id();
+        assert!(world.get::<bsengine_core::Transform>(e).is_some());
+        assert!(world.get::<bsengine_core::GlobalTransform>(e).is_some());
+    }
 
     #[test]
     fn mesh_renderer_stores_id() {

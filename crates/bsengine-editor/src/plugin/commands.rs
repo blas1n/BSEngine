@@ -112,7 +112,6 @@ pub(super) fn process_editor_commands(
                         splatmap_path: splatmap_resolved,
                     },
                     Transform::default(),
-                    GlobalTransform::default(),
                 ));
             }
             EditorCommand::Despawn { entity_id } => {
@@ -132,9 +131,7 @@ pub(super) fn process_editor_commands(
             EditorCommand::AttachMeshRenderer { entity_id, mesh_id } => {
                 let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
                 if let Some(entity) = target {
-                    commands
-                        .entity(entity)
-                        .insert((MeshRenderer { mesh_id }, GlobalTransform::default()));
+                    commands.entity(entity).insert(MeshRenderer { mesh_id });
                 }
             }
             EditorCommand::DetachMeshRenderer { entity_id } => {
@@ -185,7 +182,6 @@ pub(super) fn process_editor_commands(
                         ..PointLight::default()
                     },
                     Transform::from_position(glam::Vec3::from(position)),
-                    GlobalTransform::default(),
                 ));
             }
             EditorCommand::SpawnDirectionalLight {
@@ -205,7 +201,6 @@ pub(super) fn process_editor_commands(
                         rotation: rotation.into(),
                         ..Default::default()
                     },
-                    GlobalTransform::default(),
                 ));
             }
             EditorCommand::RemoveLight { entity_id } => {
@@ -286,7 +281,6 @@ pub(super) fn process_editor_commands(
                 commands.spawn((
                     Camera::perspective(fov_y_degrees, 16.0 / 9.0),
                     Transform::from_position(glam::Vec3::from(position)),
-                    GlobalTransform::default(),
                 ));
             }
             EditorCommand::UpdateCamera {
@@ -317,10 +311,7 @@ pub(super) fn process_editor_commands(
                         entity.insert(Name(format!("{name} (copy)")));
                     }
                     if let Some([x, y, z]) = info.position {
-                        entity.insert((
-                            Transform::from_position(glam::Vec3::new(x, y, z)),
-                            GlobalTransform::default(),
-                        ));
+                        entity.insert((Transform::from_position(glam::Vec3::new(x, y, z)),));
                     }
                     if let Some(mesh_id) = info.mesh_id {
                         entity.insert(MeshRenderer { mesh_id });
@@ -510,7 +501,6 @@ pub(super) fn process_editor_commands(
                         ..SpotLight::default()
                     },
                     Transform::from_position(glam::Vec3::from(position)),
-                    GlobalTransform::default(),
                 ));
             }
             EditorCommand::UpdateSpotLight {
@@ -637,14 +627,11 @@ pub(super) fn process_editor_commands(
                             t.rotation[2],
                             t.rotation[3],
                         );
-                        eb.insert((
-                            Transform {
-                                position: glam::Vec3::from(t.position).into(),
-                                rotation: rotation.into(),
-                                scale: glam::Vec3::from(t.scale).into(),
-                            },
-                            GlobalTransform::default(),
-                        ));
+                        eb.insert((Transform {
+                            position: glam::Vec3::from(t.position).into(),
+                            rotation: rotation.into(),
+                            scale: glam::Vec3::from(t.scale).into(),
+                        },));
                     }
                     if let Some(prim) = &entity.primitive {
                         eb.insert(PrimitiveMesh(prim.clone()));
@@ -682,14 +669,11 @@ pub(super) fn process_editor_commands(
                             .as_ref()
                             .map(|t| (glam::Vec3::from(t.position), glam::Vec3::from(t.scale)))
                             .unwrap_or((glam::Vec3::ZERO, glam::Vec3::ONE));
-                        eb.insert((
-                            Transform {
-                                position: translation.into(),
-                                rotation: rotation.into(),
-                                scale: scale.into(),
-                            },
-                            GlobalTransform::default(),
-                        ));
+                        eb.insert((Transform {
+                            position: translation.into(),
+                            rotation: rotation.into(),
+                            scale: scale.into(),
+                        },));
                     }
                     if let Some(pl) = &entity.point_light {
                         eb.insert(PointLight {

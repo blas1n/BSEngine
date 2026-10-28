@@ -1,6 +1,6 @@
 use bevy_app::{App, Plugin, Update};
 use bevy_ecs::prelude::*;
-use bsengine_core::{AnimationPlayer, GlobalTransform, Material, Transform};
+use bsengine_core::{AnimationPlayer, Material, Transform};
 use bsengine_render::MeshRenderer;
 use bsengine_rhi_wgpu::{GpuMeshRegistry, GpuTextureRegistry};
 use tracing::warn;
@@ -619,12 +619,12 @@ fn load_gltf_assets(
                 }
                 e.remove::<(GltfAsset, PendingGltf)>();
                 if existing_transform.is_none() {
-                    e.insert((Transform::default(), GlobalTransform::default()));
+                    e.insert(Transform::default());
                 }
                 first = false;
             } else {
                 let t = existing_transform.cloned().unwrap_or_default();
-                commands.spawn((MeshRenderer { mesh_id }, mat, t, GlobalTransform::default()));
+                commands.spawn((MeshRenderer { mesh_id }, mat, t));
             }
         }
 

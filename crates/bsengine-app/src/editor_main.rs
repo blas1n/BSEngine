@@ -1,6 +1,6 @@
 use bevy_app::{PostStartup, Update};
 use bsengine_app::new_app;
-use bsengine_core::{Camera, DirectionalLight, GlobalTransform, Parent, PointLight, Transform};
+use bsengine_core::{Camera, DirectionalLight, Parent, PointLight, Transform};
 use bsengine_ecs::{Added, Commands, Entity, Query, Res, ResMut};
 use bsengine_editor::EditorPlugin;
 use bsengine_input::InputPlugin;
@@ -87,14 +87,12 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
         .spawn((
             MeshRenderer { mesh_id: cube_id },
             Transform::from_position(Vec3::new(-1.2, 0.0, 0.0)),
-            GlobalTransform::default(),
         ))
         .id();
 
     commands.spawn((
         MeshRenderer { mesh_id: cube_id },
         Transform::from_position(Vec3::new(1.2, 0.0, 0.0)),
-        GlobalTransform::default(),
         Parent(parent),
     ));
 
@@ -105,7 +103,6 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
                 .into(),
             ..Default::default()
         },
-        GlobalTransform::default(),
     ));
 
     // Orange point light above the scene
@@ -118,6 +115,5 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
             cookie: String::new(),
         },
         Transform::from_position(Vec3::new(0.0, 3.0, 1.0)),
-        GlobalTransform::default(),
     ));
 }

@@ -116,6 +116,7 @@ pub struct BakedLightProbes {
 /// Absent means no probe GI, and the existing IBL path runs unchanged.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Component, Default)]
+#[require(crate::Transform)]
 pub struct LightProbeVolume {
     /// Half-extents of the box, relative to the entity's `Transform`.
     pub half_extents: ReflectVec3,

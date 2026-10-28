@@ -1,6 +1,6 @@
 use bsengine_app::{new_app, Startup, Update};
 use bsengine_asset::{AssetIdentityPlugin, AssetPlugin, AssetStatusPlugin, AssetWatcherPlugin};
-use bsengine_core::{Camera, DirectionalLight, GlobalTransform, InspectorState, Transform};
+use bsengine_core::{Camera, DirectionalLight, InspectorState, Transform};
 use bsengine_ecs::{Added, Commands, Entity, Query, ResMut};
 use bsengine_editor::EditorPlugin;
 use bsengine_gltf::{GltfPlugin, SkinnedMeshPlugin};
@@ -164,7 +164,6 @@ fn setup_empty_scene(mut commands: Commands, mut registry: Option<ResMut<GpuMesh
                 .into(),
             ..Default::default()
         },
-        GlobalTransform::default(),
     ));
 
     if let Some(ref mut reg) = registry {
@@ -177,7 +176,6 @@ fn setup_empty_scene(mut commands: Commands, mut registry: Option<ResMut<GpuMesh
                 rotation: Quat::IDENTITY.into(),
                 scale: Vec3::new(20.0, 0.2, 20.0).into(),
             },
-            GlobalTransform::default(),
         ));
     }
 }

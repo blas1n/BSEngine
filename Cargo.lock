@@ -855,6 +855,7 @@ name = "bsengine-ecs"
 version = "0.1.0"
 dependencies = [
  "bevy_ecs",
+ "bevy_utils",
  "bsengine-core",
 ]
 

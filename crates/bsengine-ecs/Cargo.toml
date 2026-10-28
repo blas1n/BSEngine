@@ -7,3 +7,5 @@ edition.workspace = true
 [dependencies]
 bsengine-core.workspace = true
 bevy_ecs.workspace = true
+# For system names: see the workspace `bevy_utils` line.
+bevy_utils.workspace = true

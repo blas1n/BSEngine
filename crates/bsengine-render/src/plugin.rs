@@ -3547,21 +3547,31 @@ mod tests {
                 .reflection_probes_captured()
                 .to_vec()
         };
+        // Found by position rather than by index: the two probes sit in
+        // different archetypes (the second has a `ChildOf`), and the order a
+        // query visits archetypes in is not the order they were spawned in --
+        // Bevy 0.17 changed it, and this test had been reading it as if it
+        // were. Nothing in the renderer depends on that order.
         let probes = captured(&app);
         assert_eq!(probes.len(), 2, "both probes captured: {probes:?}");
-        assert_eq!(probes[0].center, Vec3::new(1.0, 2.0, 3.0));
-        assert_eq!(probes[0].half_extents, Vec3::new(1.0, 2.0, 3.0));
-        assert!(probes[0].box_projection);
-        assert_eq!(probes[0].intensity, 0.5);
-        assert_eq!(probes[0].blend_distance, 0.25);
+        let near = |probes: &[bsengine_rhi_wgpu::ReflectionProbeParams], at: Vec3| {
+            probes
+                .iter()
+                .find(|p| p.center == at)
+                .cloned()
+                .unwrap_or_else(|| panic!("no probe captured at {at}: {probes:?}"))
+        };
+        let root = near(&probes, Vec3::new(1.0, 2.0, 3.0));
+        assert_eq!(root.half_extents, Vec3::new(1.0, 2.0, 3.0));
+        assert!(root.box_projection);
+        assert_eq!(root.intensity, 0.5);
+        assert_eq!(root.blend_distance, 0.25);
+        // "the child probe is captured at its world position, not its local
+        // one": its local (1, 1, 1) under a parent at (10, 0, 0).
+        let child = near(&probes, Vec3::new(11.0, 1.0, 1.0));
         assert!(
-            probes[0].realtime && !probes[1].realtime,
+            root.realtime && !child.realtime,
             "the refresh mode reaches the surface: realtime for the first, once for the second"
-        );
-        assert_eq!(
-            probes[1].center,
-            Vec3::new(11.0, 1.0, 1.0),
-            "the child probe is captured at its world position, not its local one"
         );
 
         app.world_mut()
@@ -3570,7 +3580,7 @@ mod tests {
             .intensity = 2.0;
         app.update();
         assert_eq!(
-            captured(&app)[0].intensity,
+            near(&captured(&app), Vec3::new(1.0, 2.0, 3.0)).intensity,
             2.0,
             "a changed probe is re-captured with its new settings"
         );

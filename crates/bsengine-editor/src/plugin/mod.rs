@@ -6,7 +6,7 @@ use crate::snapshot::{
     SharedReflectCommandQueue, SharedSelection, SharedSnapshot, Tags,
 };
 use bevy_app::{App, Plugin, Update};
-use bevy_ecs::prelude::{Commands, Entity, IntoSystemConfigs, ParamSet, Query, ResMut, World};
+use bevy_ecs::prelude::{Commands, Entity, IntoScheduleConfigs, ParamSet, Query, ResMut, World};
 use bevy_ecs::reflect::ReflectCommandExt;
 use bsengine_core::{
     Camera, DirectionalLight, EditorPanelRegistry, GlobalTransform, InspectorCmd,

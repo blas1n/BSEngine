@@ -1,9 +1,10 @@
 use crate::io::{
     get_meta_path, AssetReader, AssetReaderError, EmptyPathStream, PathStream, Reader, VecReader,
 };
-use bevy_utils::tracing::error;
+use alloc::{borrow::ToOwned, boxed::Box, format};
 use js_sys::{Uint8Array, JSON};
 use std::path::{Path, PathBuf};
+use tracing::error;
 use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::Response;
@@ -51,7 +52,7 @@ fn js_value_to_err(context: &str) -> impl FnOnce(JsValue) -> std::io::Error + '_
 }
 
 impl HttpWasmAssetReader {
-    async fn fetch_bytes<'a>(&self, path: PathBuf) -> Result<impl Reader, AssetReaderError> {
+    async fn fetch_bytes(&self, path: PathBuf) -> Result<impl Reader, AssetReaderError> {
         // The JS global scope includes a self-reference via a specializing name, which can be used to determine the type of global context available.
         let global: Global = js_sys::global().unchecked_into();
         let promise = if !global.window().is_undefined() {
@@ -80,7 +81,10 @@ impl HttpWasmAssetReader {
                 let reader = VecReader::new(bytes);
                 Ok(reader)
             }
-            404 => Err(AssetReaderError::NotFound(path)),
+            // Some web servers, including itch.io's CDN, return 403 when a requested file isn't present.
+            // TODO: remove handling of 403 as not found when it's easier to configure
+            // see https://github.com/bevyengine/bevy/pull/19268#pullrequestreview-2882410105
+            403 | 404 => Err(AssetReaderError::NotFound(path)),
             status => Err(AssetReaderError::HttpError(status)),
         }
     }

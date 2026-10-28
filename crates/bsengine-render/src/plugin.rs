@@ -1,5 +1,5 @@
 use bevy_app::{App, Plugin, PostUpdate, Startup, Update};
-use bevy_ecs::prelude::{Entity, EventReader, IntoSystemConfigs, Local, ParamSet, Query, ResMut};
+use bevy_ecs::prelude::{Entity, EventReader, IntoScheduleConfigs, Local, ParamSet, Query, ResMut};
 use bsengine_core::{
     AmbientOcclusion, Bloom, Camera, CustomShader, DirectionalLight, EditorPanelRegistry,
     EditorPlayState, GlobalTransform, HudTexts, InspectorState, Material, PointLight, SkyboxPath,

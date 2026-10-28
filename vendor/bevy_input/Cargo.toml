@@ -10,9 +10,9 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2021"
+edition = "2024"
 name = "bevy_input"
-version = "0.15.1"
+version = "0.16.1"
 build = false
 autolib = false
 autobins = false
@@ -25,6 +25,7 @@ readme = "README.md"
 keywords = ["bevy"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/bevyengine/bevy"
+resolver = "2"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -33,58 +34,6 @@ rustdoc-args = [
     "--generate-link-to-definition",
 ]
 
-[lib]
-name = "bevy_input"
-path = "src/lib.rs"
-
-[dependencies.bevy_app]
-version = "0.15.1"
-default-features = false
-
-[dependencies.bevy_core]
-version = "0.15.1"
-
-[dependencies.bevy_ecs]
-version = "0.15.1"
-features = ["serialize"]
-default-features = false
-
-[dependencies.bevy_math]
-version = "0.15.1"
-features = [
-    "rand",
-    "serialize",
-]
-default-features = false
-
-[dependencies.bevy_reflect]
-version = "0.15.1"
-features = [
-    "glam",
-    "smol_str",
-]
-optional = true
-
-[dependencies.bevy_utils]
-version = "0.15.1"
-
-[dependencies.derive_more]
-version = "1"
-features = [
-    "error",
-    "from",
-    "display",
-]
-default-features = false
-
-[dependencies.serde]
-version = "1"
-features = ["derive"]
-optional = true
-
-[dependencies.smol_str]
-version = "0.2"
-
 [features]
 bevy_reflect = [
     "dep:bevy_reflect",
@@ -92,17 +41,107 @@ bevy_reflect = [
     "bevy_ecs/bevy_reflect",
     "bevy_math/bevy_reflect",
 ]
-default = ["bevy_reflect"]
+critical-section = [
+    "bevy_app/critical-section",
+    "bevy_ecs/critical-section",
+    "bevy_reflect?/critical-section",
+    "bevy_platform/critical-section",
+]
+default = [
+    "std",
+    "bevy_reflect",
+    "bevy_ecs/async_executor",
+    "smol_str",
+]
+libm = ["bevy_math/libm"]
 serialize = [
     "serde",
-    "smol_str/serde",
+    "smol_str?/serde",
+    "bevy_ecs/serialize",
+    "bevy_math/serialize",
+    "bevy_platform/serialize",
 ]
+smol_str = [
+    "dep:smol_str",
+    "bevy_reflect/smol_str",
+]
+std = [
+    "bevy_app/std",
+    "bevy_ecs/std",
+    "bevy_math/std",
+    "bevy_utils/std",
+    "bevy_reflect/std",
+    "bevy_platform/std",
+]
+
+[lib]
+name = "bevy_input"
+path = "src/lib.rs"
+
+[dependencies.bevy_app]
+version = "0.16.1"
+default-features = false
+
+[dependencies.bevy_ecs]
+version = "0.16.1"
+default-features = false
+
+[dependencies.bevy_math]
+version = "0.16.1"
+default-features = false
+
+[dependencies.bevy_platform]
+version = "0.16.1"
+default-features = false
+
+[dependencies.bevy_reflect]
+version = "0.16.1"
+features = ["glam"]
+optional = true
+default-features = false
+
+[dependencies.bevy_utils]
+version = "0.16.1"
+default-features = false
+
+[dependencies.derive_more]
+version = "1"
+features = ["from"]
+default-features = false
+
+[dependencies.log]
+version = "0.4"
+default-features = false
+
+[dependencies.serde]
+version = "1"
+features = [
+    "alloc",
+    "derive",
+]
+optional = true
+default-features = false
+
+[dependencies.smol_str]
+version = "0.2"
+optional = true
+default-features = false
+
+[dependencies.thiserror]
+version = "2"
+default-features = false
 
 [lints.clippy]
 alloc_instead_of_core = "warn"
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
 doc_markdown = "warn"
 manual_let_else = "warn"
 match_same_arms = "warn"
+needless_lifetimes = "allow"
+nonstandard_macro_braces = "warn"
+print_stderr = "warn"
+print_stdout = "warn"
 ptr_as_ptr = "warn"
 ptr_cast_constness = "warn"
 redundant_closure_for_method_calls = "warn"
@@ -112,6 +151,7 @@ semicolon_if_nothing_returned = "warn"
 std_instead_of_alloc = "warn"
 std_instead_of_core = "warn"
 too_long_first_doc_paragraph = "allow"
+too_many_arguments = "allow"
 type_complexity = "allow"
 undocumented_unsafe_blocks = "warn"
 unwrap_or_default = "warn"

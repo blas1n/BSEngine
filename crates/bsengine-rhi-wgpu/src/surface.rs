@@ -10416,7 +10416,7 @@ impl WgpuSurface {
                                                 value.as_mut(),
                                                 type_registry_guard.as_deref(),
                                             );
-                                            to_apply.push((type_path.clone(), value.clone_value()));
+                                            to_apply.push((type_path.clone(), value.to_dynamic()));
                                         }
                                         ui.separator();
                                     }

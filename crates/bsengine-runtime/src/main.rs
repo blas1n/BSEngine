@@ -608,7 +608,7 @@ fn quit_after_frames(app: &mut bevy_app::App, frames: u32) {
                 // The line `window_smoke.rs` parses. Printed once, on the way
                 // out, so a truncated run cannot look like a complete one.
                 println!("frames={seen} draw_calls={drawn}");
-                exit.send(bevy_app::AppExit::Success);
+                exit.write(bevy_app::AppExit::Success);
             }
         },
     );

@@ -72,8 +72,14 @@ use bevy_ecs::{
     event::{Event, EventReader},
     system::ResMut,
 };
+
 #[cfg(feature = "bevy_reflect")]
 use bevy_reflect::Reflect;
+
+#[cfg(not(feature = "smol_str"))]
+use alloc::string::String as SmolStr;
+
+#[cfg(feature = "smol_str")]
 use smol_str::SmolStr;
 
 #[cfg(all(feature = "serialize", feature = "bevy_reflect"))]
@@ -92,7 +98,7 @@ use bevy_reflect::{ReflectDeserialize, ReflectSerialize};
 #[cfg_attr(
     feature = "bevy_reflect",
     derive(Reflect),
-    reflect(Debug, PartialEq, Hash)
+    reflect(Debug, PartialEq, Hash, Clone)
 )]
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(
@@ -106,6 +112,19 @@ pub struct KeyboardInput {
     pub logical_key: Key,
     /// The press state of the key.
     pub state: ButtonState,
+    /// Contains the text produced by this keypress.
+    ///
+    /// In most cases this is identical to the content
+    /// of the `Character` variant of `logical_key`.
+    /// However, on Windows when a dead key was pressed earlier
+    /// but cannot be combined with the character from this
+    /// keypress, the produced text will consist of two characters:
+    /// the dead-key-character followed by the character resulting
+    /// from this keypress.
+    ///
+    /// This is `None` if the current keypress cannot
+    /// be interpreted as text.
+    pub text: Option<SmolStr>,
     /// On some systems, holding down a key for some period of time causes that key to be repeated
     /// as though it were being pressed and released repeatedly. This field is [`true`] if this
     /// event is the result of one of those repeats.
@@ -121,7 +140,7 @@ pub struct KeyboardInput {
 /// OS specific key combination that leads to Bevy window losing focus and not receiving any
 /// input events
 #[derive(Event, Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "bevy_reflect", derive(Reflect))]
+#[cfg_attr(feature = "bevy_reflect", derive(Reflect), reflect(Clone, PartialEq))]
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
@@ -171,7 +190,11 @@ pub fn keyboard_input_system(
 /// - Correctly match key press and release events.
 /// - On non-web platforms, support assigning keybinds to virtually any key through a UI.
 #[derive(Debug, Clone, Ord, PartialOrd, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "bevy_reflect", derive(Reflect))]
+#[cfg_attr(
+    feature = "bevy_reflect",
+    derive(Reflect),
+    reflect(Clone, PartialEq, Hash)
+)]
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
@@ -212,14 +235,17 @@ pub enum NativeKeyCode {
 #[cfg_attr(
     feature = "bevy_reflect",
     derive(Reflect),
-    reflect(Debug, Hash, PartialEq)
+    reflect(Debug, Hash, PartialEq, Clone)
 )]
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
     reflect(Serialize, Deserialize)
 )]
-#[allow(clippy::doc_markdown)] // Clippy doesn't like our use of <kbd>.
+#[expect(
+    clippy::doc_markdown,
+    reason = "We use camel-case words inside `<kbd>` tags to represent keyboard keys, which are not identifiers that we should be putting inside backticks."
+)]
 #[repr(u32)]
 pub enum KeyCode {
     /// This variant is used when the key cannot be translated to any other variant.
@@ -705,7 +731,7 @@ pub enum KeyCode {
 #[cfg_attr(
     feature = "bevy_reflect",
     derive(Reflect),
-    reflect(Debug, Hash, PartialEq)
+    reflect(Debug, Hash, PartialEq, Clone)
 )]
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(
@@ -738,18 +764,24 @@ pub enum NativeKey {
 #[cfg_attr(
     feature = "bevy_reflect",
     derive(Reflect),
-    reflect(Debug, Hash, PartialEq)
+    reflect(Debug, Hash, PartialEq, Clone)
 )]
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
     reflect(Serialize, Deserialize)
 )]
-#[allow(clippy::doc_markdown)] // Clippy doesn't like our use of <kbd>.
+#[expect(
+    clippy::doc_markdown,
+    reason = "We use camel-case words inside `<kbd>` tags to represent keyboard keys, which are not identifiers that we should be putting inside backticks."
+)]
 pub enum Key {
     /// A key string that corresponds to the character typed by the user, taking into account the
     /// user’s current locale setting, and any system-level keyboard mapping overrides that are in
     /// effect.
+    ///
+    /// Note that behavior may vary across platforms and keyboard layouts.
+    /// See the `text` field of [`KeyboardInput`] for more information.
     Character(SmolStr),
 
     /// This variant is used when the key cannot be translated to any other variant.

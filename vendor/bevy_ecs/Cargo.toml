@@ -10,10 +10,10 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2021"
-rust-version = "1.77.0"
+edition = "2024"
+rust-version = "1.85.0"
 name = "bevy_ecs"
-version = "0.15.1"
+version = "0.16.1"
 build = false
 autolib = false
 autobins = false
@@ -34,6 +34,7 @@ categories = [
 ]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/bevyengine/bevy"
+resolver = "2"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -41,6 +42,62 @@ rustdoc-args = [
     "-Zunstable-options",
     "--generate-link-to-definition",
 ]
+
+[features]
+async_executor = [
+    "std",
+    "bevy_tasks/async_executor",
+]
+backtrace = ["std"]
+bevy_debug_stepping = []
+bevy_reflect = ["dep:bevy_reflect"]
+configurable_error_handler = []
+critical-section = [
+    "bevy_tasks/critical-section",
+    "bevy_platform/critical-section",
+    "bevy_reflect?/critical-section",
+]
+default = [
+    "std",
+    "bevy_reflect",
+    "async_executor",
+    "backtrace",
+]
+detailed_trace = ["trace"]
+multi_threaded = [
+    "bevy_tasks/multi_threaded",
+    "dep:arrayvec",
+]
+reflect_functions = [
+    "bevy_reflect",
+    "bevy_reflect/functions",
+]
+serialize = [
+    "dep:serde",
+    "bevy_utils/serde",
+    "bevy_platform/serialize",
+    "indexmap/serde",
+]
+std = [
+    "bevy_reflect?/std",
+    "bevy_tasks/std",
+    "bevy_utils/std",
+    "bitflags/std",
+    "concurrent-queue/std",
+    "disqualified/alloc",
+    "fixedbitset/std",
+    "indexmap/std",
+    "serde?/std",
+    "nonmax/std",
+    "arrayvec?/std",
+    "log/std",
+    "bevy_platform/std",
+]
+trace = [
+    "std",
+    "dep:tracing",
+]
+track_location = []
 
 [lib]
 name = "bevy_ecs"
@@ -61,33 +118,48 @@ path = "examples/resources.rs"
 [dependencies.arrayvec]
 version = "0.7.4"
 optional = true
+default-features = false
 
 [dependencies.bevy_ecs_macros]
-version = "0.15.1"
+version = "0.16.1"
+
+[dependencies.bevy_platform]
+version = "0.16.1"
+features = ["alloc"]
+default-features = false
 
 [dependencies.bevy_ptr]
-version = "0.15.1"
+version = "0.16.1"
 
 [dependencies.bevy_reflect]
-version = "0.15.1"
+version = "0.16.1"
+features = ["smallvec"]
 optional = true
+default-features = false
 
 [dependencies.bevy_tasks]
-version = "0.15.1"
+version = "0.16.1"
+default-features = false
 
 [dependencies.bevy_utils]
-version = "0.15.1"
+version = "0.16.1"
+features = ["alloc"]
+default-features = false
 
 [dependencies.bitflags]
 version = "2.3"
+default-features = false
+
+[dependencies.bumpalo]
+version = "3"
 
 [dependencies.concurrent-queue]
 version = "2.5.0"
+default-features = false
 
 [dependencies.derive_more]
 version = "1"
 features = [
-    "error",
     "from",
     "display",
     "into",
@@ -97,52 +169,78 @@ default-features = false
 
 [dependencies.disqualified]
 version = "1.0"
+default-features = false
 
 [dependencies.fixedbitset]
 version = "0.5"
+default-features = false
+
+[dependencies.indexmap]
+version = "2.5.0"
+default-features = false
+
+[dependencies.log]
+version = "0.4"
+default-features = false
 
 [dependencies.nonmax]
 version = "0.5"
-
-[dependencies.petgraph]
-version = "0.6"
+default-features = false
 
 [dependencies.serde]
 version = "1"
+features = [
+    "alloc",
+    "serde_derive",
+]
 optional = true
 default-features = false
 
 [dependencies.smallvec]
 version = "1"
-features = ["union"]
+features = [
+    "union",
+    "const_generics",
+]
+
+[dependencies.thiserror]
+version = "2"
+default-features = false
+
+[dependencies.tracing]
+version = "0.1"
+optional = true
+default-features = false
+
+[dependencies.variadics_please]
+version = "1.1"
+default-features = false
 
 [dev-dependencies.rand]
 version = "0.8"
 
+[dev-dependencies.serde_test]
+version = "1.0"
+
 [dev-dependencies.static_assertions]
 version = "1.1.0"
 
-[features]
-bevy_debug_stepping = []
-default = ["bevy_reflect"]
-detailed_trace = []
-multi_threaded = [
-    "bevy_tasks/multi_threaded",
-    "arrayvec",
-]
-reflect_functions = [
-    "bevy_reflect",
-    "bevy_reflect/functions",
-]
-serialize = ["dep:serde"]
-trace = []
-track_change_detection = []
+[target.'cfg(not(all(target_has_atomic = "8", target_has_atomic = "16", target_has_atomic = "32", target_has_atomic = "64", target_has_atomic = "ptr")))'.dependencies.concurrent-queue]
+version = "2.5.0"
+features = ["portable-atomic"]
+default-features = false
 
 [lints.clippy]
 alloc_instead_of_core = "warn"
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
 doc_markdown = "warn"
 manual_let_else = "warn"
 match_same_arms = "warn"
+needless_lifetimes = "allow"
+nonstandard_macro_braces = "warn"
+print_stderr = "warn"
+print_stdout = "warn"
 ptr_as_ptr = "warn"
 ptr_cast_constness = "warn"
 redundant_closure_for_method_calls = "warn"
@@ -152,6 +250,7 @@ semicolon_if_nothing_returned = "warn"
 std_instead_of_alloc = "warn"
 std_instead_of_core = "warn"
 too_long_first_doc_paragraph = "allow"
+too_many_arguments = "allow"
 type_complexity = "allow"
 undocumented_unsafe_blocks = "warn"
 unwrap_or_default = "warn"

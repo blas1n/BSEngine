@@ -1,6 +1,6 @@
 use bevy_app::prelude::*;
 use bsengine_core::{Time, TimeSystems};
-use bsengine_ecs::{IntoSystemConfigs, ResMut};
+use bsengine_ecs::{IntoScheduleConfigs, ResMut};
 
 /// Inserts the `Time` resource and ticks it in `PreUpdate` so every other system
 /// sees an up-to-date `delta_seconds` for the current frame.

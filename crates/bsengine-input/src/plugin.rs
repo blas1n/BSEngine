@@ -1,6 +1,6 @@
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{EventReader, NonSendMut, ResMut, Resource, SystemSet};
-use bsengine_ecs::IntoSystemConfigs;
+use bsengine_ecs::IntoScheduleConfigs;
 
 use crate::{
     actions::{update_action_state, ActionState, InputActions},

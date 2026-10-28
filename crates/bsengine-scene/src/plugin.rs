@@ -3,7 +3,7 @@ use crate::types::{
     TransformDescriptor,
 };
 use bevy_app::{App, Plugin, Startup};
-use bevy_ecs::prelude::{Component, Entity, IntoSystemConfigs, ReflectComponent, World};
+use bevy_ecs::prelude::{Component, Entity, IntoScheduleConfigs, ReflectComponent, World};
 use bevy_reflect::prelude::ReflectDefault;
 use bevy_reflect::Reflect;
 use bsengine_asset::{AssetGuid, AssetIndex};
@@ -816,11 +816,13 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                                             }
                                         }
                                     }
-                                    reflect_component.apply_or_insert(
-                                        &mut builder,
-                                        value.as_ref(),
-                                        &registry,
-                                    );
+                                    reflect_component.apply_or_insert_mapped(
+&mut builder,
+value.as_ref(),
+&registry,
+&mut (),
+bevy_ecs::relationship::RelationshipHookMode::Run,
+);
                                 }
                                 Err(e) => tracing::warn!(
                                     "scene: entity '{}' component '{type_path}' RON value doesn't match its shape: {e}",

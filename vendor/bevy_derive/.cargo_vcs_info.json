@@ -1,7 +1,6 @@
 {
   "git": {
-    "sha1": "5a4b91295c51bedc3dfd4cc0c973cf3b1a9132c6",
-    "dirty": true
+    "sha1": "383b3510455c431f34cf3f2c6e3c2d40eddce744"
   },
   "path_in_vcs": "crates/bevy_derive"
 }

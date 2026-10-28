@@ -770,7 +770,7 @@ fn step_world(
             world.collider_entity_map.get(&h1),
             world.collider_entity_map.get(&h2),
         ) {
-            collision_events.send(CollisionEvent {
+            collision_events.write(CollisionEvent {
                 entity_a: e1,
                 entity_b: e2,
                 started,

@@ -3,6 +3,7 @@
     html_logo_url = "https://bevyengine.org/assets/icon.png",
     html_favicon_url = "https://bevyengine.org/assets/icon.png"
 )]
+#![no_std]
 
 //! `bevy_window` provides a platform-agnostic interface for windowing in Bevy.
 //!
@@ -11,12 +12,14 @@
 //! The [`WindowPlugin`] sets up some global window-related parameters and
 //! is part of the [`DefaultPlugins`](https://docs.rs/bevy/latest/bevy/struct.DefaultPlugins.html).
 
+#[cfg(feature = "std")]
+extern crate std;
+
 extern crate alloc;
 
 use alloc::sync::Arc;
-use std::sync::Mutex;
 
-use bevy_a11y::Focus;
+use bevy_platform::sync::Mutex;
 
 mod event;
 mod monitor;
@@ -42,8 +45,9 @@ pub use window::*;
 pub mod prelude {
     #[doc(hidden)]
     pub use crate::{
-        CursorEntered, CursorLeft, CursorMoved, FileDragAndDrop, Ime, MonitorSelection, Window,
-        WindowMoved, WindowPlugin, WindowPosition, WindowResizeConstraints,
+        CursorEntered, CursorLeft, CursorMoved, FileDragAndDrop, Ime, MonitorSelection,
+        VideoModeSelection, Window, WindowMoved, WindowPlugin, WindowPosition,
+        WindowResizeConstraints,
     };
 }
 
@@ -118,17 +122,10 @@ impl Plugin for WindowPlugin {
             .add_event::<AppLifecycle>();
 
         if let Some(primary_window) = &self.primary_window {
-            let initial_focus = app
-                .world_mut()
-                .spawn(primary_window.clone())
-                .insert((
-                    PrimaryWindow,
-                    RawHandleWrapperHolder(Arc::new(Mutex::new(None))),
-                ))
-                .id();
-            if let Some(mut focus) = app.world_mut().get_resource_mut::<Focus>() {
-                **focus = Some(initial_focus);
-            }
+            app.world_mut().spawn(primary_window.clone()).insert((
+                PrimaryWindow,
+                RawHandleWrapperHolder(Arc::new(Mutex::new(None))),
+            ));
         }
 
         match self.exit_condition {
@@ -147,6 +144,7 @@ impl Plugin for WindowPlugin {
         }
 
         // Register event types
+        #[cfg(feature = "bevy_reflect")]
         app.register_type::<WindowEvent>()
             .register_type::<WindowResized>()
             .register_type::<RequestRedraw>()
@@ -168,6 +166,7 @@ impl Plugin for WindowPlugin {
             .register_type::<Monitor>();
 
         // Register window descriptor and related types
+        #[cfg(feature = "bevy_reflect")]
         app.register_type::<Window>()
             .register_type::<PrimaryWindow>();
     }
@@ -178,11 +177,11 @@ impl Plugin for WindowPlugin {
 pub enum ExitCondition {
     /// Close application when the primary window is closed
     ///
-    /// The plugin will add [`exit_on_primary_closed`] to [`Update`].
+    /// The plugin will add [`exit_on_primary_closed`] to [`PostUpdate`].
     OnPrimaryClosed,
     /// Close application when all windows are closed
     ///
-    /// The plugin will add [`exit_on_all_closed`] to [`Update`].
+    /// The plugin will add [`exit_on_all_closed`] to [`PostUpdate`].
     OnAllClosed,
     /// Keep application running headless even after closing all windows
     ///

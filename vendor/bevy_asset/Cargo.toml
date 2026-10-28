@@ -10,9 +10,9 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2021"
+edition = "2024"
 name = "bevy_asset"
-version = "0.15.1"
+version = "0.16.1"
 build = false
 autolib = false
 autobins = false
@@ -25,6 +25,7 @@ readme = "README.md"
 keywords = ["bevy"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/bevyengine/bevy"
+resolver = "2"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -33,12 +34,23 @@ rustdoc-args = [
     "--generate-link-to-definition",
 ]
 
+[features]
+asset_processor = []
+embedded_watcher = ["file_watcher"]
+file_watcher = [
+    "notify-debouncer-full",
+    "watch",
+]
+multi_threaded = ["bevy_tasks/multi_threaded"]
+trace = []
+watch = []
+
 [lib]
 name = "bevy_asset"
 path = "src/lib.rs"
 
 [dependencies.async-broadcast]
-version = "0.5"
+version = "0.7.2"
 
 [dependencies.async-fs]
 version = "2.0"
@@ -50,23 +62,28 @@ version = "3.0"
 version = "1.0"
 
 [dependencies.bevy_app]
-version = "0.15.1"
+version = "0.16.1"
 
 [dependencies.bevy_asset_macros]
-version = "0.15.1"
+version = "0.16.1"
 
 [dependencies.bevy_ecs]
-version = "0.15.1"
+version = "0.16.1"
+
+[dependencies.bevy_platform]
+version = "0.16.1"
+features = ["std"]
+default-features = false
 
 [dependencies.bevy_reflect]
-version = "0.15.1"
+version = "0.16.1"
 features = ["uuid"]
 
 [dependencies.bevy_tasks]
-version = "0.15.1"
+version = "0.16.1"
 
 [dependencies.bevy_utils]
-version = "0.15.1"
+version = "0.16.1"
 
 [dependencies.bitflags]
 version = "2.3"
@@ -80,18 +97,16 @@ version = "0.5"
 
 [dependencies.derive_more]
 version = "1"
-features = [
-    "error",
-    "from",
-    "display",
-]
+features = ["from"]
 default-features = false
 
 [dependencies.disqualified]
 version = "1.0"
 
 [dependencies.downcast-rs]
-version = "1.2"
+version = "2"
+features = ["std"]
+default-features = false
 
 [dependencies.either]
 version = "1.13"
@@ -119,33 +134,45 @@ features = ["derive"]
 [dependencies.stackfuture]
 version = "0.3"
 
+[dependencies.thiserror]
+version = "2"
+default-features = false
+
+[dependencies.tracing]
+version = "0.1"
+features = ["std"]
+default-features = false
+
 [dependencies.uuid]
-version = "1.0"
+version = "1.13.1"
 features = ["v4"]
 
-[dev-dependencies.bevy_core]
-version = "0.15.1"
-
-[dev-dependencies.bevy_log]
-version = "0.15.1"
-
-[features]
-asset_processor = []
-embedded_watcher = ["file_watcher"]
-file_watcher = [
-    "notify-debouncer-full",
-    "watch",
-]
-multi_threaded = ["bevy_tasks/multi_threaded"]
-trace = []
-watch = []
-
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.notify-debouncer-full]
-version = "0.4.0"
+version = "0.5.0"
 optional = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies.bevy_app]
+version = "0.16.1"
+features = ["web"]
+default-features = false
+
+[target.'cfg(target_arch = "wasm32")'.dependencies.bevy_reflect]
+version = "0.16.1"
+features = ["web"]
+default-features = false
+
+[target.'cfg(target_arch = "wasm32")'.dependencies.bevy_tasks]
+version = "0.16.1"
+features = ["web"]
+default-features = false
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.js-sys]
 version = "0.3"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies.uuid]
+version = "1.13.1"
+features = ["js"]
+default-features = false
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.wasm-bindgen]
 version = "0.2"
@@ -162,13 +189,19 @@ features = [
 ]
 
 [target.'cfg(target_os = "android")'.dependencies.bevy_window]
-version = "0.15.1"
+version = "0.16.1"
 
 [lints.clippy]
 alloc_instead_of_core = "warn"
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
 doc_markdown = "warn"
 manual_let_else = "warn"
 match_same_arms = "warn"
+needless_lifetimes = "allow"
+nonstandard_macro_braces = "warn"
+print_stderr = "warn"
+print_stdout = "warn"
 ptr_as_ptr = "warn"
 ptr_cast_constness = "warn"
 redundant_closure_for_method_calls = "warn"
@@ -178,6 +211,7 @@ semicolon_if_nothing_returned = "warn"
 std_instead_of_alloc = "warn"
 std_instead_of_core = "warn"
 too_long_first_doc_paragraph = "allow"
+too_many_arguments = "allow"
 type_complexity = "allow"
 undocumented_unsafe_blocks = "warn"
 unwrap_or_default = "warn"

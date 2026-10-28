@@ -10,9 +10,9 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2021"
+edition = "2024"
 name = "bevy_tasks"
-version = "0.15.3"
+version = "0.16.1"
 build = false
 autolib = false
 autobins = false
@@ -25,6 +25,7 @@ readme = "README.md"
 keywords = ["bevy"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/bevyengine/bevy"
+resolver = "2"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -34,9 +35,30 @@ rustdoc-args = [
 ]
 
 [features]
+async_executor = [
+    "std",
+    "dep:async-executor",
+]
+critical-section = ["bevy_platform/critical-section"]
+default = [
+    "std",
+    "async_executor",
+]
 multi_threaded = [
+    "std",
     "dep:async-channel",
     "dep:concurrent-queue",
+]
+std = [
+    "futures-lite/std",
+    "async-task/std",
+    "bevy_platform/std",
+]
+web = [
+    "bevy_platform/web",
+    "dep:wasm-bindgen-futures",
+    "dep:pin-project",
+    "dep:futures-channel",
 ]
 
 [lib]
@@ -57,35 +79,88 @@ optional = true
 
 [dependencies.async-executor]
 version = "1.11"
+optional = true
 
 [dependencies.async-io]
 version = "2.0.0"
 optional = true
 
+[dependencies.async-task]
+version = "4.4.0"
+default-features = false
+
+[dependencies.atomic-waker]
+version = "1"
+default-features = false
+
+[dependencies.bevy_platform]
+version = "0.16.1"
+features = ["alloc"]
+default-features = false
+
+[dependencies.cfg-if]
+version = "1.0.0"
+
 [dependencies.concurrent-queue]
 version = "2.0.0"
 optional = true
 
+[dependencies.crossbeam-queue]
+version = "0.3"
+features = ["alloc"]
+default-features = false
+
+[dependencies.derive_more]
+version = "1"
+features = [
+    "deref",
+    "deref_mut",
+]
+default-features = false
+
 [dependencies.futures-lite]
 version = "2.0.1"
+features = ["alloc"]
+default-features = false
 
-[dev-dependencies.web-time]
-version = "1.1"
+[target.'cfg(not(all(target_has_atomic = "8", target_has_atomic = "16", target_has_atomic = "32", target_has_atomic = "64", target_has_atomic = "ptr")))'.dependencies.async-task]
+version = "4.4.0"
+features = ["portable-atomic"]
+default-features = false
+
+[target.'cfg(not(all(target_has_atomic = "8", target_has_atomic = "16", target_has_atomic = "32", target_has_atomic = "64", target_has_atomic = "ptr")))'.dependencies.atomic-waker]
+version = "1"
+features = ["portable-atomic"]
+default-features = false
+
+[target.'cfg(not(all(target_has_atomic = "8", target_has_atomic = "16", target_has_atomic = "32", target_has_atomic = "64", target_has_atomic = "ptr")))'.dependencies.heapless]
+version = "0.8"
+features = ["portable-atomic"]
+default-features = false
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.futures-channel]
 version = "0.3"
+optional = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.pin-project]
 version = "1"
+optional = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.wasm-bindgen-futures]
 version = "0.4"
+optional = true
 
 [lints.clippy]
 alloc_instead_of_core = "warn"
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
 doc_markdown = "warn"
 manual_let_else = "warn"
 match_same_arms = "warn"
+needless_lifetimes = "allow"
+nonstandard_macro_braces = "warn"
+print_stderr = "warn"
+print_stdout = "warn"
 ptr_as_ptr = "warn"
 ptr_cast_constness = "warn"
 redundant_closure_for_method_calls = "warn"
@@ -95,6 +170,7 @@ semicolon_if_nothing_returned = "warn"
 std_instead_of_alloc = "warn"
 std_instead_of_core = "warn"
 too_long_first_doc_paragraph = "allow"
+too_many_arguments = "allow"
 type_complexity = "allow"
 undocumented_unsafe_blocks = "warn"
 unwrap_or_default = "warn"

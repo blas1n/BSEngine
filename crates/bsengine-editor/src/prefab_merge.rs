@@ -845,10 +845,12 @@ fn apply_merged_components(
                 match serde::de::DeserializeSeed::deserialize(de, &mut deserializer) {
                     Ok(value) => {
                         let mut entity_mut = world.entity_mut(entity);
-                        reflect_component.apply_or_insert(
+                        reflect_component.apply_or_insert_mapped(
                             &mut entity_mut,
                             value.as_ref(),
                             registry,
+                            &mut (),
+                            bevy_ecs::relationship::RelationshipHookMode::Run,
                         );
                     }
                     Err(e) => tracing::warn!(

@@ -183,7 +183,13 @@ pub(super) fn process_reflect_commands(world: &mut World) {
                     .find(|e| e.id().index() as u64 == entity_id);
                 if let Some(entity) = target.map(|e| e.id()) {
                     let mut entity_mut = world.entity_mut(entity);
-                    reflect_component.apply_or_insert(&mut entity_mut, value.as_ref(), &registry);
+                    reflect_component.apply_or_insert_mapped(
+                        &mut entity_mut,
+                        value.as_ref(),
+                        &registry,
+                        &mut (),
+                        bevy_ecs::relationship::RelationshipHookMode::Run,
+                    );
                 }
             }
         }

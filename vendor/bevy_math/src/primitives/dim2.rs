@@ -1,16 +1,23 @@
 use core::f32::consts::{FRAC_1_SQRT_2, FRAC_PI_2, FRAC_PI_3, PI};
-use derive_more::derive::{Display, Error, From};
+use derive_more::derive::From;
+use thiserror::Error;
 
 use super::{Measured2d, Primitive2d, WindingOrder};
 use crate::{
     ops::{self, FloatPow},
-    Dir2, Vec2,
+    Dir2, InvalidDirectionError, Isometry2d, Ray2d, Rot2, Vec2,
 };
+
+#[cfg(feature = "alloc")]
+use super::polygon::is_polygon_simple;
 
 #[cfg(feature = "bevy_reflect")]
 use bevy_reflect::{std_traits::ReflectDefault, Reflect};
 #[cfg(all(feature = "serialize", feature = "bevy_reflect"))]
 use bevy_reflect::{ReflectDeserialize, ReflectSerialize};
+
+#[cfg(feature = "alloc")]
+use alloc::{boxed::Box, vec::Vec};
 
 /// A circle primitive, representing the set of points some distance from the origin
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -18,7 +25,7 @@ use bevy_reflect::{ReflectDeserialize, ReflectSerialize};
 #[cfg_attr(
     feature = "bevy_reflect",
     derive(Reflect),
-    reflect(Debug, PartialEq, Default)
+    reflect(Debug, PartialEq, Default, Clone)
 )]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
@@ -64,7 +71,7 @@ impl Circle {
         } else {
             // The point is outside the circle.
             // Find the closest point on the perimeter of the circle.
-            let dir_to_point = point / distance_squared.sqrt();
+            let dir_to_point = point / ops::sqrt(distance_squared);
             self.radius * dir_to_point
         }
     }
@@ -105,7 +112,7 @@ impl Measured2d for Circle {
 #[cfg_attr(
     feature = "bevy_reflect",
     derive(Reflect),
-    reflect(Debug, PartialEq, Default)
+    reflect(Debug, PartialEq, Default, Clone)
 )]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
@@ -230,7 +237,7 @@ impl Arc2d {
     // used by Wolfram MathWorld, which is the distance rather than the segment.
     pub fn apothem(&self) -> f32 {
         let sign = if self.is_minor() { 1.0 } else { -1.0 };
-        sign * f32::sqrt(self.radius.squared() - self.half_chord_length().squared())
+        sign * ops::sqrt(self.radius.squared() - self.half_chord_length().squared())
     }
 
     /// Get the length of the sagitta of this arc, that is,
@@ -272,7 +279,7 @@ impl Arc2d {
 #[cfg_attr(
     feature = "bevy_reflect",
     derive(Reflect),
-    reflect(Debug, PartialEq, Default)
+    reflect(Debug, PartialEq, Default, Clone)
 )]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
@@ -280,7 +287,7 @@ impl Arc2d {
 )]
 pub struct CircularSector {
     /// The arc defining the sector
-    #[cfg_attr(feature = "serialize", serde(flatten))]
+    #[cfg_attr(all(feature = "serialize", feature = "alloc"), serde(flatten))]
     pub arc: Arc2d,
 }
 impl Primitive2d for CircularSector {}
@@ -415,7 +422,7 @@ impl CircularSector {
 #[cfg_attr(
     feature = "bevy_reflect",
     derive(Reflect),
-    reflect(Debug, PartialEq, Default)
+    reflect(Debug, PartialEq, Default, Clone)
 )]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
@@ -423,7 +430,7 @@ impl CircularSector {
 )]
 pub struct CircularSegment {
     /// The arc defining the segment
-    #[cfg_attr(feature = "serialize", serde(flatten))]
+    #[cfg_attr(all(feature = "serialize", feature = "alloc"), serde(flatten))]
     pub arc: Arc2d,
 }
 impl Primitive2d for CircularSegment {}
@@ -676,7 +683,7 @@ mod arc_tests {
 
     #[test]
     fn quarter_circle() {
-        let sqrt_half: f32 = f32::sqrt(0.5);
+        let sqrt_half: f32 = ops::sqrt(0.5);
         let tests = ArcTestCase {
             radius: 1.0,
             half_angle: FRAC_PI_4,
@@ -687,7 +694,7 @@ mod arc_tests {
             endpoints: [Vec2::new(-sqrt_half, sqrt_half), Vec2::splat(sqrt_half)],
             midpoint: Vec2::Y,
             half_chord_length: sqrt_half,
-            chord_length: f32::sqrt(2.0),
+            chord_length: ops::sqrt(2.0),
             chord_midpoint: Vec2::new(0.0, sqrt_half),
             apothem: sqrt_half,
             sagitta: 1.0 - sqrt_half,
@@ -769,7 +776,7 @@ mod arc_tests {
 #[cfg_attr(
     feature = "bevy_reflect",
     derive(Reflect),
-    reflect(Debug, PartialEq, Default)
+    reflect(Debug, PartialEq, Default, Clone)
 )]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
@@ -822,7 +829,7 @@ impl Ellipse {
         let a = self.semi_major();
         let b = self.semi_minor();
 
-        (a * a - b * b).sqrt() / a
+        ops::sqrt(a * a - b * b) / a
     }
 
     #[inline(always)]
@@ -833,7 +840,7 @@ impl Ellipse {
         let a = self.semi_major();
         let b = self.semi_minor();
 
-        (a * a - b * b).sqrt()
+        ops::sqrt(a * a - b * b)
     }
 
     /// Returns the length of the semi-major axis. This corresponds to the longest radius of the ellipse.
@@ -919,7 +926,7 @@ impl Measured2d for Ellipse {
 #[cfg_attr(
     feature = "bevy_reflect",
     derive(Reflect),
-    reflect(Debug, PartialEq, Default)
+    reflect(Debug, PartialEq, Default, Clone)
 )]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
@@ -982,13 +989,13 @@ impl Annulus {
             } else {
                 // The point is outside the annulus and closer to the outer perimeter.
                 // Find the closest point on the perimeter of the annulus.
-                let dir_to_point = point / distance_squared.sqrt();
+                let dir_to_point = point / ops::sqrt(distance_squared);
                 self.outer_circle.radius * dir_to_point
             }
         } else {
             // The point is outside the annulus and closer to the inner perimeter.
             // Find the closest point on the perimeter of the annulus.
-            let dir_to_point = point / distance_squared.sqrt();
+            let dir_to_point = point / ops::sqrt(distance_squared);
             self.inner_circle.radius * dir_to_point
         }
     }
@@ -1018,7 +1025,7 @@ impl Measured2d for Annulus {
 #[cfg_attr(
     feature = "bevy_reflect",
     derive(Reflect),
-    reflect(Debug, PartialEq, Default)
+    reflect(Debug, PartialEq, Default, Clone)
 )]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
@@ -1154,7 +1161,7 @@ impl Measured2d for Rhombus {
 #[cfg_attr(
     feature = "bevy_reflect",
     derive(Reflect),
-    reflect(Debug, PartialEq, Default)
+    reflect(Debug, PartialEq, Default, Clone)
 )]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
@@ -1192,7 +1199,11 @@ impl Plane2d {
 /// For a finite line: [`Segment2d`]
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "bevy_reflect", derive(Reflect), reflect(Debug, PartialEq))]
+#[cfg_attr(
+    feature = "bevy_reflect",
+    derive(Reflect),
+    reflect(Debug, PartialEq, Clone)
+)]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
     reflect(Serialize, Deserialize)
@@ -1204,61 +1215,280 @@ pub struct Line2d {
 }
 impl Primitive2d for Line2d {}
 
-/// A segment of a line going through the origin along a direction in 2D space.
+/// A line segment defined by two endpoints in 2D space.
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "bevy_reflect", derive(Reflect), reflect(Debug, PartialEq))]
+#[cfg_attr(
+    feature = "bevy_reflect",
+    derive(Reflect),
+    reflect(Debug, PartialEq, Clone)
+)]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
     reflect(Serialize, Deserialize)
 )]
 #[doc(alias = "LineSegment2d")]
 pub struct Segment2d {
-    /// The direction of the line segment
-    pub direction: Dir2,
-    /// Half the length of the line segment. The segment extends by this amount in both
-    /// the given direction and its opposite direction
-    pub half_length: f32,
+    /// The endpoints of the line segment.
+    pub vertices: [Vec2; 2],
 }
 impl Primitive2d for Segment2d {}
 
 impl Segment2d {
-    /// Create a new `Segment2d` from a direction and full length of the segment
+    /// Create a new `Segment2d` from its endpoints.
     #[inline(always)]
-    pub fn new(direction: Dir2, length: f32) -> Self {
+    pub const fn new(point1: Vec2, point2: Vec2) -> Self {
         Self {
-            direction,
-            half_length: length / 2.0,
+            vertices: [point1, point2],
         }
     }
 
-    /// Create a new `Segment2d` from its endpoints and compute its geometric center
+    /// Create a new `Segment2d` from its endpoints and compute its geometric center.
+    #[inline(always)]
+    #[deprecated(since = "0.16.0", note = "Use the `new` constructor instead")]
+    pub fn from_points(point1: Vec2, point2: Vec2) -> (Self, Vec2) {
+        (Self::new(point1, point2), (point1 + point2) / 2.)
+    }
+
+    /// Create a new `Segment2d` centered at the origin with the given direction and length.
+    ///
+    /// The endpoints will be at `-direction * length / 2.0` and `direction * length / 2.0`.
+    #[inline(always)]
+    pub fn from_direction_and_length(direction: Dir2, length: f32) -> Self {
+        let endpoint = 0.5 * length * direction;
+        Self {
+            vertices: [-endpoint, endpoint],
+        }
+    }
+
+    /// Create a new `Segment2d` centered at the origin from a vector representing
+    /// the direction and length of the line segment.
+    ///
+    /// The endpoints will be at `-scaled_direction / 2.0` and `scaled_direction / 2.0`.
+    #[inline(always)]
+    pub fn from_scaled_direction(scaled_direction: Vec2) -> Self {
+        let endpoint = 0.5 * scaled_direction;
+        Self {
+            vertices: [-endpoint, endpoint],
+        }
+    }
+
+    /// Create a new `Segment2d` starting from the origin of the given `ray`,
+    /// going in the direction of the ray for the given `length`.
+    ///
+    /// The endpoints will be at `ray.origin` and `ray.origin + length * ray.direction`.
+    #[inline(always)]
+    pub fn from_ray_and_length(ray: Ray2d, length: f32) -> Self {
+        Self {
+            vertices: [ray.origin, ray.get_point(length)],
+        }
+    }
+
+    /// Get the position of the first endpoint of the line segment.
+    #[inline(always)]
+    pub fn point1(&self) -> Vec2 {
+        self.vertices[0]
+    }
+
+    /// Get the position of the second endpoint of the line segment.
+    #[inline(always)]
+    pub fn point2(&self) -> Vec2 {
+        self.vertices[1]
+    }
+
+    /// Compute the midpoint between the two endpoints of the line segment.
+    #[inline(always)]
+    #[doc(alias = "midpoint")]
+    pub fn center(&self) -> Vec2 {
+        self.point1().midpoint(self.point2())
+    }
+
+    /// Compute the length of the line segment.
+    #[inline(always)]
+    pub fn length(&self) -> f32 {
+        self.point1().distance(self.point2())
+    }
+
+    /// Compute the squared length of the line segment.
+    #[inline(always)]
+    pub fn length_squared(&self) -> f32 {
+        self.point1().distance_squared(self.point2())
+    }
+
+    /// Compute the normalized direction pointing from the first endpoint to the second endpoint.
+    ///
+    /// For the non-panicking version, see [`Segment2d::try_direction`].
     ///
     /// # Panics
     ///
-    /// Panics if `point1 == point2`
+    /// Panics if a valid direction could not be computed, for example when the endpoints are coincident, NaN, or infinite.
     #[inline(always)]
-    pub fn from_points(point1: Vec2, point2: Vec2) -> (Self, Vec2) {
-        let diff = point2 - point1;
-        let length = diff.length();
+    pub fn direction(&self) -> Dir2 {
+        self.try_direction().unwrap_or_else(|err| {
+            panic!("Failed to compute the direction of a line segment: {err}")
+        })
+    }
 
-        (
-            // We are dividing by the length here, so the vector is normalized.
-            Self::new(Dir2::new_unchecked(diff / length), length),
-            (point1 + point2) / 2.,
+    /// Try to compute the normalized direction pointing from the first endpoint to the second endpoint.
+    ///
+    /// Returns [`Err(InvalidDirectionError)`](InvalidDirectionError) if a valid direction could not be computed,
+    /// for example when the endpoints are coincident, NaN, or infinite.
+    #[inline(always)]
+    pub fn try_direction(&self) -> Result<Dir2, InvalidDirectionError> {
+        Dir2::new(self.scaled_direction())
+    }
+
+    /// Compute the vector from the first endpoint to the second endpoint.
+    #[inline(always)]
+    pub fn scaled_direction(&self) -> Vec2 {
+        self.point2() - self.point1()
+    }
+
+    /// Compute the normalized counterclockwise normal on the left-hand side of the line segment.
+    ///
+    /// For the non-panicking version, see [`Segment2d::try_left_normal`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if a valid normal could not be computed, for example when the endpoints are coincident, NaN, or infinite.
+    #[inline(always)]
+    pub fn left_normal(&self) -> Dir2 {
+        self.try_left_normal().unwrap_or_else(|err| {
+            panic!("Failed to compute the left-hand side normal of a line segment: {err}")
+        })
+    }
+
+    /// Try to compute the normalized counterclockwise normal on the left-hand side of the line segment.
+    ///
+    /// Returns [`Err(InvalidDirectionError)`](InvalidDirectionError) if a valid normal could not be computed,
+    /// for example when the endpoints are coincident, NaN, or infinite.
+    #[inline(always)]
+    pub fn try_left_normal(&self) -> Result<Dir2, InvalidDirectionError> {
+        Dir2::new(self.scaled_left_normal())
+    }
+
+    /// Compute the non-normalized counterclockwise normal on the left-hand side of the line segment.
+    ///
+    /// The length of the normal is the distance between the endpoints.
+    #[inline(always)]
+    pub fn scaled_left_normal(&self) -> Vec2 {
+        let scaled_direction = self.scaled_direction();
+        Vec2::new(-scaled_direction.y, scaled_direction.x)
+    }
+
+    /// Compute the normalized clockwise normal on the right-hand side of the line segment.
+    ///
+    /// For the non-panicking version, see [`Segment2d::try_right_normal`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if a valid normal could not be computed, for example when the endpoints are coincident, NaN, or infinite.
+    #[inline(always)]
+    pub fn right_normal(&self) -> Dir2 {
+        self.try_right_normal().unwrap_or_else(|err| {
+            panic!("Failed to compute the right-hand side normal of a line segment: {err}")
+        })
+    }
+
+    /// Try to compute the normalized clockwise normal on the right-hand side of the line segment.
+    ///
+    /// Returns [`Err(InvalidDirectionError)`](InvalidDirectionError) if a valid normal could not be computed,
+    /// for example when the endpoints are coincident, NaN, or infinite.
+    #[inline(always)]
+    pub fn try_right_normal(&self) -> Result<Dir2, InvalidDirectionError> {
+        Dir2::new(self.scaled_right_normal())
+    }
+
+    /// Compute the non-normalized clockwise normal on the right-hand side of the line segment.
+    ///
+    /// The length of the normal is the distance between the endpoints.
+    #[inline(always)]
+    pub fn scaled_right_normal(&self) -> Vec2 {
+        let scaled_direction = self.scaled_direction();
+        Vec2::new(scaled_direction.y, -scaled_direction.x)
+    }
+
+    /// Compute the segment transformed by the given [`Isometry2d`].
+    #[inline(always)]
+    pub fn transformed(&self, isometry: impl Into<Isometry2d>) -> Self {
+        let isometry: Isometry2d = isometry.into();
+        Self::new(
+            isometry.transform_point(self.point1()),
+            isometry.transform_point(self.point2()),
         )
     }
 
-    /// Get the position of the first point on the line segment
+    /// Compute the segment translated by the given vector.
     #[inline(always)]
-    pub fn point1(&self) -> Vec2 {
-        *self.direction * -self.half_length
+    pub fn translated(&self, translation: Vec2) -> Segment2d {
+        Self::new(self.point1() + translation, self.point2() + translation)
     }
 
-    /// Get the position of the second point on the line segment
+    /// Compute the segment rotated around the origin by the given rotation.
     #[inline(always)]
-    pub fn point2(&self) -> Vec2 {
-        *self.direction * self.half_length
+    pub fn rotated(&self, rotation: Rot2) -> Segment2d {
+        Segment2d::new(rotation * self.point1(), rotation * self.point2())
+    }
+
+    /// Compute the segment rotated around the given point by the given rotation.
+    #[inline(always)]
+    pub fn rotated_around(&self, rotation: Rot2, point: Vec2) -> Segment2d {
+        // We offset our segment so that our segment is rotated as if from the origin, then we can apply the offset back
+        let offset = self.translated(-point);
+        let rotated = offset.rotated(rotation);
+        rotated.translated(point)
+    }
+
+    /// Compute the segment rotated around its own center.
+    #[inline(always)]
+    pub fn rotated_around_center(&self, rotation: Rot2) -> Segment2d {
+        self.rotated_around(rotation, self.center())
+    }
+
+    /// Compute the segment with its center at the origin, keeping the same direction and length.
+    #[inline(always)]
+    pub fn centered(&self) -> Segment2d {
+        let center = self.center();
+        self.translated(-center)
+    }
+
+    /// Compute the segment with a new length, keeping the same direction and center.
+    #[inline(always)]
+    pub fn resized(&self, length: f32) -> Segment2d {
+        let offset_from_origin = self.center();
+        let centered = self.translated(-offset_from_origin);
+        let ratio = length / self.length();
+        let segment = Segment2d::new(centered.point1() * ratio, centered.point2() * ratio);
+        segment.translated(offset_from_origin)
+    }
+
+    /// Reverses the direction of the line segment by swapping the endpoints.
+    #[inline(always)]
+    pub fn reverse(&mut self) {
+        let [point1, point2] = &mut self.vertices;
+        core::mem::swap(point1, point2);
+    }
+
+    /// Returns the line segment with its direction reversed by swapping the endpoints.
+    #[inline(always)]
+    #[must_use]
+    pub fn reversed(mut self) -> Self {
+        self.reverse();
+        self
+    }
+}
+
+impl From<[Vec2; 2]> for Segment2d {
+    #[inline(always)]
+    fn from(vertices: [Vec2; 2]) -> Self {
+        Self { vertices }
+    }
+}
+
+impl From<(Vec2, Vec2)> for Segment2d {
+    #[inline(always)]
+    fn from((point1, point2): (Vec2, Vec2)) -> Self {
+        Self::new(point1, point2)
     }
 }
 
@@ -1267,7 +1497,11 @@ impl Segment2d {
 /// For a version without generics: [`BoxedPolyline2d`]
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "bevy_reflect", derive(Reflect), reflect(Debug, PartialEq))]
+#[cfg_attr(
+    feature = "bevy_reflect",
+    derive(Reflect),
+    reflect(Debug, PartialEq, Clone)
+)]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
     reflect(Serialize, Deserialize)
@@ -1301,14 +1535,18 @@ impl<const N: usize> Polyline2d<N> {
 /// in a `Box<[Vec2]>`.
 ///
 /// For a version without alloc: [`Polyline2d`]
+#[cfg(feature = "alloc")]
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 pub struct BoxedPolyline2d {
     /// The vertices of the polyline
     pub vertices: Box<[Vec2]>,
 }
+
+#[cfg(feature = "alloc")]
 impl Primitive2d for BoxedPolyline2d {}
 
+#[cfg(feature = "alloc")]
 impl FromIterator<Vec2> for BoxedPolyline2d {
     fn from_iter<I: IntoIterator<Item = Vec2>>(iter: I) -> Self {
         let vertices: Vec<Vec2> = iter.into_iter().collect();
@@ -1318,6 +1556,7 @@ impl FromIterator<Vec2> for BoxedPolyline2d {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl BoxedPolyline2d {
     /// Create a new `BoxedPolyline2d` from its vertices
     pub fn new(vertices: impl IntoIterator<Item = Vec2>) -> Self {
@@ -1331,7 +1570,7 @@ impl BoxedPolyline2d {
 #[cfg_attr(
     feature = "bevy_reflect",
     derive(Reflect),
-    reflect(Debug, PartialEq, Default)
+    reflect(Debug, PartialEq, Default, Clone)
 )]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
@@ -1480,7 +1719,7 @@ impl Measured2d for Triangle2d {
     #[inline(always)]
     fn area(&self) -> f32 {
         let [a, b, c] = self.vertices;
-        (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y)).abs() / 2.0
+        ops::abs(a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y)) / 2.0
     }
 
     /// Get the perimeter of the triangle
@@ -1502,7 +1741,7 @@ impl Measured2d for Triangle2d {
 #[cfg_attr(
     feature = "bevy_reflect",
     derive(Reflect),
-    reflect(Debug, PartialEq, Default)
+    reflect(Debug, PartialEq, Default, Clone)
 )]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
@@ -1592,7 +1831,11 @@ impl Measured2d for Rectangle {
 /// For a version without generics: [`BoxedPolygon`]
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "bevy_reflect", derive(Reflect), reflect(Debug, PartialEq))]
+#[cfg_attr(
+    feature = "bevy_reflect",
+    derive(Reflect),
+    reflect(Debug, PartialEq, Clone)
+)]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
     reflect(Serialize, Deserialize)
@@ -1620,6 +1863,15 @@ impl<const N: usize> Polygon<N> {
     pub fn new(vertices: impl IntoIterator<Item = Vec2>) -> Self {
         Self::from_iter(vertices)
     }
+
+    /// Tests if the polygon is simple.
+    ///
+    /// A polygon is simple if it is not self intersecting and not self tangent.
+    /// As such, no two edges of the polygon may cross each other and each vertex must not lie on another edge.
+    #[cfg(feature = "alloc")]
+    pub fn is_simple(&self) -> bool {
+        is_polygon_simple(&self.vertices)
+    }
 }
 
 impl<const N: usize> From<ConvexPolygon<N>> for Polygon<N> {
@@ -1633,7 +1885,11 @@ impl<const N: usize> From<ConvexPolygon<N>> for Polygon<N> {
 /// A convex polygon with `N` vertices.
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "bevy_reflect", derive(Reflect), reflect(Debug, PartialEq))]
+#[cfg_attr(
+    feature = "bevy_reflect",
+    derive(Reflect),
+    reflect(Debug, PartialEq, Clone)
+)]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
     reflect(Serialize, Deserialize)
@@ -1646,10 +1902,10 @@ pub struct ConvexPolygon<const N: usize> {
 impl<const N: usize> Primitive2d for ConvexPolygon<N> {}
 
 /// An error that happens when creating a [`ConvexPolygon`].
-#[derive(Error, Display, Debug, Clone)]
+#[derive(Error, Debug, Clone)]
 pub enum ConvexPolygonError {
     /// The created polygon is not convex.
-    #[display("The created polygon is not convex")]
+    #[error("The created polygon is not convex")]
     Concave,
 }
 
@@ -1709,14 +1965,18 @@ impl<const N: usize> TryFrom<Polygon<N>> for ConvexPolygon<N> {
 /// in a `Box<[Vec2]>`.
 ///
 /// For a version without alloc: [`Polygon`]
+#[cfg(feature = "alloc")]
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 pub struct BoxedPolygon {
     /// The vertices of the `BoxedPolygon`
     pub vertices: Box<[Vec2]>,
 }
+
+#[cfg(feature = "alloc")]
 impl Primitive2d for BoxedPolygon {}
 
+#[cfg(feature = "alloc")]
 impl FromIterator<Vec2> for BoxedPolygon {
     fn from_iter<I: IntoIterator<Item = Vec2>>(iter: I) -> Self {
         let vertices: Vec<Vec2> = iter.into_iter().collect();
@@ -1726,10 +1986,19 @@ impl FromIterator<Vec2> for BoxedPolygon {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl BoxedPolygon {
     /// Create a new `BoxedPolygon` from its vertices
     pub fn new(vertices: impl IntoIterator<Item = Vec2>) -> Self {
         Self::from_iter(vertices)
+    }
+
+    /// Tests if the polygon is simple.
+    ///
+    /// A polygon is simple if it is not self intersecting and not self tangent.
+    /// As such, no two edges of the polygon may cross each other and each vertex must not lie on another edge.
+    pub fn is_simple(&self) -> bool {
+        is_polygon_simple(&self.vertices)
     }
 }
 
@@ -1739,7 +2008,7 @@ impl BoxedPolygon {
 #[cfg_attr(
     feature = "bevy_reflect",
     derive(Reflect),
-    reflect(Debug, PartialEq, Default)
+    reflect(Debug, PartialEq, Default, Clone)
 )]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
@@ -1885,7 +2154,7 @@ impl Measured2d for RegularPolygon {
 #[cfg_attr(
     feature = "bevy_reflect",
     derive(Reflect),
-    reflect(Debug, PartialEq, Default)
+    reflect(Debug, PartialEq, Default, Clone)
 )]
 #[cfg_attr(
     all(feature = "serialize", feature = "bevy_reflect"),
@@ -1895,14 +2164,14 @@ impl Measured2d for RegularPolygon {
 pub struct Capsule2d {
     /// The radius of the capsule
     pub radius: f32,
-    /// Half the height of the capsule, excluding the hemicircles
+    /// Half the height of the capsule, excluding the semicircles
     pub half_length: f32,
 }
 impl Primitive2d for Capsule2d {}
 
 impl Default for Capsule2d {
     /// Returns the default [`Capsule2d`] with a radius of `0.5` and a half-height of `0.5`,
-    /// excluding the hemicircles.
+    /// excluding the semicircles.
     fn default() -> Self {
         Self {
             radius: 0.5,
@@ -2208,9 +2477,9 @@ mod tests {
         let mut rotated_vertices = polygon.vertices(core::f32::consts::FRAC_PI_4).into_iter();
 
         // Distance from the origin to the middle of a side, derived using Pythagorean theorem
-        let side_sistance = FRAC_1_SQRT_2;
+        let side_distance = FRAC_1_SQRT_2;
         assert!(
-            (rotated_vertices.next().unwrap() - Vec2::new(-side_sistance, side_sistance)).length()
+            (rotated_vertices.next().unwrap() - Vec2::new(-side_distance, side_distance)).length()
                 < 1e-7,
         );
     }

@@ -133,7 +133,7 @@ impl EditorPanel for InspectorPanel {
                     .body(|ui| {
                         if draw_reflect_ui(ui, value.as_mut(), &reflect_ctx) {
                             validate_after_edit(type_path, value.as_mut(), type_registry);
-                            to_apply.push((type_path.clone(), value.clone_value()));
+                            to_apply.push((type_path.clone(), value.to_dynamic()));
                         }
                     });
                 }

@@ -11,7 +11,7 @@
 //! rather than rebuilt.
 
 use bevy_app::{App, Plugin, PostUpdate, Update};
-use bevy_ecs::schedule::IntoSystemConfigs;
+use bevy_ecs::schedule::IntoScheduleConfigs;
 use bsengine_core::{GlobalTransform, Time, Transform};
 use bsengine_ecs::{Changed, Commands, Component, Entity, Query, Res, ResMut, With, Without};
 use bsengine_physics::PhysicsWorld;

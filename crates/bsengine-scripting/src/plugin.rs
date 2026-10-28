@@ -7811,7 +7811,7 @@ mod tests {
             assert!(frames < 300, "the script never ran");
         }
         let mut q = app.world_mut().query::<&mut AnimationPlayer>();
-        q.single_mut(app.world_mut()).play();
+        q.single_mut(app.world_mut()).unwrap().play();
 
         for _ in 0..3 {
             app.update();
@@ -7925,7 +7925,7 @@ mod tests {
     }
 
     fn morph_weight_after_script_and_pose(stand_in_first: bool) -> Vec<f32> {
-        use bevy_ecs::schedule::IntoSystemConfigs;
+        use bevy_ecs::schedule::IntoScheduleConfigs;
         let script_path = std::env::temp_dir().join(format!(
             "bsengine_test_morph_order_{}_{stand_in_first}.js",
             std::process::id()

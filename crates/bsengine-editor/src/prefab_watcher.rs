@@ -18,7 +18,7 @@
 //! involved.
 
 use bevy_app::{App, Plugin, Startup, Update};
-use bevy_ecs::prelude::{Commands, Entity, IntoSystemConfigs, Res, Resource, World};
+use bevy_ecs::prelude::{Commands, Entity, IntoScheduleConfigs, Res, Resource, World};
 #[cfg(test)]
 use bsengine_core::Transform;
 use bsengine_core::{Parent, PrefabInstance};

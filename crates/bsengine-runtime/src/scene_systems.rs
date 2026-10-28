@@ -3,7 +3,7 @@
 //! scene-load and physics-resolution behavior.
 
 use bevy_app::{App, PostStartup, Update};
-use bevy_ecs::prelude::{IntoSystemConfigs, World};
+use bevy_ecs::prelude::{IntoScheduleConfigs, World};
 use bsengine_core::{GlobalTransform, HudTexts, Transform};
 use bsengine_ecs::{Added, Commands, Entity, Query, ResMut, With};
 use bsengine_physics::{Collider, PhysicsInput, RigidBody};

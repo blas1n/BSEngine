@@ -4,7 +4,7 @@ use bevy_app::{App, Plugin, Update};
 use bsengine_core::{
     NavAgentState, NavBakeParams, NavMesh, NavMeshAgent, NavMeshSurface, Time, Transform,
 };
-use bsengine_ecs::{Entity, IntoSystemConfigs, Query, Res, ResMut, Resource};
+use bsengine_ecs::{Entity, IntoScheduleConfigs, Query, Res, ResMut, Resource};
 use bsengine_physics::PhysicsWorld;
 use glam::Vec3;
 

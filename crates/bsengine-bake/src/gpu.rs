@@ -107,13 +107,25 @@ impl GpuBaker {
     #[cfg(feature = "native")]
     fn open(allow_software: bool) -> Result<Self, String> {
         let instance = wgpu::Instance::new(crate::shader_compiler::instance_descriptor());
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: None,
-            force_fallback_adapter: false,
-            apply_limit_buckets: false,
-        }))
-        .map_err(|e| format!("no GPU adapter: {e}"))?;
+        // `WGPU_ADAPTER_NAME` first, as the renderer's `request_device` reads
+        // it: on a machine with two GPUs the bake otherwise ran on the
+        // discrete one whatever the variable named, so a run meant to check
+        // the integrated GPU checked the bake on the other -- and its pass
+        // said nothing about the traversal that GPU's driver was found to
+        // break in the realtime update (`realtime_gi.rs`).
+        let adapter =
+            match pollster::block_on(wgpu::util::initialize_adapter_from_env(&instance, None)) {
+                Ok(adapter) => adapter,
+                Err(_) => {
+                    pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                        power_preference: wgpu::PowerPreference::HighPerformance,
+                        compatible_surface: None,
+                        force_fallback_adapter: false,
+                        apply_limit_buckets: false,
+                    }))
+                    .map_err(|e| format!("no GPU adapter: {e}"))?
+                }
+            };
         let info = adapter.get_info();
         if !allow_software && !is_hardware(info.device_type) {
             return Err(format!(

@@ -43,7 +43,41 @@ fn project(name: &str) -> PathBuf {
 /// itself, exits non-zero, or never prints its report line, so every caller
 /// gets the same three diagnostics without repeating them.
 fn run_frames(project: &Path, frames: u32) -> (u32, u32) {
+    let (status, stdout, stderr) = run_to_exit(project, frames, &[]);
+    assert!(
+        status.success(),
+        "the runtime exited with {status}\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
+    );
+
+    let reported = stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("frames="))
+        .unwrap_or_else(|| {
+            panic!(
+                "the runtime never reported a frame count, so it exited before \
+                 finishing {frames} frames\n--- stdout ---\n{stdout}\n\
+                 --- stderr ---\n{stderr}"
+            )
+        });
+    let (drawn, draw_calls) = reported
+        .split_once(" draw_calls=")
+        .unwrap_or_else(|| panic!("malformed report line: frames={reported}"));
+    let drawn: u32 = drawn.parse().expect("frame count is a number");
+    let draw_calls: u32 = draw_calls.trim().parse().expect("draw calls is a number");
+    assert_eq!(drawn, frames, "the window delivered the wrong frame count");
+    (drawn, draw_calls)
+}
+
+/// Runs the shipped executable on `project` for `frames` frames, with `envs`
+/// added to its environment, and returns how it ended and what it printed.
+/// Panics if it is still running after [`TIMEOUT`].
+fn run_to_exit(
+    project: &Path,
+    frames: u32,
+    envs: &[(&str, &str)],
+) -> (std::process::ExitStatus, String, String) {
     let mut child = Command::new(env!("CARGO_BIN_EXE_bsengine-runtime"))
+        .envs(envs.iter().copied())
         // The windowed path writes a log (and on a panic, a crash report)
         // under the per-user directory; a test must not fill a real profile.
         .env(
@@ -82,31 +116,40 @@ fn run_frames(project: &Path, frames: u32) -> (u32, u32) {
     let output = child
         .wait_with_output()
         .expect("failed to collect the runtime's output");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    (
+        status,
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
+}
 
+/// A window with nothing to draw it with quits, saying why, with a non-zero
+/// status. `WGPU_BACKEND` set but empty enables no API at all, so no
+/// surface can be made on any machine -- the case this was found by, where
+/// the runtime used to warn, leave the window black and exit 0 after its
+/// frames, indistinguishable by status from a game that ran.
+///
+/// The premise is the control: the same project, the same frame count, and
+/// the variable left alone exits 0 having drawn (`a_window_opens_and_draws_
+/// frames`); so a non-zero status here is the missing surface's doing.
+#[test]
+fn a_window_without_a_gpu_surface_quits_with_an_error() {
+    let project = project("cube-evader");
+    let (status, stdout, stderr) = run_to_exit(&project, FRAMES, &[("WGPU_BACKEND", "")]);
     assert!(
-        status.success(),
-        "the runtime exited with {status}\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
+        !status.success(),
+        "no API enabled, yet the runtime exited {status}\n--- stdout ---\n{stdout}\n\
+         --- stderr ---\n{stderr}"
     );
-
-    let reported = stdout
-        .lines()
-        .find_map(|line| line.strip_prefix("frames="))
-        .unwrap_or_else(|| {
-            panic!(
-                "the runtime never reported a frame count, so it exited before \
-                 finishing {frames} frames\n--- stdout ---\n{stdout}\n\
-                 --- stderr ---\n{stderr}"
-            )
-        });
-    let (drawn, draw_calls) = reported
-        .split_once(" draw_calls=")
-        .unwrap_or_else(|| panic!("malformed report line: frames={reported}"));
-    let drawn: u32 = drawn.parse().expect("frame count is a number");
-    let draw_calls: u32 = draw_calls.trim().parse().expect("draw calls is a number");
-    assert_eq!(drawn, frames, "the window delivered the wrong frame count");
-    (drawn, draw_calls)
+    assert!(
+        stderr.contains("no GPU surface") || stdout.contains("no GPU surface"),
+        "the runtime quit without saying why\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
+    );
+    assert!(
+        !stdout.contains("frames="),
+        "it ran its frames first: the quit came at the end, not when the surface failed\n\
+         --- stdout ---\n{stdout}"
+    );
 }
 
 #[test]

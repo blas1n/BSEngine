@@ -69,6 +69,9 @@ impl WgpuRHIPlugin {
 impl Plugin for WgpuRHIPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<WindowResized>();
+        // Written when the window's surface cannot be made (see
+        // `create_surface_system`); idempotent where the host adds it too.
+        app.add_message::<bevy_app::AppExit>();
         let mode = self.0;
         app.add_systems(Startup, move |world: &mut World| {
             create_surface_system(world, mode)
@@ -146,7 +149,21 @@ fn create_surface_system(world: &mut World, mode: SurfaceMode) {
                     match pollster::block_on(WgpuSurface::new_with_hdr(handle.0, hdr)) {
                         Ok(surface) => Some(surface),
                         Err(e) => {
-                            tracing::warn!("wgpu surface not created: {e}");
+                            // A game with a window and nothing to draw it with
+                            // is not one that can run. This used to be a
+                            // warning, after which the window stayed black,
+                            // `Update` ticked on, and the process exited 0 --
+                            // found by running with no backend enabled, where
+                            // it looked exactly like a game that worked.
+                            // Unity ("Failed to initialize graphics") and
+                            // Unreal both say why and quit; so does this, with
+                            // a non-zero status (`winit_runner` returns it).
+                            tracing::error!(
+                                "cannot draw this window -- no GPU surface: {e}. \
+                                 Quitting. (WGPU_BACKEND and WGPU_ADAPTER_NAME, \
+                                 if set, choose the API and the adapter.)"
+                            );
+                            world.write_message(bevy_app::AppExit::error());
                             None
                         }
                     }

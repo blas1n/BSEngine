@@ -594,7 +594,12 @@ fn run_windowed(project_dir: &str, frame_limit: Option<u32>, force_crash: bool) 
     if let Some(frames) = frame_limit {
         quit_after_frames(&mut app, frames);
     }
-    app.run();
+    // The runner hands back how the game ended; a failure -- no GPU surface
+    // for the window -- is the process's status too, not a 0 a launcher or a
+    // test would read as "it ran".
+    if let bevy_app::AppExit::Error(code) = app.run() {
+        std::process::exit(i32::from(code.get()));
+    }
 }
 
 /// Makes the game quit on its own after `frames` frames, reporting what it drew

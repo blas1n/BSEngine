@@ -83,6 +83,8 @@ TAA, SSR, 데칼, 볼류메트릭 포그, 라이트 프로브, IBL, 래그돌, �
   다시 세어 0인지 확인할 것.
 - **실제 GPU 검증 없음.** CI는 lavapipe(Ubuntu)·Metal(macOS)·Windows 러너라 BC 압축·성능 수치가 실제 데스크톱 GPU에서
   확인된 적 없다(아래 "플랫폼" 절과 같은 사실).
+  **→ Windows는 2026-10-29에 실제 하드웨어로 확인했다**(아래 "플랫폼" 절): RTX 3060과 Ryzen 내장 Radeon, 각각 Vulkan·D3D12.
+  Linux 실제 GPU·macOS·Wayland는 여전히 없다.
 
 ### 내 최근 작업의 결함 — 압축 텍스처가 패키지에 인코딩된 채 실리지 않는다
 
@@ -145,8 +147,37 @@ master `bf2c649b` 기준. 열린 PR·이슈 0개, 소스 TODO/FIXME 0개, 워크
 **검증됨(매 PR)**: Windows·Linux(Ubuntu)·macOS 3종에서 빌드, 전체 테스트, E2E 리플레이,
 패키징, 그리고 **실제 창이 열리고 프레임이 그려지는지**(#1869의 `window_smoke.rs`).
 
-**미검증**: ⚠️ Ubuntu는 Xvfb + 소프트웨어 Vulkan(lavapipe)이라 **실제 GPU·오디오 장치·
-Wayland**는 아무 플랫폼에서도 검증된 적 없다. 모바일·콘솔 없음.
+**실제 하드웨어로 검증됨 (2026-10-29, Windows 한 대, 모든 조합이 `WGPU_BACKEND`·`WGPU_ADAPTER_NAME`으로 고정됨)**:
+RTX 3060(드라이버 2026-03)과 Ryzen 7900X3D의 내장 Radeon(드라이버 2024-08, 이어서 2026-10) 각각의 Vulkan·D3D12에서
+전체 테스트(`--no-fail-fast`)와 E2E 리플레이 12개를 돌렸다.
+
+| 조합 | 결과 |
+|---|---|
+| RTX · Vulkan / RTX · D3D12 | 전부 통과 (워크스페이스 2,809 · 에디터 356 · 리플레이 12/12) |
+| Radeon · Vulkan | 통과 (렌더 크레이트의 테스트 3개가 병렬 실행에서만 실패, `--test-threads=1`에서는 92/92. 원인은 확인하지 못했다) |
+| Radeon · D3D12 | **실시간 GI 테스트 9개 실패** (아래). 그 밖의 병렬 실행 실패는 로그에 `DEVICE_REMOVED`(0x887A0005)와 메모리 부족이 찍힌 것들이고, 단독 실행에서는 모두 통과 |
+
+- ⚠️ **기본 선택은 Vulkan + 외장 GPU**다(`PowerPreference::None`이 고른다). 환경 변수 없이 로컬에서 돌린 지금까지의 모든
+  실행은 RTX · Vulkan이었으므로, D3D12 · AMD · 내장 GPU는 **변수로 지정하지 않으면 한 번도 실행되지 않는다.**
+  이름만 지정하면(`WGPU_ADAPTER_NAME=AMD`) 백엔드는 Vulkan이 골라진다.
+- ⚠️ **알려진 미해결 — Radeon 내장 GPU + D3D12 + DXC에서 실시간 GI가 틀린다.** 닫힌 상자 안에서 쏜 광선의 약 68%가 벽을
+  놓친다(용광로 테스트가 0.4 대신 68.4를 읽는다. 하늘이 100). `WGPU_DX12_COMPILER=fxc`에서는 30/30 통과, 같은 GPU의
+  Vulkan·RTX의 D3D12에서도 통과. **드라이버 문제가 아니다**: 2024-08판과 2026-10판(32.0.21045.16010)에서 숫자가
+  소수점까지 같다. 좁혀진 것: 바운스 항(`eval_probe_sh_at`)을 같은 광선 루프에서 호출하면 BVH 순회가 틀려지고, 그 항을
+  버퍼 한 칸 읽기로 바꾸면 첫 갱신이 맞는다. 효과가 없었던 우회 6가지: 공유 메모리 쓰기를 원소별로, 광선 회전 제거, 유한 `t_max`,
+  재배치 순회 제거, 계수 배열을 변수 9개로, 동적 `vec4` 인덱스를 `select`로. 라이트맵 베이크(바운스 항 없음)는 같은
+  조합에서 통과한다. 재현: `WGPU_BACKEND=dx12 WGPU_ADAPTER_NAME=AMD cargo test -p bsengine-rhi-wgpu --test realtime_gi
+  -- --test-threads=1`. CI의 D3D12는 WARP뿐이라 이 조합은 CI가 볼 수 없다.
+- **성능(릴리스, RTX 3060, 1080p)**: SSGI 1.76 ms(Vulkan) · 1.82 ms(D3D12), SSR 1.19 · 1.78 ms, **실시간 GI(4096 프로브 ×
+  64 광선) 2.13 ms · 6.42 ms — D3D12가 3배 느리다**(원인 미조사). GPU 라이트맵 베이크 0.10 s · 0.15 s, CPU는 0.18 s.
+- **오디오**: 실제 장치로 확인했다. 소리 클록이 비디오 화면을 실시간으로 맞추고(`with_a_device_the_sound_paces_the_pictures`가
+  장치가 있는 가지를 탔다), CI에서 꺼 둔 Windows 오디오 테스트 2개(`--ignored`)도 통과한다.
+- 창 모드에서 GPU 표면을 못 만들면 이제 이유를 남기고 0이 아닌 코드로 끝난다(이전에는 경고 뒤 검은 창으로 돌다가 0으로 종료).
+- 테스트 도우미 6곳(`cloth`·`terrain`×2·`terrain_brush`·`skinning`·`gltf`)은 자기 인스턴스를 만들어 이 환경 변수를 무시한다.
+  그 테스트들은 변수로 고른 GPU에서 돌지 않는다.
+
+**미검증**: ⚠️ **HDR 출력의 실제 신호**(이 모니터는 HDR을 지원하지 않아, 요청하면 SDR로 돌아가는 경로만 확인됨),
+Linux의 실제 GPU(Ubuntu CI는 Xvfb + lavapipe), macOS의 실제 GPU, **Wayland**. 모바일·콘솔 없음.
 
 ### 이미 닫혔지만 아래 옛 절들이 "없음"이라 적고 있는 것
 

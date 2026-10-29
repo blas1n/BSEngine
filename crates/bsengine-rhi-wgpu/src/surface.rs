@@ -4489,6 +4489,22 @@ impl WgpuSurface {
                     .map_err(|e| format!("No adapter found: {e}"))?,
             };
 
+        // Which GPU, which API, which driver: on a machine with two GPUs
+        // (a laptop's integrated and discrete, or a desktop's) nothing else
+        // says which one a run drew on, and a fault that one driver has and
+        // the other does not is reported against the wrong device. Unity's
+        // Player.log and Unreal's startup log both open with this line.
+        {
+            let info = adapter.get_info();
+            tracing::info!(
+                "GPU: {} ({:?}, {:?}), driver {} {}",
+                info.name,
+                info.device_type,
+                info.backend,
+                info.driver,
+                info.driver_info
+            );
+        }
         let timestamp_supported = adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY);
         // Storage buffers in the vertex stage are an adapter capability,
         // not something `required_limits` can ask for, and a pipeline whose

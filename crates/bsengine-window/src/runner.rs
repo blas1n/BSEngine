@@ -17,6 +17,9 @@ struct BsWinitApp {
     window: Option<Arc<Window>>,
     /// Whether the first frame's gate (see [`FirstFrameGate`]) has opened.
     started: bool,
+    /// The `AppExit` that ended the loop, which [`winit_runner`] returns: an
+    /// error one (no GPU surface, say) must reach the process's exit status.
+    exit: AppExit,
 }
 
 impl BsWinitApp {
@@ -202,13 +205,15 @@ impl ApplicationHandler for BsWinitApp {
                 }
                 self.ecs_app.update();
 
-                let quit_requested = self
-                    .ecs_app
-                    .world()
-                    .get_resource::<Messages<AppExit>>()
-                    .map(|events| events.iter_current_update_messages().next().is_some())
-                    .unwrap_or(false);
-                if quit_requested {
+                // Both of the messages' buffers, as Bevy's own runners read
+                // them, an error winning over a success beside it. Not only
+                // this update's: an exit written in `Startup` -- a window
+                // whose GPU surface could not be made -- has already been
+                // swapped into the previous buffer by `First` of the same
+                // update, and reading the current one alone let that game run
+                // on, black, to a status of 0.
+                if let Some(exit) = self.ecs_app.should_exit() {
+                    self.exit = exit;
                     event_loop.exit();
                     return;
                 }
@@ -250,6 +255,7 @@ pub fn winit_runner(app: App) -> AppExit {
         ecs_app: app,
         window: None,
         started: false,
+        exit: AppExit::Success,
     };
 
     // A page's event loop is the browser's: `run_app` would escape it by
@@ -266,6 +272,9 @@ pub fn winit_runner(app: App) -> AppExit {
         event_loop
             .run_app(&mut winit_app)
             .expect("Event loop error");
+        winit_app.exit
     }
+    // The browser's loop outlives this call; nothing has exited yet.
+    #[cfg(target_arch = "wasm32")]
     AppExit::Success
 }

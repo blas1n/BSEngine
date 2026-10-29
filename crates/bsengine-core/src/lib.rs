@@ -240,7 +240,9 @@ pub use particles::{
 };
 pub use pause_state::PauseState;
 pub use prefab_instance::{PrefabInstance, PrefabInstanceBaseline};
-pub use project_dir::{resolve_project_path, ProjectDir};
+pub use project_dir::{
+    project_path, resolve_project_path, resolve_project_path_checked, ProjectDir, ProjectPathError,
+};
 pub use reflect_color::ReflectColor;
 pub use reflect_degrees::ReflectDegrees;
 pub use reflect_glam::{ReflectQuat, ReflectVec2, ReflectVec3, ReflectVec4};

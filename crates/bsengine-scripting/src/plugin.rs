@@ -4,9 +4,9 @@ use bevy_app::{App, AppExit, Plugin, PostStartup, Update};
 use bevy_ecs::prelude::*;
 use bsengine_audio::AudioWorld;
 use bsengine_core::{
-    resolve_project_path, ChildOf, CursorConfig, CustomShader, EditorPlayState, GlobalTransform,
-    HudTexts, InspectorState, Material, ProjectDir, ScreenSize, SkyboxPath, Transform, UiState,
-    UiWidget, Visible,
+    ChildOf, CursorConfig, CustomShader, EditorPlayState, GlobalTransform, HudTexts,
+    InspectorState, Material, ProjectDir, ScreenSize, SkyboxPath, Transform, UiState, UiWidget,
+    Visible,
 };
 use bsengine_input::{GamepadButton, GamepadSticks, Input, KeyCode, MouseButton, MouseState};
 use bsengine_network::NetworkSession;
@@ -1813,12 +1813,24 @@ fn run_scripts(world: &mut World) {
                     &params.resolve(),
                 ));
             }
+            // A save file is relative to the process's working directory, not
+            // to the project (a packaged game's install directory is read-only,
+            // and no shipped project saves yet), so this only confines it:
+            // `saveGame("../../x")` and `saveGame("C:/x")` used to write
+            // wherever the process could. Where saves should live is its own
+            // question (the per-user directory, as Unity's persistentDataPath).
             ScriptCommand::SaveGame { path } => {
+                let Some(path) = script_normalised_path("saveGame", &path) else {
+                    continue;
+                };
                 if let Err(e) = crate::save::save_world(world, &path) {
                     tracing::warn!("[save] {}", e);
                 }
             }
             ScriptCommand::LoadGame { path } => {
+                let Some(path) = script_normalised_path("loadGame", &path) else {
+                    continue;
+                };
                 if let Err(e) = crate::save::load_world(world, &path) {
                     tracing::warn!("[load] {}", e);
                 }
@@ -1829,7 +1841,9 @@ fn run_scripts(world: &mut World) {
                     q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
                 };
                 if let Some(e) = entity {
-                    let resolved = resolve_project_path(world.get_resource::<ProjectDir>(), &path);
+                    let Some(resolved) = script_project_path(world, "setShader", &path) else {
+                        continue;
+                    };
                     world.entity_mut(e).insert(CustomShader { path: resolved });
                 }
             }
@@ -2277,6 +2291,13 @@ fn run_scripts(world: &mut World) {
                 // happen in there, so a project-relative path lands on
                 // `GltfAsset` already resolved, exactly as it would from a
                 // scene file.
+                if let Some((field, why)) = refused_spawn_path(&entity) {
+                    tracing::warn!(
+                        "[scripting] spawn {:?}: refused its {field}: {why}",
+                        entity.name
+                    );
+                    continue;
+                }
                 bsengine_scene::spawn_scene_entities(world, std::slice::from_ref(&*entity));
             }
             ScriptCommand::InstantiatePrefab {
@@ -2305,14 +2326,8 @@ fn run_scripts(world: &mut World) {
                 emitter,
                 bus,
             } => {
-                let project_dir = world
-                    .get_resource::<ProjectDir>()
-                    .map(|pd| pd.0.clone())
-                    .unwrap_or_default();
-                let full_path = if project_dir.is_empty() {
-                    path.clone()
-                } else {
-                    format!("{}/{}", project_dir, path)
+                let Some(full_path) = script_project_path(world, "playSound", &path) else {
+                    continue;
                 };
                 // What `SoundLoads` already knows decides everything below, so
                 // it is consulted *before* anything is requested. Re-calling
@@ -2659,6 +2674,10 @@ fn run_scripts(world: &mut World) {
                 width,
                 height,
             } => {
+                let Some(texture_path) = script_normalised_path("ui.setImage", &texture_path)
+                else {
+                    continue;
+                };
                 if let Some(mut ui) = world.get_resource_mut::<UiState>() {
                     ui.set_widget(bsengine_core::UiWidget::Image {
                         id,
@@ -2738,13 +2757,17 @@ fn run_scripts(world: &mut World) {
                 // already carry. Without this, loadScene only works by
                 // accident when the process's CWD happens to equal
                 // project_dir.
-                let full_path = resolve_project_path(world.get_resource::<ProjectDir>(), &path);
+                let Some(full_path) = script_project_path(world, "loadScene", &path) else {
+                    continue;
+                };
                 world.insert_resource(PendingSceneLoad { path: full_path });
             }
             ScriptCommand::LoadSceneAdditive { path } => {
                 // Same project-relative convention as `LoadScene` above, and the
                 // same reason: the loader reads the path directly.
-                let full_path = resolve_project_path(world.get_resource::<ProjectDir>(), &path);
+                let Some(full_path) = script_project_path(world, "loadSceneAdditive", &path) else {
+                    continue;
+                };
                 world
                     .get_resource_or_insert_with(bsengine_scene::PendingSceneStream::default)
                     .ops
@@ -2753,7 +2776,9 @@ fn run_scripts(world: &mut World) {
             ScriptCommand::UnloadScene { path } => {
                 // Resolved the same way, so a scene unloads by the path it was
                 // loaded with rather than by a second spelling of it.
-                let full_path = resolve_project_path(world.get_resource::<ProjectDir>(), &path);
+                let Some(full_path) = script_project_path(world, "unloadScene", &path) else {
+                    continue;
+                };
                 world
                     .get_resource_or_insert_with(bsengine_scene::PendingSceneStream::default)
                     .ops
@@ -2834,7 +2859,9 @@ fn run_scripts(world: &mut World) {
                 }
             }
             ScriptCommand::SetSkybox { path } => {
-                let full_path = resolve_project_path(world.get_resource::<ProjectDir>(), &path);
+                let Some(full_path) = script_project_path(world, "setSkybox", &path) else {
+                    continue;
+                };
                 world.insert_resource(SkyboxPath(Some(full_path)));
             }
             ScriptCommand::SetParent { child, parent } => {
@@ -3433,6 +3460,68 @@ fn start_pending_sounds(world: &mut World) {
     }
 }
 
+/// A path a script supplied, joined onto the project directory -- or `None`,
+/// with a warning, when it is not inside the project (`..`, a root, a drive, a
+/// `scheme://`: see [`bsengine_core::ProjectPathError`]). `what` names the
+/// script call, so the warning says which one was refused.
+///
+/// The script's path is attacker-shaped input in a way a scene file's is not:
+/// a scene is content the developer shipped, a script is code that can be
+/// swapped, so `bsengine_core::resolve_project_path`'s plain string join let
+/// `playSound("../../x")` and `setSkybox("C:/x")` name any file the process
+/// could read. Every script command that names a file goes through here.
+fn script_project_path(world: &World, what: &str, path: &str) -> Option<String> {
+    match bsengine_core::resolve_project_path_checked(world.get_resource::<ProjectDir>(), path) {
+        Ok(resolved) => Some(resolved),
+        Err(e) => {
+            tracing::warn!("[scripting] {what}: refused {path:?}: {e}");
+            None
+        }
+    }
+}
+
+/// [`script_project_path`] for the project-relative form that is *not* joined
+/// onto the project directory (a UI image's path is resolved later, with the
+/// scene-authored ones): checked and normalised, nothing more.
+fn script_normalised_path(what: &str, path: &str) -> Option<String> {
+    match bsengine_core::project_path(path) {
+        Ok(normalised) => Some(normalised),
+        Err(e) => {
+            tracing::warn!("[scripting] {what}: refused {path:?}: {e}");
+            None
+        }
+    }
+}
+
+/// The first path in a script-spawned entity that is not inside the project:
+/// which field, and why. Only the fields the descriptor names outright -- the
+/// four asset references and the two light cookies; the generic `components`
+/// list can carry any reflected component, and a path inside one of those is
+/// contained by the asset source's own root, not checked here.
+fn refused_spawn_path(
+    entity: &bsengine_scene::EntityDescriptor,
+) -> Option<(&'static str, bsengine_core::ProjectPathError)> {
+    let refs = [
+        ("gltf", entity.gltf.as_ref().map(|r| r.path())),
+        ("script", entity.script.as_ref().map(|r| r.path())),
+        ("texture", entity.texture.as_ref().map(|r| r.path())),
+        ("prefab", entity.prefab.as_ref().map(|r| r.path())),
+        (
+            "point_light.cookie",
+            entity.point_light.as_ref().map(|l| l.cookie.as_str()),
+        ),
+        (
+            "spot_light.cookie",
+            entity.spot_light.as_ref().map(|l| l.cookie.as_str()),
+        ),
+    ];
+    refs.into_iter().find_map(|(field, path)| {
+        // An empty cookie is "no cookie", not a bad path.
+        let path = path.filter(|p| !p.is_empty())?;
+        bsengine_core::project_path(path).err().map(|e| (field, e))
+    })
+}
+
 /// Instantiates the referenced prefab file (resolved against `ProjectDir`)
 /// with the already-decided root `name` (computed synchronously back in the
 /// op -- see `bsengine_instantiate_prefab`) and the given world position, via
@@ -3457,8 +3546,9 @@ pub(crate) fn instantiate_prefab_command(
     y: f32,
     z: f32,
 ) {
-    let project_dir = world.get_resource::<ProjectDir>().cloned();
-    let resolved_path = resolve_project_path(project_dir.as_ref(), &path);
+    let Some(resolved_path) = script_project_path(world, "instantiatePrefab", &path) else {
+        return;
+    };
     let transform = bsengine_scene::TransformDescriptor {
         position: [x, y, z],
         ..Default::default()
@@ -5547,33 +5637,35 @@ mod tests {
         let script_path = dir.join("repeat.js");
         std::fs::write(
             &script_path,
-            format!(
-                "var first = -1;\n\
-                 var second = -1;\n\
-                 var idle = 0;\n\
-                 function onUpdate(name) {{\n\
-                   if (first < 0) {{\n\
-                     first = Bsengine.playSound(\"{sound_path_js}\", {{}});\n\
-                     return;\n\
-                   }}\n\
-                   if (second >= 0) {{ return; }}\n\
-                   if (Bsengine.getSoundState(first) === \"loading\") {{ return; }}\n\
-                   if (idle < 5) {{ idle += 1; return; }}\n\
-                   second = Bsengine.playSound(\"{sound_path_js}\", {{}});\n\
-                   Bsengine.setHudText(\"second\", String(second));\n\
-                 }}"
-            ),
+            "var first = -1;\n\
+             var second = -1;\n\
+             var idle = 0;\n\
+             function onUpdate(name) {\n\
+               if (first < 0) {\n\
+                 first = Bsengine.playSound(\"blip.flac\", {});\n\
+                 return;\n\
+               }\n\
+               if (second >= 0) { return; }\n\
+               if (Bsengine.getSoundState(first) === \"loading\") { return; }\n\
+               if (idle < 5) { idle += 1; return; }\n\
+               second = Bsengine.playSound(\"blip.flac\", {});\n\
+               Bsengine.setHudText(\"second\", String(second));\n\
+             }",
         )
         .unwrap();
 
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            // The temp directory *is* the project, and the script plays a
+            // project-relative path: a script cannot name a file outside the
+            // project (`a_script_cannot_name_a_file_outside_the_project`), so
+            // an absolute path to a temp file is no longer a thing to play.
+            project_dir: dir.to_string_lossy().replace('\\', "/"),
         });
         app.world_mut().spawn((
             Name("Speaker".to_string()),
-            ScriptPath(script_path.to_string_lossy().to_string()),
+            ScriptPath("repeat.js".to_string()),
         ));
 
         let mut frames = 0;
@@ -5653,25 +5745,27 @@ mod tests {
         let script_path = dir.join("play_once.js");
         std::fs::write(
             &script_path,
-            format!(
-                "var played = false;\n\
-                 function onUpdate(name) {{\n\
-                   if (played) {{ return; }}\n\
-                   played = true;\n\
-                   Bsengine.playSound(\"{sound_path_js}\", {{}});\n\
-                 }}"
-            ),
+            "var played = false;\n\
+             function onUpdate(name) {\n\
+               if (played) { return; }\n\
+               played = true;\n\
+               Bsengine.playSound(\"blip.flac\", {});\n\
+             }",
         )
         .unwrap();
 
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            // The temp directory *is* the project, and the script plays a
+            // project-relative path: a script cannot name a file outside the
+            // project (`a_script_cannot_name_a_file_outside_the_project`), so
+            // an absolute path to a temp file is no longer a thing to play.
+            project_dir: dir.to_string_lossy().replace('\\', "/"),
         });
         app.world_mut().spawn((
             Name("Speaker".to_string()),
-            ScriptPath(script_path.to_string_lossy().to_string()),
+            ScriptPath("play_once.js".to_string()),
         ));
 
         // Loops until the play has genuinely *resolved*, not merely until the
@@ -6791,6 +6885,222 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&project_dir);
+    }
+
+    /// A script cannot name a file outside the project: every call that takes
+    /// a path, run twice from one script -- first with a path inside the
+    /// project (which must take effect, or "refuse everything" would pass),
+    /// then with one that climbs out of it (which must not).
+    ///
+    /// The single-slot results (the skybox, the scene to load) are set by the
+    /// *refused* call last, so an accepted one overwrites the good value and is
+    /// seen; the rest are checked for an `escape` marker the refused paths all
+    /// carry. The prefab and the save file are real files placed where an
+    /// unchecked join would reach them -- beside the project, and in the
+    /// directory above the working directory -- so a leak is a file that exists.
+    #[test]
+    fn a_script_cannot_name_a_file_outside_the_project() {
+        use bsengine_core::CustomShader;
+
+        let base = bsengine_asset::test_support::unique("script-path-guard");
+        let base_dir = std::path::PathBuf::from(&base);
+        let project = base_dir.join("proj");
+        std::fs::create_dir_all(project.join("assets/prefabs")).unwrap();
+        std::fs::create_dir_all(base_dir.join("outside")).unwrap();
+        let _guard = bsengine_asset::test_support::ProbeDir(base_dir.clone());
+        let prefab = r#"PrefabDescriptor(entities: [EntityDescriptor(name: "Enemy", primitive: Some(Cube))])"#;
+        std::fs::write(project.join("assets/prefabs/enemy.ron"), prefab).unwrap();
+        std::fs::write(base_dir.join("outside/enemy.ron"), prefab).unwrap();
+
+        // Relative to the working directory, as a script's save path is; the
+        // refused one climbs to the directory above it.
+        let save_ok = format!("ap1_save_ok_{}.json", std::process::id());
+        let save_escape = format!("../ap1_save_escape_{}.json", std::process::id());
+        // Two saves a script may try to load, each holding one entity that is
+        // not in the running world (loading spawns what it does not find).
+        let load_ok = format!("ap1_load_ok_{}.json", std::process::id());
+        let load_escape = format!("../ap1_load_escape_{}.json", std::process::id());
+        for (file, entity) in [(&load_ok, "LoadedOk"), (&load_escape, "LoadedEscape")] {
+            let mut scratch = bevy_ecs::prelude::World::new();
+            scratch.spawn((Name(entity.to_string()), Transform::default()));
+            crate::save::save_world(&mut scratch, file).expect("write a save to load");
+        }
+        struct RemoveFiles(Vec<std::path::PathBuf>);
+        impl Drop for RemoveFiles {
+            fn drop(&mut self) {
+                for f in &self.0 {
+                    let _ = std::fs::remove_file(f);
+                }
+            }
+        }
+        let _files = RemoveFiles(vec![
+            std::path::PathBuf::from(&save_ok),
+            std::path::PathBuf::from(&save_escape),
+            std::path::PathBuf::from(&load_ok),
+            std::path::PathBuf::from(&load_escape),
+        ]);
+
+        std::fs::write(
+            project.join("driver.js"),
+            format!(
+                r#"let tick = 0;
+function onUpdate(name) {{
+    tick++;
+    if (tick === 1) {{
+        Bsengine.setShader("Good", "shaders/glow.wgsl");
+        Bsengine.setSkybox("assets/sky.png");
+        Bsengine.loadScene("assets/scenes/a.ron");
+        Bsengine.loadSceneAdditive("assets/scenes/b.ron");
+        Bsengine.ui.setImage("good_img", "assets\\ui\\ok.png", 0, 0, 1, 1);
+        Bsengine.playSound("assets/ok.wav");
+        Bsengine.spawn({{ name: "SpawnedGood", gltf: "assets/models/ok.glb" }});
+        Bsengine.instantiatePrefab({{ path: "assets/prefabs/enemy.ron", name: "Insider" }});
+        Bsengine.save("{save_ok}");
+        Bsengine.load("{load_ok}");
+    }} else if (tick === 2) {{
+        Bsengine.setShader("Bad", "../../escape.wgsl");
+        Bsengine.setSkybox("../../escape.png");
+        Bsengine.loadScene("../../escape.ron");
+        Bsengine.loadSceneAdditive("C:/escape.ron");
+        Bsengine.ui.setImage("bad_img", "other://escape.png", 0, 0, 1, 1);
+        Bsengine.playSound("../../escape.wav");
+        Bsengine.spawn({{ name: "SpawnedBad", gltf: "../../escape.glb" }});
+        Bsengine.spawn({{ name: "SpawnedBadCookie", spot_light: {{ cookie: "/escape.png" }} }});
+        Bsengine.spawn({{ name: "SpawnedBadPointCookie", point_light: {{ cookie: "C:/escape.png" }} }});
+        Bsengine.spawn({{ name: "SpawnedBadScript", script: "../../escape.js" }});
+        Bsengine.spawn({{ name: "SpawnedBadTexture", texture: "..\\..\\escape.png" }});
+        Bsengine.spawn({{ name: "SpawnedBadPrefab", prefab: "../outside/enemy.ron" }});
+        Bsengine.instantiatePrefab({{ path: "../outside/enemy.ron", name: "Outsider" }});
+        Bsengine.save("{save_escape}");
+        Bsengine.load("{load_escape}");
+        Bsengine.unloadScene("../../escape.ron");
+    }}
+}}
+"#
+            ),
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: project.to_string_lossy().to_string(),
+        });
+        app.init_resource::<bsengine_core::UiState>();
+        app.world_mut().spawn((Name("Good".to_string()),));
+        app.world_mut().spawn((Name("Bad".to_string()),));
+        app.world_mut().spawn((
+            Name("Hero".to_string()),
+            ScriptPath("driver.js".to_string()),
+        ));
+        for _ in 0..8 {
+            app.update();
+        }
+
+        let prefix = project.to_string_lossy().to_string();
+        let world = app.world_mut();
+        let named = |world: &mut bevy_ecs::prelude::World, wanted: &str| {
+            let mut q = world.query::<&Name>();
+            q.iter(world).any(|n| n.0 == wanted)
+        };
+
+        // The control: each inside call took effect, so a refusal below is the
+        // check's doing and not a script that never ran or a result nobody sets.
+        let mut q = world.query::<(&Name, &CustomShader)>();
+        let shaders: Vec<_> = q
+            .iter(world)
+            .map(|(n, s)| (n.0.clone(), s.path.clone()))
+            .collect();
+        assert_eq!(
+            shaders,
+            vec![("Good".to_string(), format!("{prefix}/shaders/glow.wgsl"))],
+            "setShader: the inside call applies, the outside one does not"
+        );
+        assert_eq!(
+            world.resource::<bsengine_core::SkyboxPath>().0.as_deref(),
+            Some(format!("{prefix}/assets/sky.png").as_str()),
+            "setSkybox: the refused call came last and must not have replaced the good one"
+        );
+        assert_eq!(
+            world.resource::<bsengine_scene::PendingSceneLoad>().path,
+            format!("{prefix}/assets/scenes/a.ron"),
+            "loadScene: the refused call came last and must not have replaced the good one"
+        );
+        let stream = format!(
+            "{:?}",
+            world.resource::<bsengine_scene::PendingSceneStream>().ops
+        );
+        assert!(
+            stream.contains("assets/scenes/b.ron"),
+            "loadSceneAdditive applies: {stream}"
+        );
+        assert!(
+            !stream.contains("escape"),
+            "loadSceneAdditive (C:/...) and unloadScene (../..) refused: {stream}"
+        );
+        let images: Vec<String> = world
+            .resource::<bsengine_core::UiState>()
+            .widgets
+            .iter()
+            .filter_map(|w| match w {
+                bsengine_core::UiWidget::Image {
+                    id, texture_path, ..
+                } => Some(format!("{id}={texture_path}")),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            images,
+            vec!["good_img=assets/ui/ok.png".to_string()],
+            "ui.setImage: the backslash path is normalised, the `scheme://` one is refused"
+        );
+        let sounds: Vec<String> = world.resource::<SoundLoads>().0.keys().cloned().collect();
+        assert_eq!(
+            sounds,
+            vec![format!("{prefix}/assets/ok.wav")],
+            "playSound: only the inside path was requested"
+        );
+        assert!(
+            named(world, "SpawnedGood"),
+            "spawn: the inside entity exists"
+        );
+        assert!(
+            !named(world, "SpawnedBad"),
+            "spawn: a gltf outside the project is refused"
+        );
+        for (entity, field) in [
+            ("SpawnedBadCookie", "spot_light.cookie"),
+            ("SpawnedBadPointCookie", "point_light.cookie"),
+            ("SpawnedBadScript", "script"),
+            ("SpawnedBadTexture", "texture"),
+            ("SpawnedBadPrefab", "prefab"),
+        ] {
+            assert!(
+                !named(world, entity),
+                "spawn: a path outside the project in `{field}` is refused"
+            );
+        }
+        assert!(named(world, "LoadedOk"), "load: the inside save is loaded");
+        assert!(
+            !named(world, "LoadedEscape"),
+            "load: a save above the working directory is real and must not be read"
+        );
+        assert!(
+            named(world, "Insider"),
+            "instantiatePrefab: the inside prefab spawns"
+        );
+        assert!(
+            !named(world, "Outsider"),
+            "instantiatePrefab: a prefab beside the project is real and must not be reached"
+        );
+        assert!(
+            std::path::Path::new(&save_ok).is_file(),
+            "save: the working-directory-relative save is written"
+        );
+        assert!(
+            !std::path::Path::new(&save_escape).exists(),
+            "save: a path that climbs out of the working directory writes nothing"
+        );
     }
 
     /// The end-to-end counterpart to

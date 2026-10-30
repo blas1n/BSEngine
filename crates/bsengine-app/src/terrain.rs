@@ -482,14 +482,11 @@ mod tests {
     /// registry `generate_terrain_chunks` actually reads for meshes -- see
     /// `insert_headless_texture_registry` below for its texture counterpart.
     fn insert_headless_mesh_registry(app: &mut bevy_app::App) {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::None,
-            compatible_surface: None,
-            force_fallback_adapter: false,
-            apply_limit_buckets: false,
-        }))
-        .expect("a headless adapter; the rest of this suite already requires one");
+        // The renderer's instance and adapter choice, so a run pinned by
+        // `WGPU_BACKEND` / `WGPU_ADAPTER_NAME` runs these tests there too.
+        let instance = bsengine_rhi_wgpu::surface::new_instance();
+        let adapter = pollster::block_on(bsengine_rhi_wgpu::surface::pick_adapter(&instance, None))
+            .expect("a headless adapter; the rest of this suite already requires one");
         let (device, _queue) =
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
                 label: Some("bsengine-app terrain test device"),
@@ -508,14 +505,10 @@ mod tests {
     /// Sibling to `insert_headless_mesh_registry` above, needed now that
     /// `generate_terrain_chunks` uploads layer/weight textures too.
     fn insert_headless_texture_registry(app: &mut bevy_app::App) {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::None,
-            compatible_surface: None,
-            force_fallback_adapter: false,
-            apply_limit_buckets: false,
-        }))
-        .expect("a headless adapter");
+        // As `insert_headless_mesh_registry`: the renderer's choice.
+        let instance = bsengine_rhi_wgpu::surface::new_instance();
+        let adapter = pollster::block_on(bsengine_rhi_wgpu::surface::pick_adapter(&instance, None))
+            .expect("a headless adapter");
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("bsengine-app terrain test texture device"),
             required_features: wgpu::Features::empty(),

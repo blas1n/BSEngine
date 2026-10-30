@@ -3764,12 +3764,6 @@ pub struct WgpuSurface {
     depth_resolve: crate::msaa::DepthResolve,
 }
 
-/// Every instance this renderer makes, from
-/// [`bsengine_bake::shader_compiler::instance_descriptor`]: every backend, and
-/// D3D12 shaders through DXC where its libraries are found (FXC otherwise).
-/// Which compiler that came to is logged, once a process -- a player's machine
-/// on FXC is waiting far longer for its GI pipelines than it needs to, and
-/// this line is how a report would show it.
 /// The UI renderer's options: no MSAA, no depth, no dithering -- what
 /// `egui_wgpu::Renderer::new` was given positionally before it took options.
 fn egui_renderer_options() -> egui_wgpu::RendererOptions {
@@ -3781,7 +3775,18 @@ fn egui_renderer_options() -> egui_wgpu::RendererOptions {
     }
 }
 
-pub(crate) fn new_instance() -> wgpu::Instance {
+/// Every instance this renderer makes, from
+/// [`bsengine_bake::shader_compiler::instance_descriptor`]: every backend, and
+/// D3D12 shaders through DXC where its libraries are found (FXC otherwise).
+/// Which compiler that came to is logged, once a process -- a player's machine
+/// on FXC is waiting far longer for its GI pipelines than it needs to, and
+/// this line is how a report would show it.
+///
+/// Public, with [`pick_adapter`], for the other crates' tests that need a
+/// device of their own: one they made with a bare instance and the first
+/// adapter ignored `WGPU_BACKEND` and `WGPU_ADAPTER_NAME`, so a run pinned to
+/// a GPU ran those tests on another one and said nothing about it.
+pub fn new_instance() -> wgpu::Instance {
     static LOGGED: std::sync::Once = std::sync::Once::new();
     let descriptor = bsengine_bake::shader_compiler::instance_descriptor();
     if cfg!(windows) {
@@ -3809,6 +3814,71 @@ pub(crate) fn new_instance() -> wgpu::Instance {
         });
     }
     wgpu::Instance::new(descriptor)
+}
+
+/// The adapter the renderer draws on: the one `WGPU_ADAPTER_NAME` names (by
+/// part of its name, any case, as wgpu's examples read it), else what wgpu
+/// prefers -- with a surface, one that can present on it. "Microsoft Basic
+/// Render Driver" is D3D12's WARP, the software adapter Windows CI has and
+/// nothing else: what its timings and its failures can only be reproduced on.
+///
+/// A name no adapter has is an error naming the ones there are, not a fall
+/// back to another GPU: a run pinned to one would otherwise pass on a
+/// different one.
+pub async fn pick_adapter(
+    instance: &wgpu::Instance,
+    compatible_surface: Option<&wgpu::Surface<'_>>,
+) -> Result<wgpu::Adapter, String> {
+    let name = std::env::var("WGPU_ADAPTER_NAME").ok();
+    adapter_named(instance, compatible_surface, name.as_deref()).await
+}
+
+async fn adapter_named(
+    instance: &wgpu::Instance,
+    compatible_surface: Option<&wgpu::Surface<'_>>,
+    name: Option<&str>,
+) -> Result<wgpu::Adapter, String> {
+    let adapter = match name {
+        Some(name) => {
+            let wanted = name.to_lowercase();
+            let adapters = instance.enumerate_adapters(wgpu::Backends::all()).await;
+            let names: Vec<String> = adapters.iter().map(|a| a.get_info().name).collect();
+            adapters
+                .into_iter()
+                .filter(|a| compatible_surface.is_none_or(|s| a.is_surface_supported(s)))
+                .find(|a| a.get_info().name.to_lowercase().contains(&wanted))
+                .ok_or_else(|| {
+                    format!(
+                        "WGPU_ADAPTER_NAME={name} names none of this machine's adapters: {names:?}"
+                    )
+                })?
+        }
+        None => instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::None,
+                compatible_surface,
+                force_fallback_adapter: false,
+                apply_limit_buckets: false,
+            })
+            .await
+            .map_err(|e| format!("No adapter found: {e}"))?,
+    };
+
+    // Which GPU, which API, which driver: on a machine with two GPUs (a
+    // laptop's integrated and discrete, or a desktop's) nothing else says
+    // which one a run drew on, and a fault that one driver has and the other
+    // does not is reported against the wrong device. Unity's Player.log and
+    // Unreal's startup log both open with this line.
+    let info = adapter.get_info();
+    tracing::info!(
+        "GPU: {} ({:?}, {:?}), driver {} {}",
+        info.name,
+        info.device_type,
+        info.backend,
+        info.driver,
+        info.driver_info
+    );
+    Ok(adapter)
 }
 
 impl WgpuSurface {
@@ -4471,40 +4541,7 @@ impl WgpuSurface {
         ),
         String,
     > {
-        // `WGPU_ADAPTER_NAME` picks an adapter by (part of) its name, as
-        // wgpu's own examples read it -- "Microsoft Basic Render Driver" is
-        // D3D12's WARP, the software adapter Windows CI has and nothing else:
-        // what its timings and its failures can only be reproduced on.
-        let adapter =
-            match wgpu::util::initialize_adapter_from_env(instance, compatible_surface).await {
-                Ok(adapter) => adapter,
-                Err(_) => instance
-                    .request_adapter(&wgpu::RequestAdapterOptions {
-                        power_preference: wgpu::PowerPreference::None,
-                        compatible_surface,
-                        force_fallback_adapter: false,
-                        apply_limit_buckets: false,
-                    })
-                    .await
-                    .map_err(|e| format!("No adapter found: {e}"))?,
-            };
-
-        // Which GPU, which API, which driver: on a machine with two GPUs
-        // (a laptop's integrated and discrete, or a desktop's) nothing else
-        // says which one a run drew on, and a fault that one driver has and
-        // the other does not is reported against the wrong device. Unity's
-        // Player.log and Unreal's startup log both open with this line.
-        {
-            let info = adapter.get_info();
-            tracing::info!(
-                "GPU: {} ({:?}, {:?}), driver {} {}",
-                info.name,
-                info.device_type,
-                info.backend,
-                info.driver,
-                info.driver_info
-            );
-        }
+        let adapter = pick_adapter(instance, compatible_surface).await?;
         let timestamp_supported = adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY);
         // Storage buffers in the vertex stage are an adapter capability,
         // not something `required_limits` can ask for, and a pipeline whose
@@ -11115,6 +11152,44 @@ fn srgb_view_of(format: wgpu::TextureFormat) -> Option<wgpu::TextureFormat> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `WGPU_ADAPTER_NAME` picks the adapter it names, by any part of its name
+    /// in any case, and a name no adapter has is an error -- never another
+    /// GPU, which is what a pinned run must not silently get. The error is
+    /// the side a picker that ignored the name would fail, and it holds on a
+    /// machine with one adapter (CI); where there are several (a desktop's
+    /// two GPUs and WARP), each is also picked out from the others.
+    #[test]
+    fn an_adapter_is_picked_by_its_name_or_not_at_all() {
+        let instance = new_instance();
+        let names: Vec<String> =
+            pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()))
+                .iter()
+                .map(|a| a.get_info().name)
+                .collect();
+        assert!(!names.is_empty(), "premise: this machine has an adapter");
+        let pick = |asked: &str| {
+            pollster::block_on(adapter_named(&instance, None, Some(asked)))
+                .unwrap_or_else(|e| panic!("{asked:?}: {e}"))
+                .get_info()
+                .name
+        };
+        // Each by its whole name upper-cased: not its case. (Two backends'
+        // adapters for one GPU share a name, and either is that GPU.)
+        for name in &names {
+            assert_eq!(&pick(&name.to_uppercase()), name);
+        }
+        // And by a part of it.
+        let part: String = names[0].chars().skip(1).collect();
+        let part = part.as_str();
+        assert!(pick(part).contains(part), "{part:?} picked another adapter");
+        let err = pollster::block_on(adapter_named(&instance, None, Some("no such adapter")))
+            .expect_err("a name no adapter has picks none");
+        assert!(
+            err.contains(&names[0]),
+            "the error lists the adapters there are: {err}"
+        );
+    }
 
     /// The swapchain under HDR output: HDR10 first unless scRGB is asked for,
     /// the other signal where the preferred one is not offered, SDR where

@@ -709,13 +709,8 @@ mod tests {
         SHARED
             .get_or_init(|| {
                 let instance = crate::surface::new_instance();
-                let adapter =
-                    pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-                        power_preference: wgpu::PowerPreference::None,
-                        compatible_surface: None,
-                        force_fallback_adapter: false,
-                        apply_limit_buckets: false,
-                    }))
+                // The renderer's choice, so a pinned run lands here too.
+                let adapter = pollster::block_on(crate::surface::pick_adapter(&instance, None))
                     .expect("a headless adapter; the rest of this crate's tests need one too");
                 let (device, queue) =
                     pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {

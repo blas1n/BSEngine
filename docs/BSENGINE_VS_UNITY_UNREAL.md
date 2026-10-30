@@ -184,8 +184,9 @@ RTX 3060(드라이버 2026-03)과 Ryzen 7900X3D의 내장 Radeon(드라이버 20
 - **오디오**: 실제 장치로 확인했다. 소리 클록이 비디오 화면을 실시간으로 맞추고(`with_a_device_the_sound_paces_the_pictures`가
   장치가 있는 가지를 탔다), CI에서 꺼 둔 Windows 오디오 테스트 2개(`--ignored`)도 통과한다.
 - 창 모드에서 GPU 표면을 못 만들면 이제 이유를 남기고 0이 아닌 코드로 끝난다(이전에는 경고 뒤 검은 창으로 돌다가 0으로 종료).
-- 테스트 도우미 6곳(`cloth`·`terrain`×2·`terrain_brush`·`skinning`·`gltf`)은 자기 인스턴스를 만들어 이 환경 변수를 무시한다.
-  그 테스트들은 변수로 고른 GPU에서 돌지 않는다.
+- 테스트 도우미 6곳(`cloth`·`terrain`×2·`terrain_brush`·`skinning`·`gltf`)은 자기 인스턴스를 만들어 이 환경 변수를 무시했다.
+  2026-10-30부터 렌더러와 같은 `surface::new_instance`·`pick_adapter`를 쓴다. `WGPU_ADAPTER_NAME=AMD`로 돌리면 네 묶음
+  모두 Radeon을 고른다. 없는 이름은 다른 GPU로 넘어가지 않고 후보 목록을 담은 오류가 된다.
 
 **미검증**: ⚠️ **HDR 출력의 실제 신호**(이 모니터는 HDR을 지원하지 않아, 요청하면 SDR로 돌아가는 경로만 확인됨),
 Linux의 실제 GPU(Ubuntu CI는 Xvfb + lavapipe), macOS의 실제 GPU, **Wayland**. 모바일·콘솔 없음.

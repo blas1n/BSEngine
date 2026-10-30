@@ -1330,6 +1330,12 @@ enum PipelineState {
     Failed,
 }
 
+/// What naga checks at run time in the probe update (see `build_pipelines`).
+const UPDATE_RUNTIME_CHECKS: wgpu::ShaderRuntimeChecks = wgpu::ShaderRuntimeChecks {
+    force_loop_bounding: false,
+    ..wgpu::ShaderRuntimeChecks::checked()
+};
+
 fn build_pipelines(device: &wgpu::Device, layout: &wgpu::BindGroupLayout) -> Pipelines {
     let source = format!(
         "{}{}{}",
@@ -1337,10 +1343,26 @@ fn build_pipelines(device: &wgpu::Device, layout: &wgpu::BindGroupLayout) -> Pip
         probe_grid_wgsl!(),
         UPDATE_WGSL
     );
-    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("realtime gi update"),
-        source: wgpu::ShaderSource::Wgsl(source.into()),
-    });
+    // Without naga's loop bounding: it puts a 64-bit counter in every loop, so
+    // a loop the compiler cannot prove finite is still well-defined. With it,
+    // DXC miscompiled this shader for a Radeon iGPU -- two in three probe rays
+    // missed geometry they hit, and a furnace read 68.4 for 0.4 -- on two
+    // driver releases two years apart, while FXC, Vulkan and NVIDIA were
+    // right; and it cost a quarter of the update on every GPU measured (an RTX
+    // 3060, release: 1.48 -> 1.13 ms on Vulkan, 2.35 -> 1.90 on D3D12). Every
+    // loop here ends on its own: the counted ones by their bounds, and the
+    // tree walk because `trace.wgsl` follows only forward children into a
+    // bounded stack, whatever the tree holds. Bounds checks stay: the walk's
+    // stack is a local array, where an index out of range is undefined.
+    let module = unsafe {
+        device.create_shader_module_trusted(
+            wgpu::ShaderModuleDescriptor {
+                label: Some("realtime gi update"),
+                source: wgpu::ShaderSource::Wgsl(source.into()),
+            },
+            UPDATE_RUNTIME_CHECKS,
+        )
+    };
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("realtime gi layout"),
         bind_group_layouts: &[Some(layout)],
@@ -1951,6 +1973,10 @@ impl RealtimeGi {
     /// being read back -- or, for an adaptive layout the buffer cannot hold,
     /// how many probes it needs ([`probes_needed`]): nothing is updated, and
     /// the next call on a large enough buffer cuts the layout again.
+    ///
+    /// `timestamps` brackets the probe update's compute pass for the
+    /// profiler; it is written only when this returns `Ok(true)`, so a caller
+    /// that reserved query slots for it gives them back otherwise.
     pub(crate) fn update(
         &mut self,
         device: &wgpu::Device,
@@ -1959,6 +1985,7 @@ impl RealtimeGi {
         probe_buffer: &wgpu::Buffer,
         grid: crate::surface::ProbeGridLayout,
         input: &RealtimeGiInput,
+        timestamps: Option<wgpu::ComputePassTimestampWrites<'_>>,
     ) -> Result<bool, usize> {
         self.request_geometry(device, queue, registry, &input.statics, &input.dynamics);
         // Lands a readback the GPU has finished; never blocks.
@@ -2266,7 +2293,7 @@ impl RealtimeGi {
             }
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("realtime gi update"),
-                timestamp_writes: None,
+                timestamp_writes: timestamps,
             });
             pass.set_bind_group(0, &bind, &[]);
             // Every probe carried over, then the slice overwritten: two

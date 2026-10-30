@@ -171,7 +171,8 @@ These all produced a green run while being wrong. They are worth memorising.
   `WGPU_ADAPTER_NAME=<part of the name>` (the engine logs `GPU: …` at start).
   The first pinned run found a realtime-GI miscompile on a Radeon iGPU under
   D3D12 + DXC that 2,800 green tests and CI could not see
-  (`docs/BSENGINE_VS_UNITY_UNREAL.md`, "Platform"). Run GPU-touching tests with
+  (`docs/BSENGINE_VS_UNITY_UNREAL.md`, "Platform"; it was naga's loop
+  bounding, now off for that one shader). Run GPU-touching tests with
   `--test-threads=1` on a small iGPU: parallel runs lose the device there.
 - **`AssetServer` knows an asset by its project path, not by the string a
   component holds.** Components hold the engine form

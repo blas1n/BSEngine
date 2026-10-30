@@ -8286,39 +8286,92 @@ impl WgpuSurface {
         // the grid is cleared and the bake's cache forgotten, so a baked
         // volume (if any) is baked afresh rather than shadowed by a stale
         // realtime header.
+        // GPU pass-timing bookkeeping for the profiler (see `next_timed_pass`
+        // / `point_shadow_timestamp_writes`). `gpu_pass_index` is a running
+        // count of timed passes issued so far this frame -- also the number
+        // of query-set slot *pairs* used, since each pass writes a begin and
+        // an end timestamp. `gpu_pass_names` is parallel: `gpu_pass_names[i]`
+        // names the pass whose timestamps live at slots `2*i`/`2*i+1`. Both
+        // stay empty when `!self.timestamp_supported`, since `next_timed_pass`
+        // and `point_shadow_timestamp_writes` never advance them in that case.
+        //
+        // Declared before the realtime probe update, which is the first timed
+        // pass of a frame that has one: it is submitted on its own, ahead of
+        // the frame, into the same query set the frame resolves at its end.
+        let mut gpu_pass_index: u32 = 0;
+        let mut gpu_pass_names: Vec<&'static str> = Vec::new();
+
         let realtime = if self.fast_render {
             None
         } else {
             self.realtime_gi_input.take()
         };
         if let Some(input) = realtime {
+            // A slot for the update's compute pass, so the profiler shows what
+            // the probes cost on the GPU -- the frame's most expensive work
+            // when the volume is realtime, and the one pass that had no
+            // timing at all. Taken back if the update dispatched nothing
+            // (geometry still on its way back, or a layout the buffer could
+            // not hold): a slot that was never written is not a measurement.
+            let timed =
+                (self.timestamp_supported && gpu_pass_index < MAX_TIMED_PASSES).then(|| {
+                    let idx = gpu_pass_index;
+                    gpu_pass_index += 1;
+                    gpu_pass_names.push("realtime_gi");
+                    idx
+                });
+            fn timestamps(
+                idx: Option<u32>,
+                set: Option<&wgpu::QuerySet>,
+            ) -> Option<wgpu::ComputePassTimestampWrites<'_>> {
+                idx.zip(set)
+                    .map(|(idx, query_set)| wgpu::ComputePassTimestampWrites {
+                        query_set,
+                        beginning_of_pass_write_index: Some(idx * 2),
+                        end_of_pass_write_index: Some(idx * 2 + 1),
+                    })
+            }
             let device = &self.device;
             let gi = self
                 .realtime_gi
                 .get_or_insert_with(|| crate::realtime_gi::RealtimeGi::new(device));
             let grid = self.probe_layout;
-            if let Err(needed) = gi.update(
+            let dispatched = match gi.update(
                 device,
                 &self.queue,
                 registry,
                 &self.probe_buffer,
                 grid,
                 &input,
+                timestamps(timed, self.timestamp_query_set.as_ref()),
             ) {
+                Ok(dispatched) => dispatched,
                 // An adaptive layout larger than the buffer: grown, and the
                 // update run again on it this frame.
-                if self.grow_probe_buffer(needed) {
-                    let grid = self.probe_layout;
-                    let gi = self.realtime_gi.as_mut().expect("made above");
-                    let _ = gi.update(
-                        &self.device,
-                        &self.queue,
-                        registry,
-                        &self.probe_buffer,
-                        grid,
-                        &input,
-                    );
+                Err(needed) => {
+                    if self.grow_probe_buffer(needed) {
+                        let grid = self.probe_layout;
+                        let gi = self.realtime_gi.as_mut().expect("made above");
+                        matches!(
+                            gi.update(
+                                &self.device,
+                                &self.queue,
+                                registry,
+                                &self.probe_buffer,
+                                grid,
+                                &input,
+                                timestamps(timed, self.timestamp_query_set.as_ref()),
+                            ),
+                            Ok(true)
+                        )
+                    } else {
+                        false
+                    }
                 }
+            };
+            if timed.is_some() && !dispatched {
+                gpu_pass_index -= 1;
+                gpu_pass_names.pop();
             }
             self.realtime_gi_active = true;
             // The update writes the whole grid: baked bricks it held are gone,
@@ -8415,17 +8468,6 @@ impl WgpuSurface {
         // many objects per call, so these two diverge once batching is on.
         let mut frame_objects_drawn: u32 = 0;
         let mut frame_triangles: u64 = 0;
-
-        // GPU pass-timing bookkeeping for the profiler (see `next_timed_pass`
-        // / `point_shadow_timestamp_writes`). `gpu_pass_index` is a running
-        // count of timed passes issued so far this frame -- also the number
-        // of query-set slot *pairs* used, since each pass writes a begin and
-        // an end timestamp. `gpu_pass_names` is parallel: `gpu_pass_names[i]`
-        // names the pass whose timestamps live at slots `2*i`/`2*i+1`. Both
-        // stay empty when `!self.timestamp_supported`, since `next_timed_pass`
-        // and `point_shadow_timestamp_writes` never advance them in that case.
-        let mut gpu_pass_index: u32 = 0;
-        let mut gpu_pass_names: Vec<&'static str> = Vec::new();
 
         // `presentable` is the swapchain frame to hand back at the end of the
         // function, and is `None` when rendering offscreen.

@@ -115,7 +115,16 @@ fn traverse_tree(
                     }
                 }
             }
-        } else {
+        } else if node.start > index && index < 0xffffffffu && top < 31u {
+            // A child always comes after its parent in the depth-first
+            // layout, and the stack never needs more than its 32 entries
+            // (above): true of every tree the builder makes, and what makes
+            // this loop end on any data -- each entry pushes only larger
+            // indices, below u32's top, into a bounded stack. That is what
+            // the realtime GI relies on to compile without naga's loop
+            // bounding (`realtime_gi::build_pipelines`), whose counter would
+            // never have stopped a bad tree in practice anyway (it allows
+            // 2^64 iterations) and only made the loop well-defined.
             stack[top] = index + 1u;
             stack[top + 1u] = node.start;
             top += 2u;

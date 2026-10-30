@@ -462,6 +462,65 @@ fn realtime_probes_in_a_furnace_follow_the_geometric_series() {
     }
 }
 
+/// The profiler times the probe update: the frame's most expensive work when
+/// a volume is realtime, and the pass that showed D3D12 tracing half again
+/// slower than Vulkan on the same GPU -- time no other pass accounted for.
+/// Timings arrive a few frames late, so the volume keeps updating until they
+/// do.
+///
+/// Its time must outweigh every other pass together, as tracing 64 probes'
+/// 256 rays each does a small frame's raster: a time above zero alone proved
+/// nothing, since a slot nobody wrote reads back whatever it held (an update
+/// that dropped its timestamps passed that, at a tenth of the real time).
+#[test]
+fn the_probe_update_is_timed_on_the_gpu() {
+    let mut s = furnace_scene(0.4, 0.5);
+    let volume = ProbeVolumeParams {
+        resolution: [4, 4, 4],
+        ..inner_volume()
+    };
+    let input = s.input(volume, 0.0, 1 << 20);
+    s.run(&input, 1);
+    let mut stats = None;
+    for _ in 0..16 {
+        s.run(&input, 1);
+        let st = s.scene.surface.latest_frame_stats().expect("frame stats");
+        let done = st.gpu_pass_times_ms.iter().any(|p| p.name == "main");
+        stats = Some(st);
+        if done {
+            break;
+        }
+    }
+    let stats = stats.unwrap();
+    let gi = stats
+        .gpu_pass_times_ms
+        .iter()
+        .find(|p| p.name == "realtime_gi");
+    if !stats.gpu_timestamps_supported {
+        assert!(gi.is_none(), "no timestamps, yet a GI time: {gi:?}");
+        return;
+    }
+    let names: Vec<_> = stats.gpu_pass_times_ms.iter().map(|p| &p.name).collect();
+    assert!(
+        names.iter().any(|n| *n == "main"),
+        "premise: the frame's own passes were timed: {names:?}"
+    );
+    let gi =
+        gi.unwrap_or_else(|| panic!("the probe update is not among the timed passes: {names:?}"));
+    let others: f32 = stats
+        .gpu_pass_times_ms
+        .iter()
+        .filter(|p| p.name != "realtime_gi")
+        .map(|p| p.duration_ms)
+        .sum();
+    assert!(
+        gi.duration_ms > others,
+        "the update ({} ms) must cost more than the rest of the frame ({others} ms): {:?}",
+        gi.duration_ms,
+        stats.gpu_pass_times_ms
+    );
+}
+
 /// The same scene, kept history: each update is `mix(sample, previous,
 /// h)`, so the value one update after a probe's first is `e * (1 - h) +
 /// e * h` from a sample of `e (1 + rho)` -- pinned exactly, which a

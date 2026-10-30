@@ -159,10 +159,15 @@ fn generate_terrain_chunks(
     for (entity, terrain, transform, pending) in query.iter_mut() {
         // Request exactly once, then retain the handles. See `PendingTerrain`.
         let Some(mut pending) = pending else {
-            let heightmap_handle =
-                asset_server.load::<HeightmapAsset>(terrain.heightmap_path.clone());
+            // By project path, like every other load: the terrain's paths are
+            // the engine form, and `asset_key_or_raw` turns them into the key
+            // `bevy_asset` knows the asset by.
+            let heightmap_handle = asset_server
+                .load::<HeightmapAsset>(bsengine_asset::asset_key_or_raw(&terrain.heightmap_path));
             let splatmap = terrain.splatmap_path.as_ref().map(|p| {
-                bsengine_asset::AssetSlot::from_handle(asset_server.load::<TextureAsset>(p.clone()))
+                bsengine_asset::AssetSlot::from_handle(
+                    asset_server.load::<TextureAsset>(bsengine_asset::asset_key_or_raw(p)),
+                )
             });
             commands.entity(entity).insert(PendingTerrain {
                 heightmap: bsengine_asset::AssetSlot::from_handle(heightmap_handle),
@@ -419,6 +424,22 @@ mod tests {
         bytes
     }
 
+    /// The directory every fixture here is written to, one per test process,
+    /// and the project each test app has (`fixture_project`): assets load by
+    /// their project path, so a heightmap in the temp directory's root would
+    /// be outside the project and never read.
+    fn fixture_dir() -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("bsengine_terrain_fixtures_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("create the fixture directory");
+        dir
+    }
+
+    /// [`fixture_dir`] as the test app's `ProjectDir`.
+    fn fixture_project() -> bsengine_core::ProjectDir {
+        bsengine_core::ProjectDir(fixture_dir().to_string_lossy().into_owned())
+    }
+
     /// Writes a small real heightmap PNG to a fresh path under the temp
     /// directory (one per call, so parallel tests don't collide) and returns
     /// its path as a `String` -- the same shape `Terrain::heightmap_path`
@@ -428,7 +449,7 @@ mod tests {
     /// uses for its own PNG.
     fn write_test_heightmap(name: &str, width: u32, height: u32, values: &[u16]) -> String {
         let bytes = make_test_png_16bit_gray(width, height, values);
-        let path = std::env::temp_dir().join(format!(
+        let path = fixture_dir().join(format!(
             "bsengine_terrain_test_{name}_{}.png",
             std::process::id()
         ));
@@ -443,7 +464,7 @@ mod tests {
     /// same shape `Terrain::layer0..3_texture_path` expect.
     fn write_test_texture(name: &str, rgba: [u8; 4]) -> String {
         let img = image::RgbaImage::from_pixel(2, 2, image::Rgba(rgba));
-        let path = std::env::temp_dir().join(format!(
+        let path = fixture_dir().join(format!(
             "bsengine_terrain_test_tex_{name}_{}.png",
             std::process::id()
         ));
@@ -514,6 +535,7 @@ mod tests {
     /// `GpuTextureRegistry`s, and `TerrainPlugin` itself.
     fn test_app() -> bevy_app::App {
         let mut app = crate::new_app();
+        app.insert_resource(fixture_project());
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(TerrainPlugin);
@@ -547,6 +569,7 @@ mod tests {
         // without a GpuMeshRegistry, the system must retry forever rather
         // than silently dropping the Terrain.
         let mut app = crate::new_app();
+        app.insert_resource(fixture_project());
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(TerrainPlugin);
         let path = write_test_heightmap("no-registry", 5, 5, &[0u16; 25]);

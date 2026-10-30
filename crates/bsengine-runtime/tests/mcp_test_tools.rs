@@ -330,10 +330,11 @@ impl ProbeGame {
         Self { games_root }
     }
 
-    /// The key `AssetStatuses` holds for `relative`, spelled exactly as the
-    /// engine spells it: `resolve_project_path` joins the project directory
-    /// with the script-relative path, and the project directory is what
-    /// `SessionRegistry` passes to `--test` — `games_root/<game>`.
+    /// The engine form of `relative` -- what a component holds, and a spelling
+    /// the tool must still answer for: `resolve_project_path` joins the project
+    /// directory with the script-relative path, and the project directory is
+    /// what `SessionRegistry` passes to `--test` — `games_root/<game>`.
+    /// (`AssetStatuses` itself is keyed by the project path, `relative`.)
     ///
     /// Derived rather than hardcoded on purpose: the spelling is the one thing
     /// a caller of this tool has to get right, so a test that quietly used a
@@ -449,13 +450,16 @@ fn asset_status_tells_a_failed_load_from_a_path_nothing_requested() {
     let known = quiet["known_paths"]
         .as_array()
         .unwrap_or_else(|| panic!("an `unknown` must carry known_paths, got {quiet:?}"));
+    // Listed as the engine keys them: by project path (`assets/...`), the
+    // spelling a caller writes, rather than the engine form asked with above.
     assert!(
-        known.contains(&json!(broken)),
+        known.contains(&json!(BROKEN_SOUND)),
         "known_paths must list the paths this session actually requested, or it \
          cannot correct a spelling; got {known:?}"
     );
     assert!(
-        !known.contains(&json!(probe.asset_key(QUIET_SOUND))),
+        !known.contains(&json!(QUIET_SOUND))
+            && !known.contains(&json!(probe.asset_key(QUIET_SOUND))),
         "known_paths is what the engine knows, not an echo of the question: {known:?}"
     );
 

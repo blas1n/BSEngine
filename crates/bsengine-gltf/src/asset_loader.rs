@@ -27,7 +27,15 @@ const SELF_CONTAINED_EXTENSION: &str = "glb";
 /// run time.
 // `TypePath`: Bevy 0.18 makes it a supertrait of `AssetLoader`.
 #[derive(Default, bevy_reflect::TypePath)]
-pub struct GltfSourceLoader;
+pub struct GltfSourceLoader {
+    /// Where the default asset source reads from -- the project directory --
+    /// for the one read that does not go through the source: a `.gltf` whose
+    /// buffers and images are files beside it, which `gltf::import` opens
+    /// itself. `None` in an app with no `bsengine_asset::AssetPlugin` (added
+    /// before `GltfPlugin`), where the path is taken as the working
+    /// directory's.
+    pub root: Option<bsengine_asset::ProjectRoot>,
+}
 
 impl AssetLoader for GltfSourceLoader {
     type Asset = LoadedGltf;
@@ -68,7 +76,17 @@ impl AssetLoader for GltfSourceLoader {
             return GltfLoader::load_full_from_slice(&bytes, &settings);
         }
 
-        GltfLoader::load_full_with(&path, &settings)
+        // `path` is the asset's project path (`assets/x.gltf`), which is not
+        // where the file is on disk: `gltf::import` opens it, and every
+        // buffer and image beside it, with `std::fs`, so it is given the
+        // project directory's copy. Before assets were loaded by project path
+        // this was the engine form, a working-directory path, and the join
+        // was not needed -- a `.gltf` with external files is what found it.
+        let file = match &self.root {
+            Some(root) => root.get().join(&path).to_string_lossy().into_owned(),
+            None => path,
+        };
+        GltfLoader::load_full_with(&file, &settings)
     }
 }
 
@@ -144,12 +162,17 @@ mod tests {
         .unwrap();
 
         let mut app = new_app();
+        // The temp directory is the project, and the copy is `fox.glb` in it:
+        // assets load by their project path.
+        app.insert_resource(bsengine_core::ProjectDir(
+            dir.to_string_lossy().into_owned(),
+        ));
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(crate::GltfPlugin);
         let handle = app
             .world()
             .resource::<AssetServer>()
-            .load::<LoadedGltf>(copy.to_str().unwrap().to_owned());
+            .load::<LoadedGltf>("fox.glb");
         let mut loaded = None;
         for _ in 0..200 {
             app.update();

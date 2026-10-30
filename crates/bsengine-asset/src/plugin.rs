@@ -143,21 +143,29 @@ impl Plugin for AssetPlugin {
         // so this is safe even if a future plugin also initializes it.
         bevy_tasks::IoTaskPool::get_or_init(bevy_tasks::TaskPool::default);
 
-        // Every asset path in this engine (scene RON `gltf:` fields,
-        // Bsengine.setShader() paths, playSound() paths, ...) is already
-        // fully resolved via bsengine_core::resolve_project_path before it
-        // reaches any loader — it is a CWD-relative filesystem path, not a
-        // path meant to be joined under bevy_asset's own "assets/" root
-        // convention. Passing the absolute CWD as `file_path` both suppresses
-        // that convention and pins the root to the CWD; see
-        // [`asset_source_root`] for why the obvious-looking `""` does neither.
-        // Read once and published as [`AssetRoot`], so that every consumer of
-        // "where is the asset root" — bevy_asset itself and the file watcher —
-        // is looking at one value rather than at two separate `current_dir()`
-        // calls that happen to agree.
+        // The default asset source is rooted at the *project*, and an asset is
+        // loaded by its project path (`assets/x.glb`): see
+        // [`crate::project_root`]. Registered here, before `bevy_asset`'s own
+        // plugin builds its sources, and only if nothing (a packaged build's
+        // archive) has taken the default already.
+        //
+        // The components still hold the engine form -- the resolved,
+        // CWD-relative `<ProjectDir>/assets/x.glb` that
+        // `bsengine_core::resolve_project_path` makes -- and
+        // [`crate::project_root::asset_key`] converts it at the load.
+        app.add_plugins(crate::project_root::ProjectRootPlugin);
+
+        // [`AssetRoot`] is what that engine form is relative to: the working
+        // directory. The file watcher builds engine-form paths against it, and
+        // it is published so that it and anything else asking "what are
+        // engine-form paths relative to" read one value rather than two
+        // separate `current_dir()` calls that happen to agree. It is no longer
+        // `bevy_asset`'s root -- that is the project, above.
         let root = asset_source_root();
 
         app.add_plugins(bevy_asset::AssetPlugin {
+            // Unused for the default source (registered above), kept so that
+            // a build with the default taken by an archive is unchanged.
             file_path: root.clone(),
             // `bevy_asset` reserves `<asset>.meta` for its own
             // `AssetMetaMinimal`, and so does [`crate::identity`] for the
@@ -192,22 +200,17 @@ impl Plugin for AssetPlugin {
             // already minted would be re-minted under the new name — which is
             // every GUID the scenes now store.
             meta_check: bevy_asset::AssetMetaCheck::Never,
-            // Bevy 0.16 refuses ("unapproved") any path with a root, a
-            // prefix or a `..` that climbs out of the source -- by default
-            // with `Forbid`, which no override reaches. Every engine path is
-            // resolved by `resolve_project_path` before a loader sees it, so
-            // a project opened by an absolute path (the editor's file dialog,
-            // every test's temp project) hands bevy_asset absolute paths for
-            // all of its assets, and under `Forbid` every one of them failed
-            // to load: terrain heightmaps first, ten terrain tests with them.
-            // `Allow` is what 0.15 did. What Bevy is guarding against -- a
-            // path from an untrusted source reading outside the asset root --
-            // is answered here by the root not being the project to begin
-            // with (see `asset_source_root`); making it the project, so
-            // `Forbid` would mean something, is its own change. A packaged
-            // game reads through `PakAssetReader`, by archive key, and never
-            // reaches the filesystem at all.
-            unapproved_path_mode: bevy_asset::UnapprovedPathMode::Allow,
+            // `unapproved_path_mode` is left at Bevy's default, `Forbid`: a
+            // path with a root, a prefix or a `..` that climbs out of the
+            // source is refused before any reader sees it. This was `Allow`
+            // while every asset was loaded by its engine form -- an absolute
+            // path whenever a project was opened by one (the editor's file
+            // dialog, every test's temp project) -- and the source was rooted
+            // at the working directory, so `Forbid` refused every asset and
+            // `Allow` refused nothing. Assets are now loaded by their project
+            // path (see [`crate::project_root::asset_key`]), which never has
+            // a root, so `Forbid` costs nothing and a path that does have
+            // one -- the escape -- is what it stops.
             ..Default::default()
         })
         .insert_resource(AssetRoot(PathBuf::from(root)))

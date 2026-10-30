@@ -167,6 +167,15 @@ pub fn load_async<T: Asset>(asset_server: &AssetServer, path: &str) -> Handle<T>
     // Owned either way — `AssetServer::load` takes an owned `AssetPath` — so
     // recovery costs no allocation the previous spelling did not already make.
     let path = recover_former_path(path).unwrap_or_else(|| path.to_owned());
+    // The key `AssetServer` loads it by: the project path (`assets/x.glb`),
+    // not the engine form the caller holds (`<ProjectDir>/assets/x.glb`).
+    // Done after the recovery above, which works on the engine form because
+    // the identity index it consults is keyed by it. A path that names no file
+    // in a project (`..` out, an absolute path under none) has no key; it goes
+    // through unchanged and is refused by `bevy_asset`'s `Forbid` or by the
+    // reader, so the load *fails* -- visibly, in `AssetStatuses` -- instead of
+    // reading something else.
+    let path = crate::project_root::asset_key_or_raw(&path);
     // The path actually handed to `AssetServer`, not the one the caller
     // spelled: a status is a report of what happened to a *load*, and the
     // stale spelling never becomes one. `AssetStatuses` would in any case
@@ -529,8 +538,8 @@ mod tests {
 
             assert_eq!(
                 server.get_path(handle.id()).map(|p| p.to_string()),
-                Some(current.clone()),
-                "the load must have been made against where the asset is now"
+                Some(CURRENT.to_string()),
+                "the load must have been made against where the asset is now (by its project path)"
             );
             assert!(
                 run_until(&mut app, |app| app
@@ -586,7 +595,7 @@ mod tests {
 
             assert_eq!(
                 server.get_path(handle.id()).map(|p| p.to_string()),
-                Some(stale.clone()),
+                Some(FORMER.to_string()),
                 "a file that exists at the spelled path is the asset that was \
                  asked for; redirecting away from it because of a move recorded \
                  before it existed would load a real, wrong file"
@@ -610,7 +619,6 @@ mod tests {
             let app = app_with_index(&project);
 
             let stale = format!("{project}/{FORMER}");
-            let current = format!("{project}/{CURRENT}");
             let server = app.world().resource::<AssetServer>().clone();
 
             let (handles, logs) = capture_warnings(|| {
@@ -625,9 +633,10 @@ mod tests {
                 "sixty loads produced more than one warning. Got: {logs}"
             );
             assert!(
-                handles.iter().all(
-                    |h| server.get_path(h.id()).map(|p| p.to_string()) == Some(current.clone())
-                ),
+                handles
+                    .iter()
+                    .all(|h| server.get_path(h.id()).map(|p| p.to_string())
+                        == Some(CURRENT.to_string())),
                 "suppressing the *warning* must not suppress the recovery: every \
                  one of those loads still has to reach the asset"
             );
@@ -648,7 +657,7 @@ mod tests {
 
             assert_eq!(
                 server.get_path(handle.id()).map(|p| p.to_string()),
-                Some(current.clone())
+                Some(CURRENT.to_string())
             );
             assert!(!logs.contains(RECOVERY_PHRASE), "Got: {logs}");
         }

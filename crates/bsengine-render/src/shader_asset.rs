@@ -66,17 +66,24 @@ mod tests {
         use bevy_asset::{AssetApp, AssetServer, Assets};
         use bsengine_app::new_app;
 
-        let path = std::env::temp_dir().join("bsengine_test_async_shader.wgsl");
-        std::fs::write(&path, "// async wgsl\n").unwrap();
+        // Its own directory, which is the test's project: assets load by
+        // their project path, so the shader is `shader.wgsl` in it.
+        let dir =
+            std::env::temp_dir().join(format!("bsengine_test_async_shader_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("shader.wgsl"), "// async wgsl\n").unwrap();
 
         let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir(
+            dir.to_string_lossy().into_owned(),
+        ));
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.init_asset::<ShaderSource>();
         app.register_asset_loader(ShaderSourceLoader);
 
         let handle = {
             let server = app.world().resource::<AssetServer>();
-            server.load::<ShaderSource>(path.to_str().unwrap().to_owned())
+            server.load::<ShaderSource>("shader.wgsl")
         };
 
         let mut loaded = None;

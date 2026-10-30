@@ -92,15 +92,20 @@ impl AssetStatuses {
     /// What is known about `path`, or [`AssetStatus::Unknown`] if nothing ever
     /// asked for it.
     ///
-    /// `path` must be spelled the way the load site spelled it — these are the
-    /// engine-form, CWD-relative, forward-slashed paths that
-    /// `bsengine_core::resolve_project_path` produces, not canonicalised or
-    /// absolute ones. `bevy_asset` keys its own tables the same way (which is
-    /// why [`crate::watcher`] has to reconstruct that exact spelling), so a
-    /// mismatched spelling reads as `Unknown` rather than as an error.
+    /// `path` may be the engine form a component holds
+    /// (`<ProjectDir>/assets/x.glb`, which is what
+    /// `bsengine_core::resolve_project_path` produces) or the project path
+    /// itself (`assets/x.glb`): it is turned into the key the load used
+    /// ([`crate::asset_key`]) before the lookup. `bevy_asset` keys its own
+    /// tables by that project path (which is why [`crate::watcher`] has to
+    /// convert to it), and the map here is keyed the same way.
+    ///
+    /// A path that names no file in any project has no key and reads as
+    /// `Unknown`, like one nothing ever asked for.
     pub fn get(&self, path: &str) -> AssetStatus {
-        self.by_path
-            .get(path)
+        crate::project_root::asset_key(path)
+            .ok()
+            .and_then(|key| self.by_path.get(&key))
             .cloned()
             .unwrap_or(AssetStatus::Unknown)
     }

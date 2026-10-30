@@ -2,32 +2,33 @@
 //! crate's `LoadMode`-dispatched `load()` helper and `bevy_asset`'s `Handle<T>`/
 //! `Assets<T>`. See `docs/superpowers/specs/2026-07-31-bevy-asset-pipeline-design.md`.
 //!
-//! # The asset root, and why `BEVY_ASSET_ROOT` is ignored
+//! # The asset root, and the key an asset is loaded by
 //!
-//! Every asset path in this engine is produced by
-//! `bsengine_core::resolve_project_path`, which joins `ProjectDir` with a
-//! scene-relative path — and the result is **relative to the process working
-//! directory**, exactly like every other path the engine reads. Scenes,
-//! `project.toml` and scripts all go through plain `std::fs` and resolve that
-//! way, so [`AssetPlugin`] pins `bevy_asset`'s root to the working directory
-//! too, and publishes it as [`plugin::AssetRoot`].
+//! The default asset source is [`project_root::ProjectAssetReader`], rooted at
+//! the **project directory** (`ProjectDir`), and an asset is loaded -- and
+//! keyed, in `bevy_asset`'s tables, in [`AssetStatuses`], in the watcher and in
+//! an archive -- by its **project path**: `assets/x.glb`, relative to the
+//! project, forward slashes. Unity (`Assets/...`), Unreal (`/Game/...`) and
+//! Godot (`res://`) all key an asset that way and turn it into a file only where
+//! the disk is read. Nothing outside the project is read: the reader refuses a
+//! path that climbs out, has a root or a drive, or leads out through a link, and
+//! `bevy_asset`'s `UnapprovedPathMode` is its default, `Forbid`.
 //!
-//! `bevy_asset` would otherwise pick that root itself, preferring the
-//! `BEVY_ASSET_ROOT` environment variable, then `CARGO_MANIFEST_DIR`, then the
-//! executable's own directory. **Pinning the root to the working directory
-//! means `BEVY_ASSET_ROOT` has no effect here, on purpose.** Honouring it
-//! would let `bevy_asset` resolve from one directory while every `std::fs`
-//! read in the engine resolved from another — an opt-in switch for a
-//! split-brain in which meshes, textures and shaders load from somewhere the
-//! scene that references them does not. That is not a hypothetical: resolving
-//! assets under `CARGO_MANIFEST_DIR` instead of the working directory is a bug
-//! this engine actually shipped, and because a failed asset load is only a
-//! `WARN`, it ran a whole game without its meshes or its shaders for as long
-//! as it stood.
+//! Components still hold the *engine form* `bsengine_core::resolve_project_path`
+//! makes (`<ProjectDir>/assets/x.glb`, relative to the working directory, which
+//! scenes, `project.toml` and scripts are read against with plain `std::fs`).
+//! [`asset_key`] converts it at the load -- [`load_async`] does, and so must
+//! anything that hands a path to `AssetServer` directly. [`plugin::AssetRoot`] is
+//! still the working directory: it is what that engine form is relative to.
 //!
-//! To move where assets come from, change the process working directory (or
-//! `ProjectDir`); that moves the engine's other reads with it, which is the
-//! point.
+//! `BEVY_ASSET_ROOT` has no effect, on purpose: the root is the project, which
+//! is where every other read the engine makes for that project resolves too.
+//! Letting `bevy_asset` pick its own root (`BEVY_ASSET_ROOT`, then
+//! `CARGO_MANIFEST_DIR`, then the executable's directory) would split the two --
+//! and that is not hypothetical: resolving assets under `CARGO_MANIFEST_DIR` is a
+//! bug this engine actually shipped, and because a failed asset load is only a
+//! `WARN`, it ran a whole game without its meshes or its shaders for as long as
+//! it stood. To move where assets come from, change `ProjectDir`.
 #![warn(missing_docs)]
 
 /// Collects exactly the assets a project reaches and writes a build that runs
@@ -57,6 +58,9 @@ pub mod pak_source;
 /// Wires `bevy_asset`'s `AssetPlugin` into the app and registers this
 /// crate's own asset types.
 pub mod plugin;
+/// The default asset source rooted at the project, and `asset_key`, the
+/// project-relative key every asset is loaded and tracked by.
+pub mod project_root;
 /// `AssetSlot`: the request-once / poll / never-re-request-a-failure state
 /// machine every asynchronous asset consumer in this engine needs.
 pub mod slot;
@@ -85,6 +89,9 @@ pub use heightmap_loader::HeightmapAssetLoader;
 pub use identity::{AssetGuid, AssetIdentityPlugin, AssetIndex};
 pub use load_mode::{load, load_async, LoadMode};
 pub use plugin::{AssetPlugin, PakAssetPlugin};
+pub use project_root::{
+    asset_key, asset_key_or_raw, register_project, ProjectAssetReader, ProjectRoot,
+};
 pub use slot::{AssetSlot, Polled};
 pub use status::{AssetStatus, AssetStatusPlugin, AssetStatuses};
 pub use texture_loader::TextureAssetLoader;

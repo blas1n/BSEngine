@@ -84,10 +84,19 @@ mod tests {
     /// A real app with the real plugins, so what is under test is the
     /// registration `ScriptingPlugin::build` performs, not a hand-rolled
     /// `init_asset` an integrator would have to remember to repeat.
+    ///
+    /// The temp directory `temp_script` writes into is the project, inserted
+    /// before `AssetPlugin` so the asset source is rooted there from the
+    /// first load: assets load by their project path, so a test loads the
+    /// script by its file name.
     fn app_with_scripting() -> bevy_app::App {
+        let project = std::env::temp_dir().to_string_lossy().into_owned();
         let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir(project.clone()));
         app.add_plugins(bsengine_asset::AssetPlugin);
-        app.add_plugins(ScriptingPlugin::default());
+        app.add_plugins(ScriptingPlugin {
+            project_dir: project,
+        });
         app
     }
 
@@ -103,7 +112,7 @@ mod tests {
         let mut app = app_with_scripting();
         let handle = {
             let server = app.world().resource::<AssetServer>();
-            server.load::<ScriptSource>(path.to_str().unwrap().to_owned())
+            server.load::<ScriptSource>(path.file_name().unwrap().to_string_lossy().into_owned())
         };
 
         let mut loaded = None;
@@ -138,7 +147,7 @@ mod tests {
         let mut app = app_with_scripting();
         let handle = {
             let server = app.world().resource::<AssetServer>();
-            server.load::<ScriptSource>(path.to_str().unwrap().to_owned())
+            server.load::<ScriptSource>(path.file_name().unwrap().to_string_lossy().into_owned())
         };
 
         // No `catch_unwind` here: a panic in the loader would abort this test

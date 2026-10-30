@@ -4667,12 +4667,18 @@ mod tests {
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
         });
         app.world_mut().spawn((
             Name("Hero".to_string()),
             SaveData::new(0),
-            ScriptPath(script_path.to_string_lossy().to_string()),
+            ScriptPath(
+                script_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
         ));
 
         app.update();
@@ -4734,13 +4740,19 @@ mod tests {
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
         });
         let entity = app
             .world_mut()
             .spawn((
                 Name("Hero".to_string()),
-                ScriptPath(script_path.to_string_lossy().to_string()),
+                ScriptPath(
+                    script_path
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
             ))
             .id();
 
@@ -4806,7 +4818,7 @@ mod tests {
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
         });
         // A fixed quarter-second per frame, as `--test` replays run, so that
         // how often an `OnInterval` fires is a function of the frame count
@@ -4816,7 +4828,13 @@ mod tests {
             .world_mut()
             .spawn((
                 Name("Hero".to_string()),
-                ScriptPath(script_path.to_string_lossy().to_string()),
+                ScriptPath(
+                    script_path
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
                 Transform::default(),
             ))
             .id();
@@ -5078,7 +5096,7 @@ mod tests {
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
         });
         app.insert_resource(bsengine_core::RpcQueues::default());
         app.world_mut().spawn((
@@ -5087,7 +5105,13 @@ mod tests {
                 id: 7,
                 authority: bsengine_core::NetworkAuthority::Predicted { peer_id: 1 },
             },
-            ScriptPath(script_path.to_string_lossy().to_string()),
+            ScriptPath(
+                script_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
         ));
 
         let mut frames = 0;
@@ -5146,7 +5170,7 @@ mod tests {
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
         });
         app.insert_resource(bsengine_core::RpcQueues::default());
         app.world_mut().spawn((
@@ -5155,7 +5179,13 @@ mod tests {
                 id: 7,
                 authority: bsengine_core::NetworkAuthority::Predicted { peer_id: 1 },
             },
-            ScriptPath(script_path.to_string_lossy().to_string()),
+            ScriptPath(
+                script_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
         ));
 
         // Wait for the script to be running before the call arrives: a call
@@ -5531,11 +5561,17 @@ mod tests {
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
         });
         app.world_mut().spawn((
             Name("Speaker".to_string()),
-            ScriptPath(script_path.to_string_lossy().to_string()),
+            ScriptPath(
+                script_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
         ));
 
         // The queue is measured after every frame, not just at the end: the
@@ -5579,7 +5615,12 @@ mod tests {
                 app.world()
                     .resource::<SoundLoads>()
                     .0
-                    .get("definitely/not/a/real/sound.wav"),
+                    // Keyed by the path `playSound` resolved against the
+                    // project -- the temp directory the script is in.
+                    .get(&format!(
+                        "{}/definitely/not/a/real/sound.wav",
+                        script_path.parent().unwrap().to_string_lossy()
+                    )),
                 Some(SoundLoad::Requested(slot)) if slot.gave_up()
             ),
             "the failed path must be remembered as a request that gave up -- \
@@ -5843,7 +5884,7 @@ mod tests {
 
         app.world()
             .resource::<AssetServer>()
-            .reload(resolved_path.clone());
+            .reload(bsengine_asset::asset_key(&resolved_path).expect("a project path"));
 
         // 60 frames is far more than the reload needs; the number is chosen
         // for the other half of this test. `Assets::track_assets` runs every
@@ -5940,11 +5981,17 @@ mod tests {
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
         });
         app.world_mut().spawn((
             Name("Speaker".to_string()),
-            ScriptPath(script_path.to_string_lossy().to_string()),
+            ScriptPath(
+                script_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
         ));
 
         app.update();
@@ -6023,11 +6070,17 @@ mod tests {
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(bsengine_asset::AssetStatusPlugin);
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
         });
         app.world_mut().spawn((
             Name("Probe".to_string()),
-            ScriptPath(script_path.to_string_lossy().to_string()),
+            ScriptPath(
+                script_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
         ));
 
         // A hang guard, not a budget: the load is one missing local file.
@@ -6281,11 +6334,17 @@ mod tests {
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
         });
         app.world_mut().spawn((
             Name("Speaker".to_string()),
-            ScriptPath(script_path.to_string_lossy().to_string()),
+            ScriptPath(
+                script_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
         ));
 
         app.update();
@@ -6361,11 +6420,17 @@ mod tests {
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
         });
         app.world_mut().spawn((
             Name("Speaker".to_string()),
-            ScriptPath(script_path.to_string_lossy().to_string()),
+            ScriptPath(
+                script_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
         ));
 
         app.update();
@@ -6417,12 +6482,18 @@ mod tests {
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
         });
         app.world_mut().spawn((
             Name("Hero".to_string()),
             Transform::from_position(Vec3::new(5.0, 0.0, 5.0)),
-            ScriptPath(script_path.to_string_lossy().to_string()),
+            ScriptPath(
+                script_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
         ));
 
         app.update();
@@ -6487,7 +6558,7 @@ mod tests {
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(bsengine_physics::PhysicsPlugin);
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
         });
         let mut static_box = |at: Vec3, half: Vec3| {
             app.world_mut().spawn((
@@ -6519,7 +6590,13 @@ mod tests {
             .id();
         app.world_mut().spawn((
             Name("Driver".to_string()),
-            ScriptPath(script_path.to_string_lossy().to_string()),
+            ScriptPath(
+                script_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
         ));
 
         for _ in 0..60 {
@@ -6569,7 +6646,7 @@ mod tests {
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(bsengine_physics::PhysicsPlugin);
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
         });
         let mut static_box = |at: Vec3, half: Vec3| {
             app.world_mut().spawn((
@@ -6586,7 +6663,13 @@ mod tests {
         static_box(Vec3::new(0.0, 1.0, 0.0), Vec3::new(1.0, 1.0, 1.0)); // pillar
         app.world_mut().spawn((
             Name("Driver".to_string()),
-            ScriptPath(script_path.to_string_lossy().to_string()),
+            ScriptPath(
+                script_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
         ));
 
         for _ in 0..8 {
@@ -6639,14 +6722,20 @@ mod tests {
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(bsengine_physics::PhysicsPlugin);
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
         });
 
         let a = spawn_named_body(&mut app, "A", Vec3::ZERO);
         let b = spawn_named_body(&mut app, "B", Vec3::new(0.0, -1.0, 0.0));
         app.world_mut().spawn((
             Name("Driver".to_string()),
-            ScriptPath(script_path.to_string_lossy().to_string()),
+            ScriptPath(
+                script_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
         ));
 
         // Three ticks of attaching: the first may land before `spawn_bodies`
@@ -6701,7 +6790,7 @@ mod tests {
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(bsengine_physics::PhysicsPlugin);
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
         });
 
         let a = spawn_named_body(&mut app, "A", Vec3::ZERO);
@@ -6710,7 +6799,13 @@ mod tests {
         let d = spawn_named_body(&mut app, "D", Vec3::new(1.0, 5.0, 0.0));
         app.world_mut().spawn((
             Name("Driver".to_string()),
-            ScriptPath(script_path.to_string_lossy().to_string()),
+            ScriptPath(
+                script_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
         ));
 
         for _ in 0..3 {
@@ -6744,12 +6839,18 @@ mod tests {
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
         });
         app.world_mut().spawn((
             Name("Hero".to_string()),
             bsengine_core::SaveData::new(0),
-            ScriptPath(script_path.to_string_lossy().to_string()),
+            ScriptPath(
+                script_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
         ));
 
         app.update();
@@ -6787,12 +6888,18 @@ mod tests {
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
         });
         app.init_resource::<bsengine_core::UiState>();
         app.world_mut().spawn((
             Name("Menu".to_string()),
-            ScriptPath(script_path.to_string_lossy().to_string()),
+            ScriptPath(
+                script_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
         ));
         for _ in 0..3 {
             app.update();
@@ -6819,11 +6926,17 @@ mod tests {
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
         });
         app.world_mut().spawn((
             Name("Hero".to_string()),
-            ScriptPath(script_path.to_string_lossy().to_string()),
+            ScriptPath(
+                script_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
         ));
 
         app.update();
@@ -7800,14 +7913,20 @@ function onUpdate(name) {{
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
         });
         app.init_resource::<Input<KeyCode>>();
         let entity = app
             .world_mut()
             .spawn((
                 Name("Reader".to_string()),
-                ScriptPath(script_path.to_string_lossy().to_string()),
+                ScriptPath(
+                    script_path
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
                 Transform::default(),
             ))
             .id();
@@ -7870,13 +7989,19 @@ function onUpdate(name) {{
         app.add_plugins(InputPlugin);
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
         });
         let entity = app
             .world_mut()
             .spawn((
                 Name("Jumper".to_string()),
-                ScriptPath(script_path.to_string_lossy().to_string()),
+                ScriptPath(
+                    script_path
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
                 Transform::default(),
             ))
             .id();
@@ -7941,7 +8066,7 @@ function onUpdate(name) {{
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
         });
         let car = app.world_mut().spawn(Name("Car".to_string())).id();
         let wheel = app
@@ -7952,7 +8077,13 @@ function onUpdate(name) {{
             .world_mut()
             .spawn((
                 Name("Director".to_string()),
-                ScriptPath(script_path.to_string_lossy().to_string()),
+                ScriptPath(
+                    script_path
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
             ))
             .id();
 
@@ -8019,13 +8150,19 @@ function onUpdate(name) {{
         app.add_plugins(InputPlugin);
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
         });
         let entity = app
             .world_mut()
             .spawn((
                 Name("Menu".to_string()),
-                ScriptPath(script_path.to_string_lossy().to_string()),
+                ScriptPath(
+                    script_path
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
                 Transform::default(),
             ))
             .id();
@@ -8122,14 +8259,20 @@ function onUpdate(name) {{
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(bsengine_app::AnimationPlugin);
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
         });
         let mut time = Time::default();
         time.set_delta_for_test(0.1);
         app.insert_resource(time);
         app.world_mut().spawn((
             Name("Hero".to_string()),
-            ScriptPath(script_path.to_string_lossy().to_string()),
+            ScriptPath(
+                script_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
             Transform::default(),
             AnimationPlayer::new("walk").with_duration(1.0).paused(),
             AnimationEvents {
@@ -8221,13 +8364,19 @@ function onUpdate(name) {{
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
         });
         let face = app
             .world_mut()
             .spawn((
                 Name("Face".to_string()),
-                ScriptPath(script_path.to_string_lossy().to_string()),
+                ScriptPath(
+                    script_path
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
                 Transform::default(),
                 bsengine_core::MorphWeights {
                     names: vec!["smile".to_string(), "blink".to_string()],
@@ -8318,7 +8467,7 @@ function onUpdate(name) {{
             add_stand_in(&mut app);
         }
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
         });
         if !stand_in_first {
             add_stand_in(&mut app);
@@ -8327,7 +8476,13 @@ function onUpdate(name) {{
             .world_mut()
             .spawn((
                 Name("Face".to_string()),
-                ScriptPath(script_path.to_string_lossy().to_string()),
+                ScriptPath(
+                    script_path
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
                 Transform::default(),
                 bsengine_core::MorphWeights {
                     names: vec!["smile".to_string()],
@@ -8406,11 +8561,17 @@ function onUpdate(name) {{
             .unwrap(),
         );
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
         });
         app.world_mut().spawn((
             Name("Menu".to_string()),
-            ScriptPath(script_path.to_string_lossy().to_string()),
+            ScriptPath(
+                script_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
             Transform::default(),
         ));
         let mut frames = 0;
@@ -8461,17 +8622,29 @@ function onUpdate(name) {{
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(bsengine_app::BehaviorTreePlugin);
         app.add_plugins(ScriptingPlugin {
-            project_dir: String::new(),
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
         });
         let guard = app
             .world_mut()
             .spawn((
                 Name("Guard".to_string()),
-                ScriptPath(script_path.to_string_lossy().to_string()),
+                ScriptPath(
+                    script_path
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
                 Transform::default(),
                 bsengine_core::Blackboard::default(),
                 bsengine_core::BehaviorTree {
-                    tree: tree_path.to_string_lossy().to_string(),
+                    // Project-relative, like the script beside it: the
+                    // temp directory is this app's project.
+                    tree: tree_path
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned(),
                     ..Default::default()
                 },
             ))

@@ -688,7 +688,15 @@ fn drain_asset_changes(
         );
     }
 
-    for path in changed {
+    for engine_path in changed {
+        // `changed` holds engine-form paths (`<ProjectDir>/assets/x.png`, what
+        // the rest of this module and the identity index speak), but
+        // `bevy_asset` knows the asset by its project path -- the key it was
+        // loaded by -- so that is what is asked about and reloaded. A path
+        // with no key was never loadable, so there is nothing to reload.
+        let Ok(path) = crate::project_root::asset_key(&engine_path) else {
+            continue;
+        };
         // The extension filter only proved this is a *kind* of file bevy_asset
         // can serve; see `reload_would_do_nothing` for why this second gate is
         // the exact question and the first one is not. Saying "reloading" here
@@ -1357,8 +1365,8 @@ mod tests {
         let (texture_handle, decoy_handle) = {
             let server = app.world().resource::<AssetServer>();
             (
-                server.load::<TextureAsset>(format!("{project}/assets/tex.png")),
-                server.load::<TextureAsset>(format!("{project}/assets/notes.ron")),
+                crate::load_async::<TextureAsset>(server, &format!("{project}/assets/tex.png")),
+                crate::load_async::<TextureAsset>(server, &format!("{project}/assets/notes.ron")),
             )
         };
 
@@ -1513,7 +1521,7 @@ mod tests {
 
         let handle = {
             let server = app.world().resource::<AssetServer>();
-            server.load::<TextureAsset>(format!("{project}/assets/tex.png"))
+            crate::load_async::<TextureAsset>(server, &format!("{project}/assets/tex.png"))
         };
         run_until(&mut app, "the asset finished loading", |app| {
             app.world()
@@ -1649,7 +1657,7 @@ mod tests {
 
         let handle = {
             let server = app.world().resource::<AssetServer>();
-            server.load::<TextureAsset>(format!("{project}/assets/tex.png"))
+            crate::load_async::<TextureAsset>(server, &format!("{project}/assets/tex.png"))
         };
         run_until(&mut app, "the asset finished loading", |app| {
             app.world()
@@ -1861,7 +1869,7 @@ mod tests {
 
         let handle = {
             let server = app.world().resource::<AssetServer>();
-            server.load::<TextureAsset>(format!("{project}/assets/tex.png"))
+            crate::load_async::<TextureAsset>(server, &format!("{project}/assets/tex.png"))
         };
         run_until(&mut app, "the asset finished loading", |app| {
             app.world()
@@ -2114,10 +2122,10 @@ mod tests {
         app.insert_resource(ProjectDir(project.clone()));
         app.add_plugins(crate::plugin::AssetPlugin);
         app.add_plugins(AssetWatcherPlugin);
-        let handle = app
-            .world()
-            .resource::<AssetServer>()
-            .load::<TextureAsset>(format!("{project}/assets/tex.png"));
+        let handle = crate::load_async::<TextureAsset>(
+            app.world().resource::<AssetServer>(),
+            &format!("{project}/assets/tex.png"),
+        );
         run_until(&mut app, "the texture finished loading", |app| {
             app.world()
                 .resource::<Assets<TextureAsset>>()
@@ -2263,7 +2271,7 @@ mod tests {
         let unreferenced = format!("{project}/assets/unused.png");
         let handle = {
             let server = app.world().resource::<AssetServer>();
-            server.load::<TextureAsset>(referenced.clone())
+            crate::load_async::<TextureAsset>(server, &referenced)
         };
         run_until(&mut app, "the referenced asset finished loading", |app| {
             app.world()
@@ -2286,13 +2294,18 @@ mod tests {
         }
 
         let server = app.world().resource::<AssetServer>();
+        // Asked by the key the asset was loaded by, as the reload loop asks.
+        // Both halves need it: an engine-form path is unknown to the server
+        // whether or not the asset is loaded, so without the conversion the
+        // second assertion below would pass for any path at all.
+        let key = |engine_form: &str| crate::asset_key(engine_form).expect("a project path");
         assert!(
-            !reload_would_do_nothing(server, &referenced),
+            !reload_would_do_nothing(server, &key(&referenced)),
             "{referenced} is loaded and alive, so a reload of it really dispatches \
              -- suppressing that would silently break hot reload for every asset"
         );
         assert!(
-            reload_would_do_nothing(server, &unreferenced),
+            reload_would_do_nothing(server, &key(&unreferenced)),
             "nothing has ever loaded {unreferenced}, so AssetServer::reload on it \
              does nothing at all; announcing it as a reload would be a lie, and a \
              lie in the one log line that makes silent no-ops findable"

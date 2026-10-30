@@ -78,7 +78,7 @@ fn app_with_script(
     let mut app = new_app();
     app.add_plugins(bsengine_asset::AssetPlugin);
     app.add_plugins(ScriptingPlugin {
-        project_dir: String::new(),
+        project_dir: script.0.parent().unwrap().to_string_lossy().into_owned(),
     });
     app.insert_resource(LocalHeldKeys::default());
     app.insert_resource(RemoteHeldKeys::default());
@@ -96,7 +96,7 @@ fn app_with_script(
                 id: net_id,
                 authority,
             },
-            ScriptPath(script.0.to_string_lossy().to_string()),
+            ScriptPath(script.0.file_name().unwrap().to_string_lossy().into_owned()),
         ))
         .id();
 

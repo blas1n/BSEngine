@@ -73,7 +73,7 @@ fn a_scripted_burst_reaches_the_emitter() {
     // Empty project_dir, not `default()`: the default is ".", which gets
     // prepended to the script path, and the temp file's path is absolute.
     app.add_plugins(ScriptingPlugin {
-        project_dir: String::new(),
+        project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
     });
     app.insert_resource(Time::fixed(1.0 / 60.0));
 
@@ -82,7 +82,13 @@ fn a_scripted_burst_reaches_the_emitter() {
         .spawn((
             Name("Sparks".to_string()),
             Transform::default(),
-            ScriptPath(script_path.to_string_lossy().to_string()),
+            ScriptPath(
+                script_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
             ParticleEmitter {
                 rate: 0.0,
                 burst_count: 9,

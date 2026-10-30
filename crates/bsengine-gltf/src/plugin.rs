@@ -63,8 +63,14 @@ pub struct GltfPlugin;
 impl Plugin for GltfPlugin {
     fn build(&self, app: &mut App) {
         use bevy_asset::AssetApp;
+        // The app's project root, for the `.gltf` read the loader makes from
+        // disk itself (see `GltfSourceLoader::root`).
+        let root = app
+            .world()
+            .get_resource::<bsengine_asset::ProjectRoot>()
+            .cloned();
         app.init_asset::<LoadedGltf>()
-            .register_asset_loader(crate::asset_loader::GltfSourceLoader)
+            .register_asset_loader(crate::asset_loader::GltfSourceLoader { root })
             .add_systems(
                 Update,
                 (load_gltf_assets, load_lod_assets, rebuild_modified_gltf).chain(),
@@ -985,6 +991,15 @@ mod tests {
     use bsengine_app::new_app;
     use bsengine_rhi_wgpu::WgpuRHIPlugin;
 
+    /// The project `fox.glb` -- the one committed glTF fixture -- belongs to,
+    /// as a test's `ProjectDir`. Assets load by their project path and nothing
+    /// outside the project is read, so a test that loads the fox from this
+    /// crate's directory (`../../games/mini-arena/...`) makes that its project.
+    fn fox_project() -> bsengine_core::ProjectDir {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../games/mini-arena");
+        bsengine_core::ProjectDir(dir.to_string_lossy().into_owned())
+    }
+
     #[test]
     fn gltf_plugin_builds_and_runs() {
         let mut app = new_app();
@@ -1055,13 +1070,17 @@ mod tests {
             .join("../../games/mini-arena/assets/models/fox.glb");
 
         let mut app = new_app();
+        app.insert_resource(fox_project());
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(GltfPlugin);
 
         let handle = {
             let server = app.world().resource::<AssetServer>();
-            server.load::<LoadedGltf>(fixture_gltf_path.to_str().unwrap().to_owned())
+            server.load::<LoadedGltf>(
+                bsengine_asset::asset_key(fixture_gltf_path.to_str().unwrap())
+                    .expect("a project path"),
+            )
         };
 
         let mut loaded = false;
@@ -1120,12 +1139,15 @@ mod tests {
         let loaded_form = fixture.to_str().unwrap().to_owned();
 
         let mut app = new_app();
+        app.insert_resource(fox_project());
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(GltfPlugin);
 
         let handle = {
             let server = app.world().resource::<AssetServer>();
-            server.load::<LoadedGltf>(loaded_form.clone())
+            server.load::<LoadedGltf>(
+                bsengine_asset::asset_key(&loaded_form).expect("a project path"),
+            )
         };
 
         let mut ok = false;
@@ -1160,7 +1182,14 @@ mod tests {
                 let events = app.world().resource::<Messages<AssetEvent<LoadedGltf>>>();
                 let _ = reader.read(events).count();
             }
-            app.world().resource::<AssetServer>().reload(spelling);
+            // The server knows the asset by its project path, so a spelling
+            // is reloaded through the same conversion a load makes. One with
+            // no key -- the canonicalised spelling, `\\?\` and all -- cannot
+            // name the asset at all.
+            let Ok(key) = bsengine_asset::asset_key(&spelling) else {
+                return 0;
+            };
+            app.world().resource::<AssetServer>().reload(key);
             let mut hits = 0;
             for _ in 0..40 {
                 app.update();
@@ -1217,6 +1246,7 @@ mod tests {
         let path = fixture.to_str().unwrap().to_owned();
 
         let mut app = new_app();
+        app.insert_resource(fox_project());
         app.add_plugins(bsengine_asset::AssetPlugin);
         // GltfPlugin is what calls init_asset::<LoadedGltf>(); without it the
         // AssetServer panics on the first load. No entity carries GltfAsset
@@ -1225,7 +1255,7 @@ mod tests {
 
         let handle = {
             let server = app.world().resource::<AssetServer>();
-            server.load::<LoadedGltf>(path.clone())
+            server.load::<LoadedGltf>(bsengine_asset::asset_key(&path).expect("a project path"))
         };
         let id = handle.id();
 
@@ -1261,7 +1291,9 @@ mod tests {
         let _ = drain(&mut app, &mut reader);
 
         // --- A: handle retained ---
-        app.world().resource::<AssetServer>().reload(path.clone());
+        app.world()
+            .resource::<AssetServer>()
+            .reload(bsengine_asset::asset_key(&path).expect("a project path"));
         let mut with_handle = Vec::new();
         for _ in 0..60 {
             app.update();
@@ -1285,7 +1317,9 @@ mod tests {
             .is_some();
         let _ = drain(&mut app, &mut reader);
 
-        app.world().resource::<AssetServer>().reload(path.clone());
+        app.world()
+            .resource::<AssetServer>()
+            .reload(bsengine_asset::asset_key(&path).expect("a project path"));
         let mut without_handle = Vec::new();
         for _ in 0..60 {
             app.update();
@@ -1386,6 +1420,9 @@ mod tests {
         let path = file.to_str().unwrap().to_owned();
 
         let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir(
+            dir.to_string_lossy().into_owned(),
+        ));
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(GltfPlugin);
@@ -1594,6 +1631,9 @@ mod tests {
         let path = file.to_str().unwrap().to_owned();
 
         let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir(
+            dir.to_string_lossy().into_owned(),
+        ));
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(GltfPlugin);
@@ -1834,6 +1874,7 @@ mod tests {
 
         let ms_per_frame = |n: usize, variant: Variant| -> f64 {
             let mut app = new_app();
+            app.insert_resource(fox_project());
             app.add_plugins(bsengine_asset::AssetPlugin);
             app.add_plugins(WgpuRHIPlugin::windowed());
             app.add_plugins(GltfPlugin);
@@ -1919,6 +1960,7 @@ mod tests {
         let path = fixture.to_str().unwrap().to_owned();
 
         let mut app = new_app();
+        app.insert_resource(fox_project());
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(GltfPlugin);
@@ -1987,7 +2029,9 @@ mod tests {
             .resource_mut::<GpuMeshRegistry>()
             .register(&probe_v, &probe_i);
 
-        app.world().resource::<AssetServer>().reload(path);
+        app.world()
+            .resource::<AssetServer>()
+            .reload(bsengine_asset::asset_key(&path).expect("a project path"));
         let mut saw_modified = false;
         for _ in 0..60 {
             app.update();
@@ -2074,6 +2118,7 @@ mod tests {
         let path = fixture.to_str().unwrap().to_owned();
 
         let mut app = new_app();
+        app.insert_resource(fox_project());
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(GltfPlugin);
@@ -2199,6 +2244,7 @@ mod tests {
         let path = fixture.to_str().unwrap().to_owned();
 
         let mut app = new_app();
+        app.insert_resource(fox_project());
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(GltfPlugin);
@@ -2588,6 +2634,7 @@ mod tests {
         let path = fixture.to_str().unwrap().to_owned();
 
         let mut app = new_app();
+        app.insert_resource(fox_project());
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(GltfPlugin);
@@ -2681,6 +2728,9 @@ mod tests {
         std::fs::write(&path, crate::loader::morph_triangle_gltf()).unwrap();
 
         let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir(
+            dir.to_string_lossy().into_owned(),
+        ));
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(GltfPlugin);
@@ -2750,6 +2800,9 @@ mod tests {
         std::fs::write(&path, crate::loader::morph_triangle_gltf_with(true)).unwrap();
 
         let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir(
+            dir.to_string_lossy().into_owned(),
+        ));
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(GltfPlugin);

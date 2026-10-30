@@ -274,7 +274,16 @@ fn poll_and_upload(
         if let Some(tex) = textures.get(entry.slot.handle()) {
             if tex.pixels_released {
                 if !entry.reloading {
-                    asset_server.reload(path.to_string());
+                    // By the path the server loaded this handle by -- its
+                    // project path (`assets/x.png`) -- not by `path`, the
+                    // engine form this cache is keyed by: reloading a
+                    // spelling the server never loaded is a silent no-op,
+                    // and the second use waited forever for pixels that
+                    // were never read again.
+                    match asset_server.get_path(entry.slot.handle().id()) {
+                        Some(loaded_as) => asset_server.reload(loaded_as.into_owned()),
+                        None => asset_server.reload(bsengine_asset::asset_key_or_raw(path)),
+                    }
                     entry.reloading = true;
                 }
             } else {
@@ -729,6 +738,8 @@ mod tests {
 
     fn test_app() -> bevy_app::App {
         let mut app = new_app();
+        // The project `REAL_TEXTURE` lives in, so that path is inside it.
+        app.insert_resource(bsengine_core::ProjectDir(FIXTURE_PROJECT.into()));
         app.add_plugins(bsengine_asset::AssetPlugin);
         with_gpu(&mut app);
         app.init_resource::<TextureCache>();
@@ -1401,13 +1412,20 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// A real image, reached from this crate's directory.
+    /// A real image, reached from this crate's directory -- the engine form of
+    /// `assets/textures/checker.png` in [`FIXTURE_PROJECT`].
     ///
-    /// `AssetPlugin` pins the asset root to the current working directory, and
-    /// for a crate test that is the crate directory. A made-up path would make
-    /// the dedupe test below pass with *zero* uploads, which is the shape of
-    /// vacuous test this repository has been finding all week.
+    /// A made-up path would make the dedupe test below pass with *zero*
+    /// uploads, which is the shape of vacuous test this repository has been
+    /// finding all week.
     const REAL_TEXTURE: &str = "../../games/mini-arena/assets/textures/checker.png";
+
+    /// The project [`REAL_TEXTURE`] belongs to, as a test's `ProjectDir`.
+    /// Assets load by their project path and nothing outside the project is
+    /// read, so an app that loads `REAL_TEXTURE` has to have this as its
+    /// project: from the crate directory, `../../games/...` is outside any
+    /// other.
+    const FIXTURE_PROJECT: &str = "../../games/mini-arena";
 
     #[test]
     fn two_entities_sharing_a_texture_upload_it_once() {
@@ -1497,7 +1515,9 @@ mod tests {
     /// And its normal map, a path of its own.
     #[test]
     fn a_decals_normal_map_is_uploaded() {
-        const OTHER: &str = "../../games/scale-level/assets/textures/checker.png";
+        // A path of its own inside the fixture project: the same image under
+        // a second spelling the colour map does not use.
+        const OTHER: &str = "../../games/mini-arena/assets/./textures/checker.png";
         let decal = bsengine_core::Decal {
             normal_map_path: OTHER.into(),
             ..Default::default()

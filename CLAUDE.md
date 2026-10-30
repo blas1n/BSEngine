@@ -173,6 +173,16 @@ These all produced a green run while being wrong. They are worth memorising.
   D3D12 + DXC that 2,800 green tests and CI could not see
   (`docs/BSENGINE_VS_UNITY_UNREAL.md`, "Platform"). Run GPU-touching tests with
   `--test-threads=1` on a small iGPU: parallel runs lose the device there.
+- **`AssetServer` knows an asset by its project path, not by the string a
+  component holds.** Components hold the engine form
+  (`<ProjectDir>/assets/x.png`); the asset source is rooted at the project and
+  keys are `assets/x.png`. `bsengine_asset::load_async` converts; anything that
+  calls `load`, `reload` or `get_path_id` on `AssetServer` directly must go
+  through `bsengine_asset::asset_key` (or ask the handle for its path), or it
+  names an asset the server never loaded: `reload` is then a silent no-op
+  (a released texture once waited forever for pixels that were never read
+  again). A test that loads an absolute temp path must make that directory its
+  `ProjectDir`.
 - **A query over every entity sees the resources** (Bevy 0.19+). Each resource
   is an entity marked `IsResource`, and only `Disabled` is filtered by default,
   so a query whose terms are all `Entity` / `EntityRef` / `Option<…>` visits

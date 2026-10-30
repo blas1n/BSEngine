@@ -1748,6 +1748,12 @@ mod tests {
         let path = fixture.to_str().unwrap().to_owned();
 
         let mut app = new_app();
+        // The fixture's own project, so its shader is inside the project.
+        let project =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../games/mini-arena");
+        app.insert_resource(bsengine_core::ProjectDir(
+            project.to_string_lossy().into_owned(),
+        ));
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(RenderPlugin);
@@ -1812,7 +1818,9 @@ mod tests {
             let _ = reader.read(events).count();
         }
 
-        app.world().resource::<AssetServer>().reload(path);
+        app.world()
+            .resource::<AssetServer>()
+            .reload(bsengine_asset::asset_key(&path).expect("a project path"));
         let mut saw_modified = false;
         for _ in 0..60 {
             app.update();
@@ -1856,6 +1864,12 @@ mod tests {
         let path = fixture.to_str().unwrap().to_owned();
 
         let mut app = new_app();
+        // The fixture's own project, so its shader is inside the project.
+        let project =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../games/mini-arena");
+        app.insert_resource(bsengine_core::ProjectDir(
+            project.to_string_lossy().into_owned(),
+        ));
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(RenderPlugin);
@@ -1925,7 +1939,9 @@ mod tests {
             let _ = reader.read(events).count();
         }
 
-        app.world().resource::<AssetServer>().reload(path);
+        app.world()
+            .resource::<AssetServer>()
+            .reload(bsengine_asset::asset_key(&path).expect("a project path"));
         let mut saw_modified = false;
         for _ in 0..60 {
             app.update();
@@ -2146,6 +2162,11 @@ mod tests {
         let png = dir.join("sky.png");
         std::fs::write(&png, MINIMAL_PNG_1X1).unwrap();
         let mut app = new_app();
+        // The temp directory is the project: an asset outside the project
+        // is not read, and `sky.png` is here.
+        app.insert_resource(bsengine_core::ProjectDir(
+            dir.to_string_lossy().into_owned(),
+        ));
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(RenderPlugin);
@@ -2443,6 +2464,10 @@ mod tests {
             .unwrap();
 
         let mut app = new_app();
+        // The temp directory is the project the two images are in.
+        app.insert_resource(bsengine_core::ProjectDir(
+            dir.to_string_lossy().into_owned(),
+        ));
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(RenderPlugin);
@@ -2599,7 +2624,9 @@ mod tests {
             let _ = reader.read(events).count();
         }
 
-        app.world().resource::<AssetServer>().reload(path.clone());
+        app.world()
+            .resource::<AssetServer>()
+            .reload(bsengine_asset::asset_key(&path).expect("a project path"));
         let mut saw_modified = false;
         for _ in 0..60 {
             app.update();
@@ -2663,6 +2690,10 @@ mod tests {
         let path = png.to_string_lossy().to_string();
 
         let mut app = new_app();
+        // The temp directory is the project `sky.png` is in.
+        app.insert_resource(bsengine_core::ProjectDir(
+            dir.to_string_lossy().into_owned(),
+        ));
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(AssetStatusPlugin);
         app.add_plugins(WgpuRHIPlugin::windowed());

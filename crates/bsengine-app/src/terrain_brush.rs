@@ -981,6 +981,24 @@ mod tests {
 
     // ---- end-to-end preview/commit tests ----
 
+    /// The directory every fixture here is written to, one per test process,
+    /// and the project each test app has (`fixture_project`): assets load by
+    /// their project path, so a heightmap in the temp directory's root would
+    /// be outside the project and never read.
+    fn fixture_dir() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "bsengine_terrain_brush_fixtures_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("create the fixture directory");
+        dir
+    }
+
+    /// [`fixture_dir`] as the test app's `ProjectDir`.
+    fn fixture_project() -> bsengine_core::ProjectDir {
+        bsengine_core::ProjectDir(fixture_dir().to_string_lossy().into_owned())
+    }
+
     fn write_test_heightmap(name: &str, width: u32, height: u32, values: &[u16]) -> String {
         let img: image::ImageBuffer<image::Luma<u16>, Vec<u16>> =
             image::ImageBuffer::from_raw(width, height, values.to_vec())
@@ -992,7 +1010,7 @@ mod tests {
                 image::ImageFormat::Png,
             )
             .expect("encoding the test fixture PNG failed");
-        let path = std::env::temp_dir().join(format!(
+        let path = fixture_dir().join(format!(
             "bsengine_terrain_brush_test_{name}_{}.png",
             std::process::id()
         ));
@@ -1002,7 +1020,7 @@ mod tests {
 
     fn write_test_texture(name: &str, rgba: [u8; 4]) -> String {
         let img = image::RgbaImage::from_pixel(2, 2, image::Rgba(rgba));
-        let path = std::env::temp_dir().join(format!(
+        let path = fixture_dir().join(format!(
             "bsengine_terrain_brush_test_tex_{name}_{}.png",
             std::process::id()
         ));
@@ -1051,6 +1069,7 @@ mod tests {
     /// itself.
     fn brush_test_app() -> bevy_app::App {
         let mut app = crate::new_app();
+        app.insert_resource(fixture_project());
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(bsengine_rhi_wgpu::WgpuRHIPlugin::windowed());
         app.add_plugins(bsengine_physics::PhysicsPlugin);

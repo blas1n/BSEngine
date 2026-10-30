@@ -89,20 +89,37 @@ mod tests {
     use bevy_asset::{AssetServer, Assets};
     use bsengine_app::new_app;
 
+    /// A fresh directory to be the test's project. Assets are loaded by their
+    /// project path now, so a test no longer hands `AssetServer` an absolute
+    /// path into the temp directory: it makes the directory the project and
+    /// loads `tex.png`.
+    fn project_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("bsengine_tl_{name}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// `ProjectDir`'s spelling of `dir`: forward slashes.
+    fn project_string(dir: &std::path::Path) -> String {
+        dir.to_string_lossy().replace('\\', "/")
+    }
+
     #[test]
     fn texture_asset_loads_async_and_becomes_available() {
         // A minimal valid 1x1 PNG, generated at test time rather than
         // checked in as a binary fixture.
         let img = image::RgbaImage::from_pixel(1, 1, image::Rgba([10, 20, 30, 255]));
-        let path = std::env::temp_dir().join("bsengine_test_texture.png");
-        img.save(&path).unwrap();
+        let dir = project_dir("texture");
+        img.save(dir.join("tex.png")).unwrap();
 
         let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir(project_string(&dir)));
         app.add_plugins(crate::plugin::AssetPlugin);
 
         let handle = {
             let server = app.world().resource::<AssetServer>();
-            server.load::<TextureAsset>(path.to_str().unwrap().to_owned())
+            server.load::<TextureAsset>("tex.png")
         };
 
         // AssetServer.load is asynchronous — poll a bounded number of
@@ -126,17 +143,18 @@ mod tests {
     /// downlight), dark at the top.
     #[test]
     fn an_ies_profile_loads_as_its_panorama() {
-        let path = std::env::temp_dir().join("bsengine_test_profile.ies");
+        let dir = project_dir("profile");
         std::fs::write(
-            &path,
+            dir.join("profile.ies"),
             "IESNA:LM-63-2002\nTILT=NONE\n1 1000 1 2 1 1 2 0 0 0\n1 1 50\n0 90\n0\n1000 0\n",
         )
         .unwrap();
         let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir(project_string(&dir)));
         app.add_plugins(crate::plugin::AssetPlugin);
         let handle = {
             let server = app.world().resource::<AssetServer>();
-            server.load::<TextureAsset>(path.to_str().unwrap().to_owned())
+            server.load::<TextureAsset>("profile.ies")
         };
         let mut loaded = None;
         for _ in 0..200 {

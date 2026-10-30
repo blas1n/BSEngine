@@ -5051,12 +5051,14 @@ pub fn render_asset_status(status: &AssetStatus) -> String {
 ///
 /// # Why it has to resolve and not merely look up
 ///
-/// `AssetStatuses` is keyed by whatever `resolve_project_path` produced at the
-/// load site, which is `format!("{project_dir}/{path}")` — and `project_dir`
+/// `AssetStatuses` is keyed by the project path a load used
+/// (`bsengine_asset::asset_key`), but the engine form a component holds is
+/// `format!("{project_dir}/{path}")` — and `project_dir`
 /// is a command-line argument that differs between the windowed runtime, the
 /// editor and an MCP session (absolute there). A script is handed that prefix
-/// nowhere: there is no op that reveals it. So a lookup-only op answered
-/// `"unknown"` for the one spelling a script author can actually write — and
+/// nowhere: there is no op that reveals it. So a lookup that did not convert
+/// answered `"unknown"` for the one spelling a script author can actually
+/// write — and
 /// `"unknown"` means *nothing ever requested that path*, which is the single
 /// answer that must never be wrong, because telling it apart from a failure is
 /// the whole of what this API adds to the `warn!` it replaces.
@@ -5093,10 +5095,14 @@ pub fn bsengine_get_asset_status(#[string] path: String) -> String {
         // same key. Harmless: it can only miss again, and the answer is the
         // `"unknown"` it was already going to be.
         let resolved = PROJECT_DIR.with(|pd| resolve_project_path(Some(&pd.borrow()), &path));
-        snapshot
-            .get(&resolved)
-            .cloned()
-            .unwrap_or_else(|| ASSET_STATUS_UNKNOWN.to_string())
+        // The snapshot is keyed by project path (`assets/x.glb`), so both the
+        // path as written and its resolved form are turned into that key
+        // before they are looked up -- the same conversion the load made.
+        let found = [&path, &resolved]
+            .into_iter()
+            .filter_map(|candidate| bsengine_asset::asset_key(candidate).ok())
+            .find_map(|key| snapshot.get(&key).cloned());
+        found.unwrap_or_else(|| ASSET_STATUS_UNKNOWN.to_string())
     })
 }
 

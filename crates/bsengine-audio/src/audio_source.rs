@@ -318,17 +318,23 @@ mod tests {
         // `texture_asset_loads_async_and_becomes_available` precedent in
         // `bsengine-asset`'s texture loader test, which also generates its
         // fixture at test time rather than relying on a checked-in binary.
-        let path = std::env::temp_dir().join("bsengine_test_audio.flac");
-        std::fs::write(&path, minimal_flac_silence()).unwrap();
+        // Its own directory, which is the test's project: assets load by their
+        // project path, so the sound is `blip.flac` in it.
+        let dir = std::env::temp_dir().join(format!("bsengine_test_audio_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("blip.flac"), minimal_flac_silence()).unwrap();
 
         let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir(
+            dir.to_string_lossy().into_owned(),
+        ));
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.init_asset::<AudioSourceAsset>();
         app.register_asset_loader(AudioSourceLoader);
 
         let handle = {
             let server = app.world().resource::<AssetServer>();
-            server.load::<AudioSourceAsset>(path.to_str().unwrap().to_owned())
+            server.load::<AudioSourceAsset>("blip.flac")
         };
 
         let mut loaded = false;

@@ -1977,6 +1977,7 @@ impl RealtimeGi {
     /// `timestamps` brackets the probe update's compute pass for the
     /// profiler; it is written only when this returns `Ok(true)`, so a caller
     /// that reserved query slots for it gives them back otherwise.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn update(
         &mut self,
         device: &wgpu::Device,

@@ -368,7 +368,7 @@ struct PrefabWatcher {
     _debouncer: Mutex<Debouncer<RecommendedWatcher, FileIdMap>>,
     /// Receiving end of the watcher thread's channel. Only ever `try_recv`'d.
     events: Mutex<Receiver<DebounceEventResult>>,
-    /// `current_dir().join(<ProjectDir>)` -- the prefix every path `notify`
+    /// `AssetRoot` (the CWD) `.join(<ProjectDir>)` -- the prefix every path `notify`
     /// reports carries. Stripping it off a reported path and keeping the
     /// remainder (which already reads e.g. `assets/prefabs/turret.ron`, since
     /// the watch root is `<ProjectDir>/assets/prefabs`) recovers exactly the
@@ -392,6 +392,7 @@ struct PendingPrefabResync(Vec<String>);
 fn start_prefab_watcher(
     mut commands: Commands,
     project_dir: Option<Res<bsengine_core::ProjectDir>>,
+    asset_root: Option<Res<bsengine_asset::plugin::AssetRoot>>,
 ) {
     let Some(project_dir) = project_dir.map(|p| p.0.clone()).filter(|p| !p.is_empty()) else {
         info!("prefab live-sync: no project directory set, not watching");
@@ -409,9 +410,14 @@ fn start_prefab_watcher(
 
     // Deliberately NOT canonicalize() -- see AssetWatcherPlugin's identical
     // comment: notify reports the CWD-absolutised spelling, never the
-    // canonical one.
-    let strip_base = std::env::current_dir()
-        .unwrap_or_default()
+    // canonical one. The CWD is the one `AssetPlugin` published, as the asset
+    // watcher takes it, so the two watchers cannot disagree about it; read
+    // here only in an app without `AssetPlugin`.
+    let strip_base = asset_root
+        .map_or_else(
+            || std::env::current_dir().unwrap_or_default(),
+            |r| r.0.clone(),
+        )
         .join(&project_dir);
 
     let (tx, rx) = mpsc::channel();

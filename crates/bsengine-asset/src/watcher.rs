@@ -1,9 +1,10 @@
 //! Filesystem watching for asset hot reload, scoped to `<ProjectDir>/assets`.
 //!
 //! The scoping is the reason this exists at all rather than `bevy_asset`'s own
-//! `file_watcher` feature: that one watches `bevy_asset`'s asset root, which
-//! for this engine is the process CWD (see `plugin::asset_source_root`) — the
-//! whole repository, `target/` and `.git/` included.
+//! `file_watcher` feature: that one watched `bevy_asset`'s asset root, which
+//! for this engine was the process CWD -- the whole repository, `target/` and
+//! `.git/` included. (The default source is now the engine's own
+//! `ProjectAssetReader`, which has no watcher of its own at all.)
 //!
 //! # The path spelling problem
 //!
@@ -209,9 +210,9 @@ struct AssetWatcher {
     events: Mutex<Receiver<DebounceEventResult>>,
     /// [`AssetRoot`]`.join(<ProjectDir>/assets)` — the prefix every path
     /// `notify` reports carries, and therefore the prefix [`reconstruct`]
-    /// strips. Taken from the asset root `AssetPlugin` published rather than
-    /// read from the CWD again, so it cannot drift out of agreement with the
-    /// root `AssetServer::reload` resolves against.
+    /// strips. Taken from the root `AssetPlugin` published rather than read
+    /// from the CWD again, so it cannot drift out of agreement with the root
+    /// the engine form of every loaded path is relative to.
     strip_base: PathBuf,
     /// `<ProjectDir>/assets` in the engine's own spelling, which is what the
     /// reconstructed paths are re-joined onto.
@@ -326,9 +327,9 @@ fn start_asset_watcher(
         return;
     };
 
-    // The prefix notify's paths will carry has to be the *same* root
-    // bevy_asset resolves loads against, or every reported path strips to
-    // something AssetServer has never heard of and hot reload does nothing
+    // The prefix notify's paths will carry has to be the *same* root the
+    // engine form of every loaded path is relative to, or every reported path
+    // strips to something no component holds and hot reload does nothing
     // without saying so. Taking it from AssetPlugin rather than reading the
     // CWD again is what makes that impossible by construction.
     let Some(asset_root) = asset_root.map(|r| r.0.clone()) else {

@@ -770,11 +770,13 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                                     // uses, e.g. `texture: Some("assets/textures/checker.png")`)
                                     // would hand `generate_terrain_chunks` a path that only
                                     // resolves correctly if the process's CWD happens to equal
-                                    // this project's own directory. `AssetServer::load` resolves
-                                    // against the process CWD (see `bsengine-asset`'s
-                                    // `AssetRoot` docs), not against `ProjectDir` -- every
-                                    // other loader gets there via a resolved field, and this is
-                                    // Terrain's. `terrain_write` (`bsengine-editor`) already
+                                    // this project's own directory. Every component holds the
+                                    // engine form, `<ProjectDir>/...` relative to the process
+                                    // CWD, which the loads convert to a project path
+                                    // (`bsengine_asset::asset_key`) -- a bare project-relative
+                                    // string would be read as relative to the CWD instead.
+                                    // Every other loader gets there via a resolved field, and
+                                    // this is Terrain's. `terrain_write` (`bsengine-editor`) already
                                     // does the same join before constructing a `Terrain`
                                     // directly; this is the missing counterpart for one
                                     // authored through a scene file's generic `components:`

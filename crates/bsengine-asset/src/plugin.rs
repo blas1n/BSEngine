@@ -5,86 +5,42 @@ use std::path::PathBuf;
 
 use crate::types::{HeightmapAsset, TextureAsset};
 
-/// The directory `bevy_asset` was actually given as its root, published so
-/// nothing else in the engine has to guess at it.
+/// The directory the engine form of a path is relative to -- the working
+/// directory, read once, published so nothing else reads it again.
 ///
-/// It is the *same value* [`AssetPlugin`] handed to `bevy_asset`, not a second
-/// reading of the CWD. That matters for [`crate::watcher`], which has to strip
-/// exactly the prefix the asset root implies: two independent
-/// `current_dir()` calls agree today only because nothing moves the CWD
-/// between them, and if they ever disagreed the symptom would be a file
-/// watcher that reports changes whose paths strip to nothing — hot reload
+/// Components hold the engine form `bsengine_core::resolve_project_path`
+/// makes (`<ProjectDir>/assets/x.glb`), and `notify` reports the files it
+/// watches CWD-absolutised. Turning one into the other is a `strip_prefix` of
+/// this directory joined to the watch root ([`crate::watcher`], and the
+/// editor's prefab watcher). Two independent `current_dir()` calls agree only
+/// because nothing moves the CWD between them, and if they ever disagreed the
+/// symptom would be a watcher whose paths strip to nothing -- hot reload
 /// silently doing nothing at all.
+///
+/// It is not where assets load from: that is the project ([`crate::project_root`]).
 #[derive(Resource, Debug, Clone)]
 pub struct AssetRoot(pub PathBuf);
 
-/// The directory `bevy_asset` resolves every asset path against.
+/// [`AssetRoot`]: the working directory.
 ///
-/// # Why this is not just `""`
-///
-/// `AssetPlugin::file_path` is *not* the asset root — it is a path joined
-/// **under** a root `bevy_asset` picks by itself. In `bevy_asset-0.14.2` the
-/// chain is `AssetPlugin::build` -> `init_default_source(&self.file_path, ..)`
-/// -> `AssetSourceBuilder::platform_default` -> `FileAssetReader::new(path)`,
-/// and that last one is
-///
-/// ```ignore
-/// let root_path = Self::get_base_path().join(path.as_ref());
-/// ```
-///
-/// where `get_base_path()` is `BEVY_ASSET_ROOT`, else `CARGO_MANIFEST_DIR`,
-/// else the executable's own directory. So `file_path: ""` does not mean "no
-/// root" — it means "the root bevy guessed, unchanged". Under `cargo run` that
-/// guess is `CARGO_MANIFEST_DIR`: the *package* directory of the binary being
-/// run, e.g. `<repo>/crates/bsengine-runtime`.
-///
-/// That silently broke every asset load. Paths reaching `AssetServer::load`
-/// come from `bsengine_core::resolve_project_path`, which joins `ProjectDir`
-/// with a scene-relative path and is **relative to the process CWD** — e.g.
-/// `games/mini-arena/assets/models/fox.glb`. Resolved under
-/// `<repo>/crates/bsengine-runtime` instead of the CWD, that file simply is not
-/// there, and a failed load is only a `WARN`, so `games/mini-arena` ran without
-/// its fox mesh and without its glow shader for as long as the mistake stood.
-///
-/// Returning the **absolute** CWD fixes it by making bevy's guess irrelevant:
-/// `Path::join` with an absolute path discards the base entirely, so whatever
-/// `get_base_path()` returned is replaced by the CWD.
-///
-/// The CWD is the right root because it is already the root every *other* path
-/// in the engine is relative to — `bsengine-runtime` reads
-/// `<project_dir>/project.toml` with plain `std::fs`, scenes and scripts load
-/// the same way. This only makes `bevy_asset` agree with them.
-///
-/// Read once, at plugin build time, and that is not a choice this function
-/// gets to make: `bevy_asset::AssetPlugin::build` constructs its `AssetSource`
-/// from `file_path` there and then, so the root is fixed at build time no
-/// matter what this returns. A later `set_current_dir` would therefore move
-/// every *other* CWD-relative read in the engine — `std::fs` resolves against
-/// the live CWD at call time — while leaving the asset root behind, which is a
-/// real split-brain rather than a desirable one. It stays theoretical only
-/// because this workspace never calls `set_current_dir`; if that ever changes,
-/// this is the pairing that has to be revisited, along with
-/// [`AssetRoot`](crate::plugin::AssetRoot), which exists so that at least
-/// nothing *else* re-reads the CWD independently and disagrees.
-///
-/// This deliberately also stops `BEVY_ASSET_ROOT` from having any effect — see
-/// the crate-level docs, which is where someone wondering why their
-/// `BEVY_ASSET_ROOT` is ignored will actually look.
+/// Once `bevy_asset`'s own root too -- given here as `file_path`, absolute so
+/// that `FileAssetReader`'s `get_base_path().join(..)` dropped whatever base
+/// it guessed (`BEVY_ASSET_ROOT`, `CARGO_MANIFEST_DIR` or the executable's
+/// directory), a guess that under `cargo run` lost `games/mini-arena` its fox
+/// mesh. The default source is now [`crate::project_root::ProjectAssetReader`]
+/// (or a packaged build's archive), and `bevy_asset` builds no file source of
+/// its own, so `file_path` is left at its default.
 #[cfg(not(target_arch = "wasm32"))]
-fn asset_source_root() -> String {
+fn engine_form_root() -> PathBuf {
     std::env::current_dir()
-        .expect("cannot read the working directory, which every engine asset path is relative to")
-        .into_os_string()
-        .into_string()
-        .expect("the working directory is not valid UTF-8, which bevy_asset's file_path requires")
+        .expect("cannot read the working directory, which every engine-form path is relative to")
 }
 
 /// A browser build has no working directory, and needs none: its every asset
-/// comes out of the archive the page fetched, which `PakAssetPlugin` installs
-/// as the default source, so the file root bevy builds here is never read.
+/// comes out of the archive the page fetched, and nothing is watched.
 #[cfg(target_arch = "wasm32")]
-fn asset_source_root() -> String {
-    String::new()
+fn engine_form_root() -> PathBuf {
+    PathBuf::new()
 }
 
 /// Installs `bevy_asset`'s `AssetPlugin` and registers every content-asset
@@ -155,18 +111,11 @@ impl Plugin for AssetPlugin {
         // [`crate::project_root::asset_key`] converts it at the load.
         app.add_plugins(crate::project_root::ProjectRootPlugin);
 
-        // [`AssetRoot`] is what that engine form is relative to: the working
-        // directory. The file watcher builds engine-form paths against it, and
-        // it is published so that it and anything else asking "what are
-        // engine-form paths relative to" read one value rather than two
-        // separate `current_dir()` calls that happen to agree. It is no longer
-        // `bevy_asset`'s root -- that is the project, above.
-        let root = asset_source_root();
-
         app.add_plugins(bevy_asset::AssetPlugin {
-            // Unused for the default source (registered above), kept so that
-            // a build with the default taken by an archive is unchanged.
-            file_path: root.clone(),
+            // `file_path` stays at its default: it roots the file source
+            // `bevy_asset` would build for the default, and the default is
+            // taken above. (See `engine_form_root` for what it once was.)
+            //
             // `bevy_asset` reserves `<asset>.meta` for its own
             // `AssetMetaMinimal`, and so does [`crate::identity`] for the
             // stable asset identity roadmap item 30 stores. Two formats, one
@@ -213,7 +162,7 @@ impl Plugin for AssetPlugin {
             // one -- the escape -- is what it stops.
             ..Default::default()
         })
-        .insert_resource(AssetRoot(PathBuf::from(root)))
+        .insert_resource(AssetRoot(engine_form_root()))
         .init_asset::<TextureAsset>()
         .register_asset_loader(crate::texture_loader::TextureAssetLoader)
         .init_asset::<HeightmapAsset>()
@@ -242,37 +191,16 @@ mod tests {
     /// check above rather than silently passing.
     const CWD_PROBE_TEST: &str = "plugin::tests::an_asset_path_relative_to_the_process_cwd_loads";
 
-    #[test]
-    fn asset_source_root_replaces_whatever_base_path_bevy_picked() {
-        // The one property the fix rests on, stated as bevy applies it:
-        // FileAssetReader::new does `get_base_path().join(file_path)`, and
-        // `get_base_path()` may be any of BEVY_ASSET_ROOT, CARGO_MANIFEST_DIR
-        // or the exe's directory. Joining an absolute path throws all three
-        // away; joining `""` (the previous value) keeps whichever one it was.
-        let cwd = std::env::current_dir().unwrap();
-        let root = asset_source_root();
-
-        for guess in [
-            // What CARGO_MANIFEST_DIR gave under `cargo run`, and roughly what
-            // a built binary's own directory would give.
-            cwd.join("crates").join("bsengine-runtime"),
-            cwd.join("target").join("debug"),
-        ] {
-            assert_eq!(
-                guess.join(&root),
-                cwd,
-                "joining the asset root under bevy's own base path must yield the CWD"
-            );
-        }
-    }
-
-    /// Loads an asset by a path spelled **relative to the process CWD**, which
-    /// is what every path out of `bsengine_core::resolve_project_path` is.
+    /// With no project directory the project is the working directory, and an
+    /// asset loads by its path relative to it -- not relative to a base path
+    /// `bevy_asset` guesses (`BEVY_ASSET_ROOT`, `CARGO_MANIFEST_DIR`, the
+    /// executable's directory), which under `cargo run` once cost
+    /// `games/mini-arena` its fox mesh.
     ///
     /// This has to re-execute itself to mean anything. Under `cargo test` the
     /// CWD *and* `CARGO_MANIFEST_DIR` are both the crate directory, so the
     /// broken root and the correct root are the same directory and no
-    /// single-process test can tell them apart — which is precisely why this
+    /// single-process test can tell them apart — which is precisely why that
     /// bug survived review and shipped. The child half runs with its CWD set
     /// to a fresh temp directory while still inheriting the parent's
     /// `CARGO_MANIFEST_DIR`, so the two roots finally differ and the load
@@ -352,8 +280,10 @@ mod tests {
         let (w, h, data) = loaded.unwrap_or_else(|| {
             panic!(
                 "'assets/probe.png' did not load. cwd={cwd:?} bevy_base={bevy_base:?} \
-                 asset_root={:?} load_state={state:?}",
-                asset_source_root()
+                 project_root={:?} load_state={state:?}",
+                app.world()
+                    .resource::<crate::project_root::ProjectRoot>()
+                    .get()
             )
         });
         assert_eq!((w, h), (1, 1));
@@ -380,9 +310,9 @@ mod tests {
     fn an_asset_still_loads_with_an_identity_sidecar_beside_it() {
         use crate::test_support::{unique, ProbeDir};
 
-        // Under the crate root rather than the temp directory, because
-        // `AssetPlugin` roots `bevy_asset` at the CWD and this has to be a
-        // path the engine could really produce. `.gitignore` covers
+        // Under the crate root rather than the temp directory: with no
+        // `ProjectDir` the project is the CWD, and this has to be a path
+        // inside it -- one the engine could really produce. `.gitignore` covers
         // `crates/*/bsengine-watch-probe-*`.
         let name = unique("identity-meta");
         let probe = ProbeDir(PathBuf::from(&name));

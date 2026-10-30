@@ -111,8 +111,10 @@ impl GpuBaker {
         // it: on a machine with two GPUs the bake otherwise ran on the
         // discrete one whatever the variable named, so a run meant to check
         // the integrated GPU checked the bake on the other -- and its pass
-        // said nothing about the traversal that GPU's driver was found to
-        // break in the realtime update (`realtime_gi.rs`).
+        // said nothing about the traversal that GPU was found to get wrong in
+        // the realtime update (DXC's build of it with naga's loop bounding;
+        // `realtime_gi::build_pipelines`). The bake's own build is right
+        // there with the bounding on.
         let adapter =
             match pollster::block_on(wgpu::util::initialize_adapter_from_env(&instance, None)) {
                 Ok(adapter) => adapter,
@@ -1054,23 +1056,6 @@ mod tests {
     /// texture path is the one exercised).
     #[test]
     fn a_second_shader_traces_the_scene_through_trace_wgsl() {
-        const PROBE_WGSL: &str = r#"
-struct Ray { o: vec4<f32>, d: vec4<f32> };
-@group(0) @binding(0) var<storage, read> nodes: array<Node>;
-@group(0) @binding(1) var<storage, read> tris: array<Tri>;
-@group(0) @binding(2) var<storage, read> rays: array<Ray>;
-@group(0) @binding(3) var<storage, read_write> out: array<vec4<f32>>;
-@group(0) @binding(4) var<uniform> scene: Scene;
-@group(0) @binding(5) var sky: texture_2d<f32>;
-@compute @workgroup_size(64, 1, 1)
-fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
-    if gid.x >= arrayLength(&rays) { return; }
-    let r = rays[gid.x];
-    let hit = traverse(r.o.xyz, r.d.xyz, 3.0e38, false);
-    let missed = hit.tri == NO_HIT;
-    out[gid.x] = vec4<f32>(select(hit.t, -1.0, missed), sky_radiance(r.d.xyz));
-}
-"#;
         // A floor, and a few boxes' worth of quads at different heights.
         let mut tris = floor(0, Vec3::splat(0.5)).to_vec();
         for (i, (y, x)) in [(0.4f32, 0.2f32), (0.7, 0.6), (1.1, 0.3)]
@@ -1095,7 +1080,6 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
         };
         let bvh = crate::bvh::Bvh::build(&tris.iter().map(|t| t.positions).collect::<Vec<_>>());
         let geometry = crate::gpu_scene::GpuGeometry::build(&tris);
-        let (scene, sky_image) = crate::gpu_scene::scene_uniform(geometry.node_count, &[], &sky);
 
         let mut rays: Vec<[[f32; 4]; 2]> = Vec::new();
         let mut rng = crate::sample::Rng::new(5);
@@ -1106,19 +1090,149 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
             rays.push([[o.x, o.y, o.z, 0.0], [d.x, d.y, d.z, 0.0]]);
         }
 
+        let got = trace_through_trace_wgsl(
+            bytemuck::cast_slice(&geometry.nodes),
+            bytemuck::cast_slice(&geometry.tris),
+            geometry.node_count,
+            &sky,
+            &rays,
+            wgpu::ShaderRuntimeChecks::checked(),
+        );
+
+        let (mut hits, mut misses) = (0, 0);
+        for (ray, g) in rays.iter().zip(&got) {
+            let o = Vec3::from_slice(&ray[0][..3]);
+            let d = Vec3::from_slice(&ray[1][..3]);
+            match bvh.closest(o, d, f32::INFINITY) {
+                Some(hit) => {
+                    hits += 1;
+                    assert!(
+                        (g[0] - hit.t).abs() < 1e-4,
+                        "t: gpu {} vs cpu {}",
+                        g[0],
+                        hit.t
+                    );
+                }
+                None => {
+                    misses += 1;
+                    assert_eq!(g[0], -1.0, "the CPU tree misses; the GPU hit at {}", g[0]);
+                    let want = sky.radiance(d);
+                    assert!(
+                        (Vec3::new(g[1], g[2], g[3]) - want).length() < 1e-4,
+                        "sky in {d}: gpu {:?} vs cpu {want}",
+                        &g[1..]
+                    );
+                }
+            }
+        }
+        assert!(
+            hits > 50 && misses > 50,
+            "premise: rays both hit and miss ({hits} hits, {misses} misses)"
+        );
+    }
+
+    /// The tree walk ends on any tree, because it follows only children that
+    /// come after their parent: the realtime GI compiles `trace.wgsl` without
+    /// naga's loop bounding (`realtime_gi::build_pipelines`), so nothing else
+    /// makes a bad tree's walk finish. Traced the way the GI compiles it.
+    ///
+    /// Hand-made trees over one floor, under one ray straight down onto it:
+    /// node 0 the root over children 1 (a leaf the ray's box misses) and 2.
+    /// Well-formed, 2 is the floor's leaf and the ray hits -- the premise.
+    /// Then 2 is an inner node whose `start` points *back* at 1, so its
+    /// children would be 3 (the floor's leaf) and 1: no cycle, so a walk
+    /// without the rule would finish and hit, and the miss is the rule
+    /// observed. Last, a root that is its own child: a cycle, which only the
+    /// rule ends.
+    #[test]
+    fn a_tree_walk_follows_only_forward_children() {
+        let floor = crate::gpu_scene::GpuGeometry::build(&floor(0, Vec3::splat(0.5)));
+        let node = |lo: f32, hi: f32, start: u32, count: u32| -> [u32; 8] {
+            let (lo, hi) = (lo.to_bits(), hi.to_bits());
+            [lo, lo, lo, start, hi, hi, hi, count]
+        };
+        let everywhere = |start, count| node(-10.0, 10.0, start, count);
+        let elsewhere = node(100.0, 101.0, 0, 2);
+        let ray = [[0.5, 1.0, 0.5, 0.0], [0.0, -1.0, 0.0, 0.0]];
+        let no_bounding = wgpu::ShaderRuntimeChecks {
+            force_loop_bounding: false,
+            ..wgpu::ShaderRuntimeChecks::checked()
+        };
+        let trace = |nodes: &[[u32; 8]]| {
+            trace_through_trace_wgsl(
+                bytemuck::cast_slice(nodes),
+                bytemuck::cast_slice(&floor.tris),
+                nodes.len() as u32,
+                &Sky::Uniform(Vec3::ONE),
+                &[ray],
+                no_bounding,
+            )[0][0]
+        };
+
+        let well_formed = trace(&[everywhere(2, 0), elsewhere, everywhere(0, 2)]);
+        assert!(
+            (well_formed - 1.0).abs() < 1e-4,
+            "premise: the floor's leaf is hit a metre down (t = {well_formed})"
+        );
+        let backward = trace(&[
+            everywhere(2, 0),
+            elsewhere,
+            everywhere(1, 0),
+            everywhere(0, 2),
+        ]);
+        assert_eq!(
+            backward, -1.0,
+            "an inner node whose children come before it is not followed"
+        );
+        let cycle = trace(&[everywhere(0, 0)]);
+        assert_eq!(cycle, -1.0, "a root that is its own child ends as a miss");
+    }
+
+    fn trace_through_trace_wgsl(
+        nodes: &[u8],
+        tris: &[u8],
+        node_count: u32,
+        sky: &Sky,
+        rays: &[[[f32; 4]; 2]],
+        checks: wgpu::ShaderRuntimeChecks,
+    ) -> Vec<[f32; 4]> {
+        const PROBE_WGSL: &str = r#"
+struct Ray { o: vec4<f32>, d: vec4<f32> };
+@group(0) @binding(0) var<storage, read> nodes: array<Node>;
+@group(0) @binding(1) var<storage, read> tris: array<Tri>;
+@group(0) @binding(2) var<storage, read> rays: array<Ray>;
+@group(0) @binding(3) var<storage, read_write> out: array<vec4<f32>>;
+@group(0) @binding(4) var<uniform> scene: Scene;
+@group(0) @binding(5) var sky: texture_2d<f32>;
+@compute @workgroup_size(64, 1, 1)
+fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if gid.x >= arrayLength(&rays) { return; }
+    let r = rays[gid.x];
+    let hit = traverse(r.o.xyz, r.d.xyz, 3.0e38, false);
+    let missed = hit.tri == NO_HIT;
+    out[gid.x] = vec4<f32>(select(hit.t, -1.0, missed), sky_radiance(r.d.xyz));
+}
+"#;
+        let (scene, sky_image) = crate::gpu_scene::scene_uniform(node_count, &[], sky);
         let g = baker();
         let device = &g.device;
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("trace_wgsl consumer"),
-            source: wgpu::ShaderSource::Wgsl(
-                format!(
-                    "{}{}{PROBE_WGSL}",
-                    crate::gpu_scene::TRACE_WGSL,
-                    crate::gpu_scene::NO_INSTANCES_WGSL
-                )
-                .into(),
-            ),
-        });
+        // SAFETY: test shaders; `checks` is what the caller is testing under.
+        let module = unsafe {
+            device.create_shader_module_trusted(
+                wgpu::ShaderModuleDescriptor {
+                    label: Some("trace_wgsl consumer"),
+                    source: wgpu::ShaderSource::Wgsl(
+                        format!(
+                            "{}{}{PROBE_WGSL}",
+                            crate::gpu_scene::TRACE_WGSL,
+                            crate::gpu_scene::NO_INSTANCES_WGSL
+                        )
+                        .into(),
+                    ),
+                },
+                checks,
+            )
+        };
         use crate::gpu_scene::{sky_layout_entry, storage_layout_entry, uniform_layout_entry};
         let compute = wgpu::ShaderStages::COMPUTE;
         let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1153,9 +1267,9 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
             })
         };
         let storage = wgpu::BufferUsages::STORAGE;
-        let nodes = init(bytemuck::cast_slice(&geometry.nodes), storage);
-        let tri_buf = init(bytemuck::cast_slice(&geometry.tris), storage);
-        let ray_buf = init(bytemuck::cast_slice(&rays), storage);
+        let nodes = init(nodes, storage);
+        let tri_buf = init(tris, storage);
+        let ray_buf = init(bytemuck::cast_slice(rays), storage);
         let out_size = (rays.len() * 16) as u64;
         let out = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
@@ -1236,37 +1350,7 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
         let _ = device.poll(wgpu::PollType::wait_indefinitely());
         let got: Vec<[f32; 4]> =
             bytemuck::cast_slice(&slice.get_mapped_range().expect("a mapped buffer")).to_vec();
-
-        let (mut hits, mut misses) = (0, 0);
-        for (ray, g) in rays.iter().zip(&got) {
-            let o = Vec3::from_slice(&ray[0][..3]);
-            let d = Vec3::from_slice(&ray[1][..3]);
-            match bvh.closest(o, d, f32::INFINITY) {
-                Some(hit) => {
-                    hits += 1;
-                    assert!(
-                        (g[0] - hit.t).abs() < 1e-4,
-                        "t: gpu {} vs cpu {}",
-                        g[0],
-                        hit.t
-                    );
-                }
-                None => {
-                    misses += 1;
-                    assert_eq!(g[0], -1.0, "the CPU tree misses; the GPU hit at {}", g[0]);
-                    let want = sky.radiance(d);
-                    assert!(
-                        (Vec3::new(g[1], g[2], g[3]) - want).length() < 1e-4,
-                        "sky in {d}: gpu {:?} vs cpu {want}",
-                        &g[1..]
-                    );
-                }
-            }
-        }
-        assert!(
-            hits > 50 && misses > 50,
-            "premise: rays both hit and miss ({hits} hits, {misses} misses)"
-        );
+        got
     }
 
     /// The same bake twice is the same bytes: every texel seeds from where it

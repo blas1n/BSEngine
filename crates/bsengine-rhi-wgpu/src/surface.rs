@@ -11142,8 +11142,7 @@ mod tests {
         let part = part.as_str();
         assert!(pick(part).contains(part), "{part:?} picked another adapter");
         let err = pollster::block_on(adapter_named(&instance, None, Some("no such adapter")))
-            .err()
-            .expect("a name no adapter has picks none");
+            .expect_err("a name no adapter has picks none");
         assert!(
             err.contains(&names[0]),
             "the error lists the adapters there are: {err}"

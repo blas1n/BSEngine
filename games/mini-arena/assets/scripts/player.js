@@ -16,7 +16,9 @@ const ATTACK_DAMAGE = 15.0;
 // below was always undefined regardless of what was actually hit -- fixed
 // engine-side in bsengine-scripting's RaycastHitJson.)
 const SELF_RADIUS_CLEARANCE = 0.5;
-const CHECKPOINT_PATH = "games/mini-arena/checkpoint.json";
+// Relative to the save directory (`saves/` in the per-user directory, beside
+// the log), not to wherever the game was started from.
+const CHECKPOINT_PATH = "checkpoint.json";
 let attackKeyWasDown = false;
 let enterKeyWasDown = false;
 

@@ -135,6 +135,7 @@ pub mod root_motion;
 pub mod rpc_state;
 /// Serializable save-game data resource.
 pub mod save_data;
+pub mod save_dir;
 /// Current window/render-target size resource.
 pub mod screen_size;
 /// Screen-space reflections applied by a camera.
@@ -252,6 +253,7 @@ pub use reflection_probe::{ReflectionProbe, MAX_REFLECTION_PROBES};
 pub use root_motion::RootMotion;
 pub use rpc_state::{OutgoingRpc, RpcCall, RpcQueues, RpcTarget};
 pub use save_data::SaveData;
+pub use save_dir::SaveDir;
 pub use screen_size::ScreenSize;
 pub use screen_space_gi::ScreenSpaceGlobalIllumination;
 pub use screen_space_reflections::ScreenSpaceReflections;

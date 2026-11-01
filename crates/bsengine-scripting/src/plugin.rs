@@ -1813,14 +1813,15 @@ fn run_scripts(world: &mut World) {
                     &params.resolve(),
                 ));
             }
-            // A save file is relative to the process's working directory, not
-            // to the project (a packaged game's install directory is read-only,
-            // and no shipped project saves yet), so this only confines it:
-            // `saveGame("../../x")` and `saveGame("C:/x")` used to write
-            // wherever the process could. Where saves should live is its own
-            // question (the per-user directory, as Unity's persistentDataPath).
+            // A save file is relative to the save directory (`SaveDir`: the
+            // per-user directory's `saves` folder, as Unity's
+            // persistentDataPath and Godot's `user://`), not to the project --
+            // a packaged game's install directory may be read-only -- and no
+            // longer to the process's working directory, which is where it
+            // used to land. Confined to that directory: `saveGame("../../x")`
+            // and `saveGame("C:/x")` once wrote wherever the process could.
             ScriptCommand::SaveGame { path } => {
-                let Some(path) = script_normalised_path("saveGame", &path) else {
+                let Some(path) = script_save_path(world, "save", &path) else {
                     continue;
                 };
                 if let Err(e) = crate::save::save_world(world, &path) {
@@ -1828,7 +1829,7 @@ fn run_scripts(world: &mut World) {
                 }
             }
             ScriptCommand::LoadGame { path } => {
-                let Some(path) = script_normalised_path("loadGame", &path) else {
+                let Some(path) = script_save_path(world, "load", &path) else {
                     continue;
                 };
                 if let Err(e) = crate::save::load_world(world, &path) {
@@ -3488,6 +3489,30 @@ fn script_normalised_path(what: &str, path: &str) -> Option<String> {
         Ok(normalised) => Some(normalised),
         Err(e) => {
             tracing::warn!("[scripting] {what}: refused {path:?}: {e}");
+            None
+        }
+    }
+}
+
+/// Where a script's `Bsengine.save` / `Bsengine.load` path points, inside the
+/// app's [`bsengine_core::SaveDir`] -- or `None`, with the reason logged, when
+/// the path leaves that directory or the app has none (a browser build; an
+/// app that never said where saves go, which used to mean the working
+/// directory).
+fn script_save_path(world: &World, what: &str, path: &str) -> Option<std::path::PathBuf> {
+    let Some(dir) = world.get_resource::<bsengine_core::SaveDir>() else {
+        tracing::warn!(
+            "[scripting] {what}: {path:?} not saved or loaded -- this build has no save directory"
+        );
+        return None;
+    };
+    match dir.resolve(path) {
+        Ok(resolved) => Some(resolved),
+        Err(e) => {
+            tracing::warn!(
+                "[scripting] {what}: refused {path:?} (relative to the save directory {}): {e}",
+                dir.0.display()
+            );
             None
         }
     }
@@ -7010,7 +7035,7 @@ mod tests {
     /// seen; the rest are checked for an `escape` marker the refused paths all
     /// carry. The prefab and the save file are real files placed where an
     /// unchecked join would reach them -- beside the project, and in the
-    /// directory above the working directory -- so a leak is a file that exists.
+    /// directory above the save directory -- so a leak is a file that exists.
     #[test]
     fn a_script_cannot_name_a_file_outside_the_project() {
         use bsengine_core::CustomShader;
@@ -7025,8 +7050,11 @@ mod tests {
         std::fs::write(project.join("assets/prefabs/enemy.ron"), prefab).unwrap();
         std::fs::write(base_dir.join("outside/enemy.ron"), prefab).unwrap();
 
-        // Relative to the working directory, as a script's save path is; the
-        // refused one climbs to the directory above it.
+        // Relative to the save directory, as a script's save path is; the
+        // refused one climbs to the per-user directory above it, where the
+        // log lives. The pid keeps the working-directory check below from
+        // seeing another run's file.
+        let save_dir = base_dir.join("user").join("saves");
         let save_ok = format!("ap1_save_ok_{}.json", std::process::id());
         let save_escape = format!("../ap1_save_escape_{}.json", std::process::id());
         // Two saves a script may try to load, each holding one entity that is
@@ -7036,22 +7064,9 @@ mod tests {
         for (file, entity) in [(&load_ok, "LoadedOk"), (&load_escape, "LoadedEscape")] {
             let mut scratch = bevy_ecs::prelude::World::new();
             scratch.spawn((Name(entity.to_string()), Transform::default()));
-            crate::save::save_world(&mut scratch, file).expect("write a save to load");
+            crate::save::save_world(&mut scratch, save_dir.join(file))
+                .expect("write a save to load");
         }
-        struct RemoveFiles(Vec<std::path::PathBuf>);
-        impl Drop for RemoveFiles {
-            fn drop(&mut self) {
-                for f in &self.0 {
-                    let _ = std::fs::remove_file(f);
-                }
-            }
-        }
-        let _files = RemoveFiles(vec![
-            std::path::PathBuf::from(&save_ok),
-            std::path::PathBuf::from(&save_escape),
-            std::path::PathBuf::from(&load_ok),
-            std::path::PathBuf::from(&load_escape),
-        ]);
 
         std::fs::write(
             project.join("driver.js"),
@@ -7100,6 +7115,7 @@ function onUpdate(name) {{
             project_dir: project.to_string_lossy().to_string(),
         });
         app.init_resource::<bsengine_core::UiState>();
+        app.insert_resource(bsengine_core::SaveDir(save_dir.clone()));
         app.world_mut().spawn((Name("Good".to_string()),));
         app.world_mut().spawn((Name("Bad".to_string()),));
         app.world_mut().spawn((
@@ -7196,7 +7212,7 @@ function onUpdate(name) {{
         assert!(named(world, "LoadedOk"), "load: the inside save is loaded");
         assert!(
             !named(world, "LoadedEscape"),
-            "load: a save above the working directory is real and must not be read"
+            "load: a save above the save directory is real and must not be read"
         );
         assert!(
             named(world, "Insider"),
@@ -7207,12 +7223,80 @@ function onUpdate(name) {{
             "instantiatePrefab: a prefab beside the project is real and must not be reached"
         );
         assert!(
-            std::path::Path::new(&save_ok).is_file(),
-            "save: the working-directory-relative save is written"
+            save_dir.join(&save_ok).is_file(),
+            "save: the save is written inside the save directory"
         );
         assert!(
-            !std::path::Path::new(&save_escape).exists(),
-            "save: a path that climbs out of the working directory writes nothing"
+            !std::path::Path::new(&save_ok).exists(),
+            "save: nothing is written relative to the working directory any more"
+        );
+        assert!(
+            !save_dir.join(&save_escape).exists(),
+            "save: a path that climbs out of the save directory writes nothing"
+        );
+    }
+
+    /// An app with no `SaveDir` -- a browser build, or one that never said
+    /// where saves go -- refuses `Bsengine.save` instead of falling back to
+    /// the working directory, which is where every save used to land (and how
+    /// a replay run from the repository left `games/mini-arena/checkpoint.json`
+    /// behind).
+    #[test]
+    fn without_a_save_directory_nothing_is_saved_anywhere() {
+        let base = bsengine_asset::test_support::unique("no-save-dir");
+        let project = std::path::PathBuf::from(&base);
+        std::fs::create_dir_all(&project).unwrap();
+        let _guard = bsengine_asset::test_support::ProbeDir(project.clone());
+        let save = format!("no_save_dir_{}.json", std::process::id());
+        std::fs::write(
+            project.join("driver.js"),
+            format!(
+                r#"let tick = 0;
+function onUpdate(name) {{
+    tick++;
+    if (tick === 1) {{
+        Bsengine.spawn({{ name: "ScriptRan" }});
+        Bsengine.save("{save}");
+    }}
+}}
+"#
+            ),
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: project.to_string_lossy().to_string(),
+        });
+        app.init_resource::<bsengine_core::UiState>();
+        app.world_mut().spawn((
+            Name("Hero".to_string()),
+            ScriptPath("driver.js".to_string()),
+        ));
+        for _ in 0..4 {
+            app.update();
+        }
+
+        let world = app.world_mut();
+        assert!(
+            world.get_resource::<bsengine_core::SaveDir>().is_none(),
+            "the premise: this app has no save directory"
+        );
+        let mut q = world.query::<&Name>();
+        assert!(
+            q.iter(world).any(|n| n.0 == "ScriptRan"),
+            "the premise: the script ran the tick that saves"
+        );
+        let leaked = std::path::Path::new(&save).exists();
+        let _ = std::fs::remove_file(&save);
+        assert!(
+            !leaked,
+            "a save with no save directory landed in the working directory"
+        );
+        assert!(
+            !project.join(&save).exists(),
+            "a save with no save directory landed in the project"
         );
     }
 

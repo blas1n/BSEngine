@@ -77,13 +77,14 @@ fn run_to_exit(
     envs: &[(&str, &str)],
 ) -> (std::process::ExitStatus, String, String) {
     let mut child = Command::new(env!("CARGO_BIN_EXE_bsengine-runtime"))
-        .envs(envs.iter().copied())
         // The windowed path writes a log (and on a panic, a crash report)
         // under the per-user directory; a test must not fill a real profile.
+        // Before `envs`, so a caller that names its own directory wins.
         .env(
             bsengine_core::crash::USER_DIR_ENV,
             std::env::temp_dir().join(format!("bsengine_smoke_user_{}", std::process::id())),
         )
+        .envs(envs.iter().copied())
         .arg(project)
         .arg("--frames")
         .arg(frames.to_string())
@@ -170,6 +171,78 @@ fn a_window_opens_and_draws_frames() {
         "{frames} frames ran but nothing was ever drawn -- the window is open \
          and the renderer is submitting empty frames"
     );
+}
+
+/// A script's `Bsengine.save` in the shipped game lands in the per-user
+/// directory's `saves/` -- the one the log is already in -- and nowhere near
+/// the project or the working directory, where every save used to go. Only
+/// the windowed host says where that directory is (`build_player_app`), so
+/// only the shipped binary can show it; the in-process tests insert a
+/// `SaveDir` by hand.
+#[test]
+fn a_script_save_lands_in_the_user_directory() {
+    let dir = std::env::temp_dir().join(format!("bsengine-save-dir-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let project = dir.join("project");
+    let user = dir.join("user");
+    for sub in ["assets/scenes", "assets/scripts"] {
+        std::fs::create_dir_all(project.join(sub)).expect("fixture dirs");
+    }
+    std::fs::write(
+        project.join("project.toml"),
+        "[project]\n\
+         name = \"Save Dir\"\n\
+         entry_scene = \"assets/scenes/main.ron\"\n\
+         \n\
+         [window]\n\
+         width = 160\n\
+         height = 120\n",
+    )
+    .expect("project.toml");
+    std::fs::write(
+        project.join("assets/scenes/main.ron"),
+        r#"SceneDescriptor(entities: [
+    EntityDescriptor(name: "Camera", camera: true),
+    EntityDescriptor(name: "Saver", script: Some("assets/scripts/saver.js")),
+])"#,
+    )
+    .expect("main.ron");
+    let save = format!("slot/save-dir-test-{}.json", std::process::id());
+    std::fs::write(
+        project.join("assets/scripts/saver.js"),
+        format!("function onUpdate(name) {{ Bsengine.save(\"{save}\"); }}\n"),
+    )
+    .expect("saver.js");
+
+    let (status, stdout, stderr) = run_to_exit(
+        &project,
+        FRAMES,
+        &[(bsengine_core::crash::USER_DIR_ENV, user.to_str().unwrap())],
+    );
+    let in_saves = user.join("saves").join(&save).is_file();
+    let in_project = project.join(&save).exists();
+    let in_cwd = std::path::Path::new(&save).exists();
+    let log_written = user.join("logs").join("game.log").is_file();
+    let _ = std::fs::remove_dir_all(&dir);
+    if in_cwd {
+        let _ = std::fs::remove_file(&save);
+    }
+
+    assert!(
+        status.success(),
+        "the runtime exited with {status}\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
+    );
+    // The premise: the runtime used the directory this test gave it.
+    assert!(
+        log_written,
+        "no log in the given user directory -- it went somewhere else"
+    );
+    assert!(
+        in_saves,
+        "the save is not in <user>/saves\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
+    );
+    assert!(!in_project, "the save landed in the project");
+    assert!(!in_cwd, "the save landed in the working directory");
 }
 
 /// Enough frames for a 160 KB glTF to be requested by a script's first

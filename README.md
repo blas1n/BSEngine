@@ -222,6 +222,12 @@ beside the executable, which may be read-only:
 - `crashes/crash-<UTC time>-<pid>.txt` is written on any panic: the message,
   where it happened, the thread, a backtrace, and the last 200 log lines. The
   newest 20 are kept.
+- `saves/` holds what scripts save: `Bsengine.save("slot1.json")` writes
+  `saves/slot1.json`, and `Bsengine.load` reads from the same place (Unity's
+  `persistentDataPath`, Godot's `user://`). A path that climbs out of `saves/`
+  or names a drive is refused. A `--test` replay gets an empty directory of its
+  own instead, so it never reads a save from an earlier run; a browser build
+  has none, and refuses saves with a warning.
 
 Panics only: a native crash (a segfault in a GPU driver) does not reach the
 panic hook.

@@ -21,57 +21,113 @@ use glam::Vec3;
 /// again when the file changes on disk ([`reload_changed_behavior_trees`]).
 #[derive(Resource, Default)]
 pub struct LoadedBehaviorTrees {
-    by_path: HashMap<String, Option<BehaviorTreeAsset>>,
+    by_path: HashMap<String, LoadedTree>,
     /// Paths re-read since the last tick, whose running trees restart. Taken
     /// (and so emptied) by every tick.
     reloaded: std::collections::HashSet<String>,
 }
 
-/// Reads and parses one tree, saying why when it cannot.
-fn read_tree(path: &str) -> Option<BehaviorTreeAsset> {
+/// One cached tree: the asset with its subtrees inlined (`None` when it could
+/// not be loaded), and what it was read from.
+struct LoadedTree {
+    asset: Option<BehaviorTreeAsset>,
+    /// Every subtree file inlined into it, resolved as `path` is -- an edit
+    /// to any of them reloads this tree, since the copy inlined here is the
+    /// only one it runs.
+    subtrees: Vec<String>,
+    /// The project the subtrees' paths were resolved against, kept so a
+    /// reload resolves them the same way.
+    project_dir: Option<bsengine_core::ProjectDir>,
+}
+
+/// Reads and parses one file, saying why when it cannot.
+fn read_asset(path: &str) -> Result<BehaviorTreeAsset, String> {
     // Through the archive in a packaged build, as scenes and timelines are
     // read.
-    match bsengine_asset::pak_source::read_to_string(path) {
-        Ok(text) => match ron::from_str::<BehaviorTreeAsset>(&text) {
-            Ok(tree) => Some(tree),
-            Err(e) => {
-                tracing::error!("[behavior tree] {path} is not a valid tree: {e}");
-                None
-            }
-        },
+    let text = bsengine_asset::pak_source::read_to_string(path)
+        .map_err(|e| format!("cannot read {path}: {e}"))?;
+    ron::from_str::<BehaviorTreeAsset>(&text)
+        .map_err(|e| format!("{path} is not a valid tree: {e}"))
+}
+
+/// Reads the tree at `path` (resolved) and every subtree it names
+/// (project-relative, as a `BehaviorTree` names its tree), inlined; and the
+/// resolved paths of those subtrees. `None`, with the reason logged, if any
+/// part cannot be loaded.
+fn read_tree(
+    path: &str,
+    project_dir: Option<&bsengine_core::ProjectDir>,
+) -> Option<(BehaviorTreeAsset, Vec<String>)> {
+    let loaded = read_asset(path).and_then(|mut asset| {
+        let subtrees = bsengine_core::behavior_tree::inline_subtrees(&mut asset, &mut |sub| {
+            read_asset(&bsengine_core::resolve_project_path(project_dir, sub))
+        })
+        .map_err(|e| format!("{path}: {e}"))?;
+        let resolved = subtrees
+            .iter()
+            .map(|s| bsengine_core::resolve_project_path(project_dir, s))
+            .collect();
+        Ok((asset, resolved))
+    });
+    match loaded {
+        Ok(loaded) => Some(loaded),
         Err(e) => {
-            tracing::error!("[behavior tree] cannot read {path}: {e}");
+            tracing::error!("[behavior tree] {e}");
             None
         }
     }
 }
 
 impl LoadedBehaviorTrees {
-    fn get(&mut self, path: &str) -> Option<&BehaviorTreeAsset> {
+    fn get(
+        &mut self,
+        path: &str,
+        project_dir: Option<&bsengine_core::ProjectDir>,
+    ) -> Option<&BehaviorTreeAsset> {
         if !self.by_path.contains_key(path) {
-            self.by_path.insert(path.to_string(), read_tree(path));
+            let (asset, subtrees) = match read_tree(path, project_dir) {
+                Some((asset, subtrees)) => (Some(asset), subtrees),
+                None => (None, Vec::new()),
+            };
+            self.by_path.insert(
+                path.to_string(),
+                LoadedTree {
+                    asset,
+                    subtrees,
+                    project_dir: project_dir.cloned(),
+                },
+            );
         }
-        self.by_path.get(path).and_then(Option::as_ref)
+        self.by_path.get(path).and_then(|t| t.asset.as_ref())
     }
 
-    /// `path` changed on disk. Re-read if this cache holds it; a tree that no
-    /// longer parses leaves the last good one in place -- a half-typed edit
-    /// should not stop every guard in the level -- and only a tree that does
-    /// replaces it and restarts the entities running it.
-    fn reload(&mut self, path: &str) {
-        let Some(held) = self.by_path.get_mut(path) else {
-            return;
-        };
-        match read_tree(path) {
-            Some(tree) => {
-                tracing::info!("[behavior tree] {path} changed on disk, restarting its trees");
-                *held = Some(tree);
-                self.reloaded.insert(path.to_string());
+    /// `changed` changed on disk. Every tree this cache holds that was read
+    /// from it -- the tree itself, or one of its subtrees -- is re-read; a
+    /// tree that no longer loads leaves the last good one in place -- a
+    /// half-typed edit should not stop every guard in the level -- and only
+    /// one that does replaces it and restarts the entities running it.
+    fn reload(&mut self, changed: &str) {
+        // By separator-blind comparison: the watcher reports forward slashes,
+        // and a path a tree or a component wrote may not use them.
+        let same = |a: &str| a.replace('\\', "/") == changed.replace('\\', "/");
+        for (path, held) in self.by_path.iter_mut() {
+            if !same(path) && !held.subtrees.iter().any(|s| same(s)) {
+                continue;
             }
-            None if held.is_some() => {
-                tracing::warn!("[behavior tree] keeping the last good version of {path}");
+            match read_tree(path, held.project_dir.as_ref()) {
+                Some((asset, subtrees)) => {
+                    tracing::info!(
+                        "[behavior tree] {changed} changed on disk, restarting the trees of {path}"
+                    );
+                    held.asset = Some(asset);
+                    held.subtrees = subtrees;
+                    self.reloaded.insert(path.clone());
+                }
+                None if held.asset.is_some() => {
+                    tracing::warn!("[behavior tree] keeping the last good version of {path}");
+                }
+                None => {}
             }
-            None => {}
         }
     }
 }
@@ -307,7 +363,7 @@ fn tick_behavior_trees(world: &mut World) {
                 let asset = ctx
                     .world
                     .resource_mut::<LoadedBehaviorTrees>()
-                    .get(&resolved)
+                    .get(&resolved, project_dir.as_ref())
                     .cloned();
                 if let Some((_, old)) = runtime.as_mut() {
                     old.abort(&mut ctx);
@@ -451,6 +507,108 @@ mod tests {
             "and it is waiting, not failed"
         );
         let _ = std::fs::remove_file(path);
+    }
+
+    /// A tree that names a subtree, by a path written the way the tree
+    /// writes it: forward slashes, so a Windows temp path needs no escaping
+    /// inside the RON string.
+    fn parent_of(sub: &str) -> String {
+        format!(
+            r#"(root: Sequence([Subtree(path: "{}"), Wait(seconds: 100.0)]))"#,
+            sub.replace('\\', "/")
+        )
+    }
+
+    /// Editing a subtree file reloads every tree that inlined it -- the copy
+    /// inlined there is the only one those trees run, so a notice for the
+    /// subtree's own path is the one that matters. The parent file itself is
+    /// untouched.
+    #[test]
+    fn editing_a_subtree_restarts_the_trees_that_use_it() {
+        let sub = tree_file("sub", &versioned_tree(1));
+        let parent = tree_file("parent", &parent_of(&sub));
+        let mut app = app();
+        let e = guard(&mut app, parent.clone(), Blackboard::default());
+        app.update();
+        assert_eq!(
+            version(&app, e),
+            Some(BbValue::Int(1)),
+            "premise: the subtree ran, on the guard's blackboard"
+        );
+
+        std::fs::write(&sub, versioned_tree(2)).unwrap();
+        announce(&mut app, &sub);
+        app.update();
+        assert_eq!(
+            version(&app, e),
+            Some(BbValue::Int(2)),
+            "the edited subtree ran"
+        );
+        let _ = std::fs::remove_file(sub);
+        let _ = std::fs::remove_file(parent);
+    }
+
+    /// The way a game writes it: a project-relative subtree path, resolved
+    /// against `ProjectDir` as the tree's own path is, and reloaded by the
+    /// notice the watcher sends for it -- `<ProjectDir>/assets/...` with
+    /// forward slashes.
+    #[test]
+    fn a_project_relative_subtree_resolves_and_reloads_through_project_dir() {
+        let root = std::env::temp_dir().join(format!("bsengine-bt-sub-{}", std::process::id()));
+        let ai = root.join("assets").join("ai");
+        std::fs::create_dir_all(&ai).unwrap();
+        std::fs::write(ai.join("pause.bt.ron"), versioned_tree(1)).unwrap();
+        std::fs::write(ai.join("guard.bt.ron"), parent_of("assets/ai/pause.bt.ron")).unwrap();
+        let project = root.to_string_lossy().replace('\\', "/");
+
+        let mut app = app();
+        app.insert_resource(bsengine_core::ProjectDir(project.clone()));
+        let e = guard(
+            &mut app,
+            "assets/ai/guard.bt.ron".to_string(),
+            Blackboard::default(),
+        );
+        app.update();
+        assert_eq!(
+            version(&app, e),
+            Some(BbValue::Int(1)),
+            "the subtree was found under the project, not the working directory"
+        );
+
+        std::fs::write(ai.join("pause.bt.ron"), versioned_tree(2)).unwrap();
+        announce(&mut app, &format!("{project}/assets/ai/pause.bt.ron"));
+        app.update();
+        assert_eq!(version(&app, e), Some(BbValue::Int(2)));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// A subtree edited into something that no longer parses leaves the
+    /// parent's last good tree running, as the parent's own bad edit does.
+    #[test]
+    fn a_broken_subtree_edit_keeps_the_last_good_tree() {
+        let sub = tree_file("broken_sub", &versioned_tree(1));
+        let parent = tree_file("broken_parent", &parent_of(&sub));
+        let mut app = app();
+        let first = guard(&mut app, parent.clone(), Blackboard::default());
+        app.update();
+        assert_eq!(version(&app, first), Some(BbValue::Int(1)));
+
+        std::fs::write(&sub, "(root: Sequence([").unwrap();
+        announce(&mut app, &sub);
+        app.update();
+        let second = guard(&mut app, parent.clone(), Blackboard::default());
+        app.update();
+        assert_eq!(
+            version(&app, second),
+            Some(BbValue::Int(1)),
+            "a guard starting after the bad edit still gets the last good tree"
+        );
+        assert_eq!(
+            app.world().get::<BehaviorTree>(first).unwrap().last_status,
+            BtStatus::Running
+        );
+        let _ = std::fs::remove_file(sub);
+        let _ = std::fs::remove_file(parent);
     }
 
     /// A half-typed edit does not stop every guard: a file that no longer

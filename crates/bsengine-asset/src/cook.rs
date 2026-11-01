@@ -1046,6 +1046,47 @@ mod tests {
         );
     }
 
+    /// A packaged build carries the behaviour tree a scene's entity names
+    /// and every subtree that tree names, and the subtrees' own subtrees: a
+    /// `.bt.ron` is RON, so the walk parses it and follows the `assets/`
+    /// paths in it like a prefab's. Without that a packaged guard would fail
+    /// its tree's load for a subtree left behind. The scene line is the form
+    /// `bsengine-scene` writes a reflected `BehaviorTree` in.
+    #[test]
+    fn carries_a_behaviour_tree_and_its_subtrees() {
+        let probe = Probe::create();
+        probe.write(
+            "assets/scenes/main.ron",
+            r#"(entities: [(name: "Guard", components: [
+                ("bsengine_core::behavior_tree::BehaviorTree", "(tree: \"assets/ai/guard.bt.ron\", enabled: true, last_status: Running)"),
+            ])])"#,
+        );
+        probe.write(
+            "assets/ai/guard.bt.ron",
+            r#"(root: Selector([Subtree(path: "assets/ai/patrol.bt.ron"), Succeed]))"#,
+        );
+        probe.write(
+            "assets/ai/patrol.bt.ron",
+            r#"(root: Sequence([Subtree(path: "assets/ai/pause.bt.ron")]))"#,
+        );
+        probe.write("assets/ai/pause.bt.ron", "(root: Wait(seconds: 1.0))");
+
+        let cooked = probe.cook();
+
+        assert!(cooked.is_ok(), "unexpected problems: {:?}", cooked.missing);
+        for tree in [
+            "assets/ai/guard.bt.ron",
+            "assets/ai/patrol.bt.ron",
+            "assets/ai/pause.bt.ron",
+        ] {
+            assert!(
+                cooked.assets.contains(tree),
+                "{tree} was left out of the build: {:?}",
+                cooked.assets
+            );
+        }
+    }
+
     /// Prefabs nest, and one that references itself must terminate. The
     /// assertion is what was collected, not merely that it returned: a walk
     /// that bailed out on first sight of a cycle would also return.

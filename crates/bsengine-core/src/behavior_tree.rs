@@ -293,10 +293,97 @@ pub enum BtNode {
         /// The registered task's name.
         task: String,
     },
+    /// Runs the tree in another asset here, on this entity's blackboard, and
+    /// reports what its root reports -- Unreal's Run Behavior, Unity
+    /// Behavior's Run Subgraph, LimboAI's `BTSubtree`. A guard's "patrol"
+    /// written once and used by every guard tree.
+    ///
+    /// Static, as all three are by default: the asset is read when the tree
+    /// holding it is, and edits to it reach every tree that uses it (hot
+    /// reload re-reads them). A subtree that cannot be read, or that names
+    /// a tree it is already inside, fails the whole tree's load.
+    Subtree {
+        /// The tree asset's project-relative path, as `BehaviorTree::tree`.
+        path: String,
+        /// The tree at `path`, put here by whoever loaded the asset holding
+        /// this node ([`inline_subtrees`]). Never written in a file; a node
+        /// left without it fails.
+        #[serde(skip)]
+        tree: Option<Box<BtNode>>,
+    },
     /// Succeeds at once.
     Succeed,
     /// Fails at once.
     Fail,
+}
+
+/// How deep subtrees may nest. Far past any tree a person writes; what it
+/// stops is a chain of distinct files long enough to be a mistake.
+pub const MAX_SUBTREE_DEPTH: usize = 16;
+
+/// Puts the tree each [`BtNode::Subtree`] names into it, recursively, and
+/// returns every path read -- what the asset depends on, so an edit to any
+/// of them can reload it. `read` loads one asset by the path as written.
+///
+/// An error for a subtree `read` cannot supply, for a cycle (a tree inside
+/// itself, however far down -- it would never stop inlining), and past
+/// [`MAX_SUBTREE_DEPTH`]: a tree with a hole in it would run as something
+/// its author never wrote, so the whole load fails instead.
+pub fn inline_subtrees(
+    asset: &mut BehaviorTreeAsset,
+    read: &mut dyn FnMut(&str) -> Result<BehaviorTreeAsset, String>,
+) -> Result<Vec<String>, String> {
+    fn walk(
+        node: &mut BtNode,
+        stack: &mut Vec<String>,
+        read: &mut dyn FnMut(&str) -> Result<BehaviorTreeAsset, String>,
+        deps: &mut Vec<String>,
+    ) -> Result<(), String> {
+        match node {
+            BtNode::Subtree { path, tree } => {
+                if stack.iter().any(|p| p == path) {
+                    return Err(format!("subtree cycle: {} -> {path}", stack.join(" -> ")));
+                }
+                if stack.len() >= MAX_SUBTREE_DEPTH {
+                    return Err(format!(
+                        "subtrees nest deeper than {MAX_SUBTREE_DEPTH}: {} -> {path}",
+                        stack.join(" -> ")
+                    ));
+                }
+                let mut sub = read(path).map_err(|e| format!("subtree {path}: {e}"))?;
+                if !deps.contains(path) {
+                    deps.push(path.clone());
+                }
+                stack.push(path.clone());
+                walk(&mut sub.root, stack, read, deps)?;
+                stack.pop();
+                *tree = Some(Box::new(sub.root));
+                Ok(())
+            }
+            BtNode::Sequence(children)
+            | BtNode::Selector(children)
+            | BtNode::Parallel { children, .. } => children
+                .iter_mut()
+                .try_for_each(|c| walk(c, stack, read, deps)),
+            BtNode::Condition { child, .. }
+            | BtNode::Repeat { child, .. }
+            | BtNode::Cooldown { child, .. }
+            | BtNode::TimeLimit { child, .. }
+            | BtNode::Inverter(child)
+            | BtNode::ForceSuccess(child)
+            | BtNode::ForceFailure(child) => walk(child, stack, read, deps),
+            BtNode::Wait { .. }
+            | BtNode::SetValue { .. }
+            | BtNode::ClearValue { .. }
+            | BtNode::MoveTo { .. }
+            | BtNode::Script { .. }
+            | BtNode::Succeed
+            | BtNode::Fail => Ok(()),
+        }
+    }
+    let mut deps = Vec::new();
+    walk(&mut asset.root, &mut Vec::new(), read, &mut deps)?;
+    Ok(deps)
 }
 
 /// One call the tree asks scripting to make this frame.
@@ -421,6 +508,7 @@ fn label_of(node: &BtNode, name: &str) -> String {
             format!("{name}({key})")
         }
         BtNode::Script { task } => format!("{name}({task})"),
+        BtNode::Subtree { path, .. } => format!("{name}({path})"),
         _ => name.to_string(),
     }
 }
@@ -447,6 +535,8 @@ enum Kind {
     ClearValue(String),
     MoveTo(String, Option<f32>),
     Script(String),
+    /// Reports what its one child, the inlined tree's root, reports.
+    Subtree,
     Succeed,
     Fail,
 }
@@ -542,6 +632,12 @@ impl BtRuntime {
                 (Kind::MoveTo(key.clone(), *acceptance), "MoveTo", vec![])
             }
             BtNode::Script { task } => (Kind::Script(task.clone()), "Script", vec![]),
+            BtNode::Subtree {
+                tree: Some(tree), ..
+            } => (Kind::Subtree, "Subtree", vec![&**tree]),
+            // Never inlined (built by hand, not loaded): there is nothing to
+            // run, which is a failure rather than a silent success.
+            BtNode::Subtree { tree: None, .. } => (Kind::Fail, "Subtree", vec![]),
             BtNode::Succeed => (Kind::Succeed, "Succeed", vec![]),
             BtNode::Fail => (Kind::Fail, "Fail", vec![]),
         };
@@ -768,6 +864,7 @@ impl BtRuntime {
                 BtStatus::Failure => BtStatus::Success,
                 BtStatus::Running => BtStatus::Running,
             },
+            Kind::Subtree => self.tick_node(kids[0], ctx),
             Kind::ForceSuccess => match self.tick_node(kids[0], ctx) {
                 BtStatus::Running => BtStatus::Running,
                 _ => BtStatus::Success,
@@ -978,6 +1075,111 @@ mod tests {
             None,
             "and never reached the one after the failure"
         );
+    }
+
+    /// Assets by path, for [`inline_subtrees`]: what a loader would read.
+    fn library<'a>(
+        files: &'a [(&'a str, &'a str)],
+    ) -> impl FnMut(&str) -> Result<BehaviorTreeAsset, String> + 'a {
+        move |path| {
+            files
+                .iter()
+                .find(|(p, _)| *p == path)
+                .ok_or_else(|| format!("no file {path}"))
+                .and_then(|(_, text)| ron::from_str(text).map_err(|e| e.to_string()))
+        }
+    }
+
+    /// A subtree runs where it is named, on the same blackboard, and reports
+    /// its root's status to its parent: here the subtree's Wait keeps the
+    /// parent's Sequence running, and the parent's SetValue after it is
+    /// reached only once the subtree has finished. Nested subtrees inline
+    /// too, and every file read is reported -- what hot reload watches.
+    #[test]
+    fn a_subtree_runs_in_place_on_the_same_blackboard() {
+        let files = [
+            (
+                "patrol.bt.ron",
+                r#"(root: Sequence([SetValue(key: "patrolled", value: Bool(true)), Subtree(path: "pause.bt.ron")]))"#,
+            ),
+            ("pause.bt.ron", r#"(root: Wait(seconds: 0.25))"#),
+        ];
+        let mut asset: BehaviorTreeAsset = ron::from_str(
+            r#"(root: Sequence([Subtree(path: "patrol.bt.ron"), SetValue(key: "after", value: Bool(true)), Wait(seconds: 10.0)]))"#,
+        )
+        .unwrap();
+        let deps = inline_subtrees(&mut asset, &mut library(&files)).expect("inlines");
+        assert_eq!(deps, vec!["patrol.bt.ron", "pause.bt.ron"]);
+
+        let mut t = BtRuntime::new(&asset);
+        let mut w = World::default();
+        assert_eq!(run(&mut t, &mut w, 1), vec![R]);
+        assert_eq!(
+            w.bb.get("patrolled"),
+            Some(&BbValue::Bool(true)),
+            "the subtree wrote the entity's blackboard"
+        );
+        assert_eq!(w.bb.get("after"), None, "the parent waits for the subtree");
+        assert_eq!(
+            t.running_path(),
+            vec![
+                "Sequence",
+                "Subtree(patrol.bt.ron)",
+                "Sequence",
+                "Subtree(pause.bt.ron)",
+                "Wait(0.25s)"
+            ],
+            "the debugger shows where each subtree starts"
+        );
+        run(&mut t, &mut w, 3);
+        assert_eq!(
+            w.bb.get("after"),
+            Some(&BbValue::Bool(true)),
+            "once the subtree's Wait succeeded, the parent moved on"
+        );
+    }
+
+    /// A tree with a hole in it would run as something nobody wrote, so a
+    /// subtree that cannot be read fails the load -- as does one that names
+    /// a tree it is already inside, which would otherwise inline forever.
+    #[test]
+    fn a_missing_or_cyclic_subtree_fails_the_load() {
+        let mut missing: BehaviorTreeAsset =
+            ron::from_str(r#"(root: Selector([Subtree(path: "gone.bt.ron"), Succeed]))"#).unwrap();
+        let err = inline_subtrees(&mut missing, &mut library(&[])).unwrap_err();
+        assert!(err.contains("gone.bt.ron"), "{err}");
+
+        let files = [
+            ("a.bt.ron", r#"(root: Subtree(path: "b.bt.ron"))"#),
+            ("b.bt.ron", r#"(root: Inverter(Subtree(path: "a.bt.ron")))"#),
+        ];
+        let mut cyclic: BehaviorTreeAsset =
+            ron::from_str(r#"(root: Subtree(path: "a.bt.ron"))"#).unwrap();
+        let err = inline_subtrees(&mut cyclic, &mut library(&files)).unwrap_err();
+        assert!(err.contains("cycle"), "{err}");
+
+        // The same file twice, side by side, is not a cycle.
+        let files = [("leaf.bt.ron", r#"(root: Succeed)"#)];
+        let mut twice: BehaviorTreeAsset = ron::from_str(
+            r#"(root: Sequence([Subtree(path: "leaf.bt.ron"), Subtree(path: "leaf.bt.ron")]))"#,
+        )
+        .unwrap();
+        assert_eq!(
+            inline_subtrees(&mut twice, &mut library(&files)).unwrap(),
+            vec!["leaf.bt.ron"]
+        );
+        assert_eq!(
+            run(&mut BtRuntime::new(&twice), &mut World::default(), 1),
+            vec![S]
+        );
+    }
+
+    /// A subtree node nobody inlined -- built by hand, not loaded -- has
+    /// nothing to run: it fails rather than passing as a success.
+    #[test]
+    fn a_subtree_that_was_never_inlined_fails() {
+        let mut t = rt(r#"(root: Subtree(path: "x.bt.ron"))"#);
+        assert_eq!(run(&mut t, &mut World::default(), 1), vec![F]);
     }
 
     #[test]

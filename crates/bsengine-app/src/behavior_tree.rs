@@ -17,33 +17,79 @@ use glam::Vec3;
 
 /// Behaviour tree assets parsed from disk, keyed by the path a
 /// [`BehaviorTree`] names -- read once on first use, a failure remembered
-/// rather than retried every frame, as `LoadedTimelines` does.
+/// rather than retried every frame, as `LoadedTimelines` does -- and read
+/// again when the file changes on disk ([`reload_changed_behavior_trees`]).
 #[derive(Resource, Default)]
 pub struct LoadedBehaviorTrees {
     by_path: HashMap<String, Option<BehaviorTreeAsset>>,
+    /// Paths re-read since the last tick, whose running trees restart. Taken
+    /// (and so emptied) by every tick.
+    reloaded: std::collections::HashSet<String>,
+}
+
+/// Reads and parses one tree, saying why when it cannot.
+fn read_tree(path: &str) -> Option<BehaviorTreeAsset> {
+    // Through the archive in a packaged build, as scenes and timelines are
+    // read.
+    match bsengine_asset::pak_source::read_to_string(path) {
+        Ok(text) => match ron::from_str::<BehaviorTreeAsset>(&text) {
+            Ok(tree) => Some(tree),
+            Err(e) => {
+                tracing::error!("[behavior tree] {path} is not a valid tree: {e}");
+                None
+            }
+        },
+        Err(e) => {
+            tracing::error!("[behavior tree] cannot read {path}: {e}");
+            None
+        }
+    }
 }
 
 impl LoadedBehaviorTrees {
     fn get(&mut self, path: &str) -> Option<&BehaviorTreeAsset> {
         if !self.by_path.contains_key(path) {
-            // Through the archive in a packaged build, as scenes and
-            // timelines are read.
-            let parsed = match bsengine_asset::pak_source::read_to_string(path) {
-                Ok(text) => match ron::from_str::<BehaviorTreeAsset>(&text) {
-                    Ok(tree) => Some(tree),
-                    Err(e) => {
-                        tracing::error!("[behavior tree] {path} is not a valid tree: {e}");
-                        None
-                    }
-                },
-                Err(e) => {
-                    tracing::error!("[behavior tree] cannot read {path}: {e}");
-                    None
-                }
-            };
-            self.by_path.insert(path.to_string(), parsed);
+            self.by_path.insert(path.to_string(), read_tree(path));
         }
         self.by_path.get(path).and_then(Option::as_ref)
+    }
+
+    /// `path` changed on disk. Re-read if this cache holds it; a tree that no
+    /// longer parses leaves the last good one in place -- a half-typed edit
+    /// should not stop every guard in the level -- and only a tree that does
+    /// replaces it and restarts the entities running it.
+    fn reload(&mut self, path: &str) {
+        let Some(held) = self.by_path.get_mut(path) else {
+            return;
+        };
+        match read_tree(path) {
+            Some(tree) => {
+                tracing::info!("[behavior tree] {path} changed on disk, restarting its trees");
+                *held = Some(tree);
+                self.reloaded.insert(path.to_string());
+            }
+            None if held.is_some() => {
+                tracing::warn!("[behavior tree] keeping the last good version of {path}");
+            }
+            None => {}
+        }
+    }
+}
+
+/// Hot reload: a `.bt.ron` edited while the game runs takes effect without a
+/// restart, as a script or a texture already does. The asset watcher says
+/// which file changed ([`bsengine_asset::AssetFileChanged`]); the trees read
+/// from it restart from their root on the next tick, keeping the blackboard
+/// -- the tree's structure changed, so no node's running state can be carried
+/// across (a node index may now name a different node), but the blackboard
+/// is the entity's data, not the tree's. What was running is aborted first,
+/// so a `MoveTo` stops its agent and a script task gets its `onAbort`.
+fn reload_changed_behavior_trees(
+    mut changes: MessageReader<bsengine_asset::AssetFileChanged>,
+    mut trees: ResMut<LoadedBehaviorTrees>,
+) {
+    for change in changes.read() {
+        trees.reload(&change.path);
     }
 }
 
@@ -54,7 +100,11 @@ pub struct BehaviorTreePlugin;
 
 impl Plugin for BehaviorTreePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<LoadedBehaviorTrees>()
+        // Registered here as well as by the watcher that sends it, so the
+        // reader below works in a host with no watcher (a replay, a packaged
+        // game) and simply never sees one.
+        app.add_message::<bsengine_asset::AssetFileChanged>()
+            .init_resource::<LoadedBehaviorTrees>()
             .init_resource::<BtScriptQueue>()
             .configure_sets(
                 Update,
@@ -62,10 +112,15 @@ impl Plugin for BehaviorTreePlugin {
             )
             .add_systems(
                 Update,
-                tick_behavior_trees
-                    .run_if(|paused: Option<Res<bsengine_core::PauseState>>| {
+                (
+                    // Not paused: an edit made while paused is picked up then,
+                    // and the restart waits for the first tick after.
+                    reload_changed_behavior_trees,
+                    tick_behavior_trees.run_if(|paused: Option<Res<bsengine_core::PauseState>>| {
                         !paused.is_some_and(|p| p.paused)
-                    })
+                    }),
+                )
+                    .chain()
                     .in_set(BehaviorTreeSystems),
             );
     }
@@ -210,6 +265,10 @@ fn tick_behavior_trees(world: &mut World) {
         .map(|t| f64::from(t.elapsed_seconds))
         .unwrap_or(0.0);
     let project_dir = world.get_resource::<bsengine_core::ProjectDir>().cloned();
+    let reloaded = world
+        .get_resource_mut::<LoadedBehaviorTrees>()
+        .map(|mut t| std::mem::take(&mut t.reloaded))
+        .unwrap_or_default();
     let entities: Vec<Entity> = world
         .query_filtered::<Entity, With<BehaviorTree>>()
         .iter(world)
@@ -228,15 +287,23 @@ fn tick_behavior_trees(world: &mut World) {
             goal: None,
         };
 
+        let resolved = bsengine_core::resolve_project_path(project_dir.as_ref(), &tree.tree);
+        // Compiled from a file that has since been re-read: rebuilt, below or
+        // -- for a disabled tree -- when it is next enabled. Without this a
+        // disabled tree would keep its old runtime past the one tick that
+        // carries the news.
+        let stale = reloaded.contains(&resolved);
         let status = if !tree.enabled {
             if let Some((_, rt)) = runtime.as_mut() {
                 rt.abort(&mut ctx);
             }
+            if stale {
+                runtime = None;
+            }
             tree.last_status
         } else {
-            if runtime.as_ref().map(|(path, _)| path.as_str()) != Some(tree.tree.as_str()) {
-                let resolved =
-                    bsengine_core::resolve_project_path(project_dir.as_ref(), &tree.tree);
+            if stale || runtime.as_ref().map(|(path, _)| path.as_str()) != Some(tree.tree.as_str())
+            {
                 let asset = ctx
                     .world
                     .resource_mut::<LoadedBehaviorTrees>()
@@ -322,6 +389,193 @@ mod tests {
 
     fn position(app: &App, e: Entity) -> Vec3 {
         app.world().get::<Transform>(e).unwrap().position.0
+    }
+
+    /// A tree that writes `version` once and then waits: which file a guard
+    /// is running is visible on its blackboard.
+    fn versioned_tree(version: i64) -> String {
+        format!(
+            r#"(root: Sequence([SetValue(key: "version", value: Int({version})), Wait(seconds: 100.0)]))"#
+        )
+    }
+
+    fn version(app: &App, e: Entity) -> Option<BbValue> {
+        app.world()
+            .get::<Blackboard>(e)
+            .and_then(|bb| bb.get("version").cloned())
+    }
+
+    fn announce(app: &mut App, path: &str) {
+        app.world_mut()
+            .write_message(bsengine_asset::AssetFileChanged {
+                path: path.to_string(),
+            });
+    }
+
+    /// Hot reload: the file is rewritten and the watcher says so, and the
+    /// guard runs the new tree from its root on the next frame -- with the
+    /// blackboard it had, since that is the entity's data. The premise is the
+    /// other half: rewriting the file *without* the notice changes nothing,
+    /// so it is the notice, not a re-read every frame, that reloads.
+    #[test]
+    fn an_edited_tree_restarts_with_the_new_file_and_the_same_blackboard() {
+        let path = tree_file("reload", &versioned_tree(1));
+        let mut app = app();
+        let mut bb = Blackboard::default();
+        bb.set("kept", BbValue::Bool(true));
+        let e = guard(&mut app, path.clone(), bb);
+        app.update();
+        assert_eq!(version(&app, e), Some(BbValue::Int(1)));
+
+        std::fs::write(&path, versioned_tree(2)).unwrap();
+        for _ in 0..3 {
+            app.update();
+        }
+        assert_eq!(
+            version(&app, e),
+            Some(BbValue::Int(1)),
+            "premise: without the notice the cached tree keeps running"
+        );
+
+        announce(&mut app, &path);
+        app.update();
+        assert_eq!(version(&app, e), Some(BbValue::Int(2)), "the new tree ran");
+        assert_eq!(
+            app.world().get::<Blackboard>(e).unwrap().get("kept"),
+            Some(&BbValue::Bool(true)),
+            "the blackboard survived the restart"
+        );
+        assert_eq!(
+            app.world().get::<BehaviorTree>(e).unwrap().last_status,
+            BtStatus::Running,
+            "and it is waiting, not failed"
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// A half-typed edit does not stop every guard: a file that no longer
+    /// parses is reported and the last good tree stays -- for the guard
+    /// already running it, and for one that starts after the bad edit.
+    #[test]
+    fn a_tree_that_no_longer_parses_leaves_the_last_good_one() {
+        let path = tree_file("broken", &versioned_tree(1));
+        let mut app = app();
+        let first = guard(&mut app, path.clone(), Blackboard::default());
+        app.update();
+        assert_eq!(version(&app, first), Some(BbValue::Int(1)));
+
+        std::fs::write(&path, "(root: Sequence([").unwrap();
+        announce(&mut app, &path);
+        app.update();
+        assert_eq!(
+            app.world().get::<BehaviorTree>(first).unwrap().last_status,
+            BtStatus::Running,
+            "the running guard kept its tree"
+        );
+        let second = guard(&mut app, path.clone(), Blackboard::default());
+        app.update();
+        assert_eq!(
+            version(&app, second),
+            Some(BbValue::Int(1)),
+            "a guard starting after the bad edit gets the last good tree, not none"
+        );
+
+        // And the fix lands: the cache did not give up on the file.
+        std::fs::write(&path, versioned_tree(3)).unwrap();
+        announce(&mut app, &path);
+        app.update();
+        assert_eq!(version(&app, first), Some(BbValue::Int(3)));
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// The whole chain with nothing handed over by hand: the real asset
+    /// watcher sees the edit on disk, and the tree it names restarts. What the
+    /// tests above cannot see is the spelling -- the watcher builds its path
+    /// from `ProjectDir` and what `notify` reports, the cache from
+    /// `ProjectDir` and the component's string, and a notice for a path the
+    /// cache does not hold by that exact spelling reloads nothing, silently.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn the_asset_watcher_reloads_a_tree_edited_on_disk() {
+        struct RemoveDir(std::path::PathBuf);
+        impl Drop for RemoveDir {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let root = std::env::temp_dir().join(format!(
+            "bsengine-bt-watch-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _cleanup = RemoveDir(root.clone());
+        let tree = root.join("assets").join("ai").join("guard.bt.ron");
+        std::fs::create_dir_all(tree.parent().unwrap()).unwrap();
+        std::fs::write(&tree, versioned_tree(1)).unwrap();
+
+        let mut app = app();
+        app.insert_resource(bsengine_core::ProjectDir(
+            root.to_string_lossy().replace('\\', "/"),
+        ));
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(bsengine_asset::AssetWatcherPlugin);
+        let e = guard(
+            &mut app,
+            "assets/ai/guard.bt.ron".to_string(),
+            Blackboard::default(),
+        );
+        app.update();
+        assert_eq!(
+            version(&app, e),
+            Some(BbValue::Int(1)),
+            "premise: the tree loads through ProjectDir"
+        );
+
+        // Past the watcher's 200 ms debounce before the edit, so the write is
+        // not folded into whatever the start-up produced.
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        std::fs::write(&tree, versioned_tree(2)).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while version(&app, e) != Some(BbValue::Int(2)) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the edit never reached the running tree"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            app.update();
+        }
+    }
+
+    /// A tree switched off when its file changed runs the new file when it is
+    /// switched back on. The notice reaches only the one tick after it, so a
+    /// disabled tree that kept its old runtime would resume the old file.
+    #[test]
+    fn a_disabled_tree_picks_up_the_edit_when_enabled() {
+        let path = tree_file("disabled", &versioned_tree(1));
+        let mut app = app();
+        let e = guard(&mut app, path.clone(), Blackboard::default());
+        app.update();
+        assert_eq!(version(&app, e), Some(BbValue::Int(1)));
+
+        app.world_mut().get_mut::<BehaviorTree>(e).unwrap().enabled = false;
+        app.update();
+        std::fs::write(&path, versioned_tree(2)).unwrap();
+        announce(&mut app, &path);
+        app.update();
+        app.update();
+        assert_eq!(
+            version(&app, e),
+            Some(BbValue::Int(1)),
+            "premise: nothing runs while it is off"
+        );
+
+        app.world_mut().get_mut::<BehaviorTree>(e).unwrap().enabled = true;
+        app.update();
+        assert_eq!(version(&app, e), Some(BbValue::Int(2)));
+        let _ = std::fs::remove_file(path);
     }
 
     /// Through the real navigation: the tree's MoveTo walks the guard to the

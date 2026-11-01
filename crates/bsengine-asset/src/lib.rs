@@ -36,6 +36,9 @@
 pub mod cook;
 /// An archive embedded in the executable itself: the single-file build.
 pub mod embed;
+/// The watcher's notice that a file under `assets/` changed, for the caches
+/// `bevy_asset`'s own reload does not reach.
+pub mod file_changed;
 /// `AssetLoader` backing `LoadMode::Async` for `HeightmapAsset`.
 pub mod heightmap_loader;
 /// `AssetGuid` and the `.meta` sidecar that gives an asset an identity
@@ -85,6 +88,7 @@ pub mod watcher;
 pub mod test_support;
 
 pub use bevy_asset::{Asset, AssetServer, Assets, Handle};
+pub use file_changed::AssetFileChanged;
 pub use heightmap_loader::HeightmapAssetLoader;
 pub use identity::{AssetGuid, AssetIdentityPlugin, AssetIndex};
 pub use load_mode::{load, load_async, LoadMode};

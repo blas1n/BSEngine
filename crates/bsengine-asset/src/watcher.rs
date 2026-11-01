@@ -71,12 +71,14 @@
 //! `a_rename_whose_old_half_the_backend_dropped_is_still_recorded`, which feeds
 //! the drain a lone `Create` by hand -- the shape FSEvents was seen to produce.
 
+use crate::file_changed::AssetFileChanged;
 use crate::identity::rename::{record_rename, Endpoint};
 use crate::identity::scan::ASSETS_DIR;
 use crate::identity::AssetIndex;
 use crate::plugin::AssetRoot;
 use bevy_app::{App, Plugin, Startup, Update};
 use bevy_asset::{AssetPath, AssetServer};
+use bevy_ecs::message::Messages;
 use bevy_ecs::prelude::{Commands, Res, ResMut, Resource};
 use bsengine_core::ProjectDir;
 use file_id::{get_file_id, FileId};
@@ -187,7 +189,8 @@ pub struct AssetWatcherPlugin;
 
 impl Plugin for AssetWatcherPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, start_asset_watcher)
+        app.add_message::<AssetFileChanged>()
+            .add_systems(Startup, start_asset_watcher)
             .add_systems(Update, drain_asset_changes);
     }
 }
@@ -479,6 +482,28 @@ fn reconstruct(changed: &Path, strip_base: &Path, engine_root: &str) -> Option<S
     Some(format!("{engine_root}/{relative}"))
 }
 
+/// [`reconstruct`] for every file, not only the ones `bevy_asset` reloads:
+/// the engine-form path an [`AssetFileChanged`] carries. Silent where that one
+/// warns -- a path that will not strip is already reported there when it
+/// matters, and for a `.DS_Store` it never does -- and `None` for a `.meta`
+/// sidecar, which is import settings for the asset beside it rather than a
+/// file anything reads by that name.
+fn changed_file(changed: &Path, strip_base: &Path, engine_root: &str) -> Option<String> {
+    if changed
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case(crate::identity::sidecar::SIDECAR_EXTENSION))
+    {
+        return None;
+    }
+    let relative = changed.strip_prefix(strip_base).ok()?;
+    let relative = relative.to_str()?.replace('\\', "/");
+    if relative.is_empty() {
+        return None;
+    }
+    Some(format!("{engine_root}/{relative}"))
+}
+
 /// Rebuilds the spelling an asset's *identity* is keyed by — project-relative
 /// and forward-slashed, `assets/models/fox.glb` — from the path `notify`
 /// reported.
@@ -549,12 +574,20 @@ fn drain_asset_changes(
     watcher: Option<Res<AssetWatcher>>,
     asset_server: Res<AssetServer>,
     mut index: Option<ResMut<AssetIndex>>,
+    // Optional for the same reason `index` is: a host (or a test) may run this
+    // system without the plugin that registers the message, and a missing
+    // `Messages` must not stop the reloads that do not need it.
+    mut file_messages: Option<ResMut<Messages<AssetFileChanged>>>,
 ) {
     let Some(watcher) = watcher else {
         return;
     };
 
     let mut changed: Vec<String> = Vec::new();
+    // Every file that changed, whatever its extension: what `changed` keeps
+    // only for `bevy_asset`'s types, for the caches outside it. Deduped the
+    // same way, so a burst the debouncer split is one notice.
+    let mut files: Vec<String> = Vec::new();
     // Collected rather than acted on inside the loop below, for the same reason
     // `changed` is: recording a rename writes a sidecar, and doing that while
     // holding the queue's lock would mean the watcher thread's channel is held
@@ -617,6 +650,17 @@ fn drain_asset_changes(
                             _ => {}
                         }
                         for path in event.event.paths.iter() {
+                            // A rename's source no longer exists: nothing
+                            // to re-read there.
+                            if path.is_file() {
+                                if let Some(file) =
+                                    changed_file(path, &watcher.strip_base, &watcher.engine_root)
+                                {
+                                    if !files.contains(&file) {
+                                        files.push(file);
+                                    }
+                                }
+                            }
                             let Some(engine_path) =
                                 reconstruct(path, &watcher.strip_base, &watcher.engine_root)
                             else {
@@ -687,6 +731,12 @@ fn drain_asset_changes(
             },
             index.as_deref_mut(),
         );
+    }
+
+    if let Some(messages) = file_messages.as_mut() {
+        for path in files {
+            messages.write(AssetFileChanged { path });
+        }
     }
 
     for engine_path in changed {
@@ -1237,6 +1287,65 @@ mod tests {
             !sidecar_path(&from).exists(),
             "the sidecar left behind at the old name would be reported as an orphan"
         );
+    }
+
+    /// Every changed file under `assets/` is announced, in the engine form a
+    /// cache keyed by `resolve_project_path` holds -- the `.bt.ron` above all,
+    /// which no `bevy_asset` loader serves and `reconstruct` therefore drops.
+    /// A sidecar is not announced (it is settings for the asset beside it),
+    /// a deleted file is not (there is nothing to re-read), and a file
+    /// reported twice in one drain is announced once.
+    #[test]
+    fn every_changed_file_is_announced_once_in_engine_form() {
+        use bsengine_app::new_app;
+
+        let root = std::env::temp_dir().join(unique("file-changed"));
+        let _guard = ProbeDir(root.clone());
+        let assets = root.join("assets");
+        std::fs::create_dir_all(assets.join("ai")).unwrap();
+        let tree = assets.join("ai").join("guard.bt.ron");
+        std::fs::write(&tree, "(root: Wait(seconds: 1.0))").unwrap();
+        let meta = assets.join("ai").join("guard.bt.ron.meta");
+        std::fs::write(&meta, "()").unwrap();
+
+        let engine_root = format!("{}/assets", root.to_string_lossy().replace('\\', "/"));
+        let (watcher, tx) = watcher_fed_by_hand(&assets, engine_root.clone());
+        let strip_base = watcher.strip_base.clone();
+        let mut app = new_app();
+        app.add_plugins(crate::plugin::AssetPlugin);
+        app.add_message::<AssetFileChanged>();
+        app.insert_resource(watcher);
+        app.add_systems(Update, drain_asset_changes);
+        app.update();
+
+        // The premise: `bevy_asset`'s own filter drops this file, so a notice
+        // for it can only come from the new list.
+        assert_eq!(
+            reconstruct(
+                &strip_base.join("ai").join("guard.bt.ron"),
+                &strip_base,
+                &engine_root
+            ),
+            None,
+            "premise: a .bt.ron is not something bevy_asset reloads"
+        );
+        for path in [
+            strip_base.join("ai").join("guard.bt.ron"),
+            strip_base.join("ai").join("guard.bt.ron"),
+            strip_base.join("ai").join("guard.bt.ron.meta"),
+            strip_base.join("ai").join("deleted.bt.ron"),
+        ] {
+            tx.send(lone_create(path)).unwrap();
+        }
+        app.update();
+
+        let messages = app.world().resource::<Messages<AssetFileChanged>>();
+        let seen: Vec<String> = messages
+            .get_cursor()
+            .read(messages)
+            .map(|m| m.path.clone())
+            .collect();
+        assert_eq!(seen, vec![format!("{engine_root}/ai/guard.bt.ron")]);
     }
 
     /// What the identity map must and must not treat as a rename: a file

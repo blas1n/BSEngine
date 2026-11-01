@@ -468,57 +468,83 @@ fn realtime_probes_in_a_furnace_follow_the_geometric_series() {
 /// Timings arrive a few frames late, so the volume keeps updating until they
 /// do.
 ///
-/// Its time must outweigh every other pass together, as tracing 64 probes'
-/// 256 rays each does a small frame's raster: a time above zero alone proved
-/// nothing, since a slot nobody wrote reads back whatever it held (an update
-/// that dropped its timestamps passed that, at a tenth of the real time).
+/// A time above zero alone proves nothing: a slot nobody wrote reads back
+/// whatever it held (an update that dropped its timestamps passed that, at a
+/// tenth of the real time). So the time is measured against itself: an
+/// update doing eight times the work must read clearly longer, which a stale
+/// slot cannot do. It used to be measured against the frame's other passes
+/// instead -- "longer than all of them together" -- which held on desktop
+/// GPUs and not on CI's lavapipe, which rasterises on the CPU: four shadow
+/// cascades outweighed 64 probes (25.8 ms against 41.6 ms) and the test
+/// failed with nothing wrong.
 #[test]
 fn the_probe_update_is_timed_on_the_gpu() {
+    let Some(small) = probe_update_ms([4, 4, 4]) else {
+        return;
+    };
+    let large = probe_update_ms([8, 8, 8]).expect("timestamps are per device");
+    // Printed on success too, so a passing CI log still says by what margin.
+    println!("probe update: 64 probes {small} ms, 512 probes {large} ms");
+    assert!(
+        large > 2.0 * small,
+        "eight times the probes, and the update read {large} ms against {small} ms"
+    );
+}
+
+/// The GPU time of one realtime GI update over a furnace volume of
+/// `resolution` probes, every probe traced each update (a budget well above
+/// `probes * 256`). `None` where the device has no timestamp queries -- and
+/// then no GI time may be reported either.
+///
+/// The least of several updates, after the first timings have arrived: on
+/// WARP (Windows CI's D3D12) a shader is compiled on its first dispatch, and
+/// that dispatch's timestamps include the compile -- 4.8 s for 64 probes,
+/// where the next read 4 ms. Whichever volume ran first would carry it.
+fn probe_update_ms(resolution: [u32; 3]) -> Option<f32> {
     let mut s = furnace_scene(0.4, 0.5);
     let volume = ProbeVolumeParams {
-        resolution: [4, 4, 4],
+        resolution,
         ..inner_volume()
     };
     let input = s.input(volume, 0.0, 1 << 20);
     s.run(&input, 1);
-    let mut stats = None;
-    for _ in 0..16 {
+    let timed = |s: &mut GiScene| {
         s.run(&input, 1);
-        let st = s.scene.surface.latest_frame_stats().expect("frame stats");
-        let done = st.gpu_pass_times_ms.iter().any(|p| p.name == "main");
-        stats = Some(st);
-        if done {
+        s.scene.surface.latest_frame_stats().expect("frame stats")
+    };
+    // Timings arrive a few frames late: update until the frame's own passes
+    // have been timed at all.
+    let mut stats = timed(&mut s);
+    for _ in 0..16 {
+        if stats.gpu_pass_times_ms.iter().any(|p| p.name == "main") {
             break;
         }
+        stats = timed(&mut s);
     }
-    let stats = stats.unwrap();
-    let gi = stats
-        .gpu_pass_times_ms
-        .iter()
-        .find(|p| p.name == "realtime_gi");
     if !stats.gpu_timestamps_supported {
+        let gi = stats
+            .gpu_pass_times_ms
+            .iter()
+            .find(|p| p.name == "realtime_gi");
         assert!(gi.is_none(), "no timestamps, yet a GI time: {gi:?}");
-        return;
+        return None;
     }
-    let names: Vec<_> = stats.gpu_pass_times_ms.iter().map(|p| &p.name).collect();
-    assert!(
-        names.iter().any(|n| *n == "main"),
-        "premise: the frame's own passes were timed: {names:?}"
-    );
-    let gi =
-        gi.unwrap_or_else(|| panic!("the probe update is not among the timed passes: {names:?}"));
-    let others: f32 = stats
-        .gpu_pass_times_ms
-        .iter()
-        .filter(|p| p.name != "realtime_gi")
-        .map(|p| p.duration_ms)
-        .sum();
-    assert!(
-        gi.duration_ms > others,
-        "the update ({} ms) must cost more than the rest of the frame ({others} ms): {:?}",
-        gi.duration_ms,
-        stats.gpu_pass_times_ms
-    );
+    let mut least = f32::INFINITY;
+    for _ in 0..6 {
+        let names: Vec<_> = stats.gpu_pass_times_ms.iter().map(|p| &p.name).collect();
+        assert!(
+            names.iter().any(|n| *n == "main"),
+            "premise: the frame's own passes were timed: {names:?}"
+        );
+        let gi = stats
+            .gpu_pass_times_ms
+            .iter()
+            .find(|p| p.name == "realtime_gi")
+            .unwrap_or_else(|| panic!("the probe update is not among the timed passes: {names:?}"));
+        least = least.min(gi.duration_ms);
+        stats = timed(&mut s);
+    }
+    Some(least)
 }
 
 /// The same scene, kept history: each update is `mix(sample, previous,

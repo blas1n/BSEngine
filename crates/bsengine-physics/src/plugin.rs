@@ -109,6 +109,10 @@ impl Plugin for PhysicsPlugin {
                 update_grounded,
             )
                 .chain()
+                // The set scripts order themselves after; see
+                // `bsengine_core::PhysicsSystems` for the replay that ran
+                // them the other way round.
+                .in_set(bsengine_core::PhysicsSystems)
                 .run_if(
                     |paused: Option<bevy_ecs::prelude::Res<bsengine_core::PauseState>>| {
                         !paused.map(|p| p.paused).unwrap_or(false)

@@ -113,6 +113,7 @@ pub mod occlusion_config;
 pub mod particles;
 /// Whether gameplay simulation is currently paused.
 pub mod pause_state;
+pub mod physics_systems;
 /// Marks an entity as the root of a live prefab instance, tracking its source file.
 pub mod prefab_instance;
 /// Root directory of the current project, used to resolve project-relative asset paths.
@@ -240,6 +241,7 @@ pub use particles::{
     GpuParticleStep, Particle, ParticleCollision, ParticleEmitter, ParticleSimulation, Rng,
 };
 pub use pause_state::PauseState;
+pub use physics_systems::PhysicsSystems;
 pub use prefab_instance::{PrefabInstance, PrefabInstanceBaseline};
 pub use project_dir::{
     project_path, resolve_project_path, resolve_project_path_checked, ProjectDir, ProjectPathError,

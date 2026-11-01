@@ -2191,6 +2191,46 @@ mod tests {
     /// schedules were built, or every system already pinned -- a replay passing
     /// under a seed would say nothing. Checked on a real game's Update
     /// schedule: some seed changes the order, and none adds or loses a system.
+    /// Scripts run after the physics step under every shuffle, not only the
+    /// order the scheduler happens to sort by default. Before
+    /// `PhysicsSystems` nothing ordered the two: the default put physics
+    /// first, every recording was made that way, and seeds 4, 7, 8, 13 and
+    /// 16 put scripts first and failed tilt-run's level 5. Exactly those
+    /// seeds, because an undeclared pair only shows under the seeds that
+    /// happen to flip it -- 1 and 2, which CI replays with, did not -- and
+    /// each one is a whole app built (seconds apiece on CI's software GPU).
+    #[test]
+    fn scripts_run_after_the_physics_step_under_any_shuffle() {
+        let project_dir = format!("{}/../../games/tilt-run", env!("CARGO_MANIFEST_DIR"));
+        for seed in [4, 7, 8, 13, 16] {
+            let mut app = build_simulation_app(&project_dir, None, true);
+            super::shuffle_every_schedule(&mut app, seed);
+            app.update();
+            let schedules = app.world().resource::<bevy_ecs::schedule::Schedules>();
+            let order: Vec<String> = schedules
+                .get(bevy_app::Update)
+                .expect("an Update schedule")
+                .systems()
+                .expect("Update has run, so it is initialized")
+                .map(|(_, system)| system.name().to_string())
+                .collect();
+            let at = |name: &str| {
+                order
+                    .iter()
+                    .position(|s| s.ends_with(name))
+                    .unwrap_or_else(|| panic!("premise: {name} is in Update"))
+            };
+            assert!(
+                at("::sync_transform_from_physics") < at("::run_scripts"),
+                "seed {seed}: scripts ran before the physics step was synced back"
+            );
+            assert!(
+                at("::step_world") < at("::capture_collision_events"),
+                "seed {seed}: collisions were captured before the step that makes them"
+            );
+        }
+    }
+
     #[test]
     fn a_shuffle_seed_reorders_the_systems_nothing_orders() {
         let project_dir = format!("{}/../../games/cube-evader", env!("CARGO_MANIFEST_DIR"));

@@ -390,7 +390,17 @@ impl Plugin for ScriptingPlugin {
                 // And after the behaviour trees: the script tasks a tree asks
                 // for this frame are run this frame, and answered for its
                 // next tick.
-                .after(bsengine_core::BehaviorTreeSystems),
+                .after(bsengine_core::BehaviorTreeSystems)
+                // And after the physics step -- the order the scheduler had
+                // always happened to pick, and every recording was made in,
+                // now declared: `--shuffle-seed 4` sorted scripts first and
+                // tilt-run's level 5 failed. It is also the order that
+                // gives the capture at the head of this chain the step's
+                // collisions in the frame they happened, and Unity's: physics
+                // runs before `Update`, so a script reads where bodies are
+                // now and a force it adds acts in the next step. A no-op
+                // without `PhysicsPlugin`.
+                .after(bsengine_core::PhysicsSystems),
         );
     }
 }

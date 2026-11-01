@@ -59,7 +59,8 @@ pub struct TransformSave {
 
 /// Serialize all named entities (with Transform) to a JSON file.
 /// Entities without Transform are skipped. SaveData fields are included when present.
-pub fn save_world(world: &mut World, path: &str) -> Result<(), String> {
+pub fn save_world(world: &mut World, path: impl AsRef<Path>) -> Result<(), String> {
+    let path = path.as_ref();
     let mut q = world.query::<(&Name, &Transform, Option<&SaveData>)>();
     let entity_saves: Vec<EntitySave> = q
         .iter(world)
@@ -100,7 +101,7 @@ pub fn save_world(world: &mut World, path: &str) -> Result<(), String> {
 
     let json = serde_json::to_string_pretty(&save_file).map_err(|e| format!("serialize: {e}"))?;
 
-    if let Some(parent) = Path::new(path).parent() {
+    if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
             fs::create_dir_all(parent).map_err(|e| format!("mkdir: {e}"))?;
         }
@@ -112,7 +113,7 @@ pub fn save_world(world: &mut World, path: &str) -> Result<(), String> {
 
 /// Load entities from a JSON save file. Existing entities (matched by name) have
 /// their Transform and SaveData updated. Unknown entities are spawned fresh.
-pub fn load_world(world: &mut World, path: &str) -> Result<(), String> {
+pub fn load_world(world: &mut World, path: impl AsRef<Path>) -> Result<(), String> {
     let json = fs::read_to_string(path).map_err(|e| format!("read: {e}"))?;
     let save_file: GameSaveFile =
         serde_json::from_str(&json).map_err(|e| format!("deserialize: {e}"))?;

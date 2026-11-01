@@ -674,7 +674,7 @@ pub(crate) fn build_player_app(
     // so those land in a report too. Named for the project, which is why it
     // cannot come any earlier than the manifest.
     #[cfg(not(target_arch = "wasm32"))]
-    bsengine_core::crash::init_for_project(&manifest.project.name);
+    let user_paths = bsengine_core::crash::init_for_project(&manifest.project.name);
 
     let scene_path = format!("{}/{}", project_dir, manifest.project.entry_scene);
     let title = manifest
@@ -684,6 +684,11 @@ pub(crate) fn build_player_app(
         .unwrap_or_else(|| manifest.project.name.clone());
 
     let mut app = new_app();
+    // `Bsengine.save` / `load` paths, beside the log in the per-user
+    // directory. None in a browser, which has no file system to put them in:
+    // a script's save there is refused with a warning.
+    #[cfg(not(target_arch = "wasm32"))]
+    app.insert_resource(bsengine_core::SaveDir::in_user_dir(&user_paths.dir));
     app.insert_resource(bsengine_core::OcclusionCullingEnabled(
         manifest.render.occlusion_culling,
     ));

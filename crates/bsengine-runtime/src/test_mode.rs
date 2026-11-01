@@ -109,6 +109,10 @@ pub fn build_test_app_sized(
     let scene_path = format!("{project_dir}/{relative_scene}");
 
     let mut app = bsengine_app::new_app();
+    // Not the game's real save folder: a replay must play the same way every
+    // time, and a save left by an earlier run -- or by the player -- is state
+    // the recording never saw. Each test app starts with no saves.
+    app.insert_resource(bsengine_core::SaveDir::scratch());
     app.insert_resource(bsengine_core::OcclusionCullingEnabled(
         manifest.render.occlusion_culling,
     ));
@@ -1239,6 +1243,35 @@ mod tests {
         let names: Vec<String> = serde_json::from_value(names).unwrap();
         assert!(names.contains(&"SceneA".to_string()), "names: {names:?}");
         assert!(!names.contains(&"SceneB".to_string()), "names: {names:?}");
+    }
+
+    /// A replay saves into a directory of its own that no earlier run wrote
+    /// to -- not the game's real `saves/`, where the player's (or the last
+    /// replay's) checkpoint would be state the recording never saw. Two apps
+    /// of one project, as one test binary builds them, do not share it.
+    #[test]
+    fn every_test_app_saves_into_a_fresh_directory_of_its_own() {
+        let dir = write_two_scene_project();
+        let project = dir.path().to_str().unwrap();
+        let a = build_simulation_app(project, None, false);
+        let b = build_simulation_app(project, None, false);
+        let saves = |app: &App| {
+            app.world()
+                .get_resource::<bsengine_core::SaveDir>()
+                .expect("a test app has a save directory")
+                .0
+                .clone()
+        };
+        let (a, b) = (saves(&a), saves(&b));
+        assert_ne!(a, b, "two test apps share a save directory");
+        for d in [&a, &b] {
+            assert!(
+                d.starts_with(std::env::temp_dir()),
+                "{} is not a scratch directory",
+                d.display()
+            );
+            assert!(!d.exists(), "{} already holds something", d.display());
+        }
     }
 
     #[test]

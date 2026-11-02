@@ -18,6 +18,39 @@ const MAX_TIMED_PASSES: u32 = 16;
 /// Two timestamp queries (begin + end) per timed pass.
 const TIMESTAMP_QUERY_COUNT: u32 = MAX_TIMED_PASSES * 2;
 
+/// `normal_mapped`: the shading normal a tangent-space normal map gives,
+/// shared by [`MESH_WGSL`] and [`PROBE_CAPTURE_WGSL`] -- one copy, so a probe
+/// captures a normal-mapped surface lit as the camera sees it. Expects the
+/// including shader to declare `t_normal` and `s_normal` (group 3, bindings
+/// 2 and 3, `material_textures`).
+macro_rules! normal_map_wgsl {
+    () => {
+        r#"
+// The shading normal a tangent-space normal map gives. The tangent is made
+// perpendicular to the interpolated normal first (Gram-Schmidt): neither is
+// unit or orthogonal after interpolation, and a morph target moves the normal
+// and not the tangent. The bitangent is `cross(n, t) * w` -- glTF's and
+// MikkTSpace's convention, which is what the map was baked in. glTF's
+// `normalTexture.scale` multiplies x and y before normalising. A tangent with
+// nothing left of it (degenerate UVs) gives back the normal untouched.
+fn normal_mapped(n: vec3<f32>, tangent: vec4<f32>, uv: vec2<f32>, scale: f32) -> vec3<f32> {
+    // Sampled first: a `textureSample` after the per-fragment early return
+    // below would be in non-uniform control flow, which WGSL refuses (the
+    // implicit derivatives it needs are undefined there).
+    let m = textureSample(t_normal, s_normal, uv).xyz * 2.0 - vec3<f32>(1.0);
+    let t = tangent.xyz - n * dot(n, tangent.xyz);
+    let len = length(t);
+    if (len < 1e-6) {
+        return n;
+    }
+    let tt = t / len;
+    let b = cross(n, tt) * select(1.0, -1.0, tangent.w < 0.0);
+    return normalize(tt * (m.x * scale) + b * (m.y * scale) + n * m.z);
+}
+"#
+    };
+}
+
 /// `pub(crate)` only so that
 /// `post_process::tests::the_injection_pass_ports_point_shadow_factor_verbatim`
 /// can compare this text against the froxel injection shader's copy of
@@ -263,27 +296,6 @@ fn vs_main(in: VertIn) -> VertOut {
     return out;
 }
 
-// The shading normal a tangent-space normal map gives. The tangent is made
-// perpendicular to the interpolated normal first (Gram-Schmidt): neither is
-// unit or orthogonal after interpolation, and a morph target moves the normal
-// and not the tangent. The bitangent is `cross(n, t) * w` -- glTF's and
-// MikkTSpace's convention, which is what the map was baked in. glTF's
-// `normalTexture.scale` multiplies x and y before normalising. A tangent with
-// nothing left of it (degenerate UVs) gives back the normal untouched.
-fn normal_mapped(n: vec3<f32>, tangent: vec4<f32>, uv: vec2<f32>, scale: f32) -> vec3<f32> {
-    // Sampled first: a `textureSample` after the per-fragment early return
-    // below would be in non-uniform control flow, which WGSL refuses (the
-    // implicit derivatives it needs are undefined there).
-    let m = textureSample(t_normal, s_normal, uv).xyz * 2.0 - vec3<f32>(1.0);
-    let t = tangent.xyz - n * dot(n, tangent.xyz);
-    let len = length(t);
-    if (len < 1e-6) {
-        return n;
-    }
-    let tt = t / len;
-    let b = cross(n, tt) * select(1.0, -1.0, tangent.w < 0.0);
-    return normalize(tt * (m.x * scale) + b * (m.y * scale) + n * m.z);
-}
 // The directional shadow lookup, filtered. `soft` is `camera.shadow_filter`
 // (`ShadowSettings::soft`): hard reads the one texel the point falls in;
 // soft averages a 3x3 grid of the comparison sampler's own bilinear
@@ -834,6 +846,7 @@ fn fs_main(in: VertOut) -> SceneOut {
     return out;
 }
 "#,
+    normal_map_wgsl!(),
     crate::area_light::rect_light_wgsl!(),
     crate::cookie::cookie_wgsl!(),
     crate::lightmap::lightmap_wgsl!(),
@@ -1441,6 +1454,9 @@ struct CaptureUniform {
     probe_pos: vec3<f32>,
     cascade_layer: u32,
 };
+// The whole of `MESH_WGSL`'s, though the lightmap fields go unread: the
+// material's map fields sit after `prev_model`, and a prefix stopping at
+// `opacity` could not reach them.
 struct ModelUniform {
     model: mat4x4<f32>,
     metallic: f32,
@@ -1451,6 +1467,12 @@ struct ModelUniform {
     _pad2: f32,
     base_color: vec3<f32>,
     opacity: f32,
+    prev_model: mat4x4<f32>,
+    lightmap_scale_offset: vec4<f32>,
+    lightmap_layer: f32,
+    normal_scale: f32,
+    occlusion_strength: f32,
+    lightmap_directional: f32,
 };
 struct PointLightEntry {
     position: vec3<f32>,
@@ -1503,14 +1525,26 @@ struct LightUniform {
 // sampler and the three IBL resources) and are deliberately NOT declared
 // here: an unused binding is legal, and declaring the IBL cubes is the first
 // step toward accidentally sampling them.
+// The material's maps, as `MESH_WGSL` reads them: a probe captures a surface
+// as the camera sees it. Without them a normal-mapped wall was captured
+// flat, a metal by its ORM map captured as the factor's, and an emissive
+// map's dark texels captured glowing -- what the probe then lit or
+// reflected was a different material from the one on screen.
 @group(3) @binding(0) var t_diffuse: texture_2d<f32>;
 @group(3) @binding(1) var s_diffuse: sampler;
+@group(3) @binding(2) var t_normal: texture_2d<f32>;
+@group(3) @binding(3) var s_normal: sampler;
+@group(3) @binding(4) var t_orm: texture_2d<f32>;
+@group(3) @binding(5) var s_orm: sampler;
+@group(3) @binding(6) var t_emissive: texture_2d<f32>;
+@group(3) @binding(7) var s_emissive: sampler;
 
 struct VertIn {
     @location(0) pos: vec3<f32>,
     @location(1) col: vec3<f32>,
     @location(2) normal: vec3<f32>,
     @location(3) uv: vec2<f32>,
+    @location(5) tangent: vec4<f32>,
 }
 struct VertOut {
     @builtin(position) clip_pos: vec4<f32>,
@@ -1518,6 +1552,7 @@ struct VertOut {
     @location(1) world_normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
     @location(3) world_pos: vec3<f32>,
+    @location(4) world_tangent: vec4<f32>,
 }
 @vertex
 fn vs_capture(in: VertIn) -> VertOut {
@@ -1532,6 +1567,7 @@ fn vs_capture(in: VertIn) -> VertOut {
         model_data.model[2].xyz,
     );
     out.world_normal = normalize(normal_matrix * in.normal);
+    out.world_tangent = vec4<f32>(normal_matrix * in.tangent.xyz, in.tangent.w);
     out.uv = in.uv;
     return out;
 }
@@ -1650,13 +1686,20 @@ fn fresnel_schlick(cos_theta: f32, f0: vec3<f32>) -> vec3<f32> {
 }
 @fragment
 fn fs_capture(in: VertOut) -> @location(0) vec4<f32> {
-    let n = normalize(in.world_normal);
+    var n = normalize(in.world_normal);
+    // `normal_scale` is per draw, so the branch is uniform.
+    if (model_data.normal_scale != 0.0) {
+        n = normal_mapped(n, in.world_tangent, in.uv, model_data.normal_scale);
+    }
     // The "eye" for this capture is the probe itself: what the probe records
     // is the radiance leaving each surface *toward the probe*.
     let v = normalize(capture.probe_pos - in.world_pos);
     let albedo = textureSample(t_diffuse, s_diffuse, in.uv).rgb * in.col * model_data.base_color;
-    let metallic = model_data.metallic;
-    let roughness = max(model_data.roughness, 0.04);
+    // ORM as `MESH_WGSL` applies it: G and B scale the factors (glTF); white,
+    // the default, decodes to exactly 1.0 and changes nothing.
+    let orm = textureSample(t_orm, s_orm, in.uv).rgb;
+    let metallic = model_data.metallic * orm.b;
+    let roughness = max(model_data.roughness * orm.g, 0.04);
     let f0 = mix(vec3<f32>(0.04, 0.04, 0.04), albedo, metallic);
     let n_dot_v = max(dot(n, v), 0.0001);
     let lit = shadow_factor(in.world_pos);
@@ -1723,11 +1766,16 @@ fn fs_capture(in: VertOut) -> @location(0) vec4<f32> {
     // engine's model, not a bounce, so it cannot make the bake recursive.
     // What is deliberately missing is the image-based-lighting branch
     // MESH_WGSL has at this exact point: see this shader's doc comment.
-    let ambient_term = light.ambient * albedo;
-    let color = ambient_term + lo + model_data.emissive;
+    // Occlusion darkens it, as it darkens `MESH_WGSL`'s indirect light: the
+    // flat ambient is light from everywhere, which is what occlusion blocks.
+    let occlusion = mix(1.0, orm.r, model_data.occlusion_strength);
+    let ambient_term = light.ambient * albedo * occlusion;
+    let emitted = model_data.emissive * textureSample(t_emissive, s_emissive, in.uv).rgb;
+    let color = ambient_term + lo + emitted;
     return vec4<f32>(color, 1.0);
 }
 "#,
+    normal_map_wgsl!(),
     crate::cookie::cookie_wgsl!(),
     crate::spot_shadow::spot_shadow_wgsl!()
 );

@@ -615,3 +615,226 @@ fn a_blend_distance_of_zero_is_a_hard_edge() {
         "0.1 inside a hard-edged black probe, black: {near_face}"
     );
 }
+
+/// The floor light of the scene `make` builds, with its probes captured
+/// afresh: it is rendered once without them first, which empties the
+/// capture cache, so a probe list equal to the previous scene's still
+/// captures this scene and not that one.
+fn captured(h: &mut Harness, make: impl Fn() -> Scene) -> Vec3 {
+    floor_light(
+        h,
+        Scene {
+            reflection_probes: Vec::new(),
+            ..make()
+        },
+    );
+    floor_light(h, make())
+}
+
+/// One texel, uploaded linear as the material maps are.
+fn data_texel(h: &mut Harness, rgba: [u8; 4]) -> u64 {
+    h.texture_with(
+        bsengine_core::TextureImportSettings {
+            srgb: false,
+            mipmaps: false,
+            ..Default::default()
+        },
+        1,
+        1,
+        &rgba,
+    )
+}
+
+/// The probe every capture-material test uses: the room's, at a quarter
+/// brightness so a white ceiling's reflection does not clip.
+fn room_probe() -> Vec<ReflectionProbeParams> {
+    vec![dim(probe(
+        Vec3::new(0.0, 2.0, 0.0),
+        Vec3::new(8.0, 3.0, 8.0),
+    ))]
+}
+
+/// A probe captures a surface with its material's emissive map, as the
+/// camera draws it: a red panel whose emissive map is black emits nothing
+/// on screen, and the mirror under it reflects nothing either. A white map
+/// is no map (premise: the same panel, so the red is the panel's).
+#[test]
+fn a_probe_captures_the_emissive_map() {
+    let mut h = Harness::new();
+    let (plane, cube) = (h.plane(), h.cube());
+    let (black, white) = (
+        data_texel(&mut h, [0, 0, 0, 255]),
+        data_texel(&mut h, [255, 255, 255, 255]),
+    );
+    let room = |map: u64| {
+        move || {
+            let mut scene =
+                mirror_room(plane, cube, &[(-20.0, 20.0, RED)], Vec3::ZERO, room_probe());
+            let panel = scene.draws.pop().unwrap();
+            scene.draws.push(panel.emissive_mapped(map));
+            scene
+        }
+    };
+    let lit = captured(&mut h, room(white));
+    let dark = captured(&mut h, room(black));
+    assert!(
+        lit.x > 0.1 && lit.x > 5.0 * lit.y,
+        "premise: under a white emissive map the mirror shows the red panel: {lit}"
+    );
+    assert!(
+        dark.max_element() < 0.01 * lit.x,
+        "a black emissive map leaves nothing for the probe to capture: {dark} against {lit}"
+    );
+}
+
+/// The room of a capture-material test: the mirror floor under a white
+/// diffuse slab where the panels were, lit by `light` instead of glowing.
+fn lit_room(plane: u64, cube: u64, ceiling: Draw, light: Light) -> Scene {
+    let mut scene = mirror_room(plane, cube, &[], Vec3::ZERO, room_probe());
+    scene.draws.push(ceiling);
+    scene.light = light;
+    scene
+}
+
+fn ceiling(cube: u64) -> Draw {
+    Draw::new(cube, Vec3::ZERO)
+        .scaled(
+            Vec3::new(40.0, 0.2, 40.0),
+            Vec3::new(0.0, CEILING_Y + 0.1, 0.0),
+        )
+        .colour(WHITE)
+        .roughness(1.0)
+}
+
+/// The ORM map's occlusion darkens what a probe captures of the ambient
+/// light, as it darkens it on screen: a ceiling lit by ambient alone under
+/// an occlusion of 0 at full strength is reflected as a black ceiling is;
+/// at strength 0 the same map changes nothing (premise: the ceiling's
+/// ambient is in the reflection at all). Against a black ceiling and not
+/// against black: the mirror floor takes the ambient too, so its own share
+/// is under every reading here.
+#[test]
+fn a_probe_captures_the_orm_maps_occlusion() {
+    let mut h = Harness::new();
+    let (plane, cube) = (h.plane(), h.cube());
+    let occluded = data_texel(&mut h, [0, 255, 255, 255]);
+    let ambient_only = || Light {
+        color: Vec3::ZERO,
+        ambient: Vec3::splat(0.5),
+        ..Light::default()
+    };
+    let room = |ceiling: Draw| lit_room(plane, cube, ceiling, ambient_only());
+    let black = captured(&mut h, || room(ceiling(cube).colour(Vec3::ZERO)));
+    let open = captured(&mut h, || room(ceiling(cube).orm_mapped(occluded, 0.0)));
+    let shut = captured(&mut h, || room(ceiling(cube).orm_mapped(occluded, 1.0)));
+    assert!(
+        open.x - black.x > 0.05,
+        "premise: at strength 0 the ambient-lit ceiling is reflected: {open} over a black \
+         ceiling's {black}"
+    );
+    assert!(
+        (shut - black).abs().max_element() < 0.05 * (open.x - black.x),
+        "occlusion 0 at full strength captures no ambient -- the ceiling is reflected as a \
+         black one: {shut} against {black} (unoccluded {open})"
+    );
+}
+
+/// A point light below the ceiling and off to one side, so the slab is lit
+/// at a slant from a direction with both an x and a z part -- a normal map
+/// tilted along either tangent axis turns the slab toward it or away,
+/// whichever way the cube's face lays its tangent.
+fn side_light() -> Light {
+    Light {
+        color: Vec3::ZERO,
+        ambient: Vec3::ZERO,
+        points: vec![common::PointLight {
+            position: Vec3::new(2.5, 2.5, 1.0),
+            color: Vec3::ONE,
+            intensity: 10.0,
+            range: 8.0,
+        }],
+        ..Light::default()
+    }
+}
+
+/// A probe captures a surface with its normal map: the ceiling under a map
+/// tilted 60 degrees one way and the other, along u and along v, is
+/// captured brighter than flat turned toward the light and darker turned
+/// away -- where a capture that ignored the map shows the flat ceiling
+/// four times.
+#[test]
+fn a_probe_captures_the_normal_map() {
+    let mut h = Harness::new();
+    let (plane, cube) = (h.plane(), h.cube());
+    let enc = |c: f32| ((c * 0.5 + 0.5) * 255.0).round() as u8;
+    let (s, c) = 60f32.to_radians().sin_cos();
+    let flat = captured(&mut h, || {
+        lit_room(plane, cube, ceiling(cube), side_light())
+    });
+    assert!(
+        flat.x > 0.05,
+        "premise: the flat ceiling is lit and reflected: {flat}"
+    );
+    let mut seen = Vec::new();
+    for n in [
+        Vec3::new(s, 0.0, c),
+        Vec3::new(-s, 0.0, c),
+        Vec3::new(0.0, s, c),
+        Vec3::new(0.0, -s, c),
+    ] {
+        let map = data_texel(&mut h, [enc(n.x), enc(n.y), enc(n.z), 255]);
+        seen.push(
+            captured(&mut h, || {
+                lit_room(
+                    plane,
+                    cube,
+                    ceiling(cube).normal_mapped(map, 1.0),
+                    side_light(),
+                )
+            })
+            .x,
+        );
+    }
+    let (lo, hi) = seen
+        .iter()
+        .fold((f32::MAX, f32::MIN), |(lo, hi), &x| (lo.min(x), hi.max(x)));
+    assert!(
+        hi > 1.3 * flat.x && lo < 0.7 * flat.x,
+        "tilted toward the light the ceiling is captured brighter than flat, tilted \
+         away darker: {seen:?} against flat {}",
+        flat.x
+    );
+}
+
+/// A probe captures a surface with its ORM map's metallic: a metal ceiling
+/// (factor 1) whose map says 0 is captured as the dielectric it is drawn as
+/// -- its diffuse lit -- not as the metal the factor alone makes it.
+#[test]
+fn a_probe_captures_the_orm_maps_metallic() {
+    let mut h = Harness::new();
+    let (plane, cube) = (h.plane(), h.cube());
+    let not_metal = data_texel(&mut h, [255, 255, 0, 255]);
+    let dielectric = captured(&mut h, || {
+        lit_room(plane, cube, ceiling(cube), side_light())
+    });
+    let metal = captured(&mut h, || {
+        lit_room(plane, cube, ceiling(cube).metallic(1.0), side_light())
+    });
+    let mapped = captured(&mut h, || {
+        lit_room(
+            plane,
+            cube,
+            ceiling(cube).metallic(1.0).orm_mapped(not_metal, 0.0),
+            side_light(),
+        )
+    });
+    assert!(
+        metal.x < 0.5 * dielectric.x,
+        "premise: the metal ceiling is captured darker than the dielectric one: \
+         {metal} against {dielectric}"
+    );
+    assert!(
+        (mapped - dielectric).abs().max_element() <= 0.02 * dielectric.x,
+        "metallic 1 times a map's 0 is captured as metallic 0: {mapped} against {dielectric}"
+    );
+}

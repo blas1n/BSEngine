@@ -756,6 +756,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "block_compression"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f5ca8c67a97492f3c8263ce18d307053f8aa657e8ecbf191484676bb25ae5f4a"
+dependencies = [
+ "bytemuck",
+]
+
+[[package]]
 name = "blocking"
 version = "1.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1094,6 +1103,7 @@ dependencies = [
  "bevy_mikktspace",
  "bevy_reflect",
  "blake3",
+ "block_compression",
  "bsengine-app",
  "bsengine-bake",
  "bsengine-core",
@@ -1115,6 +1125,7 @@ dependencies = [
  "naga",
  "notify-debouncer-full",
  "pollster",
+ "rayon",
  "ron 0.8.1",
  "serde_json",
  "texpresso",

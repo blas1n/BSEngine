@@ -1,0 +1,55 @@
+[workspace.package]
+authors = ["Nils Hasenbanck <nils@hasenbanck.de>"]
+edition = "2021"
+rust-version = "1.80"
+
+[package]
+name = "block_compression"
+description = "Texture block compression using WGPU compute shader"
+version = "0.11.0"
+license = "MIT"
+documentation = "https://docs.rs/block_compression"
+repository = "https://github.com/hasenbanck/block_compression"
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+keywords = ["texture", "image", "compress", "wgpu"]
+categories = ["rendering", "rendering::engine"]
+exclude = ["tests/images/"]
+
+[badges]
+maintenance = { status = "actively-developed" }
+
+[features]
+default = ["bc15", "bc6h", "bc7", "wgpu", "wgpu-defaults"]
+bc15 = []
+bc6h = ["half"]
+bc7 = []
+wgpu-defaults = ["wgpu", "wgpu/default"]
+
+[dependencies]
+bytemuck = { workspace = true, features = ["derive"] }
+half = { workspace = true, optional = true, features = ["bytemuck"] }
+wgpu = { workspace = true, optional = true, features = ["wgsl"] }
+
+[dev-dependencies]
+image = { workspace = true, features = ["png"] }
+pollster = { workspace = true }
+wgpu = { workspace = true, features = ["static-dxc"] }
+
+[workspace.dependencies]
+bytemuck = "1"
+ddsfile = "0.6"
+half = "2"
+image = { version = "0.25", default-features = false }
+pollster = "1"
+wgpu = { version = "30", default-features = false }
+
+[package.metadata.docs.rs]
+features = ["bc6h", "bc7", "half"]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[workspace]
+members = [
+    "compressor",
+]

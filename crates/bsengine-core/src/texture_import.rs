@@ -112,9 +112,12 @@ pub struct TextureImportSettings {
 ///
 /// The two desktop formats every engine starts from: BC1 (DXT1) for an
 /// opaque colour texture, four bits per texel; BC3 (DXT5) for one with an
-/// alpha channel worth keeping, eight. Chosen by the author rather than by
-/// looking at the alpha channel, as Unreal's `TC_Default` does: an image
-/// with an all-opaque alpha and one with a mask look the same to a scan.
+/// alpha channel worth keeping, eight. Then BC7 at BC3's size and a much
+/// better colour, which Unity ("RGB(A) Compressed BC7") and Unreal
+/// (`TC_BC7`) offer as the high-quality choice. Chosen by the author rather
+/// than by looking at the alpha channel, as Unreal's `TC_Default` does: an
+/// image with an all-opaque alpha and one with a mask look the same to a
+/// scan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum TextureCompression {
     /// RGBA8 as decoded. Lossless, four bytes per texel.
@@ -126,6 +129,11 @@ pub enum TextureCompression {
     /// BC3 / DXT5: 16 bytes per 4x4 block, one byte per texel; BC1 colour
     /// with an interpolated alpha channel.
     Bc3,
+    /// BC7: 16 bytes per 4x4 block like BC3, but each block picks one of
+    /// eight modes (partitions, separate or joint alpha), so gradients and
+    /// mixed colours that band or blotch in BC1/BC3 hold. Slower to encode;
+    /// the encode is cached like the others.
+    Bc7,
 }
 
 /// What `release_pixels` is when a sidecar does not say: on, see the field.

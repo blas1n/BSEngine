@@ -360,58 +360,90 @@ fn format_for(settings: TextureImportSettings) -> wgpu::TextureFormat {
         (TextureCompression::Bc1, false) => wgpu::TextureFormat::Bc1RgbaUnorm,
         (TextureCompression::Bc3, true) => wgpu::TextureFormat::Bc3RgbaUnormSrgb,
         (TextureCompression::Bc3, false) => wgpu::TextureFormat::Bc3RgbaUnorm,
+        (TextureCompression::Bc7, true) => wgpu::TextureFormat::Bc7RgbaUnormSrgb,
+        (TextureCompression::Bc7, false) => wgpu::TextureFormat::Bc7RgbaUnorm,
     }
 }
 
-/// The block encoder for a format, `None` for an uncompressed one.
-fn block_encoder(format: wgpu::TextureFormat) -> Option<texpresso::Format> {
+/// The block encoding of a GPU format. Two encoders behind it: texpresso
+/// (libsquish) for BC1 and BC3, and `block_compression`'s CPU port of
+/// Intel's ISPC kernel for BC7, which texpresso does not have -- the same
+/// kernel Unreal's `TextureFormatIntelISPCTexComp` encodes BC7 with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BlockEncoding {
+    Bc1,
+    Bc3,
+    Bc7,
+}
+
+impl BlockEncoding {
+    /// Bytes per 4x4 block.
+    fn block_size(self) -> u32 {
+        match self {
+            Self::Bc1 => 8,
+            Self::Bc3 | Self::Bc7 => 16,
+        }
+    }
+}
+
+/// The block encoding of a format, `None` for an uncompressed one.
+fn block_encoder(format: wgpu::TextureFormat) -> Option<BlockEncoding> {
     match format {
         wgpu::TextureFormat::Bc1RgbaUnorm | wgpu::TextureFormat::Bc1RgbaUnormSrgb => {
-            Some(texpresso::Format::Bc1)
+            Some(BlockEncoding::Bc1)
         }
         wgpu::TextureFormat::Bc3RgbaUnorm | wgpu::TextureFormat::Bc3RgbaUnormSrgb => {
-            Some(texpresso::Format::Bc3)
+            Some(BlockEncoding::Bc3)
+        }
+        wgpu::TextureFormat::Bc7RgbaUnorm | wgpu::TextureFormat::Bc7RgbaUnormSrgb => {
+            Some(BlockEncoding::Bc7)
         }
         _ => None,
     }
 }
 
 /// What a cache file records about how its levels are encoded, so a file
-/// written for one encoding is never read as another. Today the level
-/// lengths already tell the three apart -- a block-aligned level is 64ab
-/// bytes in RGBA8, 16ab in BC3 and 8ab in BC1 -- and the file name's hash
-/// carries the tag too, so the check is a third guard; it is here for the
-/// encoding whose lengths coincide with one of these (BC7 is 16 bytes a
-/// block, exactly BC3's), so that adding it cannot read a BC3 file as BC7.
-/// sRGB is not part of it -- the bytes are the same either way and only the
-/// view differs.
+/// written for one encoding is never read as another. The level lengths
+/// tell RGBA8, BC1 and BC3 apart -- a block-aligned level is 64ab bytes in
+/// RGBA8, 16ab in BC3 and 8ab in BC1 -- but not BC3 from BC7, which is 16
+/// bytes a block too: without the tag a BC3 file would be read as BC7 and
+/// upload as noise. The file name's hash carries the tag as well, so a
+/// mismatch here means a file was renamed or written by hand. sRGB is not
+/// part of it -- the bytes are the same either way and only the view
+/// differs.
 fn encoding_tag(format: wgpu::TextureFormat) -> u32 {
     match block_encoder(format) {
         None => 0,
-        Some(texpresso::Format::Bc1) => 1,
-        Some(texpresso::Format::Bc3) => 3,
-        Some(_) => unreachable!("only BC1 and BC3 are produced"),
+        Some(BlockEncoding::Bc1) => 1,
+        Some(BlockEncoding::Bc3) => 3,
+        Some(BlockEncoding::Bc7) => 7,
     }
 }
 
 /// One RGBA8 level encoded into `format`'s blocks, or the level itself for
 /// an uncompressed format.
 ///
-/// The encoder is texpresso's cluster fit -- the quality setting, not the
+/// BC1/BC3 use texpresso's cluster fit -- the quality setting, not the
 /// fast range fit -- parallel over block rows. Quality wins because the
 /// result is cached to disk and paid once per image; the range fit's
-/// banding would be paid on every frame the texture is looked at.
+/// banding would be paid on every frame the texture is looked at. BC7 is
+/// [`encode_bc7`], on the same reasoning.
 fn encode_level<'a>(
     format: wgpu::TextureFormat,
     width: u32,
     height: u32,
     rgba: &'a [u8],
 ) -> std::borrow::Cow<'a, [u8]> {
-    let Some(encoder) = block_encoder(format) else {
-        return std::borrow::Cow::Borrowed(rgba);
+    let texpresso_format = match block_encoder(format) {
+        None => return std::borrow::Cow::Borrowed(rgba),
+        Some(BlockEncoding::Bc7) => {
+            return std::borrow::Cow::Owned(encode_bc7(width, height, rgba))
+        }
+        Some(BlockEncoding::Bc1) => texpresso::Format::Bc1,
+        Some(BlockEncoding::Bc3) => texpresso::Format::Bc3,
     };
-    let mut out = vec![0u8; encoder.compressed_size(width as usize, height as usize)];
-    encoder.compress(
+    let mut out = vec![0u8; texpresso_format.compressed_size(width as usize, height as usize)];
+    texpresso_format.compress(
         rgba,
         width as usize,
         height as usize,
@@ -421,11 +453,69 @@ fn encode_level<'a>(
     std::borrow::Cow::Owned(out)
 }
 
+/// One RGBA8 level in BC7 blocks, parallel over block rows.
+///
+/// The ISPC kernel's "basic" profile: of its five speeds the middle one,
+/// because the result is cached (see [`encode_level`]). The opaque profile
+/// when every alpha is 255 and the alpha one otherwise -- a profile, unlike
+/// the format, is safe to choose by scanning: on an opaque image the two
+/// produce the same blocks (measured), and the opaque one gets there about
+/// a third sooner (2048x2048, release: 0.92-1.01 s against 1.44 s) because
+/// it searches no mode for an alpha that is not there. The alpha one on an
+/// image with alpha is not optional: the opaque profile writes alpha 255.
+///
+/// The kernel only takes whole blocks, and a chain's small levels are not
+/// (2x2, 1x1, and 6x6 under 12x12): such a level is padded to whole blocks
+/// by repeating its last column and row, which is what texpresso does
+/// inside a partial block and keeps the padding from pulling the block's
+/// endpoints towards a colour the level does not have. The GPU never
+/// samples the padding.
+fn encode_bc7(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
+    use rayon::prelude::*;
+    let (padded_width, padded_height) = (width.div_ceil(4) * 4, height.div_ceil(4) * 4);
+    let padded: std::borrow::Cow<'_, [u8]> = if (padded_width, padded_height) == (width, height) {
+        std::borrow::Cow::Borrowed(rgba)
+    } else {
+        let mut out = Vec::with_capacity((padded_width * padded_height * 4) as usize);
+        for y in 0..padded_height {
+            let row = (y.min(height - 1) * width * 4) as usize;
+            for x in 0..padded_width {
+                let texel = row + (x.min(width - 1) * 4) as usize;
+                out.extend_from_slice(&rgba[texel..texel + 4]);
+            }
+        }
+        std::borrow::Cow::Owned(out)
+    };
+    let opaque = padded.chunks_exact(4).all(|texel| texel[3] == 255);
+    let settings = if opaque {
+        block_compression::BC7Settings::opaque_basic()
+    } else {
+        block_compression::BC7Settings::alpha_basic()
+    };
+    let variant = block_compression::CompressionVariant::BC7(settings);
+    let row_bytes = (padded_width.div_ceil(4) * BlockEncoding::Bc7.block_size()) as usize;
+    let mut out = vec![0u8; row_bytes * padded_height.div_ceil(4) as usize];
+    let source_rows = padded.par_chunks((padded_width * 4 * 4) as usize);
+    out.par_chunks_mut(row_bytes)
+        .zip(source_rows)
+        .for_each(|(blocks, texels)| {
+            block_compression::encode::compress_rgba8(
+                variant,
+                texels,
+                blocks,
+                padded_width,
+                4,
+                padded_width * 4,
+            );
+        });
+    out
+}
+
 /// Bytes per row of one level as `write_texture` wants it: texels times
 /// four, or blocks across times bytes per block.
 fn bytes_per_row_for(format: wgpu::TextureFormat, width: u32) -> u32 {
     match block_encoder(format) {
-        Some(encoder) => width.div_ceil(4) * encoder.block_size() as u32,
+        Some(encoder) => width.div_ceil(4) * encoder.block_size(),
         None => 4 * width,
     }
 }
@@ -2131,6 +2221,22 @@ mod tests {
         assert_eq!(reg.get_gpu_footprint(id3).unwrap().2, 256 * 16);
         assert_eq!(reg.encodes(), 2);
 
+        let bc7 = TextureImportSettings {
+            compression: TextureCompression::Bc7,
+            ..Default::default()
+        };
+        let id7 = reg.load_with(64, 64, &pixels, bc7);
+        assert_eq!(
+            reg.get_gpu_shape(id7),
+            Some((wgpu::TextureFormat::Bc7RgbaUnormSrgb, 7))
+        );
+        assert_eq!(
+            reg.get_gpu_footprint(id7).unwrap().2,
+            343 * 16,
+            "the whole chain, 16 bytes a block"
+        );
+        assert_eq!(reg.encodes(), 3);
+
         reg.pretend_bc_unsupported_for_testing();
         let fallback = reg.load_with(64, 64, &pixels, bc1);
         assert_eq!(
@@ -2140,7 +2246,7 @@ mod tests {
         );
         // 4 bytes times 4096 + 1024 + 256 + 64 + 16 + 4 + 1 texels.
         assert_eq!(reg.get_gpu_footprint(fallback).unwrap().2, 4 * 5461);
-        assert_eq!(reg.encodes(), 2, "and nothing was encoded for it");
+        assert_eq!(reg.encodes(), 3, "and nothing was encoded for it");
     }
 
     /// A block-compressed object's level 0 must be whole blocks -- wgpu
@@ -2484,7 +2590,199 @@ mod tests {
             read_mip_cache_table(&path, &dims, bc1).is_none(),
             "the same levels under a BC3 tag are not read as BC1, though every length fits"
         );
+
+        // The case the tag exists for: BC3 and BC7 are both 16 bytes a
+        // block, so nothing but the tag tells a BC3 file from a BC7 one.
+        let (bc3, bc7) = (
+            wgpu::TextureFormat::Bc3RgbaUnormSrgb,
+            wgpu::TextureFormat::Bc7RgbaUnormSrgb,
+        );
+        let levels: Vec<(u32, u32, Cow<'_, [u8]>)> = dims
+            .iter()
+            .map(|&(w, h)| {
+                let len = crate::profiler::level_bytes(bc3, w, h) as usize;
+                (w, h, Cow::Owned(vec![0u8; len]))
+            })
+            .collect();
+        let (bytes, _) = encode_mip_cache(&levels, bc3);
+        std::fs::write(&path, &bytes).unwrap();
+        assert!(
+            read_mip_cache_table(&path, &dims, bc3).is_some(),
+            "premise: as written, the file reads as BC3"
+        );
+        assert!(
+            read_mip_cache_table(&path, &dims, bc7).is_none(),
+            "a BC3 file is not read as BC7, though every level is the same length"
+        );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Decodes a level of BC7 blocks back to RGBA8, cropped to the level's
+    /// own size -- by the crate's decoder, so the round trip checks how this
+    /// file drives the encoder (rows, padding, profile), not the kernel.
+    fn decode_bc7(width: u32, height: u32, blocks: &[u8]) -> Vec<u8> {
+        let (bw, bh) = (width.div_ceil(4) as usize, height.div_ceil(4) as usize);
+        assert_eq!(blocks.len(), bw * bh * 16, "whole 16-byte blocks");
+        let pitch = bw * 4 * 4;
+        let mut padded = vec![0u8; pitch * bh * 4];
+        for by in 0..bh {
+            for bx in 0..bw {
+                let block = &blocks[(by * bw + bx) * 16..][..16];
+                let at = by * 4 * pitch + bx * 16;
+                block_compression::decode::decode_block_bc7(block, &mut padded[at..], pitch);
+            }
+        }
+        (0..height as usize)
+            .flat_map(|y| padded[y * pitch..][..width as usize * 4].to_vec())
+            .collect()
+    }
+
+    /// A level whose colour and alpha change smoothly but in different
+    /// directions per channel, so no block is one colour and the position
+    /// of every texel shows: a block written to the wrong place, or a row
+    /// read from the wrong offset, decodes visibly wrong. Four steps a texel
+    /// whatever the size, so a small level is as smooth as a large one
+    /// (scaled to the size, 12x12 climbs 23 a texel and is a hard image for
+    /// any block format, not a check on this file).
+    fn gradient(width: u32, height: u32) -> Vec<u8> {
+        let ramp = |i: u32| (i * 4).min(255) as u8;
+        (0..height)
+            .flat_map(|y| {
+                (0..width).flat_map(move |x| [ramp(x), ramp(y), 255 - ramp(x), 128 + ramp(y) / 2])
+            })
+            .collect()
+    }
+
+    /// Texels of eight hues mixed inside every 4x4 block, alpha varying too:
+    /// more than BC1/BC3's two colour endpoints and their line can reach.
+    fn mixed_hues(width: u32, height: u32) -> Vec<u8> {
+        (0..height)
+            .flat_map(|y| {
+                (0..width).flat_map(move |x| {
+                    let hue = ((x / 2) + (y / 2) * 3) % 8;
+                    let on = |bit: u32| if hue & bit != 0 { 230 } else { 20 };
+                    [on(1), on(2), on(4), (60 + 60 * ((x / 2 + y / 2) % 3)) as u8]
+                })
+            })
+            .collect()
+    }
+
+    fn worst_channel_error(a: &[u8], b: &[u8]) -> u8 {
+        assert_eq!(a.len(), b.len());
+        a.iter().zip(b).map(|(x, y)| x.abs_diff(*y)).max().unwrap()
+    }
+
+    fn mean_channel_error(a: &[u8], b: &[u8]) -> f64 {
+        assert_eq!(a.len(), b.len());
+        a.iter()
+            .zip(b)
+            .map(|(x, y)| x.abs_diff(*y) as f64)
+            .sum::<f64>()
+            / a.len() as f64
+    }
+
+    /// BC7 is encoded as BC7: a level round-trips through the BC7 decoder
+    /// close to its pixels, alpha included, at 16 bytes a block -- where the
+    /// same bytes read as BC3 are a different picture, so a BC3 encode
+    /// labelled BC7 fails here. The chain's small levels, which are not
+    /// whole blocks (the kernel only takes whole blocks), round-trip too:
+    /// 6x6 under 12x12, 2x2 and 1x1. And it is worth having: on mixed hues
+    /// BC7 is several times closer than BC3, the format of the same size.
+    #[test]
+    fn bc7_levels_round_trip_through_the_bc7_decoder_alpha_and_small_levels_included() {
+        let bc7 = wgpu::TextureFormat::Bc7RgbaUnormSrgb;
+        // 64x64: a level that is many rows of blocks, so the parallel split
+        // into block rows is exercised and not just one row.
+        for (w, h) in [(64u32, 64u32), (12, 12), (6, 6), (2, 2), (1, 1)] {
+            let pixels = gradient(w, h);
+            let blocks = encode_level(bc7, w, h, &pixels);
+            assert_eq!(
+                blocks.len() as u64,
+                crate::profiler::level_bytes(bc7, w, h),
+                "{w}x{h}: one 16-byte block per 4x4"
+            );
+            let decoded = decode_bc7(w, h, &blocks);
+            let error = worst_channel_error(&decoded, &pixels);
+            assert!(
+                error <= 12,
+                "{w}x{h}: the BC7 round trip is within 12 of the source, was {error}"
+            );
+        }
+
+        // How the padding is made shows on a small level of mixed hues: 3x3
+        // padded by repeating its edge round-trips within 3, padded with
+        // zeros the padding pulls the block's endpoints and the worst texel
+        // is off by 93.
+        for (w, h) in [(6u32, 6u32), (3, 3), (2, 2), (1, 1)] {
+            let pixels = mixed_hues(w, h);
+            let decoded = decode_bc7(w, h, &encode_level(bc7, w, h, &pixels));
+            let error = worst_channel_error(&decoded, &pixels);
+            assert!(
+                error <= 12,
+                "{w}x{h} mixed hues: the padded level round-trips within 12, was {error}"
+            );
+        }
+
+        let pixels = gradient(64, 64);
+        let bc3_blocks = encode_level(wgpu::TextureFormat::Bc3RgbaUnormSrgb, 64, 64, &pixels);
+        let as_bc7 = worst_channel_error(&decode_bc7(64, 64, &bc3_blocks), &pixels);
+        assert!(
+            as_bc7 > 12,
+            "BC3's bytes read as BC7 are not the picture (worst error {as_bc7})"
+        );
+
+        let hues = mixed_hues(64, 64);
+        let mut bc3_decoded = vec![0u8; hues.len()];
+        texpresso::Format::Bc3.decompress(
+            &encode_level(wgpu::TextureFormat::Bc3RgbaUnormSrgb, 64, 64, &hues),
+            64,
+            64,
+            &mut bc3_decoded,
+        );
+        let bc3_error = mean_channel_error(&bc3_decoded, &hues);
+        let bc7_error = mean_channel_error(
+            &decode_bc7(64, 64, &encode_level(bc7, 64, 64, &hues)),
+            &hues,
+        );
+        assert!(
+            bc3_error >= 10.0,
+            "premise: BC3 cannot hold mixed hues (mean error {bc3_error:.1})"
+        );
+        assert!(
+            bc7_error * 3.0 <= bc3_error,
+            "BC7 holds them several times better than BC3: mean error {bc7_error:.1} against \
+             {bc3_error:.1}"
+        );
+    }
+
+    /// The opaque profile for an opaque level and the alpha one otherwise:
+    /// an image whose alpha is a gradient keeps it, and an opaque one stays
+    /// exactly opaque.
+    #[test]
+    fn bc7_keeps_an_alpha_gradient_and_an_opaque_image_stays_opaque() {
+        let bc7 = wgpu::TextureFormat::Bc7RgbaUnorm;
+        let gradient: Vec<u8> = (0..16u32 * 16)
+            .flat_map(|i| [120, 60, 200, (i % 16 * 16) as u8])
+            .collect();
+        let decoded = decode_bc7(16, 16, &encode_level(bc7, 16, 16, &gradient));
+        let alpha_error = decoded
+            .chunks_exact(4)
+            .zip(gradient.chunks_exact(4))
+            .map(|(d, s)| d[3].abs_diff(s[3]))
+            .max()
+            .unwrap();
+        assert!(
+            alpha_error <= 8,
+            "the alpha gradient survives, worst alpha error {alpha_error}"
+        );
+
+        let mut opaque = mixed_hues(16, 16);
+        opaque.chunks_exact_mut(4).for_each(|t| t[3] = 255);
+        let decoded = decode_bc7(16, 16, &encode_level(bc7, 16, 16, &opaque));
+        assert!(
+            decoded.chunks_exact(4).all(|t| t[3] == 255),
+            "an opaque image decodes fully opaque"
+        );
     }
 
     /// A 64x64 PNG with more than one colour, and its decoded pixels as the

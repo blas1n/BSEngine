@@ -98,7 +98,10 @@ pub(crate) fn level_bytes(format: wgpu::TextureFormat, width: u32, height: u32) 
     };
     match format {
         wgpu::TextureFormat::Bc1RgbaUnorm | wgpu::TextureFormat::Bc1RgbaUnormSrgb => blocks(8),
-        wgpu::TextureFormat::Bc3RgbaUnorm | wgpu::TextureFormat::Bc3RgbaUnormSrgb => blocks(16),
+        wgpu::TextureFormat::Bc3RgbaUnorm
+        | wgpu::TextureFormat::Bc3RgbaUnormSrgb
+        | wgpu::TextureFormat::Bc7RgbaUnorm
+        | wgpu::TextureFormat::Bc7RgbaUnormSrgb => blocks(16),
         other => width as u64 * height as u64 * bytes_per_texel(other),
     }
 }

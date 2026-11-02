@@ -26,6 +26,10 @@ glam.workspace = true
 image.workspace = true
 blake3.workspace = true
 texpresso.workspace = true
+# BC7, which texpresso does not encode.
+block_compression.workspace = true
+# BC7's encode, parallel over block rows (texpresso brings its own).
+rayon.workspace = true
 # `tangents`: MikkTSpace for meshes that bring no tangents.
 bevy_mikktspace.workspace = true
 pollster.workspace = true

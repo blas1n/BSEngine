@@ -137,7 +137,7 @@ master `bf2c649b` 기준. 열린 PR·이슈 0개, 소스 TODO/FIXME 0개, 워크
 | ~~단일 실행 파일~~ | `grep -rn "BSEMBED1\|PackageMode::Single" crates/` | 2026-09-28 구현(아래 "단일 실행 파일" 절): `--mode single`이 아카이브(매니페스트 포함)를 exe 꼬리에 임베드, macOS는 옆에 |
 | ~~**스카이박스·터레인이 `TextureCache`를 안 거침 → `release_pixels` 기본 off**~~ | `grep -n "&tex.data" crates/bsengine-render/src/plugin.rs crates/bsengine-app/src/terrain.rs` → 0 | 2026-09-28 닫힘, 두 PR: #1901이 둘을 `TextureCache::upload`로 돌리고(스카이박스는 GPU→GPU 복사 + 세대 카운터), 그다음 PR이 기본값을 `true`로(Unity의 Read/Write Enabled 반대). 아래 "`release_pixels` 기본값 on"·"스카이박스·터레인 레이어가 `TextureCache`를 거친다" 절. **2026-09-28 사용자 결정: 아래 세 항목을 이 순서로 하나씩** |
 | ~~**디스크 밉 읽기가 동기**~~ | `grep -n "levels_from(base)" crates/bsengine-rhi-wgpu/src/texture.rs` → 0(`PendingRead`·`poll_reads`) | 2026-09-28 닫힘(아래 "디스크 밉 읽기 비동기" 절): 올리기는 새 레벨 하나만 워커 스레드에서 읽어 도착한 프레임에 GPU 복사+쓰기로 재구성, 내리기는 디스크·CPU 없이 GPU 복사. 릴리스 측정치는 그 절에 |
-| ~~**텍스처 압축/포맷 변환 없음**~~ | `grep -rn "TextureFormat::Bc1\|TEXTURE_COMPRESSION_BC" crates/bsengine-rhi-wgpu/src/` → `texture.rs`·`surface.rs`·`profiler.rs` | 2026-09-28 닫힘(아래 "텍스처 압축" 절): 임포트 세팅 `compression: None|Bc1|Bc3`(기본 None), texpresso(순수 Rust) 클러스터 핏으로 업로드 때 인코드, 압축 체인은 밉 캐시(`BSMIPS02`, 인코딩 태그)에 저장해 한 번만 인코드, `TEXTURE_COMPRESSION_BC` 없는 디바이스·4의 배수 아닌 이미지는 RGBA8 폴백(경고). ASTC/ETC2(모바일)·BC7은 여전히 없음 |
+| ~~**텍스처 압축/포맷 변환 없음**~~ | `grep -rn "TextureFormat::Bc1\|TEXTURE_COMPRESSION_BC" crates/bsengine-rhi-wgpu/src/` → `texture.rs`·`surface.rs`·`profiler.rs` | 2026-09-28 닫힘(아래 "텍스처 압축" 절): 임포트 세팅 `compression: None|Bc1|Bc3`(기본 None), texpresso(순수 Rust) 클러스터 핏으로 업로드 때 인코드, 압축 체인은 밉 캐시(`BSMIPS02`, 인코딩 태그)에 저장해 한 번만 인코드, `TEXTURE_COMPRESSION_BC` 없는 디바이스·4의 배수 아닌 이미지는 RGBA8 폴백(경고). 2026-11-02 **BC7** 추가(`compression: Bc7`, `block_compression` CPU 인코더 = ISPC 커널의 Rust 포팅). ASTC/ETC2(모바일)는 여전히 없음 |
 
 **순서(2026-09-28, 사용자 "하나씩 순차"):** 공유 GPU 사본 → 디스크 읽기 비동기 → 텍스처 압축. 앞의 둘이 작고
 스트리밍 경로를 정리하며, 압축은 `TextureAsset.data`가 담는 것과 밉 캐시가 저장하는 것을 바꾸므로 정리된 기반 위에.
@@ -358,8 +358,25 @@ None·66×40 폴백), 픽셀 2개(`pixels_compression.rs`: 4×4 블록 정렬 �
 **2048² 541ms**(BC3 482ms); 레인지 핏은 2048² 17ms. 즉 압축 텍스처 하나당 첫 실행에 최대 0.5초(+밉 체인 1/3)를 프레임 스레드에서
 치르고 그 뒤는 캐시. `.bsengine_cache`는 gitignore라 클론 직후 첫 실행이 그 비용을 전부 낸다 — 텍스처 수십 장이면 수십 초.
 품질을 고른 근거는 위와 같지만, 첫 실행이 문제가 되면 `encode_level`의 `Params`를 `RangeFit`으로 바꾸는 한 줄(30배 빠름,
-밴딩 증가)이거나 패키징(`cook`) 때 캐시를 미리 채우는 것이 다음 단계. ASTC/ETC2(모바일 타깃 없음)·BC7(texpresso에 없음)은
+밴딩 증가)이거나 패키징(`cook`) 때 캐시를 미리 채우는 것이 다음 단계. ASTC/ETC2(모바일 타깃 없음)는
 남는다.
+
+**BC7(2026-11-02).** BC3과 같은 16바이트/블록이지만 블록마다 8개 모드(파티션, 알파 분리/결합) 중 하나를 골라 BC1/BC3이
+밴딩·얼룩을 내는 그라디언트와 섞인 색을 지킨다 — Unity "RGB(A) Compressed BC7", Unreal `TC_BC7`의 고품질 선택지. texpresso에
+BC7이 없어 인코더는 **`block_compression`**(Intel ISPC 텍스처 컴프레서 커널의 순수 Rust CPU 포팅; 기본 기능을 끄고 `bc7`만 —
+기본 기능은 wgpu 컴퓨트 경로로, 그 BC7 셰이더는 DXC 컴파일이 매우 느리다고 크레이트가 밝힌다; 의존성은 bytemuck뿐). 프로파일은
+5단계 중 가운데 "basic"(결과가 캐시되므로), 레벨의 알파가 전부 255면 opaque, 아니면 alpha 프로파일 — 포맷과 달리 프로파일은
+스캔으로 골라도 안전하다: 불투명 이미지에선 두 프로파일이 **같은 블록**을 내고(실측) opaque가 약 1/3 빠르다(2048² 릴리스
+0.92~1.01 s vs 1.44 s); 알파가 있으면 alpha 프로파일이 필수(opaque는 알파를 255로 씀). 블록 행 단위로 rayon 병렬. 커널은 온전한 블록만 받으므로
+체인의 작은 레벨(2×2·1×1, 12×12 아래 6×6)은 마지막 열·행을 반복해 블록으로 패딩(texpresso가 부분 블록 안에서 하는 것과 같고,
+패딩이 끝점을 레벨에 없는 색으로 끌지 않는다; GPU는 패딩을 샘플하지 않음). **캐시 태그 7** — BC3과 레벨 길이가 같아 태그만이 BC3
+파일을 BC7로 읽는 것을 막는다(9월에 태그를 넣을 때 예상한 바로 그 경우; 테스트가 BC3 파일이 BC7로 안 읽힘을 단언). 테스트: CPU
+왕복(크레이트 디코더로 64²·12²·6²·2²·1² 그라디언트가 최대 오차 ≤ 12, BC3 바이트를 BC7로 읽으면 > 12; 섞인 색상에서 평균 오차가
+BC3의 1/3 이하), 알파 그라디언트 유지·불투명 유지, 레지스트리 포맷·풋프린트 343×16B, 픽셀(`pixels_compression.rs`: 블록 체커가
+RGBA8과 채널 차 ≤ 1, 메모리 1/4, 섞인 색상에서 RGBA8 대비 최대 차 BC1 69 vs **BC7 6** — Vulkan·DX12 둘 다). 뮤테이션 M1~M9: "항상 alpha 프로파일"은 출력이 같아 살아남음(시간만 다름 — 타이밍 단언은
+쓰지 않음, 등가로 기록); "0으로 패딩"은 처음 살아남음 → 3×3 섞인 색상 레벨 추가(가장자리 반복이면 최대 오차 3, 0 패딩이면 93). **첫 인코드 비용(릴리스,
+24스레드, `encode_level` 단독)**: 512² 71ms · 1024² 259ms · **2048² 976ms**(같은 이미지 BC1 클러스터 핏 34·124·435ms) — 캐시되므로
+이미지당 한 번.
 
 **단일 실행 파일 — `--mode single`(2026-09-28).** 로드맵 item 55에서 의도적으로 범위 밖에 뒀던 마지막 항목. 선례는 갈린다:
 Unity(`exe + Data/`)·Unreal(`exe + Content/Paks/`)은 단일 파일을 만들지 않고, **Godot만 "Embed PCK"로 `.pck`를 내보내기

@@ -162,3 +162,67 @@ fn a_bc3_texture_draws_the_same_picture_at_a_quarter_of_the_memory() {
     let difference = max_difference(&h.render(&scene(cube, plain)), &h.render(&scene(cube, bc3)));
     assert!(difference <= 1, "largest channel difference {difference}");
 }
+
+/// Texels of eight hues mixed inside every 4x4 block: more colours than
+/// BC1's two endpoints and their line can reach, which BC7's partitions
+/// can -- the case BC7 exists for.
+fn mixed_hues() -> Vec<u8> {
+    let mut rgba = Vec::with_capacity((SIZE * SIZE * 4) as usize);
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            let hue = ((x / 2) + (y / 2) * 3) % 8;
+            let on = |bit: u32| if hue & bit != 0 { 230 } else { 20 };
+            rgba.extend_from_slice(&[on(1), on(2), on(4), 255]);
+        }
+    }
+    rgba
+}
+
+/// BC7 is BC3's size and decoded by the GPU as BC7: the block checker
+/// draws exactly as RGBA8 does (a format mix-up would draw noise), and a
+/// texture of mixed hues, which BC1 visibly ruins, draws much closer to
+/// RGBA8 in BC7 than in BC1. The second is the hard side -- a BC7 upload
+/// that merely worked would pass the first and could still be no better
+/// than BC1.
+#[test]
+fn a_bc7_texture_draws_mixed_colours_that_bc1_cannot_at_a_quarter_of_the_memory() {
+    let mut h = Harness::new();
+    assert!(
+        h.bc_supported(),
+        "premise: block compression on this device"
+    );
+    let cube = h.cube();
+    let checker = block_checker();
+    let plain = h.texture_with(settings(TextureCompression::None), SIZE, SIZE, &checker);
+    let bc7 = h.texture_with(settings(TextureCompression::Bc7), SIZE, SIZE, &checker);
+    assert_eq!(
+        h.gpu_shape(bc7).map(|s| s.0),
+        Some(wgpu::TextureFormat::Bc7RgbaUnorm)
+    );
+    assert_eq!(
+        h.gpu_footprint(bc7).unwrap().2 * 4,
+        h.gpu_footprint(plain).unwrap().2,
+        "BC7 is a byte a texel"
+    );
+    let difference = max_difference(&h.render(&scene(cube, plain)), &h.render(&scene(cube, bc7)));
+    assert!(
+        difference <= 1,
+        "the block checker is exact in BC7 too; largest channel difference {difference}"
+    );
+
+    let hues = mixed_hues();
+    let hues_plain = h.texture_with(settings(TextureCompression::None), SIZE, SIZE, &hues);
+    let hues_bc1 = h.texture_with(settings(TextureCompression::Bc1), SIZE, SIZE, &hues);
+    let hues_bc7 = h.texture_with(settings(TextureCompression::Bc7), SIZE, SIZE, &hues);
+    let reference = h.render(&scene(cube, hues_plain));
+    let bc1 = max_difference(&reference, &h.render(&scene(cube, hues_bc1)));
+    let bc7 = max_difference(&reference, &h.render(&scene(cube, hues_bc7)));
+    assert!(
+        bc1 >= 40,
+        "premise: BC1 cannot draw these blocks (largest difference {bc1})"
+    );
+    assert!(
+        bc7 * 3 <= bc1,
+        "BC7 draws mixed hues far closer to RGBA8 than BC1 does: {bc7} against {bc1}"
+    );
+}

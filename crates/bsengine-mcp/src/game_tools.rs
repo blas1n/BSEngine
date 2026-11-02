@@ -287,10 +287,11 @@ pub fn game_tools(root: PathBuf) -> Vec<McpTool> {
                 as Unity does with Read/Write Enabled off; safe for any image the GPU \
                 samples, including the skybox and terrain layers; set false for an image \
                 something reads on the CPU, such as a terrain splatmap that is also a \
-                material's texture), `compression` (\"None\" | \"Bc1\" | \"Bc3\", default \
-                None -- block-compress the texture at upload, as Unity's DXT1/DXT5: Bc1 is \
-                half a byte a texel with no alpha, Bc3 a byte a texel with alpha, against \
-                four for None; encoded once and cached; needs the image to be a multiple \
+                material's texture), `compression` (\"None\" | \"Bc1\" | \"Bc3\" | \"Bc7\", \
+                default None -- block-compress the texture at upload, as Unity's DXT1/DXT5/\
+                BC7: Bc1 is half a byte a texel with no alpha, Bc3 a byte a texel with \
+                alpha, Bc7 a byte a texel with alpha and much better colour (slower to \
+                encode), against four for None; encoded once and cached; needs the image to be a multiple \
                 of 4 on each side and a GPU with BC support, else it uploads uncompressed \
                 with a warning; not for data textures such as normal maps, whose blocks \
                 show as banding).\n\

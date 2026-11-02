@@ -632,13 +632,16 @@ fn draw_asset_import(ui: &mut egui::Ui, insp: &mut bsengine_core::InspectorState
                     ui.selectable_value(&mut t.compression, TextureCompression::None, "None");
                     ui.selectable_value(&mut t.compression, TextureCompression::Bc1, "BC1");
                     ui.selectable_value(&mut t.compression, TextureCompression::Bc3, "BC3");
+                    ui.selectable_value(&mut t.compression, TextureCompression::Bc7, "BC7");
                 })
                 .response
                 .on_hover_text(
                     "Block compression on the GPU, as every engine does at import: BC1 for an \
                      opaque colour texture (an eighth of the memory), BC3 when the alpha \
-                     channel matters (a quarter). Lossy; the compressed levels are cached \
-                     under .bsengine_cache so the encode is paid once.",
+                     channel matters (a quarter), BC7 at BC3's size for the best colour \
+                     (gradients that band in BC1/BC3; slower to encode). Lossy; the \
+                     compressed levels are cached under .bsengine_cache so the encode is \
+                     paid once.",
                 );
         }
         ImportSettings::Model(m) => {

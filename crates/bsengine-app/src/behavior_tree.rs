@@ -302,6 +302,28 @@ impl BtContext for EntityContext<'_> {
             });
         }
     }
+
+    fn script_service(&mut self, node: usize, service: &str, first: bool) {
+        if let Some(mut queue) = self.world.get_resource_mut::<BtScriptQueue>() {
+            queue.requests.push(BtScriptRequest {
+                entity: self.entity,
+                node,
+                task: service.to_string(),
+                call: BtScriptCall::Service { first },
+            });
+        }
+    }
+
+    fn stop_script_service(&mut self, node: usize, service: &str) {
+        if let Some(mut queue) = self.world.get_resource_mut::<BtScriptQueue>() {
+            queue.requests.push(BtScriptRequest {
+                entity: self.entity,
+                node,
+                task: service.to_string(),
+                call: BtScriptCall::ServiceStop,
+            });
+        }
+    }
 }
 
 /// Ticks each entity's tree: compiles it on first use (and again when the

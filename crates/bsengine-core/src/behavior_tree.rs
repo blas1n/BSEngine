@@ -293,6 +293,25 @@ pub enum BtNode {
         /// The registered task's name.
         task: String,
     },
+    /// Runs `child`, and while it runs calls the script service registered
+    /// under `service` with `Bsengine.bt.service(name, fn, onStop)` -- once
+    /// as the branch starts, then every `interval` seconds. Unreal's service
+    /// and LimboAI's `BTService`: the place for a branch's upkeep (refresh
+    /// the target, re-check the line of sight) that a task would otherwise
+    /// have to interleave with its own work. Reports what `child` reports.
+    ///
+    /// Nothing waits on a service: it is called the frame it is due and its
+    /// blackboard writes are there for the tree's next tick, the way a script
+    /// task's answer is. `onStop` is called when the branch stops, finished
+    /// or aborted -- Unreal's `OnCeaseRelevant`.
+    Service {
+        /// The registered service's name.
+        service: String,
+        /// Seconds between calls after the first.
+        interval: f32,
+        /// The branch it serves.
+        child: Box<BtNode>,
+    },
     /// Runs the tree in another asset here, on this entity's blackboard, and
     /// reports what its root reports -- Unreal's Run Behavior, Unity
     /// Behavior's Run Subgraph, LimboAI's `BTSubtree`. A guard's "patrol"
@@ -369,6 +388,7 @@ pub fn inline_subtrees(
             | BtNode::Repeat { child, .. }
             | BtNode::Cooldown { child, .. }
             | BtNode::TimeLimit { child, .. }
+            | BtNode::Service { child, .. }
             | BtNode::Inverter(child)
             | BtNode::ForceSuccess(child)
             | BtNode::ForceFailure(child) => walk(child, stack, read, deps),
@@ -409,6 +429,14 @@ pub enum BtScriptCall {
     },
     /// The task was aborted: run its `onAbort`, if it registered one.
     Abort,
+    /// Run the service function; `first` as its branch starts. Not
+    /// answered.
+    Service {
+        /// Whether its branch has just become active.
+        first: bool,
+    },
+    /// The service's branch stopped: run its `onStop`, if it registered one.
+    ServiceStop,
 }
 
 /// Script-task traffic between the behaviour tree plugin, which posts
@@ -474,6 +502,11 @@ pub trait BtContext {
     }
     /// The script task at `node` was aborted.
     fn abort_script_task(&mut self, _node: usize, _task: &str) {}
+    /// Asks for script service `service` at `node` to be called this frame
+    /// -- `first` as its branch starts. Nothing comes back.
+    fn script_service(&mut self, _node: usize, _service: &str, _first: bool) {}
+    /// The branch of the service at `node` stopped, finished or aborted.
+    fn stop_script_service(&mut self, _node: usize, _service: &str) {}
 }
 
 /// Slack on every timer comparison, in seconds. Durations are written as
@@ -508,6 +541,9 @@ fn label_of(node: &BtNode, name: &str) -> String {
             format!("{name}({key})")
         }
         BtNode::Script { task } => format!("{name}({task})"),
+        BtNode::Service {
+            service, interval, ..
+        } => format!("{name}({service} every {interval}s)"),
         BtNode::Subtree { path, .. } => format!("{name}({path})"),
         _ => name.to_string(),
     }
@@ -535,6 +571,7 @@ enum Kind {
     ClearValue(String),
     MoveTo(String, Option<f32>),
     Script(String),
+    Service(String, f32),
     /// Reports what its one child, the inlined tree's root, reports.
     Subtree,
     Succeed,
@@ -551,9 +588,10 @@ struct NodeState {
     /// Repeat: successes so far.
     count: u32,
     /// Wait / TimeLimit: when it started. Cooldown: when the child last
-    /// finished.
+    /// finished. Service: when it was last called.
     since: Option<f64>,
-    /// MoveTo: issued this move already.
+    /// MoveTo: issued this move already. Script: called this run already.
+    /// Service: called since its branch started, so it is owed an `onStop`.
     issued: bool,
 }
 
@@ -632,6 +670,15 @@ impl BtRuntime {
                 (Kind::MoveTo(key.clone(), *acceptance), "MoveTo", vec![])
             }
             BtNode::Script { task } => (Kind::Script(task.clone()), "Script", vec![]),
+            BtNode::Service {
+                service,
+                interval,
+                child,
+            } => (
+                Kind::Service(service.clone(), *interval),
+                "Service",
+                vec![child],
+            ),
             BtNode::Subtree {
                 tree: Some(tree), ..
             } => (Kind::Subtree, "Subtree", vec![&**tree]),
@@ -692,6 +739,14 @@ impl BtRuntime {
         if let Kind::Script(task) = &self.kinds[node] {
             if self.state[node].issued {
                 ctx.abort_script_task(node, task);
+            }
+        }
+        // A branch aborted from above (a higher-priority Condition taking
+        // over, a TimeLimit, a disabled tree) never reaches the Service's
+        // own "child finished" path, so its `onStop` is owed from here.
+        if let Kind::Service(service, _) = &self.kinds[node] {
+            if self.state[node].issued {
+                ctx.stop_script_service(node, service);
             }
         }
         let keep_since = matches!(self.kinds[node], Kind::Cooldown(_));
@@ -865,6 +920,33 @@ impl BtRuntime {
                 BtStatus::Running => BtStatus::Running,
             },
             Kind::Subtree => self.tick_node(kids[0], ctx),
+            Kind::Service(service, interval) => {
+                // Called before the child, as the branch starts and then
+                // each interval: Unreal ticks a node's services ahead of
+                // the node, LimboAI's BTService before its child.
+                let now = ctx.now();
+                let first = !self.state[node].issued;
+                let due = self.state[node]
+                    .since
+                    .is_none_or(|last| elapsed(now, last, interval));
+                if due {
+                    ctx.script_service(node, &service, first);
+                    self.state[node].issued = true;
+                    self.state[node].since = Some(now);
+                }
+                let s = self.tick_node(kids[0], ctx);
+                if s != BtStatus::Running {
+                    // The branch is done, so `onStop` now: a Sequence that
+                    // moves past it does not reset it, and left to the
+                    // tree's own reset the stop would come only when the
+                    // whole tree finished. Cleared, so that reset does not
+                    // stop it a second time and its next run starts `first`.
+                    ctx.stop_script_service(node, &service);
+                    self.state[node].issued = false;
+                    self.state[node].since = None;
+                }
+                s
+            }
             Kind::ForceSuccess => match self.tick_node(kids[0], ctx) {
                 BtStatus::Running => BtStatus::Running,
                 _ => BtStatus::Success,
@@ -1470,6 +1552,16 @@ mod tests {
         calls: Vec<(usize, String, bool)>,
         aborts: Vec<String>,
         answers: Vec<Option<BtStatus>>,
+        /// Service calls: the tick (tenths of a second) and `first`.
+        services: Vec<(i64, String, bool)>,
+        /// Service stops: the tick and the service.
+        service_stops: Vec<(i64, String)>,
+    }
+
+    impl Scripted {
+        fn tick_index(&self) -> i64 {
+            (self.now * 10.0).round() as i64
+        }
     }
 
     impl BtContext for Scripted {
@@ -1497,6 +1589,82 @@ mod tests {
         fn abort_script_task(&mut self, _node: usize, task: &str) {
             self.aborts.push(task.to_string());
         }
+        fn script_service(&mut self, _node: usize, service: &str, first: bool) {
+            self.services
+                .push((self.tick_index(), service.to_string(), first));
+        }
+        fn stop_script_service(&mut self, _node: usize, service: &str) {
+            self.service_stops
+                .push((self.tick_index(), service.to_string()));
+        }
+    }
+
+    /// Ticks a script world at 10 Hz.
+    fn run_scripted(rt: &mut BtRuntime, w: &mut Scripted, ticks: usize) -> Vec<BtStatus> {
+        (0..ticks)
+            .map(|_| {
+                let s = rt.tick(w);
+                w.now += 0.1;
+                s
+            })
+            .collect()
+    }
+
+    /// A service is called as its branch starts and then every interval --
+    /// at ticks 0, 3, 6, 9 for 0.3 s at 10 Hz, not every tick -- and told
+    /// to stop the tick its branch finishes, while the Sequence holding it
+    /// goes on to the next child: not later, when the whole tree finishes,
+    /// and only once. The next run of the branch starts `first` again.
+    #[test]
+    fn a_service_runs_every_interval_while_its_branch_does() {
+        let mut t = rt(r#"(root: Sequence([
+            Service(service: "scan", interval: 0.3, child: Wait(seconds: 1.0)),
+            Wait(seconds: 0.5),
+        ]))"#);
+        let mut w = Scripted::default();
+        let statuses = run_scripted(&mut t, &mut w, 17);
+        // The premise: the Wait ran its second and the Sequence went on to
+        // the next half second, finishing at tick 15 and restarting at 16.
+        let mut expected = vec![R; 15];
+        expected.extend([S, R]);
+        assert_eq!(statuses, expected);
+        let calls: Vec<(i64, bool)> = w.services.iter().map(|c| (c.0, c.2)).collect();
+        assert_eq!(
+            calls,
+            vec![(0, true), (3, false), (6, false), (9, false), (16, true)]
+        );
+        assert!(w.services.iter().all(|c| c.1 == "scan"));
+        assert_eq!(w.service_stops, vec![(10, "scan".to_string())]);
+    }
+
+    /// A branch aborted from above stops its service: a higher-priority
+    /// Condition takes over from the running branch, and its service hears
+    /// so once -- and its next start is `first` again.
+    #[test]
+    fn an_aborted_branch_stops_its_service() {
+        let mut t = rt(r#"(root: Selector([
+            Condition(key: "enemy", op: IsSet, abort: LowerPriority, child: Succeed),
+            Service(service: "patrolScan", interval: 0.5, child: Wait(seconds: 100.0)),
+        ]))"#);
+        let mut w = Scripted::default();
+        run_scripted(&mut t, &mut w, 2);
+        assert!(w.service_stops.is_empty(), "premise: still patrolling");
+        assert_eq!(w.services.len(), 1, "premise: called once so far");
+        w.bb.set("enemy", BbValue::Bool(true));
+        run_scripted(&mut t, &mut w, 1);
+        assert_eq!(w.service_stops, vec![(2, "patrolScan".to_string())]);
+        w.bb.clear("enemy");
+        run_scripted(&mut t, &mut w, 1);
+        assert_eq!(w.service_stops.len(), 1, "stopped once, not again");
+        assert_eq!(
+            w.services.last().map(|c| (c.0, c.2)),
+            Some((3, true)),
+            "the next start is a new one"
+        );
+        assert_eq!(
+            t.running_path(),
+            vec!["Selector", "Service(patrolScan every 0.5s)", "Wait(100s)"]
+        );
     }
 
     /// A script task runs until its function says it is done: the first

@@ -838,3 +838,28 @@ fn a_probe_captures_the_orm_maps_metallic() {
         "metallic 1 times a map's 0 is captured as metallic 0: {mapped} against {dielectric}"
     );
 }
+
+/// And its roughness: a metal ceiling -- specular only, so the roughness
+/// is all that shapes what it sends the probe -- at roughness 1 under a map
+/// whose G is 0.2 (51 is exactly a fifth of 255) is captured as the same
+/// ceiling at roughness 0.2.
+#[test]
+fn a_probe_captures_the_orm_maps_roughness() {
+    let mut h = Harness::new();
+    let (plane, cube) = (h.plane(), h.cube());
+    let fifth = data_texel(&mut h, [255, 51, 255, 255]);
+    let metal = |roughness: f32| ceiling(cube).metallic(1.0).roughness(roughness);
+    let rough = captured(&mut h, || lit_room(plane, cube, metal(1.0), side_light()));
+    let smooth = captured(&mut h, || lit_room(plane, cube, metal(0.2), side_light()));
+    let mapped = captured(&mut h, || {
+        lit_room(plane, cube, metal(1.0).orm_mapped(fifth, 0.0), side_light())
+    });
+    assert!(
+        (smooth - rough).abs().max_element() > 0.2 * rough.x.max(smooth.x),
+        "premise: roughness 0.2 and 1 are captured differently: {smooth} against {rough}"
+    );
+    assert!(
+        (mapped - smooth).abs().max_element() <= 0.02 * smooth.max_element(),
+        "roughness 1 times a map's 0.2 is captured as roughness 0.2: {mapped} against {smooth}"
+    );
+}

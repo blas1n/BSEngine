@@ -8917,6 +8917,39 @@ function onUpdate(name) {{
         );
     }
 
+    /// A service is called ahead of the branch it serves, as Unreal ticks a
+    /// node's services before the node: the target a service finds is
+    /// already on the blackboard when the task under it is first called, in
+    /// the same frame -- not a frame later, with the task's first call
+    /// seeing nothing.
+    #[test]
+    fn a_task_sees_its_service_s_write_on_its_first_call() {
+        use bsengine_core::BbValue;
+        let (mut app, guard, files) = bt_app(
+            "service_first",
+            r#"(root: Service(service: "find", interval: 10.0, child: Script(task: "attack")))"#,
+            "Bsengine.bt.service(\"find\", (self, bb) => bb.set(\"target\", \"Player\"));\n\
+             Bsengine.bt.task(\"attack\", (self, bb, first) => {\n\
+                 if (first) bb.set(\"saw\", bb.get(\"target\") || \"nothing\");\n\
+                 return \"running\";\n\
+             });\n\
+             function onUpdate(name) {}",
+        );
+        let mut frames = 0;
+        while bb_value(&app, guard, "saw").is_none() {
+            app.update();
+            frames += 1;
+            assert!(frames < 100, "the task was never called");
+        }
+        for f in files {
+            let _ = std::fs::remove_file(f);
+        }
+        assert_eq!(
+            bb_value(&app, guard, "saw"),
+            Some(BbValue::Str("Player".into()))
+        );
+    }
+
     /// A service through the real tree and scripting: `Bsengine.bt.service`
     /// is called each frame while its branch runs (interval 0), `first`
     /// once, with the entity's name and a blackboard handle; when a

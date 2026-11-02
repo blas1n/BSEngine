@@ -1043,10 +1043,19 @@ var Bsengine = {
     // `fn` is called once a frame while the task runs and returns "success",
     // "failure" or "running" (true / false for the first two); `onAbort` is
     // called with (self, bb) if the tree aborts the task.
+    //   Bsengine.bt.service("findTarget", (self, bb, first) => { ... }, onStop)
+    // A tree's `Service(service: "...", interval: ...)` calls `fn` as its
+    // branch starts (`first`) and every interval while it runs -- Unreal's
+    // services; what it returns is ignored. `onStop` is called with
+    // (self, bb) when the branch stops, finished or aborted.
     bt: {
         _tasks: {},
+        _services: {},
         task(name, fn, onAbort = null) {
             this._tasks[String(name)] = { fn, onAbort };
+        },
+        service(name, fn, onStop = null) {
+            this._services[String(name)] = { fn, onStop };
         },
         get(entity, key) {
             return _bbFromJson(JSON.parse(Deno.core.ops.bsengine_bt_get(String(entity), String(key))));
@@ -1073,6 +1082,24 @@ var Bsengine = {
         },
         _run(requests) {
             for (const r of requests) {
+                // Services are never answered: the tree does not wait on
+                // them, so a missing or throwing one only logs.
+                if (r.call === "service" || r.call === "service_stop") {
+                    const s = this._services[r.task];
+                    if (!s) {
+                        if (r.call === "service") {
+                            Bsengine.log("[bt] no service registered as " + JSON.stringify(r.task));
+                        }
+                        continue;
+                    }
+                    const f = r.call === "service" ? s.fn : s.onStop;
+                    if (!f) continue;
+                    try {
+                        if (r.call === "service") f(r.entity, this.blackboard(r.entity), r.first);
+                        else f(r.entity, this.blackboard(r.entity));
+                    } catch (e) { Bsengine.log("[bt] service " + r.task + ": " + e); }
+                    continue;
+                }
                 const t = this._tasks[r.task];
                 if (r.call === "abort") {
                     if (t && t.onAbort) {

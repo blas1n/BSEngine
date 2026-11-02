@@ -345,7 +345,9 @@ entity's `NavMeshAgent`.
 |---|---|
 | composites | `Sequence` (until one fails), `Selector` (until one succeeds), `Parallel { policy: All \| Any }` |
 | decorators | `Condition { key, op, value, abort }`, `Inverter`, `ForceSuccess`, `ForceFailure`, `Repeat { count }`, `Cooldown { seconds }`, `TimeLimit { seconds }` |
-| tasks | `Wait`, `MoveTo { key, acceptance }` (a `Vec3`, or an `Entity` by name, followed as it moves), `SetValue`, `ClearValue`, `Succeed`, `Fail` |
+| tasks | `Wait`, `MoveTo { key, acceptance }` (a `Vec3`, or an `Entity` by name, followed as it moves), `SetValue`, `ClearValue`, `Script { task }`, `Succeed`, `Fail` |
+| services | `Service { service, interval, child }`: runs `child`, calling a script service as the branch starts and every `interval` seconds while it runs |
+| reuse | `Subtree { path }`: another `.bt.ron` run in place, on the same blackboard |
 
 Blackboard value types: `Bool`, `Int`, `Float`, `Vec3`, `Str`, `Entity`.
 Conditions test `IsSet`, `IsNotSet`, `Equal`, `NotEqual`, `Less`,
@@ -388,6 +390,13 @@ Bsengine.bt.get("Guard", "post").x;
   task takes at least one frame, as Unreal's latent tasks do.
 - **Unregistered tasks:** a task name nobody registered fails, logged, rather
   than hanging the tree.
+- **Services:** `Bsengine.bt.service("scan", (self, bb, first) => { ... },
+  onStop)` is what a `Service(service: "scan", interval: 0.5, child: ...)`
+  calls, as Unreal's services are: `first` as its branch starts, then every
+  interval while the branch runs, and `onStop(self, bb)` when the branch
+  finishes or is aborted. Nothing waits on it and its return value is
+  ignored; its blackboard writes reach the tree's next tick. An unregistered
+  service is logged and the branch runs on.
 - **Value types:** blackboard values from scripts are numbers (whole numbers
   become `Int`), booleans, strings, `{x, y, z}` vectors and
   `Bsengine.bt.entity(name)`.

@@ -316,6 +316,7 @@ declare namespace Bsengine {
         function clear(entity: unknown, key: unknown): void;
         function entity(name: unknown): unknown;
         function get(entity: unknown, key: unknown): unknown;
+        function service(name: unknown, fn: unknown, onStop?: unknown): unknown;
         function set(entity: unknown, key: unknown, value: unknown): void;
         function task(name: unknown, fn: unknown, onAbort?: unknown): unknown;
     }

@@ -968,6 +968,8 @@ fn run_scripts(world: &mut World) {
                 let (call, first) = match r.call {
                     bsengine_core::BtScriptCall::Tick { first } => ("tick", first),
                     bsengine_core::BtScriptCall::Abort => ("abort", false),
+                    bsengine_core::BtScriptCall::Service { first } => ("service", first),
+                    bsengine_core::BtScriptCall::ServiceStop => ("service_stop", false),
                 };
                 serde_json::json!({"i": i, "entity": name, "task": r.task, "call": call, "first": first})
             })
@@ -8912,6 +8914,122 @@ function onUpdate(name) {{
             path,
             vec!["Selector", "Script(patrol)"],
             "back on patrol after the unknown task failed"
+        );
+    }
+
+    /// A service is called ahead of the branch it serves, as Unreal ticks a
+    /// node's services before the node: the target a service finds is
+    /// already on the blackboard when the task under it is first called, in
+    /// the same frame -- not a frame later, with the task's first call
+    /// seeing nothing.
+    #[test]
+    fn a_task_sees_its_service_s_write_on_its_first_call() {
+        use bsengine_core::BbValue;
+        let (mut app, guard, files) = bt_app(
+            "service_first",
+            r#"(root: Service(service: "find", interval: 10.0, child: Script(task: "attack")))"#,
+            "Bsengine.bt.service(\"find\", (self, bb) => bb.set(\"target\", \"Player\"));\n\
+             Bsengine.bt.task(\"attack\", (self, bb, first) => {\n\
+                 if (first) bb.set(\"saw\", bb.get(\"target\") || \"nothing\");\n\
+                 return \"running\";\n\
+             });\n\
+             function onUpdate(name) {}",
+        );
+        let mut frames = 0;
+        while bb_value(&app, guard, "saw").is_none() {
+            app.update();
+            frames += 1;
+            assert!(frames < 100, "the task was never called");
+        }
+        for f in files {
+            let _ = std::fs::remove_file(f);
+        }
+        assert_eq!(
+            bb_value(&app, guard, "saw"),
+            Some(BbValue::Str("Player".into()))
+        );
+    }
+
+    /// A service through the real tree and scripting: `Bsengine.bt.service`
+    /// is called each frame while its branch runs (interval 0), `first`
+    /// once, with the entity's name and a blackboard handle; when a
+    /// higher-priority branch takes over, its `onStop` is called and the
+    /// calls stop. The new branch's service is registered by nobody, which
+    /// is logged, not a failure: the branch runs on.
+    #[test]
+    fn a_tree_calls_a_script_service_while_its_branch_runs() {
+        use bsengine_core::BbValue;
+        let (mut app, guard, files) = bt_app(
+            "service",
+            r#"(root: Selector([
+                Condition(key: "alarm", op: IsSet, abort: LowerPriority, child: Service(service: "nobody", interval: 0.0, child: Wait(seconds: 100.0))),
+                Service(service: "scan", interval: 0.0, child: Wait(seconds: 100.0)),
+            ]))"#,
+            "let frames = 0;\n\
+             Bsengine.bt.service(\"scan\", (self, bb, first) => {\n\
+                 bb.set(\"scans\", (bb.get(\"scans\") || 0) + 1);\n\
+                 if (first) bb.set(\"firsts\", (bb.get(\"firsts\") || 0) + 1);\n\
+                 bb.set(\"who\", self);\n\
+                 return \"failure\";\n\
+             }, (self, bb) => bb.set(\"stopped\", bb.get(\"scans\")));\n\
+             function onUpdate(name) {\n\
+                 frames += 1;\n\
+                 if (frames === 6) Bsengine.bt.set(\"Guard\", \"alarm\", true);\n\
+             }",
+        );
+        for _ in 0..4 {
+            app.update();
+        }
+        let scans = |app: &bevy_app::App| match bb_value(app, guard, "scans") {
+            Some(BbValue::Int(n)) => n,
+            _ => 0,
+        };
+        assert!(
+            scans(&app) >= 3,
+            "premise: called again and again, got {}",
+            scans(&app)
+        );
+        assert_eq!(bb_value(&app, guard, "stopped"), None, "premise: running");
+        let mut frames = 0;
+        while bb_value(&app, guard, "stopped").is_none() {
+            app.update();
+            frames += 1;
+            assert!(frames < 100, "the service was never told to stop");
+        }
+        let at_stop = scans(&app);
+        for _ in 0..5 {
+            app.update();
+        }
+        for f in files {
+            let _ = std::fs::remove_file(f);
+        }
+        assert_eq!(
+            bb_value(&app, guard, "stopped"),
+            Some(BbValue::Int(at_stop)),
+            "onStop came after the last call"
+        );
+        assert_eq!(scans(&app), at_stop, "no calls after the stop");
+        assert_eq!(bb_value(&app, guard, "firsts"), Some(BbValue::Int(1)));
+        assert_eq!(
+            bb_value(&app, guard, "who"),
+            Some(BbValue::Str("Guard".into()))
+        );
+        // What the service returned ("failure") is not an answer: the
+        // branch it served was running when the alarm took over, and the
+        // alarm branch runs on with no service behind it.
+        let tree = app
+            .world()
+            .get::<bsengine_core::BehaviorTree>(guard)
+            .unwrap();
+        let path = tree.runtime.as_ref().unwrap().1.running_path();
+        assert_eq!(
+            path,
+            vec![
+                "Selector",
+                "Condition(alarm IsSet)",
+                "Service(nobody every 0s)",
+                "Wait(100s)"
+            ]
         );
     }
 }

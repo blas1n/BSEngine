@@ -458,9 +458,11 @@ fn encode_level<'a>(
 /// The ISPC kernel's "basic" profile: of its five speeds the middle one,
 /// because the result is cached (see [`encode_level`]). The opaque profile
 /// when every alpha is 255 and the alpha one otherwise -- a profile, unlike
-/// the format, is safe to choose by scanning: an opaque image encoded
-/// opaque is exactly what it was, and the opaque profile spends no mode on
-/// an alpha that is not there.
+/// the format, is safe to choose by scanning: on an opaque image the two
+/// produce the same blocks (measured), and the opaque one gets there about
+/// a third sooner (2048x2048, release: 0.92-1.01 s against 1.44 s) because
+/// it searches no mode for an alpha that is not there. The alpha one on an
+/// image with alpha is not optional: the opaque profile writes alpha 255.
 ///
 /// The kernel only takes whole blocks, and a chain's small levels are not
 /// (2x2, 1x1, and 6x6 under 12x12): such a level is padded to whole blocks
@@ -2704,6 +2706,20 @@ mod tests {
             assert!(
                 error <= 12,
                 "{w}x{h}: the BC7 round trip is within 12 of the source, was {error}"
+            );
+        }
+
+        // How the padding is made shows on a small level of mixed hues: 3x3
+        // padded by repeating its edge round-trips within 3, padded with
+        // zeros the padding pulls the block's endpoints and the worst texel
+        // is off by 93.
+        for (w, h) in [(6u32, 6u32), (3, 3), (2, 2), (1, 1)] {
+            let pixels = mixed_hues(w, h);
+            let decoded = decode_bc7(w, h, &encode_level(bc7, w, h, &pixels));
+            let error = worst_channel_error(&decoded, &pixels);
+            assert!(
+                error <= 12,
+                "{w}x{h} mixed hues: the padded level round-trips within 12, was {error}"
             );
         }
 

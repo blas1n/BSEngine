@@ -78,21 +78,21 @@ impl Draw {
     }
 
     /// Shaded with `texture` as its ORM map, occlusion at `strength`.
-    #[allow(dead_code)] // only pixels_orm_emissive.rs uses one
+    #[allow(dead_code)] // pixels_orm_emissive.rs and pixels_reflection_probe.rs only
     pub fn orm_mapped(mut self, texture: u64, strength: f32) -> Self {
         self.orm_map = Some((texture, strength));
         self
     }
 
     /// Emitting through `texture`, times its emissive colour.
-    #[allow(dead_code)] // only pixels_orm_emissive.rs uses one
+    #[allow(dead_code)] // pixels_orm_emissive.rs and pixels_reflection_probe.rs only
     pub fn emissive_mapped(mut self, texture: u64) -> Self {
         self.emissive_map = Some(texture);
         self
     }
 
     /// Shaded with `texture` as its normal map, at `scale`.
-    #[allow(dead_code)] // only pixels_normal_map.rs maps normals
+    #[allow(dead_code)] // pixels_normal_map.rs and pixels_reflection_probe.rs only
     pub fn normal_mapped(mut self, texture: u64, scale: f32) -> Self {
         self.normal_map = Some((texture, scale));
         self

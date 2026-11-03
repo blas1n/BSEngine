@@ -52,6 +52,22 @@ pub enum NodeKind {
     ///
     /// Input port: `"x"` (any type, required); the result has the same type.
     Fract,
+    /// The surface's world-space normal, unit length, `vec3<f32>`, with the
+    /// entity's material normal map applied (`Material::normal_map`, scaled by
+    /// `normal_scale`, in the mesh's tangent frame -- exactly as the standard
+    /// mesh shader reads it). Without a normal map it is the interpolated
+    /// vertex normal. No inputs.
+    ///
+    /// The node Unreal calls PixelNormalWS, Unity's Normal Vector (World) and
+    /// Godot's `NORMAL` after `NORMAL_MAP`: all three hand the graph the normal
+    /// the material's map produced rather than making it re-decode the map.
+    Normal,
+    /// The dot product of two vectors of the same width, `f32`.
+    ///
+    /// Input ports: `"a"` and `"b"`, both required, both `vec2<f32>` or both
+    /// `vec3<f32>`. With [`NodeKind::Normal`] and a direction it is a Lambert
+    /// term or a rim mask.
+    Dot,
     /// The shader's result. Exactly one graph node must be this.
     ///
     /// Input ports: `"color"` (`vec3<f32>`, required) and `"alpha"`

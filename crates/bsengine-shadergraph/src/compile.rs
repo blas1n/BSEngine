@@ -92,6 +92,8 @@ fn input_ports(kind: &NodeKind) -> &'static [Port] {
         NodeKind::Lerp => LERP,
         NodeKind::Step => STEP,
         NodeKind::Fract => X_ANY,
+        NodeKind::Normal => NONE,
+        NodeKind::Dot => A_B,
         NodeKind::Output => OUTPUT,
     }
 }
@@ -119,6 +121,10 @@ impl NodeKind {
     pub fn output_type(&self) -> Option<ValueType> {
         match self {
             NodeKind::Add | NodeKind::Multiply | NodeKind::Lerp | NodeKind::Fract => None,
+            // Polymorphic in, but always a scalar out -- and `result_type`
+            // cannot say so without input types (it rejects the empty map's
+            // f32 defaults as a scalar dot product).
+            NodeKind::Dot => Some(ValueType::F32),
             fixed => {
                 // Safe to discard the error: `result_type` only fails for the
                 // polymorphic kinds excluded above, whose mismatch check needs
@@ -176,9 +182,22 @@ fn result_type(
     Ok(match kind {
         NodeKind::Uv => ValueType::Vec2,
         NodeKind::Time | NodeKind::Constant(_) => ValueType::F32,
-        NodeKind::ConstantVec3(_) | NodeKind::TextureSample => ValueType::Vec3,
+        NodeKind::ConstantVec3(_) | NodeKind::TextureSample | NodeKind::Normal => ValueType::Vec3,
         NodeKind::Sin | NodeKind::Step => ValueType::F32,
         NodeKind::Fract => get("x"),
+        NodeKind::Dot => {
+            // WGSL's `dot` takes two vectors of one width; a scalar has no
+            // dot product, and broadcasting one (as `Add` does) would make
+            // `dot(f, v)` silently mean something no author wrote.
+            let (a, b) = (get("a"), get("b"));
+            if a == ValueType::F32 {
+                return Err(mismatch("a", ValueType::Vec3, a));
+            }
+            if a != b {
+                return Err(mismatch("b", a, b));
+            }
+            ValueType::F32
+        }
         NodeKind::Add | NodeKind::Multiply => {
             // WGSL broadcasts a scalar against a vector, so mixing an f32
             // with a vector is well defined and widens to the vector; two
@@ -231,6 +250,8 @@ fn expression(kind: &NodeKind, inputs: &Inputs) -> String {
         NodeKind::Lerp => format!("mix({}, {}, {})", arg("a"), arg("b"), arg("t")),
         NodeKind::Step => format!("step({}, {})", arg("edge"), arg("x")),
         NodeKind::Fract => format!("fract({})", arg("x")),
+        NodeKind::Normal => "surface_normal(in)".to_string(),
+        NodeKind::Dot => format!("dot({}, {})", arg("a"), arg("b")),
         NodeKind::Output => {
             let alpha = source(inputs, "alpha")
                 .map(binding)
@@ -306,17 +327,21 @@ struct VertIn {
     @location(1) col: vec3<f32>,
     @location(2) normal: vec3<f32>,
     @location(3) uv: vec2<f32>,
+    @location(5) tangent: vec4<f32>,
 }
-// Unlike games/mini-arena/assets/shaders/glow.wgsl's, this VertOut carries uv.
-// A generated shader emits both stages, so it owns its interstage struct, and
-// the `Uv` node reads `in.uv` in the fragment stage -- which is only there if
-// the vertex stage passed it through. Copying glow.wgsl's normal/position-only
-// VertOut would break every graph that samples a texture.
+// Unlike games/mini-arena/assets/shaders/glow.wgsl's, this VertOut carries uv
+// and the tangent. A generated shader emits both stages, so it owns its
+// interstage struct, and the `Uv` node reads `in.uv` in the fragment stage --
+// which is only there if the vertex stage passed it through. Copying
+// glow.wgsl's normal/position-only VertOut would break every graph that
+// samples a texture, and the `Normal` node needs the tangent frame the
+// material's normal map was baked in.
 struct VertOut {
     @builtin(position) clip_pos: vec4<f32>,
     @location(0) world_normal: vec3<f32>,
     @location(1) world_pos: vec3<f32>,
     @location(2) uv: vec2<f32>,
+    @location(3) world_tangent: vec4<f32>,
 }
 
 @vertex
@@ -331,6 +356,9 @@ fn vs_main(in: VertIn) -> VertOut {
         model_data.model[2].xyz,
     );
     out.world_normal = normalize(normal_matrix * in.normal);
+    // As MESH_WGSL: a direction in the surface, so the model's linear part;
+    // the fragment stage orthonormalises it against the interpolated normal.
+    out.world_tangent = vec4<f32>(normal_matrix * in.tangent.xyz, in.tangent.w);
     out.uv = in.uv;
     return out;
 }
@@ -345,6 +373,61 @@ const TEXTURE_BINDINGS: &str = r#"
 @group(3) @binding(0) var t_diffuse: texture_2d<f32>;
 @group(3) @binding(1) var s_diffuse: sampler;
 "#;
+
+/// The material normal map's group 3 bindings (`material_textures`) and
+/// `normal_mapped`, which the `Normal` node's `surface_normal` reads.
+///
+/// `normal_mapped` is a byte-for-byte copy of `normal_map_wgsl!` in
+/// `crates/bsengine-rhi-wgpu/src/surface.rs` -- the function the standard mesh
+/// shader and the probe captures call -- so a graph sees the normal the lit
+/// surface is shaded with. This crate cannot `concat!` that macro (it sits
+/// below the renderer), so `bsengine-rhi-wgpu`'s
+/// `the_shadergraph_normal_map_matches_the_mesh_pipelines` compares the two.
+///
+/// Emitted only for a graph with a `Normal` node, as [`TEXTURE_BINDINGS`] is.
+const NORMAL_BINDINGS: &str = concat!(
+    r#"
+@group(3) @binding(2) var t_normal: texture_2d<f32>;
+@group(3) @binding(3) var s_normal: sampler;
+"#,
+    r#"
+// The shading normal a tangent-space normal map gives. The tangent is made
+// perpendicular to the interpolated normal first (Gram-Schmidt): neither is
+// unit or orthogonal after interpolation, and a morph target moves the normal
+// and not the tangent. The bitangent is `cross(n, t) * w` -- glTF's and
+// MikkTSpace's convention, which is what the map was baked in. glTF's
+// `normalTexture.scale` multiplies x and y before normalising. A tangent with
+// nothing left of it (degenerate UVs) gives back the normal untouched.
+fn normal_mapped(n: vec3<f32>, tangent: vec4<f32>, uv: vec2<f32>, scale: f32) -> vec3<f32> {
+    // Sampled first: a `textureSample` after the per-fragment early return
+    // below would be in non-uniform control flow, which WGSL refuses (the
+    // implicit derivatives it needs are undefined there).
+    let m = textureSample(t_normal, s_normal, uv).xyz * 2.0 - vec3<f32>(1.0);
+    let t = tangent.xyz - n * dot(n, tangent.xyz);
+    let len = length(t);
+    if (len < 1e-6) {
+        return n;
+    }
+    let tt = t / len;
+    let b = cross(n, tt) * select(1.0, -1.0, tangent.w < 0.0);
+    return normalize(tt * (m.x * scale) + b * (m.y * scale) + n * m.z);
+}
+"#,
+    r#"
+// What the `Normal` node reads. `normal_scale` is 0 when the material has no
+// normal map (or it is not uploaded yet), and the map is skipped then, as
+// MESH_WGSL skips it: a flat texel decodes 0.0039 off flat in 8 bits, and the
+// default texture bound in its place is not a normal map at all. The value is
+// per draw, so the branch is uniform.
+fn surface_normal(in: VertOut) -> vec3<f32> {
+    let n = normalize(in.world_normal);
+    if (model_data.normal_scale != 0.0) {
+        return normal_mapped(n, in.world_tangent, in.uv, model_data.normal_scale);
+    }
+    return n;
+}
+"#
+);
 
 /// Compiles a graph to a WGSL shader.
 ///
@@ -495,9 +578,14 @@ pub fn compile(graph: &ShaderGraph) -> Result<String, GraphError> {
         .iter()
         .any(|id| nodes[id].kind == NodeKind::TextureSample);
 
+    let uses_normal = order.iter().any(|id| nodes[id].kind == NodeKind::Normal);
+
     let mut wgsl = String::from(PREAMBLE);
     if uses_texture {
         wgsl.push_str(TEXTURE_BINDINGS);
+    }
+    if uses_normal {
+        wgsl.push_str(NORMAL_BINDINGS);
     }
     wgsl.push_str("\n@fragment\nfn fs_main(in: VertOut) -> @location(0) vec4<f32> {\n");
     wgsl.push_str(&body);
@@ -737,6 +825,136 @@ mod tests {
         assert!(
             at(&with, "var t_diffuse") < at(&with, "fn fs_main"),
             "the bindings must precede the fragment stage that reads them"
+        );
+    }
+
+    /// `Normal`, dotted with a constant direction, broadcast into a colour --
+    /// the shape of a Lambert term.
+    fn lambert_graph() -> ShaderGraph {
+        ShaderGraph {
+            nodes: vec![
+                node(0, NodeKind::Normal),
+                node(1, NodeKind::ConstantVec3([0.0, 1.0, 0.0])),
+                node(2, NodeKind::Dot),
+                node(3, NodeKind::ConstantVec3([1.0, 1.0, 1.0])),
+                node(4, NodeKind::Multiply),
+                node(5, NodeKind::Output),
+            ],
+            edges: vec![
+                edge(0, 2, "a"),
+                edge(1, 2, "b"),
+                edge(3, 4, "a"),
+                edge(2, 4, "b"),
+                edge(4, 5, "color"),
+            ],
+        }
+    }
+
+    #[test]
+    fn the_normal_node_reads_the_material_normal_map_in_the_tangent_frame() {
+        let with = compile(&lambert_graph()).expect("a Lambert graph must compile");
+        for line in [
+            "let n0 = surface_normal(in);",
+            "let n2 = dot(n0, n1);",
+            "@group(3) @binding(2) var t_normal: texture_2d<f32>;",
+            "@group(3) @binding(3) var s_normal: sampler;",
+            "fn normal_mapped(",
+            "return normal_mapped(n, in.world_tangent, in.uv, model_data.normal_scale);",
+            // The tangent must reach the fragment stage, or the frame the map
+            // was baked in is unknown there.
+            "@location(5) tangent: vec4<f32>,",
+            "@location(3) world_tangent: vec4<f32>,",
+            "out.world_tangent = vec4<f32>(normal_matrix * in.tangent.xyz, in.tangent.w);",
+        ] {
+            assert!(with.contains(line), "missing `{line}` in:\n{with}");
+        }
+
+        // And the other direction, as for the texture: a graph without the
+        // node declares no normal-map binding. `t_diffuse` stays absent too --
+        // the Normal node reads the normal map, not the albedo.
+        let without = compile(&ShaderGraph {
+            nodes: vec![
+                node(0, NodeKind::ConstantVec3([1.0, 1.0, 1.0])),
+                node(1, NodeKind::Output),
+            ],
+            edges: vec![edge(0, 1, "color")],
+        })
+        .expect("the simplest graph must compile");
+        assert!(
+            !without.contains("t_normal") && !without.contains("surface_normal"),
+            "a graph without a Normal node must not declare the normal map:\n{without}"
+        );
+        assert!(!with.contains("t_diffuse"), "{with}");
+    }
+
+    #[test]
+    fn dot_takes_two_vectors_of_one_width_and_gives_a_scalar() {
+        assert_eq!(NodeKind::Dot.output_type(), Some(ValueType::F32));
+        assert_eq!(NodeKind::Normal.output_type(), Some(ValueType::Vec3));
+
+        // Vec2 . Vec2 is fine, and is a scalar: Output.alpha takes it.
+        let uv_dot = ShaderGraph {
+            nodes: vec![
+                node(0, NodeKind::Uv),
+                node(1, NodeKind::Dot),
+                node(2, NodeKind::ConstantVec3([1.0, 1.0, 1.0])),
+                node(3, NodeKind::Output),
+            ],
+            edges: vec![
+                edge(0, 1, "a"),
+                edge(0, 1, "b"),
+                edge(2, 3, "color"),
+                edge(1, 3, "alpha"),
+            ],
+        };
+        assert!(compile(&uv_dot).is_ok(), "{:?}", compile(&uv_dot));
+
+        // A Dot into the colour port is a scalar where a vec3 is needed.
+        let mut scalar_colour = lambert_graph();
+        scalar_colour.edges = vec![edge(0, 2, "a"), edge(1, 2, "b"), edge(2, 5, "color")];
+        assert_eq!(
+            compile(&scalar_colour),
+            Err(GraphError::TypeMismatch {
+                node: 5,
+                port: "color".to_string(),
+                expected: "vec3<f32>".to_string(),
+                found: "f32".to_string(),
+            })
+        );
+
+        // Mixed widths, and scalars, are refused rather than broadcast.
+        let dot_of = |a: NodeKind, b: NodeKind| ShaderGraph {
+            nodes: vec![
+                node(0, a),
+                node(1, b),
+                node(2, NodeKind::Dot),
+                node(3, NodeKind::ConstantVec3([1.0, 1.0, 1.0])),
+                node(4, NodeKind::Output),
+            ],
+            edges: vec![
+                edge(0, 2, "a"),
+                edge(1, 2, "b"),
+                edge(3, 4, "color"),
+                edge(2, 4, "alpha"),
+            ],
+        };
+        assert_eq!(
+            compile(&dot_of(NodeKind::Normal, NodeKind::Uv)),
+            Err(GraphError::TypeMismatch {
+                node: 2,
+                port: "b".to_string(),
+                expected: "vec3<f32>".to_string(),
+                found: "vec2<f32>".to_string(),
+            })
+        );
+        assert_eq!(
+            compile(&dot_of(NodeKind::Constant(1.0), NodeKind::Constant(2.0))),
+            Err(GraphError::TypeMismatch {
+                node: 2,
+                port: "a".to_string(),
+                expected: "vec3<f32>".to_string(),
+                found: "f32".to_string(),
+            })
         );
     }
 

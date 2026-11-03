@@ -18,11 +18,54 @@ const MAX_TIMED_PASSES: u32 = 16;
 /// Two timestamp queries (begin + end) per timed pass.
 const TIMESTAMP_QUERY_COUNT: u32 = MAX_TIMED_PASSES * 2;
 
+/// Every attribute of a [`Vertex`](crate::Vertex), at the locations every
+/// pipeline drawing one reads it from -- the mesh pipelines and custom shaders
+/// alike. One table, so a new vertex attribute reaches custom shaders too: a
+/// shader may leave any of them undeclared (an attribute a shader does not
+/// read is legal), but it cannot read one the layout does not offer.
+const MESH_VERTEX_ATTRIBUTES: [wgpu::VertexAttribute; 6] = [
+    wgpu::VertexAttribute {
+        format: wgpu::VertexFormat::Float32x3,
+        offset: 0,
+        shader_location: 0,
+    },
+    wgpu::VertexAttribute {
+        format: wgpu::VertexFormat::Float32x3,
+        offset: 12,
+        shader_location: 1,
+    },
+    wgpu::VertexAttribute {
+        format: wgpu::VertexFormat::Float32x3,
+        offset: 24,
+        shader_location: 2,
+    },
+    wgpu::VertexAttribute {
+        format: wgpu::VertexFormat::Float32x2,
+        offset: 36,
+        shader_location: 3,
+    },
+    // The lightmap coordinates.
+    wgpu::VertexAttribute {
+        format: wgpu::VertexFormat::Float32x2,
+        offset: 44,
+        shader_location: 4,
+    },
+    // The tangent, for normal maps.
+    wgpu::VertexAttribute {
+        format: wgpu::VertexFormat::Float32x4,
+        offset: 52,
+        shader_location: 5,
+    },
+];
+
 /// `normal_mapped`: the shading normal a tangent-space normal map gives,
 /// shared by [`MESH_WGSL`] and [`PROBE_CAPTURE_WGSL`] -- one copy, so a probe
 /// captures a normal-mapped surface lit as the camera sees it. Expects the
 /// including shader to declare `t_normal` and `s_normal` (group 3, bindings
-/// 2 and 3, `material_textures`).
+/// 2 and 3, `material_textures`). `bsengine-shadergraph` carries a copy for
+/// its `Normal` node (a crate of its own, it cannot `concat!` this one);
+/// `the_shadergraph_normal_map_matches_the_mesh_pipelines` keeps the two
+/// byte-identical.
 macro_rules! normal_map_wgsl {
     () => {
         r#"
@@ -5535,43 +5578,7 @@ impl WgpuSurface {
         let vertex_buffer_layout = wgpu::VertexBufferLayout {
             array_stride: VERTEX_STRIDE,
             step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x3,
-                    offset: 0,
-                    shader_location: 0,
-                },
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x3,
-                    offset: 12,
-                    shader_location: 1,
-                },
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x3,
-                    offset: 24,
-                    shader_location: 2,
-                },
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x2,
-                    offset: 36,
-                    shader_location: 3,
-                },
-                // The lightmap coordinates. The mesh shader reads them; the
-                // shaders that share this layout and do not declare a location
-                // 4 are unaffected (an attribute a shader leaves out is legal).
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x2,
-                    offset: 44,
-                    shader_location: 4,
-                },
-                // The tangent, for normal maps; legal to leave undeclared for
-                // the same reason as `uv2`.
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x4,
-                    offset: 52,
-                    shader_location: 5,
-                },
-            ],
+            attributes: &MESH_VERTEX_ATTRIBUTES,
         };
 
         let shadow_shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
@@ -10911,32 +10918,17 @@ impl WgpuSurface {
                 label: Some("custom shader"),
                 source: wgpu::ShaderSource::Wgsl(wgsl.into()),
             });
-        let vertex_attrs = [
-            wgpu::VertexAttribute {
-                format: wgpu::VertexFormat::Float32x3,
-                offset: 0,
-                shader_location: 0,
-            },
-            wgpu::VertexAttribute {
-                format: wgpu::VertexFormat::Float32x3,
-                offset: 12,
-                shader_location: 1,
-            },
-            wgpu::VertexAttribute {
-                format: wgpu::VertexFormat::Float32x3,
-                offset: 24,
-                shader_location: 2,
-            },
-            wgpu::VertexAttribute {
-                format: wgpu::VertexFormat::Float32x2,
-                offset: 36,
-                shader_location: 3,
-            },
-        ];
+        // The mesh pipeline's attributes, all of them: a custom shader that
+        // declares `@location(5) tangent` (or `@location(4) uv2`) needs the
+        // layout to offer it, and one that does not is unaffected. This used
+        // to be its own copy listing locations 0-3, written before the
+        // lightmap UVs and tangents existed and never updated, so a
+        // hand-written shader could not read a normal map at all -- pipeline
+        // creation refused the tangent it asked for.
         let vbl = wgpu::VertexBufferLayout {
             array_stride: VERTEX_STRIDE,
             step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &vertex_attrs,
+            attributes: &MESH_VERTEX_ATTRIBUTES,
         };
         let pipeline_desc = wgpu::RenderPipelineDescriptor {
             label: Some("custom pipeline"),
@@ -11453,6 +11445,37 @@ mod tests {
                  field -- or every generated shader will fail pipeline creation."
             );
         }
+    }
+
+    #[test]
+    fn the_shadergraph_normal_map_matches_the_mesh_pipelines() {
+        // The `Normal` node hands a graph the normal the lit surface is shaded
+        // with, which holds only while its `normal_mapped` is this crate's.
+        // A copy that drifted -- a fixed handedness, a dropped Gram-Schmidt --
+        // would compile and draw, just with a normal the standard shader never
+        // produces, so nothing but a text comparison notices.
+        let node = |id, kind| bsengine_shadergraph::GraphNode {
+            id,
+            kind,
+            position: [0.0, 0.0],
+        };
+        let graph = bsengine_shadergraph::ShaderGraph {
+            nodes: vec![
+                node(0, bsengine_shadergraph::NodeKind::Normal),
+                node(1, bsengine_shadergraph::NodeKind::Output),
+            ],
+            edges: vec![bsengine_shadergraph::Edge {
+                from: (0, "out".to_string()),
+                to: (1, "color".to_string()),
+            }],
+        };
+        let generated =
+            bsengine_shadergraph::compile(&graph).expect("Normal into Output must compile");
+        assert!(
+            generated.contains(normal_map_wgsl!()),
+            "the generated `normal_mapped` has drifted from `normal_map_wgsl!`. \
+             Copy it verbatim into bsengine-shadergraph's NORMAL_BINDINGS:\n{generated}"
+        );
     }
 
     #[test]

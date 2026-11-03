@@ -92,7 +92,7 @@ impl Draw {
     }
 
     /// Shaded with `texture` as its normal map, at `scale`.
-    #[allow(dead_code)] // pixels_normal_map.rs and pixels_reflection_probe.rs only
+    #[allow(dead_code)] // pixels_normal_map.rs, pixels_reflection_probe.rs and pixels_shadergraph.rs only
     pub fn normal_mapped(mut self, texture: u64, scale: f32) -> Self {
         self.normal_map = Some((texture, scale));
         self

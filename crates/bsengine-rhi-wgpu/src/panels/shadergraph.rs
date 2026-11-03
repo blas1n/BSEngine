@@ -478,20 +478,22 @@ impl ShaderGraphPanel {
 
 /// The node kinds the **Add Node** menu offers, in the order it lists them.
 ///
-/// All twelve, sources first: a menu that offered a subset would make the
+/// All fourteen, sources first: a menu that offered a subset would make the
 /// remaining kinds reachable only by hand-editing the RON, which is exactly
 /// the authoring route this panel exists to replace. The parameterised kinds
 /// arrive with neutral defaults -- a constant of zero and an opaque white --
 /// since a node has to exist before its parameters can be edited.
-fn addable_kinds() -> [NodeKind; 12] {
+fn addable_kinds() -> [NodeKind; 14] {
     [
         NodeKind::Uv,
         NodeKind::Time,
+        NodeKind::Normal,
         NodeKind::Constant(0.0),
         NodeKind::ConstantVec3([1.0, 1.0, 1.0]),
         NodeKind::TextureSample,
         NodeKind::Add,
         NodeKind::Multiply,
+        NodeKind::Dot,
         NodeKind::Sin,
         NodeKind::Lerp,
         NodeKind::Step,
@@ -530,6 +532,8 @@ fn node_title(kind: &NodeKind) -> String {
         NodeKind::Lerp => "Lerp".to_string(),
         NodeKind::Step => "Step".to_string(),
         NodeKind::Fract => "Fract".to_string(),
+        NodeKind::Normal => "Normal".to_string(),
+        NodeKind::Dot => "Dot".to_string(),
         NodeKind::Output => "Output".to_string(),
     }
 }

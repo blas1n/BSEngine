@@ -200,6 +200,218 @@ fn the_scroll_graph_actually_scrolls_over_time() {
     );
 }
 
+/// A 6 x 6 quad at y = 0 facing +y, `u` along +x and `v` along +z -- the
+/// fixture `pixels_normal_map.rs` reads its tangent frame from. Its tangents
+/// are generated at registration: +x, handedness -1 (`cross(+y, +x)` is -z
+/// while `v` runs along +z), so a map's green reaches +z only if the
+/// handedness is honoured.
+fn quad(h: &mut Harness) -> u64 {
+    let corner = |x: f32, z: f32| bsengine_rhi_wgpu::Vertex {
+        position: [x, 0.0, z],
+        color: [1.0; 3],
+        normal: [0.0, 1.0, 0.0],
+        uv: [x / 6.0 + 0.5, z / 6.0 + 0.5],
+        uv2: [0.0; 2],
+        tangent: [0.0; 4],
+    };
+    let v = [
+        corner(-3.0, -3.0),
+        corner(3.0, -3.0),
+        corner(3.0, 3.0),
+        corner(-3.0, 3.0),
+    ];
+    h.mesh(&v, &[0, 2, 1, 0, 3, 2])
+}
+
+/// A one-texel normal map holding the tangent-space normal `n`, linear.
+fn normal_map(h: &mut Harness, n: Vec3) -> u64 {
+    let enc = |c: f32| ((c * 0.5 + 0.5) * 255.0).round() as u8;
+    let n = n.normalize();
+    h.texture_with(
+        bsengine_core::TextureImportSettings {
+            srgb: false,
+            mipmaps: false,
+            ..Default::default()
+        },
+        1,
+        1,
+        &[enc(n.x), enc(n.y), enc(n.z), 255],
+    )
+}
+
+/// Compiles `graph` and builds its pipeline, under `key`.
+fn compiled(h: &mut Harness, graph: &bsengine_shadergraph::ShaderGraph, key: &str) -> String {
+    let wgsl = bsengine_shadergraph::compile(graph)
+        .unwrap_or_else(|e| panic!("the graph failed to compile: {e}"));
+    if let Err(e) = h.compile_shader(key, &wgsl) {
+        panic!(
+            "the generated WGSL did not survive pipeline creation: {e}\n\
+             ----- generated shader -----\n{wgsl}\n----- end -----"
+        );
+    }
+    key.to_string()
+}
+
+/// `Normal * 0.25 + 0.25` into the colour: the world normal, as a normal map
+/// encodes one but at half the brightness, so +x reads red, +y green and +z
+/// blue. Half, because the HDR output is tonemapped: at `* 0.5 + 0.5` the
+/// colours sit in the curve's shoulder, where 0.5 and 1.0 came out 211 and
+/// 234 -- too close together to tell a tilt from noise.
+fn normal_as_colour() -> bsengine_shadergraph::ShaderGraph {
+    use bsengine_shadergraph::{Edge, GraphNode, NodeKind};
+    let node = |id, kind| GraphNode {
+        id,
+        kind,
+        position: [0.0, 0.0],
+    };
+    let edge = |from: u32, to: u32, port: &str| Edge {
+        from: (from, "out".to_string()),
+        to: (to, port.to_string()),
+    };
+    bsengine_shadergraph::ShaderGraph {
+        nodes: vec![
+            node(0, NodeKind::Normal),
+            node(1, NodeKind::Constant(0.25)),
+            node(2, NodeKind::Multiply),
+            node(3, NodeKind::Add),
+            node(4, NodeKind::Output),
+        ],
+        edges: vec![
+            edge(0, 2, "a"),
+            edge(1, 2, "b"),
+            edge(2, 3, "a"),
+            edge(1, 3, "b"),
+            edge(3, 4, "color"),
+        ],
+    }
+}
+
+/// The centre pixel of the quad drawn by `shader`, from overhead.
+fn centre(h: &mut Harness, draw: Draw) -> [u8; 4] {
+    h.render(&Scene {
+        draws: vec![draw],
+        light: even_light(),
+        camera_pos: OVERHEAD,
+        ..Scene::default()
+    })
+    .centre()
+}
+
+/// The `Normal` node sees the material's normal map, in the mesh's tangent
+/// frame: a quad facing +y reads green-dominant with no map, and a map tilted
+/// 45 degrees toward +u (the tangent, +x) or +v (+z, through the handedness)
+/// tips the colour toward red or toward blue. A node that ignored the map --
+/// the vertex normal alone, which is what a graph could see before -- reads
+/// the same colour all three times; one with the bitangent's sign fixed sends
+/// +v to -z, which reads less blue than flat rather than more.
+#[test]
+fn the_normal_node_turns_with_the_material_normal_map() {
+    let mut h = Harness::new();
+    let q = quad(&mut h);
+    let shader = compiled(&mut h, &normal_as_colour(), "normal_as_colour.wgsl");
+    let tilt = |degrees: f32, along_v: bool| {
+        let (s, c) = degrees.to_radians().sin_cos();
+        if along_v {
+            Vec3::new(0.0, s, c)
+        } else {
+            Vec3::new(s, 0.0, c)
+        }
+    };
+    let toward_u = normal_map(&mut h, tilt(45.0, false));
+    let toward_v = normal_map(&mut h, tilt(45.0, true));
+
+    let flat = centre(&mut h, Draw::new(q, Vec3::ZERO).shader(&shader));
+    let along_u = centre(
+        &mut h,
+        Draw::new(q, Vec3::ZERO)
+            .normal_mapped(toward_u, 1.0)
+            .shader(&shader),
+    );
+    let along_v = centre(
+        &mut h,
+        Draw::new(q, Vec3::ZERO)
+            .normal_mapped(toward_v, 1.0)
+            .shader(&shader),
+    );
+    println!("flat {flat:?}  +u {along_u:?}  +v {along_v:?}");
+
+    // The premise: the flat quad reads its +y normal -- green over an equal
+    // red and blue -- so the shader drew, and drew the normal.
+    let [fr, fg, fb, _] = flat;
+    assert!(
+        fg > fr + 30 && fr.abs_diff(fb) <= 2,
+        "the flat quad must read +y (green over equal red and blue), saw {flat:?}"
+    );
+    // (sin 45, cos 45, 0): red up to green's level, blue unchanged.
+    let [ur, _, ub, _] = along_u;
+    assert!(
+        ur > fr + 30 && ub.abs_diff(fb) <= 2,
+        "a map tilted toward +u must turn the normal toward +x (red), saw \
+         flat {flat:?} -> {along_u:?}"
+    );
+    // (0, cos 45, sin 45): blue up, red unchanged.
+    let [vr, _, vb, _] = along_v;
+    assert!(
+        vb > fb + 30 && vr.abs_diff(fr) <= 2,
+        "a map tilted toward +v must turn the normal toward +z (blue) -- the \
+         tangent's handedness -- saw flat {flat:?} -> {along_v:?}"
+    );
+}
+
+/// A hand-written custom shader can declare the tangent: the custom pipeline
+/// offers every vertex attribute the mesh pipeline does. Its copy of the
+/// layout used to stop at location 3, so declaring `@location(5)` failed
+/// pipeline creation and no hand-written shader could read a normal map.
+/// The colour is the tangent itself, so it also proves the data arrives: the
+/// quad's is +x, red; an attribute bound to nothing would read 0, grey.
+#[test]
+fn a_hand_written_custom_shader_reads_the_vertex_tangent() {
+    const TANGENT_WGSL: &str = r#"
+struct CameraUniform {
+    view_proj: mat4x4<f32>,
+};
+@group(0) @binding(0) var<uniform> camera: CameraUniform;
+struct ModelUniform {
+    model: mat4x4<f32>,
+};
+@group(1) @binding(0) var<uniform> model_data: ModelUniform;
+
+struct VertIn {
+    @location(0) pos: vec3<f32>,
+    @location(5) tangent: vec4<f32>,
+}
+struct VertOut {
+    @builtin(position) clip_pos: vec4<f32>,
+    @location(0) tangent: vec4<f32>,
+}
+
+@vertex
+fn vs_main(in: VertIn) -> VertOut {
+    var out: VertOut;
+    out.clip_pos = camera.view_proj * model_data.model * vec4<f32>(in.pos, 1.0);
+    out.tangent = in.tangent;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
+    // Half brightness, out of the tonemapper's shoulder (see normal_as_colour).
+    return vec4<f32>(in.tangent.xyz * 0.25 + vec3<f32>(0.25), 1.0);
+}
+"#;
+    let mut h = Harness::new();
+    let q = quad(&mut h);
+    h.compile_shader("tangent.wgsl", TANGENT_WGSL)
+        .unwrap_or_else(|e| panic!("a shader declaring the tangent must compile: {e}"));
+
+    let [r, g, b, _] = centre(&mut h, Draw::new(q, Vec3::ZERO).shader("tangent.wgsl"));
+    assert!(
+        r > g + 30 && r > b + 30,
+        "the quad's tangent is +x, so the shader must read red, saw {:?}",
+        [r, g, b]
+    );
+}
+
 #[test]
 fn holding_time_still_leaves_consecutive_frames_identical() {
     let mut h = Harness::new();

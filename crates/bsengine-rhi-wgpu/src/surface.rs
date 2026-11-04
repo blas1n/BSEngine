@@ -3493,6 +3493,11 @@ fn terrain_texture_bgl_entries() -> Vec<wgpu::BindGroupLayoutEntry> {
     entries
 }
 
+/// One terrain chunk to draw: its mesh, model matrix, the four layer textures,
+/// the splat weight texture, and the four layers' normal maps (`None` draws a
+/// layer flat). Every id is a `GpuTextureRegistry` id.
+pub type TerrainDrawCall = (u64, Mat4, [u64; 4], u64, [Option<u64>; 4]);
+
 /// The binding of layer 0's normal map in the terrain's group 3; layers 1-3
 /// follow it.
 const TERRAIN_NORMAL_BINDING: u32 = 6;
@@ -8018,7 +8023,7 @@ impl WgpuSurface {
         cascades: &crate::shadow::DirectionalCascades,
         sky_vp_inv: Option<Mat4>,
         draw_calls: &[(u64, Mat4, Option<u64>, MaterialParams, Option<String>)],
-        terrain_draw_calls: &[(u64, Mat4, [u64; 4], u64, [Option<u64>; 4])],
+        terrain_draw_calls: &[TerrainDrawCall],
         // Decals to project onto this frame's opaque meshes. Empty is the
         // ordinary case and costs nothing: the depth prepass the projection
         // needs is skipped entirely, so a scene with no decals renders exactly

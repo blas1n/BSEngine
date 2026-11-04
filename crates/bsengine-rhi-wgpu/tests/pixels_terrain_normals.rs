@@ -57,6 +57,21 @@ impl Terrain {
         weight: u64,
         normals: [Option<u64>; 4],
     ) -> f32 {
+        let sun = Light {
+            direction: -(towards_light + Vec3::Y).normalize(),
+            ambient: Vec3::ZERO,
+            ..Light::default()
+        };
+        self.render_lit(h, sun, weight, normals)
+    }
+
+    fn render_lit(
+        &self,
+        h: &mut Harness,
+        light: Light,
+        weight: u64,
+        normals: [Option<u64>; 4],
+    ) -> f32 {
         let pixels = h.render(&Scene {
             terrain: vec![(
                 self.cube,
@@ -67,11 +82,7 @@ impl Terrain {
             )],
             camera_pos: Vec3::new(0.0, 6.5, 0.01),
             look_at: Vec3::new(0.0, 0.5, 0.0),
-            light: Light {
-                direction: -(towards_light + Vec3::Y).normalize(),
-                ambient: Vec3::ZERO,
-                ..Light::default()
-            },
+            light,
             bloom: Some(Bloom::default().disabled()),
             ssao: Some(AmbientOcclusion::default().disabled()),
             tone_map: Some(ToneMap::new(ToneMappingMode::None)),
@@ -175,5 +186,43 @@ fn layer_normal_maps_blend_by_the_splat_weights() {
     assert!(
         half > flat + 2.0 && half < full - 2.0,
         "half the weight leans it part of the way: {flat} < {half} < {full}"
+    );
+}
+
+/// A layer with no normal map shades exactly flat -- not almost. The stand-in
+/// it binds has to decode to exactly +z, and an eight-bit (128, 128, 255)
+/// texel decodes to 0.0039 in x and y: a fifth of a degree, nothing under
+/// the 45-degree sun above, but under a sun three degrees off the horizon it
+/// is several percent of the light, brighter from one side than the other.
+/// A flat surface lit the same from +x and from -x reads the same; that is
+/// what this holds the no-map terrain to.
+#[test]
+fn a_layer_without_a_normal_map_is_exactly_flat() {
+    let mut h = Harness::new();
+    let t = Terrain::new(&mut h);
+    let layer0 = weight(&mut h, [255, 0, 0, 0]);
+    let grazing = |from: Vec3| {
+        let up = 3.0f32.to_radians();
+        Light {
+            direction: -(from * up.cos() + Vec3::Y * up.sin()),
+            // Bright, so that the few percent of light a grazing sun leaves
+            // is still well above the eight-bit floor of the output.
+            color: Vec3::splat(15.0),
+            ambient: Vec3::ZERO,
+            ..Light::default()
+        }
+    };
+
+    let from_x = t.render_lit(&mut h, grazing(Vec3::X), layer0, [None; 4]);
+    let from_minus_x = t.render_lit(&mut h, grazing(-Vec3::X), layer0, [None; 4]);
+
+    assert!(
+        from_x > 20.0,
+        "premise: the grazing sun lights the chunk measurably: {from_x}"
+    );
+    assert!(
+        (from_x - from_minus_x).abs() < 1.0,
+        "lit the same from either side, a flat surface reads the same: \
+         {from_x} from +x, {from_minus_x} from -x"
     );
 }

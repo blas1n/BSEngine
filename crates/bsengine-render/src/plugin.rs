@@ -1239,7 +1239,7 @@ fn render_frame(
         tracing::trace!(occluded_count, "occlusion culling skipped entities");
     }
 
-    let terrain_draw_calls: Vec<(u64, Mat4, [u64; 4], u64, [Option<u64>; 4])> = render_queries
+    let terrain_draw_calls: Vec<bsengine_rhi_wgpu::TerrainDrawCall> = render_queries
         .p6()
         .iter()
         .map(|(mr, t, gt, splat)| {

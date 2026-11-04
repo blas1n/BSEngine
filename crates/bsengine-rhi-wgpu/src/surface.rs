@@ -23,6 +23,21 @@ const TIMESTAMP_QUERY_COUNT: u32 = MAX_TIMED_PASSES * 2;
 /// alike. One table, so a new vertex attribute reaches custom shaders too: a
 /// shader may leave any of them undeclared (an attribute a shader does not
 /// read is legal), but it cannot read one the layout does not offer.
+/// A vertex's position last frame, at `@location(6)` from vertex buffer slot 1
+/// (`GpuMesh::previous_vertex_buffer`): the skinned mesh's previous pose, or
+/// the mesh's own vertices for one that does not deform. A skinned mesh's
+/// motion is in its vertices, not its model matrix, so `prev_model` alone
+/// gave a running character the velocity of its root and none of its limbs
+/// -- TAA then blended a swinging arm with where it no longer was, and motion
+/// blur left it sharp. Every other mesh binds its own buffer here and reads
+/// back the very position it reads at location 0, so its velocity is
+/// exactly what it was.
+const PREVIOUS_POSITION_ATTRIBUTE: [wgpu::VertexAttribute; 1] = [wgpu::VertexAttribute {
+    format: wgpu::VertexFormat::Float32x3,
+    offset: 0,
+    shader_location: 6,
+}];
+
 const MESH_VERTEX_ATTRIBUTES: [wgpu::VertexAttribute; 6] = [
     wgpu::VertexAttribute {
         format: wgpu::VertexFormat::Float32x3,
@@ -295,6 +310,9 @@ struct VertIn {
     // The tangent a normal map is read against (`Vertex::tangent`): xyz
     // along +u, w the handedness.
     @location(5) tangent: vec4<f32>,
+    // Where this vertex was last frame, in model space -- a skinned mesh's
+    // previous pose, `pos` itself for any other (`PREVIOUS_POSITION_ATTRIBUTE`).
+    @location(6) prev_pos: vec3<f32>,
 }
 struct VertOut {
     @builtin(position) clip_pos: vec4<f32>,
@@ -319,7 +337,7 @@ fn vs_main(in: VertIn) -> VertOut {
     let world_pos4 = model_data.model * vec4<f32>(in.pos, 1.0);
     out.clip_pos = camera.view_proj * world_pos4;
     out.curr_clip = camera.unjittered_view_proj * world_pos4;
-    out.prev_clip = camera.prev_view_proj * (model_data.prev_model * vec4<f32>(in.pos, 1.0));
+    out.prev_clip = camera.prev_view_proj * (model_data.prev_model * vec4<f32>(in.prev_pos, 1.0));
     out.world_pos = world_pos4.xyz;
     out.col = in.col;
     let normal_matrix = mat3x3<f32>(
@@ -5646,6 +5664,14 @@ impl WgpuSurface {
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &MESH_VERTEX_ATTRIBUTES,
         };
+        // Slot 1 of the pipelines built on `MESH_WGSL`'s `vs_main`: the same
+        // vertices as they were last frame, of which only the position is
+        // read (`prev_pos`, for the velocity). See `PREVIOUS_POSITION_ATTRIBUTE`.
+        let previous_position_layout = wgpu::VertexBufferLayout {
+            array_stride: VERTEX_STRIDE,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &PREVIOUS_POSITION_ATTRIBUTE,
+        };
 
         let shadow_shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("shadow shader"),
@@ -6048,7 +6074,10 @@ impl WgpuSurface {
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: Some("vs_main"),
-                    buffers: &[Some(vertex_buffer_layout.clone())],
+                    buffers: &[
+                        Some(vertex_buffer_layout.clone()),
+                        Some(previous_position_layout.clone()),
+                    ],
                     compilation_options: Default::default(),
                 },
                 fragment: None,
@@ -6098,7 +6127,10 @@ impl WgpuSurface {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[Some(vertex_buffer_layout.clone())],
+                buffers: &[
+                    Some(vertex_buffer_layout.clone()),
+                    Some(previous_position_layout.clone()),
+                ],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -6149,7 +6181,10 @@ impl WgpuSurface {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[Some(vertex_buffer_layout.clone())],
+                buffers: &[
+                    Some(vertex_buffer_layout.clone()),
+                    Some(previous_position_layout.clone()),
+                ],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -6225,7 +6260,10 @@ impl WgpuSurface {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[Some(vertex_buffer_layout.clone())],
+                buffers: &[
+                    Some(vertex_buffer_layout.clone()),
+                    Some(previous_position_layout.clone()),
+                ],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -9363,6 +9401,7 @@ impl WgpuSurface {
                     let offset = (i as u64 * MODEL_STRIDE) as u32;
                     pass.set_bind_group(1, &self.model_bind_group, &[offset]);
                     pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                    pass.set_vertex_buffer(1, mesh.previous_vertex_buffer().slice(..));
                     pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                     pass.draw_indexed(0..mesh.index_count, 0, 0..1);
                 }
@@ -9381,6 +9420,7 @@ impl WgpuSurface {
                         &[(slot as u64 * MODEL_STRIDE) as u32],
                     );
                     pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                    pass.set_vertex_buffer(1, mesh.previous_vertex_buffer().slice(..));
                     pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                     pass.draw_indexed(0..mesh.index_count, 0, 0..1);
                 }
@@ -9445,6 +9485,7 @@ impl WgpuSurface {
                 pass.set_bind_group(1, &self.model_bind_group, &[offset]);
                 pass.set_bind_group(3, tex_bg, &[]);
                 pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                pass.set_vertex_buffer(1, mesh.previous_vertex_buffer().slice(..));
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
             }
@@ -9781,6 +9822,7 @@ impl WgpuSurface {
                 pass.set_bind_group(1, &self.model_bind_group, &[offset]);
                 pass.set_bind_group(3, tex_bg, &[]);
                 pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                pass.set_vertex_buffer(1, mesh.previous_vertex_buffer().slice(..));
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
                 frame_draw_calls += 1;
@@ -9941,6 +9983,7 @@ impl WgpuSurface {
                 pass.set_bind_group(1, &self.model_bind_group, &[offset]);
                 pass.set_bind_group(3, tex_bg, &[]);
                 pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                pass.set_vertex_buffer(1, mesh.previous_vertex_buffer().slice(..));
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
                 frame_draw_calls += 1;

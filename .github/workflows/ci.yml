@@ -317,11 +317,14 @@ jobs:
       # browser ("condvar wait not supported") while cube-evader, which has no
       # custom shader, stayed green. The runtime's wasm is already built by
       # the step above; this one adds the game's pak and a second page.
+      # mini-arena also saves its checkpoint every frame, so it is the one that
+      # checks a browser build's saves outlive the page (`--expect-save`: in
+      # IndexedDB, and read back after a reload).
       - name: Browser smoke test (mini-arena, headless Chrome)
         if: matrix.os == 'ubuntu-latest'
         run: |
           bash scripts/build_web.sh games/mini-arena "$RUNNER_TEMP/web-arena" --debug
-          WEBGPU_ADAPTER=swiftshader node scripts/web_smoke.mjs "$RUNNER_TEMP/web-arena" --frames 10 --timeout 300
+          WEBGPU_ADAPTER=swiftshader node scripts/web_smoke.mjs "$RUNNER_TEMP/web-arena" --frames 10 --timeout 300 --expect-save checkpoint.json
 
       - name: Test
         env:

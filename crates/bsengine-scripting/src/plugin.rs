@@ -1832,19 +1832,41 @@ fn run_scripts(world: &mut World) {
             // longer to the process's working directory, which is where it
             // used to land. Confined to that directory: `saveGame("../../x")`
             // and `saveGame("C:/x")` once wrote wherever the process could.
+            // A browser build has no directory and keeps its saves in a
+            // `SaveStore` instead (`script_save_target`); the text is the same.
             ScriptCommand::SaveGame { path } => {
-                let Some(path) = script_save_path(world, "save", &path) else {
-                    continue;
+                let result = match script_save_target(world, "save", &path) {
+                    None => continue,
+                    Some(SaveTarget::File(file)) => crate::save::save_world(world, &file),
+                    Some(SaveTarget::Store) => crate::save::world_to_json(world).and_then(|json| {
+                        world
+                            .resource_mut::<bsengine_core::SaveStore>()
+                            .write(&path, json)
+                            .map_err(|e| e.to_string())
+                    }),
                 };
-                if let Err(e) = crate::save::save_world(world, &path) {
+                if let Err(e) = result {
                     tracing::warn!("[save] {}", e);
                 }
             }
             ScriptCommand::LoadGame { path } => {
-                let Some(path) = script_save_path(world, "load", &path) else {
-                    continue;
+                let result = match script_save_target(world, "load", &path) {
+                    None => continue,
+                    Some(SaveTarget::File(file)) => crate::save::load_world(world, &file),
+                    Some(SaveTarget::Store) => {
+                        let json = world
+                            .resource::<bsengine_core::SaveStore>()
+                            .read(&path)
+                            .map_err(|e| e.to_string())
+                            .and_then(|found| {
+                                found
+                                    .map(str::to_owned)
+                                    .ok_or_else(|| format!("read: no save at {path:?}"))
+                            });
+                        json.and_then(|json| crate::save::json_into_world(world, &json))
+                    }
                 };
-                if let Err(e) = crate::save::load_world(world, &path) {
+                if let Err(e) = result {
                     tracing::warn!("[load] {}", e);
                 }
             }
@@ -3506,28 +3528,41 @@ fn script_normalised_path(what: &str, path: &str) -> Option<String> {
     }
 }
 
-/// Where a script's `Bsengine.save` / `Bsengine.load` path points, inside the
-/// app's [`bsengine_core::SaveDir`] -- or `None`, with the reason logged, when
-/// the path leaves that directory or the app has none (a browser build; an
-/// app that never said where saves go, which used to mean the working
-/// directory).
-fn script_save_path(world: &World, what: &str, path: &str) -> Option<std::path::PathBuf> {
-    let Some(dir) = world.get_resource::<bsengine_core::SaveDir>() else {
-        tracing::warn!(
-            "[scripting] {what}: {path:?} not saved or loaded -- this build has no save directory"
-        );
-        return None;
-    };
-    match dir.resolve(path) {
-        Ok(resolved) => Some(resolved),
-        Err(e) => {
-            tracing::warn!(
-                "[scripting] {what}: refused {path:?} (relative to the save directory {}): {e}",
-                dir.0.display()
-            );
-            None
-        }
+/// Where a script's save goes: a file in the save directory, or the app's
+/// [`bsengine_core::SaveStore`].
+enum SaveTarget {
+    File(std::path::PathBuf),
+    /// The store, under the script's own path, which the store checks and
+    /// normalises itself.
+    Store,
+}
+
+/// Where a script's `Bsengine.save` / `Bsengine.load` path points: inside the
+/// app's [`bsengine_core::SaveDir`], or -- in a browser, which has none -- its
+/// [`bsengine_core::SaveStore`]. `None`, with the reason logged, when the path
+/// leaves the save directory or the app has neither (one that never said where
+/// saves go, which used to mean the working directory). The directory wins if
+/// an app has both; no host gives an app both.
+fn script_save_target(world: &World, what: &str, path: &str) -> Option<SaveTarget> {
+    if let Some(dir) = world.get_resource::<bsengine_core::SaveDir>() {
+        return match dir.resolve(path) {
+            Ok(resolved) => Some(SaveTarget::File(resolved)),
+            Err(e) => {
+                tracing::warn!(
+                    "[scripting] {what}: refused {path:?} (relative to the save directory {}): {e}",
+                    dir.0.display()
+                );
+                None
+            }
+        };
     }
+    if world.contains_resource::<bsengine_core::SaveStore>() {
+        return Some(SaveTarget::Store);
+    }
+    tracing::warn!(
+        "[scripting] {what}: {path:?} not saved or loaded -- this build has no save directory"
+    );
+    None
 }
 
 /// The first path in a script-spawned entity that is not inside the project:
@@ -7248,7 +7283,7 @@ function onUpdate(name) {{
         );
     }
 
-    /// An app with no `SaveDir` -- a browser build, or one that never said
+    /// An app with no `SaveDir` and no `SaveStore` -- one that never said
     /// where saves go -- refuses `Bsengine.save` instead of falling back to
     /// the working directory, which is where every save used to land (and how
     /// a replay run from the repository left `games/mini-arena/checkpoint.json`
@@ -7309,6 +7344,101 @@ function onUpdate(name) {{
         assert!(
             !project.join(&save).exists(),
             "a save with no save directory landed in the project"
+        );
+    }
+
+    /// A browser build's saves: no `SaveDir`, a `SaveStore` instead. A
+    /// script's `save` lands in the store -- as the same text a save file
+    /// holds, waiting for the host to write it back -- and its `load` reads
+    /// what the host put there at start. The checks a save directory makes
+    /// still hold: a path that climbs out is refused, and nothing reaches the
+    /// disk.
+    #[test]
+    fn without_a_save_directory_saves_go_to_the_save_store() {
+        let base = bsengine_asset::test_support::unique("save-store");
+        let project = std::path::PathBuf::from(&base);
+        std::fs::create_dir_all(&project).unwrap();
+        let _guard = bsengine_asset::test_support::ProbeDir(project.clone());
+        std::fs::write(
+            project.join("driver.js"),
+            r#"let tick = 0;
+function onUpdate(name) {
+    tick++;
+    if (tick === 1) {
+        Bsengine.spawn({ name: "ScriptRan" });
+        Bsengine.save("slot1/checkpoint.json");
+        Bsengine.save("../escape.json");
+        Bsengine.load("earlier.json");
+    }
+}
+"#,
+        )
+        .unwrap();
+        // A save from an earlier visit, as the host read it back before the
+        // game started: one entity the running world does not have, so the
+        // load is seen by what it spawns.
+        let earlier = {
+            let mut scratch = bevy_ecs::prelude::World::new();
+            scratch.spawn((Name("FromLastVisit".to_string()), Transform::default()));
+            crate::save::world_to_json(&mut scratch).unwrap()
+        };
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: project.to_string_lossy().to_string(),
+        });
+        app.init_resource::<bsengine_core::UiState>();
+        app.insert_resource(bsengine_core::SaveStore::with_files([(
+            "earlier.json".to_string(),
+            earlier,
+        )]));
+        app.world_mut().spawn((
+            Name("Hero".to_string()),
+            ScriptPath("driver.js".to_string()),
+            // Saves keep named entities with a transform: this is the one there.
+            Transform::default(),
+        ));
+        for _ in 0..4 {
+            app.update();
+        }
+
+        let world = app.world_mut();
+        assert!(
+            world.get_resource::<bsengine_core::SaveDir>().is_none(),
+            "the premise: this app has no save directory"
+        );
+        let mut q = world.query::<&Name>();
+        let names: Vec<String> = q.iter(world).map(|n| n.0.clone()).collect();
+        assert!(
+            names.iter().any(|n| n == "ScriptRan"),
+            "the premise: the script ran the tick that saves: {names:?}"
+        );
+        assert!(
+            names.iter().any(|n| n == "FromLastVisit"),
+            "load read the save the host put in the store: {names:?}"
+        );
+        let mut store = world.resource_mut::<bsengine_core::SaveStore>();
+        let saved = store
+            .read("slot1/checkpoint.json")
+            .unwrap()
+            .expect("save wrote into the store")
+            .to_string();
+        let file: crate::save::GameSaveFile =
+            serde_json::from_str(&saved).expect("the stored save is a save file's text");
+        assert!(
+            file.entities.iter().any(|e| e.name == "Hero"),
+            "and holds the world as it was: {saved}"
+        );
+        let written: Vec<String> = store.take_written().into_iter().map(|(p, _)| p).collect();
+        assert_eq!(
+            written,
+            vec!["slot1/checkpoint.json".to_string()],
+            "the save waits to be written back; the refused one does not"
+        );
+        assert!(
+            !project.join("slot1").exists() && !std::path::Path::new("slot1").exists(),
+            "a stored save touched the disk"
         );
     }
 

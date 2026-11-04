@@ -42,6 +42,8 @@ use scene_systems::{register_scene_systems, ProjectManifest};
 
 #[cfg(target_arch = "wasm32")]
 mod web;
+#[cfg(target_arch = "wasm32")]
+mod web_saves;
 
 #[cfg(target_arch = "wasm32")]
 fn main() {
@@ -686,7 +688,8 @@ pub(crate) fn build_player_app(
     let mut app = new_app();
     // `Bsengine.save` / `load` paths, beside the log in the per-user
     // directory. None in a browser, which has no file system to put them in:
-    // a script's save there is refused with a warning.
+    // the page gives the app a `SaveStore` backed by IndexedDB instead
+    // (`web_saves`), once it has read the saves back.
     #[cfg(not(target_arch = "wasm32"))]
     app.insert_resource(bsengine_core::SaveDir::in_user_dir(&user_paths.dir));
     app.insert_resource(bsengine_core::OcclusionCullingEnabled(

@@ -112,6 +112,10 @@ pub(super) fn process_editor_commands(
                         layer2_texture_path: layer2_resolved,
                         layer3_texture_path: layer3_resolved,
                         splatmap_path: splatmap_resolved,
+                        layer0_normal_path: None,
+                        layer1_normal_path: None,
+                        layer2_normal_path: None,
+                        layer3_normal_path: None,
                     },
                     Transform::default(),
                 ));

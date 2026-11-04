@@ -1239,7 +1239,7 @@ fn render_frame(
         tracing::trace!(occluded_count, "occlusion culling skipped entities");
     }
 
-    let terrain_draw_calls: Vec<(u64, Mat4, [u64; 4], u64)> = render_queries
+    let terrain_draw_calls: Vec<(u64, Mat4, [u64; 4], u64, [Option<u64>; 4])> = render_queries
         .p6()
         .iter()
         .map(|(mr, t, gt, splat)| {
@@ -1249,6 +1249,7 @@ fn render_frame(
                 model,
                 splat.layer_texture_ids,
                 splat.weight_texture_id,
+                splat.layer_normal_texture_ids,
             )
         })
         .collect();

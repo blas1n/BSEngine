@@ -218,6 +218,7 @@ fn terrain_is_lit_by_rect_lights() {
         ),
         [white; 4],
         weight,
+        [None; 4],
     );
     let with = |rects| Scene {
         terrain: vec![terrain_wall],

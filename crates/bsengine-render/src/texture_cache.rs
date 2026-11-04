@@ -114,8 +114,13 @@ impl TextureCache {
     /// test that cannot tell those apart cannot tell a give-up from an infinite
     /// retry, which is the failure mode [`bsengine_asset::AssetSlot::GaveUp`]
     /// exists to prevent.
+    ///
+    /// Either copy counts: both are the one file, and a file that cannot be
+    /// read failed for whichever use asked ([`Self::upload_data`] too).
     pub fn gave_up(&self, path: &str) -> bool {
-        self.by_path.get(path).is_some_and(|c| c.slot.gave_up())
+        [&self.by_path, &self.by_path_data]
+            .iter()
+            .any(|m| m.get(path).is_some_and(|c| c.slot.gave_up()))
     }
 
     /// How many distinct paths have reached the GPU. Uploading each one exactly

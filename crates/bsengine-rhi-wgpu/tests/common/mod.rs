@@ -311,12 +311,13 @@ pub struct Scene {
     /// would pass whichever version it reimplemented, and a change to the real
     /// one would leave every pixel test still green.
     pub decals: Vec<bsengine_rhi_wgpu::decals::DecalDraw>,
-    /// Terrain chunks: `(mesh, model, four layer textures, weight texture)`.
+    /// Terrain chunks: `(mesh, model, four layer textures, weight texture, four
+    /// layer normal maps)`.
     ///
     /// Exposed because terrain had no pixel coverage at all -- `terrain_draw`
     /// calls `render_frame` directly and only checks that nothing panics, so
     /// anything terrain *renders* was unobservable from a test.
-    pub terrain: Vec<(u64, glam::Mat4, [u64; 4], u64)>,
+    pub terrain: Vec<(u64, glam::Mat4, [u64; 4], u64, [Option<u64>; 4])>,
     pub bloom: Option<bsengine_core::Bloom>,
     pub tone_map: Option<bsengine_core::ToneMap>,
     pub ssao: Option<bsengine_core::AmbientOcclusion>,

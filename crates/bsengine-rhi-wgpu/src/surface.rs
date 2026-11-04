@@ -1010,6 +1010,13 @@ fn decal_normal(p: vec2<i32>) -> vec4<f32> {
 @group(3) @binding(3) var t_layer3: texture_2d<f32>;
 @group(3) @binding(4) var t_weight: texture_2d<f32>;
 @group(3) @binding(5) var s_terrain: sampler;
+// Each layer's tangent-space normal map, at the layer's own tiled uv. A layer
+// without one binds a flat texel that decodes to exactly +z (`terrain_flat_normal`)
+// and leaves the surface normal exactly as it was.
+@group(3) @binding(6) var t_layer_normal0: texture_2d<f32>;
+@group(3) @binding(7) var t_layer_normal1: texture_2d<f32>;
+@group(3) @binding(8) var t_layer_normal2: texture_2d<f32>;
+@group(3) @binding(9) var t_layer_normal3: texture_2d<f32>;
 @group(2) @binding(1) var shadow_sampler: sampler_comparison;
 @group(2) @binding(2) var shadow_map: texture_depth_2d_array;
 @group(2) @binding(4) var point_shadow_map: texture_2d_array<f32>;
@@ -1172,6 +1179,27 @@ fn point_shadow_factor(light_index: u32, to_frag: vec3<f32>) -> f32 {
     }
     return 1.0;
 }
+// The shading normal the blended layer normal maps give. Terrain has no
+// vertex tangents and needs none: its layers are mapped by world position
+// (`tiled_uv` is world xz), so u runs along world +x and v along world +z
+// everywhere, and the tangent frame is those two axes laid onto the surface.
+// The tangent is +x made perpendicular to the normal (Gram-Schmidt), and the
+// bitangent `cross(t, n)` -- +z on flat ground, the direction v grows in.
+// That is what MikkTSpace gives a mesh with the same uvs (tangent +x, w = -1,
+// so `cross(n, t) * w` is this), so a normal map reads the same on terrain as
+// on a plane mapped the same way. `m` is the decoded tangent-space normal.
+// A normal with no +x left in it (a cliff facing straight along x) has no
+// frame, and keeps its own normal.
+fn terrain_normal_mapped(n: vec3<f32>, m: vec3<f32>) -> vec3<f32> {
+    let t = vec3<f32>(1.0, 0.0, 0.0) - n * n.x;
+    let len = length(t);
+    if (len < 1e-6) {
+        return n;
+    }
+    let tt = t / len;
+    let b = cross(tt, n);
+    return normalize(tt * m.x + b * m.y + n * m.z);
+}
 fn distribution_ggx(n_dot_h: f32, roughness: f32) -> f32 {
     let a = roughness * roughness;
     let a2 = a * a;
@@ -1200,7 +1228,23 @@ struct SceneOut {
 
 @fragment
 fn fs_main(in: VertOut) -> SceneOut {
-    let geom_n = normalize(in.world_normal);
+    var w = textureSample(t_weight, s_terrain, in.uv);
+    let w_sum = max(w.r + w.g + w.b + w.a, 0.0001);
+    w = w / w_sum;
+    let tiled_uv = in.world_pos.xz / TILE_SIZE;
+
+    // The layers' normal maps, blended in tangent space by the same weights
+    // as their colours and then laid onto the surface once -- what Unity's
+    // terrain shader does. Before the decals, as in the mesh shader: a decal
+    // replaces what the surface had, its normal map included.
+    let m0 = textureSample(t_layer_normal0, s_terrain, tiled_uv).xyz * 2.0 - vec3<f32>(1.0);
+    let m1 = textureSample(t_layer_normal1, s_terrain, tiled_uv).xyz * 2.0 - vec3<f32>(1.0);
+    let m2 = textureSample(t_layer_normal2, s_terrain, tiled_uv).xyz * 2.0 - vec3<f32>(1.0);
+    let m3 = textureSample(t_layer_normal3, s_terrain, tiled_uv).xyz * 2.0 - vec3<f32>(1.0);
+    let geom_n = terrain_normal_mapped(
+        normalize(in.world_normal),
+        m0 * w.r + m1 * w.g + m2 * w.b + m3 * w.a
+    );
     // A surface with no decal reads (0, 0, 0, 1) here and keeps its own normal
     // exactly.
     let dnorm = decal_normal(vec2<i32>(in.clip_pos.xy));
@@ -1209,11 +1253,6 @@ fn fs_main(in: VertOut) -> SceneOut {
     );
     let v = normalize(camera.cam_pos - in.world_pos);
 
-    var w = textureSample(t_weight, s_terrain, in.uv);
-    let w_sum = max(w.r + w.g + w.b + w.a, 0.0001);
-    w = w / w_sum;
-
-    let tiled_uv = in.world_pos.xz / TILE_SIZE;
     let c0 = textureSample(t_layer0, s_terrain, tiled_uv).rgb;
     let c1 = textureSample(t_layer1, s_terrain, tiled_uv).rgb;
     let c2 = textureSample(t_layer2, s_terrain, tiled_uv).rgb;
@@ -3041,7 +3080,7 @@ fn create_light_bind_group(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
     bindings: &LightBindings,
-    with_lightmap: bool,
+    for_terrain: bool,
 ) -> wgpu::BindGroup {
     let mut entries = vec![
         wgpu::BindGroupEntry {
@@ -3129,15 +3168,15 @@ fn create_light_bind_group(
             resource: bindings.spot_shadow_buffer.as_entire_binding(),
         },
     ];
-    // The lightmap array is the one binding the terrain's variant of this group
-    // leaves out: the terrain already binds five textures of its own, and with
-    // this one it would sit at 17 of the 16 sampled textures a pipeline may
-    // use. See `terrain_light_bgl_entries`.
-    if with_lightmap {
-        entries.push(wgpu::BindGroupEntry {
-            binding: LIGHTMAP_BINDING,
-            resource: wgpu::BindingResource::TextureView(&bindings.lightmaps.array_view),
-        });
+    entries.push(wgpu::BindGroupEntry {
+        binding: LIGHTMAP_BINDING,
+        resource: wgpu::BindingResource::TextureView(&bindings.lightmaps.array_view),
+    });
+    // The terrain's variant of the group holds only what its shader reads
+    // (`terrain_light_bgl_entries`), and a bind group must name exactly its
+    // layout's bindings -- an extra entry is a validation error.
+    if for_terrain {
+        entries.retain(|e| TERRAIN_LIGHT_BINDINGS.contains(&e.binding));
     }
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("light bg"),
@@ -3403,80 +3442,105 @@ fn light_bgl_entries() -> Vec<wgpu::BindGroupLayoutEntry> {
 /// The binding of the lightmap array in group 2.
 const LIGHTMAP_BINDING: u32 = 22;
 
-/// Group 2 as the terrain pipeline sees it: [`light_bgl_entries`] without the
-/// lightmap array. The terrain's own group 3 binds five sampled textures, so
-/// the full group (eleven before the lightmaps) already put it at the limit of
-/// sixteen; terrain has no `uv2` and takes no lightmap, so it simply leaves
-/// that one out. The bind group built against this layout holds the same
-/// buffers and views as the full one.
+/// The group-2 bindings [`TERRAIN_WGSL`] declares, and so the only ones its
+/// variant of the group carries (`terrain_light_bgl_entries`): the light
+/// uniform, the directional and point shadows, the decal buffers, the rect
+/// lights' uniform and LTC tables, the spot cookies and the spot shadows.
+/// `the_terrain_lighting_group_is_exactly_what_its_shader_declares` holds
+/// this list to the shader text, both ways.
+const TERRAIN_LIGHT_BINDINGS: [u32; 12] = [0, 1, 2, 4, 10, 14, 15, 17, 18, 19, 20, 21];
+
+/// Group 2 as the terrain pipeline sees it: [`light_bgl_entries`] cut down to
+/// [`TERRAIN_LIGHT_BINDINGS`]. WebGPU counts sampled textures across a whole
+/// pipeline, sixteen at most, and the terrain's own group 3 binds nine (four
+/// layers, their four normal maps and the weights). It used to keep every
+/// binding but the lightmap array -- eleven textures, five of them (the
+/// three IBL maps, the SSR result, the reflection probes' cubes) never read
+/// by a shader that does not sample IBL or reflections -- and was at the
+/// limit with only the five layer and weight textures, which left the layer
+/// normal maps nowhere to go. A layout may leave out what its shader does
+/// not use; the bind group built against it takes the same buffers and views
+/// as the full one, filtered the same way (`create_light_bind_group`).
 fn terrain_light_bgl_entries() -> Vec<wgpu::BindGroupLayoutEntry> {
     light_bgl_entries()
         .into_iter()
-        .filter(|e| e.binding != LIGHTMAP_BINDING)
+        .filter(|e| TERRAIN_LIGHT_BINDINGS.contains(&e.binding))
         .collect()
 }
 
 /// The terrain's group 3: four layer textures, the weight texture and their
-/// sampler. A function for the same test as [`light_bgl_entries`].
+/// sampler (0-5), then the four layers' normal maps (6-9, through the same
+/// sampler). A function for the same test as [`light_bgl_entries`].
 fn terrain_texture_bgl_entries() -> Vec<wgpu::BindGroupLayoutEntry> {
-    vec![
-        wgpu::BindGroupLayoutEntry {
-            binding: 0,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                view_dimension: wgpu::TextureViewDimension::D2,
-                multisampled: false,
-            },
-            count: None,
+    let texture = |binding| wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Texture {
+            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+            view_dimension: wgpu::TextureViewDimension::D2,
+            multisampled: false,
         },
-        wgpu::BindGroupLayoutEntry {
-            binding: 1,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                view_dimension: wgpu::TextureViewDimension::D2,
-                multisampled: false,
-            },
-            count: None,
+        count: None,
+    };
+    let mut entries: Vec<_> = (0..=4).map(texture).collect();
+    entries.push(wgpu::BindGroupLayoutEntry {
+        binding: 5,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+        count: None,
+    });
+    entries.extend((0..4).map(|i| texture(TERRAIN_NORMAL_BINDING + i)));
+    entries
+}
+
+/// One terrain chunk to draw: its mesh, model matrix, the four layer textures,
+/// the splat weight texture, and the four layers' normal maps (`None` draws a
+/// layer flat). Every id is a `GpuTextureRegistry` id.
+pub type TerrainDrawCall = (u64, Mat4, [u64; 4], u64, [Option<u64>; 4]);
+
+/// The binding of layer 0's normal map in the terrain's group 3; layers 1-3
+/// follow it.
+const TERRAIN_NORMAL_BINDING: u32 = 6;
+
+/// The normal map a terrain layer without one binds: one texel of (0.5, 0.5,
+/// 1), which the shader decodes to exactly +z. Half floats, not the
+/// material's (128, 128, 255): eight bits cannot hold 0.5, and 128 decodes to
+/// 0.0039, which would tilt every flat layer -- every terrain authored before
+/// layers had normal maps -- by a fifth of a degree. The mesh shader dodges
+/// that by skipping the map when `normal_scale` is 0; the terrain blends four
+/// maps and has no such switch, so its stand-in has to be exact instead.
+fn terrain_flat_normal(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::TextureView {
+    let size = wgpu::Extent3d {
+        width: 1,
+        height: 1,
+        depth_or_array_layers: 1,
+    };
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("terrain flat normal"),
+        size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba16Float,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    // IEEE half bits: 0.5 is 0x3800, 1.0 is 0x3C00.
+    let texel: Vec<u8> = [0x3800u16, 0x3800, 0x3C00, 0x3C00]
+        .iter()
+        .flat_map(|h| h.to_le_bytes())
+        .collect();
+    queue.write_texture(
+        texture.as_image_copy(),
+        &texel,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(8),
+            rows_per_image: None,
         },
-        wgpu::BindGroupLayoutEntry {
-            binding: 2,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                view_dimension: wgpu::TextureViewDimension::D2,
-                multisampled: false,
-            },
-            count: None,
-        },
-        wgpu::BindGroupLayoutEntry {
-            binding: 3,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                view_dimension: wgpu::TextureViewDimension::D2,
-                multisampled: false,
-            },
-            count: None,
-        },
-        wgpu::BindGroupLayoutEntry {
-            binding: 4,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                view_dimension: wgpu::TextureViewDimension::D2,
-                multisampled: false,
-            },
-            count: None,
-        },
-        wgpu::BindGroupLayoutEntry {
-            binding: 5,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-            count: None,
-        },
-    ]
+        size,
+    );
+    texture.create_view(&wgpu::TextureViewDescriptor::default())
 }
 
 /// A custom shader compiled in a browser, waiting for the device's verdict
@@ -3741,6 +3805,8 @@ pub struct WgpuSurface {
     terrain_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
     terrain_pipeline_msaa: Option<std::sync::Arc<wgpu::RenderPipeline>>,
     terrain_bgl: std::sync::Arc<wgpu::BindGroupLayout>,
+    /// What a terrain layer with no normal map binds ([`terrain_flat_normal`]).
+    terrain_flat_normal: wgpu::TextureView,
     custom_pipelines: std::collections::HashMap<String, std::sync::Arc<wgpu::RenderPipeline>>,
     /// Each custom shader's multisampled pipeline, alongside.
     custom_pipelines_msaa: std::collections::HashMap<String, std::sync::Arc<wgpu::RenderPipeline>>,
@@ -5571,9 +5637,9 @@ impl WgpuSurface {
             spot_shadow_view: &spot_shadow_view,
             spot_shadow_buffer: &spot_shadow_buffer,
         };
-        let light_bind_group = create_light_bind_group(&device, &light_bgl, &light_bindings, true);
+        let light_bind_group = create_light_bind_group(&device, &light_bgl, &light_bindings, false);
         let light_bind_group_terrain =
-            create_light_bind_group(&device, &light_bgl_terrain, &light_bindings, false);
+            create_light_bind_group(&device, &light_bgl_terrain, &light_bindings, true);
 
         let vertex_buffer_layout = wgpu::VertexBufferLayout {
             array_stride: VERTEX_STRIDE,
@@ -6228,6 +6294,7 @@ impl WgpuSurface {
             label: Some("terrain texture bgl"),
             entries: &terrain_texture_bgl_entries(),
         });
+        let terrain_flat_normal = terrain_flat_normal(&device, &queue);
 
         let terrain_shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("terrain shader"),
@@ -6446,6 +6513,7 @@ impl WgpuSurface {
             terrain_pipeline,
             terrain_pipeline_msaa,
             terrain_bgl,
+            terrain_flat_normal,
             custom_pipelines: std::collections::HashMap::new(),
             custom_pipelines_msaa: std::collections::HashMap::new(),
             #[cfg(target_arch = "wasm32")]
@@ -6895,9 +6963,9 @@ impl WgpuSurface {
             spot_shadow_view: &self.spot_shadow_view,
             spot_shadow_buffer: &self.spot_shadow_buffer,
         };
-        let bind_group = create_light_bind_group(&self.device, &self.light_bgl, &bindings, true);
+        let bind_group = create_light_bind_group(&self.device, &self.light_bgl, &bindings, false);
         let terrain_bind_group =
-            create_light_bind_group(&self.device, &self.light_bgl_terrain, &bindings, false);
+            create_light_bind_group(&self.device, &self.light_bgl_terrain, &bindings, true);
         self.light_bind_group = bind_group;
         self.light_bind_group_terrain = terrain_bind_group;
     }
@@ -7955,7 +8023,7 @@ impl WgpuSurface {
         cascades: &crate::shadow::DirectionalCascades,
         sky_vp_inv: Option<Mat4>,
         draw_calls: &[(u64, Mat4, Option<u64>, MaterialParams, Option<String>)],
-        terrain_draw_calls: &[(u64, Mat4, [u64; 4], u64)],
+        terrain_draw_calls: &[TerrainDrawCall],
         // Decals to project onto this frame's opaque meshes. Empty is the
         // ordinary case and costs nothing: the depth prepass the projection
         // needs is skipped entirely, so a scene with no decals renders exactly
@@ -9181,7 +9249,8 @@ impl WgpuSurface {
         let terrain_plan: Vec<(usize, usize)> = {
             let mut plan = Vec::new();
             let mut slot = draw_calls.len().min(MAX_OBJECTS);
-            for (i, (mesh_id, _, layer_ids, weight_id)) in terrain_draw_calls.iter().enumerate() {
+            for (i, (mesh_id, _, layer_ids, weight_id, _)) in terrain_draw_calls.iter().enumerate()
+            {
                 if slot >= MAX_OBJECTS {
                     break;
                 }
@@ -9622,13 +9691,21 @@ impl WgpuSurface {
             // is capped the same way `draw_calls` is: once it reaches
             // `MAX_OBJECTS` further terrain chunks are skipped rather than
             // overrunning `model_buffer`.
-            // The terrain's pipeline was built against the lighting group
-            // without the lightmap array (`terrain_light_bgl_entries`), so it
-            // draws with the matching bind group; the full one goes back for
-            // everything after it.
+            // The terrain's pipeline was built against its own cut of the
+            // lighting group (`terrain_light_bgl_entries`), so it draws with
+            // the matching bind group; the full one goes back for everything
+            // after it.
             pass.set_bind_group(2, &self.light_bind_group_terrain, &[]);
             for &(i, terrain_slot) in &terrain_plan {
-                let (mesh_id, _, layer_ids, weight_id) = &terrain_draw_calls[i];
+                let (mesh_id, _, layer_ids, weight_id, normal_ids) = &terrain_draw_calls[i];
+                // A layer's normal map is optional and never decides whether
+                // the chunk draws: none named, or one not on the GPU yet,
+                // binds the flat texel, which shades exactly as no map.
+                let normal_views: [&wgpu::TextureView; 4] = std::array::from_fn(|l| {
+                    normal_ids[l]
+                        .and_then(|id| tex_registry.and_then(|r| r.get_view(id)))
+                        .unwrap_or(&self.terrain_flat_normal)
+                });
                 // Every lookup below already succeeded when `terrain_plan` was
                 // built; repeated here only to get the borrows, never to decide
                 // whether this chunk draws -- that decision is the slot
@@ -9648,35 +9725,28 @@ impl WgpuSurface {
                 ) else {
                     continue;
                 };
+                let mut entries: Vec<_> = [v0, v1, v2, v3, vw]
+                    .into_iter()
+                    .enumerate()
+                    .map(|(binding, view)| wgpu::BindGroupEntry {
+                        binding: binding as u32,
+                        resource: wgpu::BindingResource::TextureView(view),
+                    })
+                    .collect();
+                entries.push(wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::Sampler(&self._sampler),
+                });
+                entries.extend(normal_views.into_iter().zip(TERRAIN_NORMAL_BINDING..).map(
+                    |(view, binding)| wgpu::BindGroupEntry {
+                        binding,
+                        resource: wgpu::BindingResource::TextureView(view),
+                    },
+                ));
                 let terrain_bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("terrain bg"),
                     layout: &self.terrain_bgl,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(v0),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::TextureView(v1),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: wgpu::BindingResource::TextureView(v2),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: wgpu::BindingResource::TextureView(v3),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 4,
-                            resource: wgpu::BindingResource::TextureView(vw),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 5,
-                            resource: wgpu::BindingResource::Sampler(&self._sampler),
-                        },
-                    ],
+                    entries: &entries,
                 });
                 pass.set_pipeline(terrain_pipeline);
                 pass.set_bind_group(
@@ -11819,6 +11889,39 @@ mod tests {
         );
     }
 
+    /// The terrain's cut of the lighting group is a list kept by hand, and
+    /// each way it can drift fails differently: a binding the shader declares
+    /// but the list lacks fails pipeline creation (loudly, but only in a run
+    /// that builds the pipeline), while a binding the list keeps but the
+    /// shader no longer reads fails nothing at all -- it just spends a slot of
+    /// the sixteen the layer normal maps needed. Both directions, from the
+    /// shader's own text.
+    #[test]
+    fn the_terrain_lighting_group_is_exactly_what_its_shader_declares() {
+        let mut declared: Vec<u32> = TERRAIN_WGSL
+            .match_indices("@group(2) @binding(")
+            .map(|(at, prefix)| {
+                let rest = &TERRAIN_WGSL[at + prefix.len()..];
+                rest[..rest.find(')').unwrap()].parse().unwrap()
+            })
+            .collect();
+        declared.sort_unstable();
+        declared.dedup();
+        assert!(
+            declared.len() > 5,
+            "premise: the scan found the shader's group-2 declarations: {declared:?}"
+        );
+        assert_eq!(declared, TERRAIN_LIGHT_BINDINGS.to_vec());
+        let layout: Vec<u32> = terrain_light_bgl_entries()
+            .iter()
+            .map(|e| e.binding)
+            .collect();
+        assert_eq!(
+            layout, declared,
+            "the layout carries every binding the list names, and only those"
+        );
+    }
+
     // The message has to be good enough to fix the shader from, not just
     // "error": this fires while someone is mid-edit, and the log line is all
     // they get. Asserts on the concrete line:column and the offending token so
@@ -11957,8 +12060,8 @@ mod tests {
         };
         let limit = wgpu::Limits::default().max_sampled_textures_per_shader_stage as usize;
         let lighting = textures(&light_bgl_entries());
-        // The terrain's group 2 leaves the lightmap array out
-        // (`terrain_light_bgl_entries`): with it the terrain would bind one
+        // The terrain's group 2 keeps only what its shader reads
+        // (`terrain_light_bgl_entries`): with all of it the terrain would bind
         // more than the limit allows.
         let terrain =
             textures(&terrain_light_bgl_entries()) + textures(&terrain_texture_bgl_entries());
@@ -11968,7 +12071,15 @@ mod tests {
         );
         assert!(
             lighting + textures(&terrain_texture_bgl_entries()) > limit,
-            "premise: with the lightmap array the terrain WOULD be over the limit,              so the variant is what keeps it under -- if this fails the variant is              no longer needed and should go"
+            "premise: with the whole lighting group the terrain WOULD be over the limit,              so the variant is what keeps it under -- if this fails the variant is              no longer needed and should go"
+        );
+        // The terrain's own group binds its four layers' normal maps: the
+        // count the budget above was spent on, asserted so that a layout
+        // which quietly dropped them could not pass for one under the limit.
+        assert_eq!(
+            textures(&terrain_texture_bgl_entries()),
+            9,
+            "four layers, four layer normal maps and the weights"
         );
         // Mesh, transparent and custom-shader pipelines: group 3 is the
         // material's textures (`material_textures`), every one of which a

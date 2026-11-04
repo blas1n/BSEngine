@@ -241,6 +241,42 @@ fn generate_terrain_chunks(
             continue;
         }
 
+        // The layers' normal maps, through the same cache but as data
+        // (`upload_data`: linear whatever the sidecar says -- decoded as sRGB,
+        // every texel would point the wrong way). Waited for like the layers,
+        // because the ids are baked into each chunk's `TerrainSplat` once and
+        // never revisited: a map that arrived a frame after the chunks would
+        // never be drawn. One that cannot load is not worth the terrain,
+        // though -- unlike a missing layer, a missing normal map has an
+        // obvious stand-in -- so that layer is drawn flat, with a warning.
+        let normal_paths = [
+            terrain.layer0_normal_path.as_deref(),
+            terrain.layer1_normal_path.as_deref(),
+            terrain.layer2_normal_path.as_deref(),
+            terrain.layer3_normal_path.as_deref(),
+        ];
+        let mut normal_ids = [None; 4];
+        let mut normals_pending = false;
+        for (i, path) in normal_paths.into_iter().enumerate() {
+            let Some(path) = path else {
+                continue;
+            };
+            match texture_cache.upload_data(path, &asset_server, &mut textures, tex_reg) {
+                Some(id) => normal_ids[i] = Some(id),
+                None if texture_cache.gave_up(path) => {
+                    warn!(
+                        "[terrain] cannot load the normal map of layer {i} ('{path}') of '{}'; \
+                         that layer is drawn flat",
+                        terrain.heightmap_path
+                    );
+                }
+                None => normals_pending = true,
+            }
+        }
+        if normals_pending {
+            continue;
+        }
+
         let params = crate::terrain_chunking::ChunkParams {
             chunk_count: terrain.chunk_count,
             chunk_size: terrain.chunk_size,
@@ -350,6 +386,7 @@ fn generate_terrain_chunks(
                 TerrainSplat {
                     weight_texture_id: weight_id,
                     layer_texture_ids: layer_ids,
+                    layer_normal_texture_ids: normal_ids,
                 },
                 LodLevels {
                     mesh_ids: vec![lod1_mesh_id, lod2_mesh_id],
@@ -579,6 +616,10 @@ mod tests {
                     layer2_texture_path: write_test_texture("no-registry-l2", [110, 80, 40, 255]),
                     layer3_texture_path: write_test_texture("no-registry-l3", [240, 240, 250, 255]),
                     splatmap_path: None,
+                    layer0_normal_path: None,
+                    layer1_normal_path: None,
+                    layer2_normal_path: None,
+                    layer3_normal_path: None,
                 },
                 Transform::default(),
             ))
@@ -624,6 +665,10 @@ mod tests {
                         [240, 240, 250, 255],
                     ),
                     splatmap_path: None,
+                    layer0_normal_path: None,
+                    layer1_normal_path: None,
+                    layer2_normal_path: None,
+                    layer3_normal_path: None,
                 },
                 Transform::default(),
             ))
@@ -681,6 +726,10 @@ mod tests {
                     layer2_texture_path: write_test_texture("chunks-l2", [110, 80, 40, 255]),
                     layer3_texture_path: write_test_texture("chunks-l3", [240, 240, 250, 255]),
                     splatmap_path: None,
+                    layer0_normal_path: None,
+                    layer1_normal_path: None,
+                    layer2_normal_path: None,
+                    layer3_normal_path: None,
                 },
                 Transform::from_position(Vec3::new(100.0, 0.0, -50.0)),
             ))
@@ -754,6 +803,10 @@ mod tests {
                     layer2_texture_path: write_test_texture("flat-drop-l2", [110, 80, 40, 255]),
                     layer3_texture_path: write_test_texture("flat-drop-l3", [240, 240, 250, 255]),
                     splatmap_path: None,
+                    layer0_normal_path: None,
+                    layer1_normal_path: None,
+                    layer2_normal_path: None,
+                    layer3_normal_path: None,
                 },
                 Transform::from_position(Vec3::ZERO),
             ))
@@ -819,6 +872,10 @@ mod tests {
                     layer2_texture_path: write_test_texture("splat-l2", [110, 80, 40, 255]),
                     layer3_texture_path: write_test_texture("splat-l3", [240, 240, 250, 255]),
                     splatmap_path: None,
+                    layer0_normal_path: None,
+                    layer1_normal_path: None,
+                    layer2_normal_path: None,
+                    layer3_normal_path: None,
                 },
                 Transform::default(),
             ))
@@ -887,6 +944,104 @@ mod tests {
         }
     }
 
+    /// A layer's normal map reaches every chunk, as the cache's *data* copy:
+    /// the linear upload, not the sRGB one a colour texture of the same file
+    /// would get -- decoded through sRGB every texel would point elsewhere.
+    /// The layers without one carry `None`, which draws them flat.
+    #[test]
+    fn a_layers_normal_map_reaches_every_chunk_as_its_linear_upload() {
+        let mut app = test_app();
+        let path = write_test_heightmap("normals", 5, 5, &[10_000u16; 25]);
+        let normal = write_test_texture("normals-n1", [200, 128, 255, 255]);
+
+        let terrain_entity = app
+            .world_mut()
+            .spawn((
+                Terrain {
+                    heightmap_path: path,
+                    chunk_count: (2, 1),
+                    chunk_size: 8.0,
+                    height_scale: 5.0,
+                    layer0_texture_path: write_test_texture("normals-l0", [50, 200, 50, 255]),
+                    layer1_texture_path: write_test_texture("normals-l1", [120, 120, 120, 255]),
+                    layer2_texture_path: write_test_texture("normals-l2", [110, 80, 40, 255]),
+                    layer3_texture_path: write_test_texture("normals-l3", [240, 240, 250, 255]),
+                    splatmap_path: None,
+                    layer0_normal_path: None,
+                    layer1_normal_path: Some(normal.clone()),
+                    layer2_normal_path: None,
+                    layer3_normal_path: None,
+                },
+                Transform::default(),
+            ))
+            .id();
+
+        run_until_generated(&mut app, terrain_entity);
+
+        let cache = app.world().resource::<TextureCache>();
+        let linear = cache
+            .id_for_data(&normal)
+            .expect("the normal map is uploaded through the cache, as data");
+        assert_eq!(
+            cache.id_for(&normal),
+            None,
+            "and only as data: no colour (sRGB) copy of it exists"
+        );
+        let mut query = app.world_mut().query::<&TerrainSplat>();
+        let splats: Vec<_> = query.iter(app.world()).collect();
+        assert_eq!(splats.len(), 2, "premise: both chunks spawned");
+        for splat in splats {
+            assert_eq!(
+                splat.layer_normal_texture_ids,
+                [None, Some(linear), None, None]
+            );
+        }
+    }
+
+    /// A normal map that cannot load is given up on -- the terrain still
+    /// spawns, that layer flat. A missing layer *colour* gives the whole
+    /// terrain up (there is nothing sensible to draw instead); a missing
+    /// normal map has an exact stand-in, and waiting on it forever would
+    /// lose the terrain to a cosmetic.
+    #[test]
+    fn a_normal_map_that_cannot_load_leaves_its_layer_flat() {
+        let mut app = test_app();
+        let path = write_test_heightmap("normals-missing", 5, 5, &[10_000u16; 25]);
+        let terrain_entity = app
+            .world_mut()
+            .spawn((
+                Terrain {
+                    heightmap_path: path,
+                    chunk_count: (1, 1),
+                    chunk_size: 8.0,
+                    height_scale: 5.0,
+                    layer0_texture_path: write_test_texture("nm-l0", [50, 200, 50, 255]),
+                    layer1_texture_path: write_test_texture("nm-l1", [120, 120, 120, 255]),
+                    layer2_texture_path: write_test_texture("nm-l2", [110, 80, 40, 255]),
+                    layer3_texture_path: write_test_texture("nm-l3", [240, 240, 250, 255]),
+                    splatmap_path: None,
+                    layer0_normal_path: Some(
+                        fixture_dir()
+                            .join("bsengine_terrain_no_such_normal_map.png")
+                            .to_str()
+                            .unwrap()
+                            .to_owned(),
+                    ),
+                    layer1_normal_path: None,
+                    layer2_normal_path: None,
+                    layer3_normal_path: None,
+                },
+                Transform::default(),
+            ))
+            .id();
+
+        run_until_generated(&mut app, terrain_entity);
+
+        let mut query = app.world_mut().query::<&TerrainSplat>();
+        let splat = query.single(app.world()).expect("the one chunk spawned");
+        assert_eq!(splat.layer_normal_texture_ids, [None; 4]);
+    }
+
     #[test]
     fn every_chunk_carries_a_terrain_chunk_of_pointing_back_to_its_terrain() {
         let mut app = test_app();
@@ -904,6 +1059,10 @@ mod tests {
                     layer2_texture_path: write_test_texture("chunk-of-l2", [110, 80, 40, 255]),
                     layer3_texture_path: write_test_texture("chunk-of-l3", [240, 240, 250, 255]),
                     splatmap_path: None,
+                    layer0_normal_path: None,
+                    layer1_normal_path: None,
+                    layer2_normal_path: None,
+                    layer3_normal_path: None,
                 },
                 Transform::default(),
             ))
@@ -955,6 +1114,10 @@ mod tests {
                     layer2_texture_path: write_test_texture("lod-l2", [110, 80, 40, 255]),
                     layer3_texture_path: write_test_texture("lod-l3", [240, 240, 250, 255]),
                     splatmap_path: None,
+                    layer0_normal_path: None,
+                    layer1_normal_path: None,
+                    layer2_normal_path: None,
+                    layer3_normal_path: None,
                 },
                 Transform::default(),
             ))
@@ -1044,6 +1207,10 @@ mod tests {
                         [240, 240, 250, 255],
                     ),
                     splatmap_path: None,
+                    layer0_normal_path: None,
+                    layer1_normal_path: None,
+                    layer2_normal_path: None,
+                    layer3_normal_path: None,
                 },
                 Transform::from_position(Vec3::ZERO),
             ))
@@ -1137,6 +1304,10 @@ mod tests {
                     layer2_texture_path: write_test_texture("occluder-l2", [110, 80, 40, 255]),
                     layer3_texture_path: write_test_texture("occluder-l3", [240, 240, 250, 255]),
                     splatmap_path: None,
+                    layer0_normal_path: None,
+                    layer1_normal_path: None,
+                    layer2_normal_path: None,
+                    layer3_normal_path: None,
                 },
                 Transform::default(),
             ))

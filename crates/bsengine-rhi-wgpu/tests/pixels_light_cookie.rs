@@ -294,6 +294,7 @@ fn terrain_takes_the_cookie_too() {
                 glam::Mat4::from_scale(Vec3::new(20.0, 1.0, 20.0)),
                 [white; 4],
                 weight,
+                [None; 4],
             )],
             camera_pos: Vec3::new(0.0, 6.5, 0.01),
             look_at: Vec3::new(0.0, 0.5, 0.0),

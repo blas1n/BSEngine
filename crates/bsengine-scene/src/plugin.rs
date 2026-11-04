@@ -816,6 +816,37 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                                                     }
                                                 }
                                             }
+                                            // The layers' normal maps are paths the
+                                            // same way, but optional. A scene that
+                                            // leaves them out has no such field in
+                                            // the proxy at all; the component's
+                                            // `#[reflect(default)]` fills it in later.
+                                            // An `Option` in the proxy is a
+                                            // `DynamicEnum`, not an `Option<String>`
+                                            // (the same proxying as above, one level
+                                            // down), so the path is `Some`'s field 0.
+                                            for field_name in [
+                                                "layer0_normal_path",
+                                                "layer1_normal_path",
+                                                "layer2_normal_path",
+                                                "layer3_normal_path",
+                                            ] {
+                                                let Some(field) = s.field_mut(field_name) else {
+                                                    continue;
+                                                };
+                                                let path = match field.reflect_mut() {
+                                                    bevy_reflect::ReflectMut::Enum(e) => e
+                                                        .field_at_mut(0)
+                                                        .and_then(|p| p.try_downcast_mut::<String>()),
+                                                    _ => None,
+                                                };
+                                                if let Some(path) = path {
+                                                    *path = bsengine_core::resolve_project_path(
+                                                        project_dir.as_ref(),
+                                                        path,
+                                                    );
+                                                }
+                                            }
                                         }
                                     }
                                     reflect_component.apply_or_insert_mapped(
@@ -2932,6 +2963,41 @@ mod tests {
         assert_eq!(terrain.layer1_texture_path, "games/demo/terrain/rock.png");
         assert_eq!(terrain.layer2_texture_path, "games/demo/terrain/dirt.png");
         assert_eq!(terrain.layer3_texture_path, "games/demo/terrain/snow.png");
+        // Written before the layers had normal maps, and so naming none: the
+        // scene still loads (`#[reflect(default)]`), as four flat layers.
+        assert!(
+            !ron.contains("normal_path"),
+            "premise: this scene predates the field"
+        );
+        assert_eq!(terrain.layer0_normal_path, None);
+        assert_eq!(terrain.layer3_normal_path, None);
+    }
+
+    #[test]
+    fn scene_plugin_terrain_layer_normal_paths_resolve_against_project_dir() {
+        let ron = r#"SceneDescriptor(entities: [
+            EntityDescriptor(name: "Ground", components: [
+                ("bsengine_scene::types::Terrain", "(heightmap_path: \"terrain/hills.png\", chunk_count: (1, 1), chunk_size: 10.0, height_scale: 1.0, layer0_texture_path: \"terrain/grass.png\", layer1_texture_path: \"terrain/rock.png\", layer2_texture_path: \"terrain/dirt.png\", layer3_texture_path: \"terrain/snow.png\", splatmap_path: None, layer1_normal_path: Some(\"terrain/rock_n.png\"), layer2_normal_path: None)"),
+            ]),
+        ])"#;
+        let path = write_temp_scene("test_terrain_layer_normal_paths.ron", ron);
+
+        let mut app = new_app();
+        app.register_type::<crate::types::Terrain>();
+        app.insert_resource(bsengine_core::ProjectDir("games/demo".to_string()));
+        app.add_plugins(ScenePlugin::from_file(&path));
+        app.update();
+
+        let mut q = app.world_mut().query::<&crate::types::Terrain>();
+        let terrain = q.iter(app.world()).next().expect("Terrain should spawn");
+        assert_eq!(
+            terrain.layer1_normal_path.as_deref(),
+            Some("games/demo/terrain/rock_n.png"),
+            "a layer's normal map is a path like its diffuse texture, and resolves the same way"
+        );
+        // Named as None, and left out altogether: both flat.
+        assert_eq!(terrain.layer2_normal_path, None);
+        assert_eq!(terrain.layer0_normal_path, None);
     }
 
     // ---- resolution by identity (roadmap item 30, sub-item C) -------------

@@ -1119,6 +1119,10 @@ mod tests {
                         [240, 240, 250, 255],
                     ),
                     splatmap_path: None,
+                    layer0_normal_path: None,
+                    layer1_normal_path: None,
+                    layer2_normal_path: None,
+                    layer3_normal_path: None,
                 },
                 Transform::from_position(Vec3::ZERO),
             ))

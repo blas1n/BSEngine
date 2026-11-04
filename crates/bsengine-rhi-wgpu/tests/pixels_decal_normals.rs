@@ -163,6 +163,7 @@ fn a_normal_decal_lands_on_terrain_too() {
             Mat4::from_scale(Vec3::new(20.0, 1.0, 20.0)),
             layers,
             weight,
+            [None; 4],
         )],
         draws: Vec::new(),
         ..scene(plane, decals)

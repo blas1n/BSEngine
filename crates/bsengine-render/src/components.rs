@@ -29,6 +29,10 @@ pub struct TerrainSplat {
     /// same `Terrain` entity, sampled at a world-space tiled UV. Index order
     /// matches `splat_weight_for`'s [grass, rock, dirt, snow] channel order.
     pub layer_texture_ids: [u64; 4],
+    /// GPU texture ids of the 4 layers' tangent-space normal maps, in the same
+    /// order, sampled at the same tiled UV. `None` for a layer with no normal
+    /// map (`Terrain::layer_normal_paths`), which shades as a flat surface.
+    pub layer_normal_texture_ids: [Option<u64>; 4],
 }
 
 /// Extra, lower-detail mesh alternatives for an entity, switched by camera
@@ -116,9 +120,11 @@ mod tests {
         let ts = TerrainSplat {
             weight_texture_id: 7,
             layer_texture_ids: [1, 2, 3, 4],
+            layer_normal_texture_ids: [None, Some(5), None, None],
         };
         assert_eq!(ts.weight_texture_id, 7);
         assert_eq!(ts.layer_texture_ids, [1, 2, 3, 4]);
+        assert_eq!(ts.layer_normal_texture_ids, [None, Some(5), None, None]);
     }
 
     #[test]

@@ -281,6 +281,7 @@ fn terrain_keeps_no_velocity_over_a_hidden_moving_object() {
         ),
         [grey; 4],
         weight,
+        [None; 4],
     );
     let s = |square: Draw| Scene {
         terrain: vec![wall],

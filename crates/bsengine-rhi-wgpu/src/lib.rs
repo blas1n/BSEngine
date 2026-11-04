@@ -98,7 +98,7 @@ pub use plugin::{GpuQueueResource, RetainCpuMeshCopies, ShippedMipCacheResource,
 pub use skinning::{GpuVertexSkin, MorphDeltas};
 pub use surface::{
     LightData, MaterialParams, PointLightEntry, ProbeVolumeParams, ReflectionProbeParams,
-    SpotLightEntry, WgpuSurfaceResource,
+    SpotLightEntry, TerrainDrawCall, WgpuSurfaceResource,
 };
 pub use texture::{
     precook_mip_cache, GpuTextureRegistry, ShippedMipCache, StreamingStep, SHIPPED_MIP_DIR,

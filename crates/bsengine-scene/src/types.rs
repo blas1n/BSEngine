@@ -781,6 +781,26 @@ pub struct Terrain {
     pub layer2_texture_path: String,
     /// Diffuse texture for the high-altitude splat layer (e.g. snow).
     pub layer3_texture_path: String,
+    /// Tangent-space normal map for layer 0, tiled like its diffuse texture,
+    /// or `None` for a flat layer. Unity's `TerrainLayer.normalMapTexture`
+    /// and Godot Terrain3D's per-texture normal map; the four layers' maps
+    /// blend by the same splat weights as their colours. Read as data (linear,
+    /// whatever the image's sidecar says), like a material's normal map.
+    ///
+    /// `#[reflect(default)]` on these four: a scene written before they
+    /// existed leaves them out, and reads back as four flat layers -- exactly
+    /// what it drew then.
+    #[reflect(default)]
+    pub layer0_normal_path: Option<String>,
+    /// Layer 1's normal map; see [`Self::layer0_normal_path`].
+    #[reflect(default)]
+    pub layer1_normal_path: Option<String>,
+    /// Layer 2's normal map; see [`Self::layer0_normal_path`].
+    #[reflect(default)]
+    pub layer2_normal_path: Option<String>,
+    /// Layer 3's normal map; see [`Self::layer0_normal_path`].
+    #[reflect(default)]
+    pub layer3_normal_path: Option<String>,
     /// Path to a whole-terrain RGBA8 splatmap image, one channel per layer
     /// (same [grass, rock, dirt, snow] order `splat_weight_for` packs).
     /// `None` means every chunk's splat weights are still generated

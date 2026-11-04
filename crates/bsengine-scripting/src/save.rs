@@ -61,6 +61,22 @@ pub struct TransformSave {
 /// Entities without Transform are skipped. SaveData fields are included when present.
 pub fn save_world(world: &mut World, path: impl AsRef<Path>) -> Result<(), String> {
     let path = path.as_ref();
+    let json = world_to_json(world)?;
+
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).map_err(|e| format!("mkdir: {e}"))?;
+        }
+    }
+
+    fs::write(path, json).map_err(|e| format!("write: {e}"))?;
+    Ok(())
+}
+
+/// What [`save_world`] writes, as text: the one serialisation both a save
+/// file and a [`bsengine_core::SaveStore`] entry hold, so a save made in a
+/// browser is byte for byte the file a desktop build would have written.
+pub fn world_to_json(world: &mut World) -> Result<String, String> {
     let mut q = world.query::<(&Name, &Transform, Option<&SaveData>)>();
     let entity_saves: Vec<EntitySave> = q
         .iter(world)
@@ -99,24 +115,20 @@ pub fn save_world(world: &mut World, path: impl AsRef<Path>) -> Result<(), Strin
         entities: entity_saves,
     };
 
-    let json = serde_json::to_string_pretty(&save_file).map_err(|e| format!("serialize: {e}"))?;
-
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent).map_err(|e| format!("mkdir: {e}"))?;
-        }
-    }
-
-    fs::write(path, json).map_err(|e| format!("write: {e}"))?;
-    Ok(())
+    serde_json::to_string_pretty(&save_file).map_err(|e| format!("serialize: {e}"))
 }
 
 /// Load entities from a JSON save file. Existing entities (matched by name) have
 /// their Transform and SaveData updated. Unknown entities are spawned fresh.
 pub fn load_world(world: &mut World, path: impl AsRef<Path>) -> Result<(), String> {
     let json = fs::read_to_string(path).map_err(|e| format!("read: {e}"))?;
+    json_into_world(world, &json)
+}
+
+/// [`load_world`] from the text [`world_to_json`] made, wherever it was kept.
+pub fn json_into_world(world: &mut World, json: &str) -> Result<(), String> {
     let save_file: GameSaveFile =
-        serde_json::from_str(&json).map_err(|e| format!("deserialize: {e}"))?;
+        serde_json::from_str(json).map_err(|e| format!("deserialize: {e}"))?;
 
     for es in &save_file.entities {
         let entity: Option<Entity> = {

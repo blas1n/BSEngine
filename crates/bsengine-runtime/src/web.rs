@@ -41,7 +41,16 @@ async fn run() -> Result<(), String> {
         .map_err(|e| format!("{url} is not a game archive: {e}"))?;
     let pak = Arc::new(pak);
     bsengine_asset::pak_source::install(pak.clone(), PROJECT_DIR);
+    // The saves, read back before the app exists: IndexedDB is asynchronous
+    // and a script's `load` is not, so a game that loads its checkpoint on
+    // its first frame has to find it already there (`web_saves`).
+    let project = crate::read_manifest(PROJECT_DIR, Some(pak.as_ref()))
+        .project
+        .name;
+    let saves = crate::web_saves::open(&project).await;
     let mut app = crate::build_player_app(PROJECT_DIR, Some(pak));
+    app.insert_resource(saves);
+    app.add_systems(bevy_app::Last, crate::web_saves::flush);
     report_frames(&mut app);
     app.run();
     Ok(())

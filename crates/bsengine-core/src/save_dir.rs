@@ -1,5 +1,6 @@
 //! Where a game's save files live.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use bevy_ecs::prelude::Resource;
@@ -22,9 +23,9 @@ use crate::project_dir::{project_path, ProjectPathError};
 /// there, `Bsengine.save("logs/game.log")` would overwrite the running game's
 /// own log.
 ///
-/// No resource, no saves. A browser build has no file system (Unity and Godot
-/// keep web saves in IndexedDB; this engine does not yet), and an app that
-/// never said where saves go refuses them rather than guessing -- the guess
+/// A browser build has no file system and keeps its saves in a [`SaveStore`]
+/// instead. With neither resource there are no saves: an app that never said
+/// where saves go refuses them rather than guessing -- the guess
 /// used to be the working directory, which is how a replay run from the
 /// repository root left `games/mini-arena/checkpoint.json` behind.
 #[derive(Resource, Debug, Clone, PartialEq, Eq)]
@@ -80,9 +81,139 @@ impl SaveDir {
     }
 }
 
+/// Save files held in memory, for a build with no file system to put them in
+/// -- a browser.
+///
+/// Unity's WebGL player and Godot's web export both keep saves in the page's
+/// IndexedDB (Unity mounts it at `persistentDataPath`, Godot at `user://`),
+/// and both work the same way round: IndexedDB is asynchronous and a script's
+/// save is not, so the files are read into memory once, before the game
+/// starts, every save changes the memory copy at once and is written back to
+/// IndexedDB behind it (Emscripten's IDBFS, which both use, syncs exactly
+/// so). This is that memory copy. The host fills it with what it found
+/// ([`Self::with_files`]) and drains [`Self::take_written`] into IndexedDB;
+/// nothing here knows about the browser, so the same store is testable on a
+/// desktop.
+///
+/// Paths are checked and normalised the way [`SaveDir::resolve`] checks them,
+/// so a script's `save("a\\..\\b.json")` names the same file in both and
+/// `save("../x")` is refused in both.
+#[derive(Resource, Debug, Clone, Default, PartialEq, Eq)]
+pub struct SaveStore {
+    files: BTreeMap<String, String>,
+    /// Paths saved since the host last took them, oldest first, each once.
+    written: Vec<String>,
+}
+
+impl SaveStore {
+    /// A store holding `files` (normalised path -> contents), as the host
+    /// read them back -- none of them waiting to be written.
+    pub fn with_files(files: impl IntoIterator<Item = (String, String)>) -> Self {
+        Self {
+            files: files.into_iter().collect(),
+            written: Vec::new(),
+        }
+    }
+
+    /// How many save files the store holds.
+    pub fn len(&self) -> usize {
+        self.files.len()
+    }
+
+    /// Whether the store holds no save files at all.
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty()
+    }
+
+    /// The saved contents at `path`, if a file is there.
+    pub fn read(&self, path: &str) -> Result<Option<&str>, ProjectPathError> {
+        Ok(self.files.get(&project_path(path)?).map(String::as_str))
+    }
+
+    /// Saves `contents` at `path`, replacing what was there, and marks it for
+    /// the host to write back.
+    pub fn write(&mut self, path: &str, contents: String) -> Result<(), ProjectPathError> {
+        let path = project_path(path)?;
+        if !self.written.contains(&path) {
+            self.written.push(path.clone());
+        }
+        self.files.insert(path, contents);
+        Ok(())
+    }
+
+    /// Every file saved since the last call, with its contents now: what the
+    /// host has to write back. A file saved twice in between is written once,
+    /// as it is now -- mini-arena saves its checkpoint every frame, and the
+    /// browser has no use for the 59 copies of it a second overwrote.
+    pub fn take_written(&mut self) -> Vec<(String, String)> {
+        std::mem::take(&mut self.written)
+            .into_iter()
+            .filter_map(|path| {
+                let contents = self.files.get(&path)?.clone();
+                Some((path, contents))
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stored_save_reads_back_under_the_path_it_was_saved_at() {
+        let mut store = SaveStore::default();
+        store
+            .write("slot1/checkpoint.json", "one".to_string())
+            .unwrap();
+        assert_eq!(store.read("slot1/checkpoint.json"), Ok(Some("one")));
+        // Normalised as `SaveDir::resolve` normalises: the same file.
+        assert_eq!(store.read("slot1\\x\\..\\checkpoint.json"), Ok(Some("one")));
+        assert_eq!(store.read("slot2.json"), Ok(None));
+        store
+            .write("slot1/checkpoint.json", "two".to_string())
+            .unwrap();
+        assert_eq!(store.read("slot1/checkpoint.json"), Ok(Some("two")));
+    }
+
+    #[test]
+    fn a_store_refuses_the_paths_a_save_directory_refuses() {
+        let mut store = SaveStore::default();
+        assert_eq!(
+            store.write("../logs/game.log", String::new()),
+            Err(ProjectPathError::Escapes)
+        );
+        assert_eq!(
+            store.write("C:/x", String::new()),
+            Err(ProjectPathError::Colon)
+        );
+        assert_eq!(store.read("/etc/x"), Err(ProjectPathError::Absolute));
+        assert!(
+            store.take_written().is_empty(),
+            "a refused save left something to write back"
+        );
+    }
+
+    #[test]
+    fn what_is_written_back_is_each_saved_file_once_as_it_is_now() {
+        let mut store = SaveStore::with_files([("old.json".to_string(), "kept".to_string())]);
+        assert!(
+            store.take_written().is_empty(),
+            "the files the host read back are not waiting to be written"
+        );
+        store.write("a.json", "1".to_string()).unwrap();
+        store.write("b.json", "x".to_string()).unwrap();
+        store.write("a.json", "2".to_string()).unwrap();
+        assert_eq!(
+            store.take_written(),
+            vec![
+                ("a.json".to_string(), "2".to_string()),
+                ("b.json".to_string(), "x".to_string()),
+            ]
+        );
+        assert!(store.take_written().is_empty(), "taken once");
+        assert_eq!(store.read("old.json"), Ok(Some("kept")));
+    }
 
     #[test]
     fn saves_are_a_folder_of_the_user_directory() {

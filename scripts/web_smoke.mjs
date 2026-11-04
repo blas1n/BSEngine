@@ -2,6 +2,7 @@
 // fails unless the game draws.
 //
 // usage: node scripts/web_smoke.mjs <web-build-dir> [--frames N] [--timeout S]
+//          [--screenshot out.png] [--expect-save <path>]
 //   BROWSER=<path>    Chrome, Chromium or Edge; found on PATH / the usual
 //                     install locations otherwise.
 //   WEBGPU_ADAPTER=swiftshader
@@ -15,6 +16,13 @@
 // a shader the browser rejects leaves draw calls counted and the canvas
 // black, with only a console warning ("Error while parsing WGSL: ...") to say
 // so.
+//
+// `--expect-save <path>`: the game saves `<path>` (`Bsengine.save`) while it
+// runs. Then also: once the frames are in, the save is in the page's
+// IndexedDB as a save file's text; and after a reload the game starts with it
+// read back (`web saves: N restored`, N > 0). A save that only reached memory
+// passes the first frames and is gone on the next visit -- which is what a
+// browser build's saves were before they had IndexedDB, at best.
 //
 // Node 22+ (global fetch and WebSocket); no dependencies.
 import { spawn } from 'node:child_process';
@@ -33,9 +41,10 @@ const timeoutS = Number(opt('--timeout', '120'));
 // The page as drawn once it passes, as a PNG: what the counts above cannot
 // say -- whether the frame looks like the native one.
 const screenshot = opt('--screenshot', undefined);
+const expectSave = opt('--expect-save', undefined);
 const root = resolve(args[0] ?? '');
 if (!args[0] || !existsSync(join(root, 'index.html'))) {
-  console.error('usage: node scripts/web_smoke.mjs <web-build-dir> [--frames N] [--timeout S] [--screenshot out.png]');
+  console.error('usage: node scripts/web_smoke.mjs <web-build-dir> [--frames N] [--timeout S] [--screenshot out.png] [--expect-save <path>]');
   process.exit(2);
 }
 
@@ -91,6 +100,9 @@ if (!browser) {
 }
 
 const failures = [];
+// The count the engine logs when it reads the saves back at start
+// (`web_saves::open`); undefined until it has.
+let restored;
 let finished = false;
 const finish = (code) => {
   if (finished) return;
@@ -136,6 +148,8 @@ ws.addEventListener('message', (e) => {
     // tracing-wasm styles its lines: "%cLEVEL%c file:line%c message", css...
     const text = msg.params.args.map((a) => a.value ?? a.description ?? '').join(' ');
     const level = text.match(/^%c(\w+)%c/)?.[1];
+    const back = text.match(/web saves: (\d+) restored/);
+    if (back) restored = Number(back[1]);
     if (msg.params.type === 'error' || level === 'ERROR') failures.push(`console: ${text}`);
     // A scene component the page could not find by type path is dropped and
     // the game still draws -- which is how every scene's `Material` went
@@ -165,40 +179,100 @@ await send('Log.enable');
 await send('Page.navigate', { url: pageUrl });
 console.log(`web smoke: ${pageUrl} (want ${wantFrames} frames)`);
 
-let last = '';
-for (;;) {
-  await new Promise((r) => setTimeout(r, 500));
-  if (failures.length) {
-    console.error(`FAIL:\n  ${failures.join('\n  ').slice(0, 4000)}`);
-    finish(1);
-    break;
+// Waits until the page has drawn `wantFrames` frames; false (with the
+// reason printed and the run failed) if anything went wrong first.
+const drewFrames = async () => {
+  let last = '';
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 500));
+    if (failures.length) {
+      console.error(`FAIL:\n  ${failures.join('\n  ').slice(0, 4000)}`);
+      finish(1);
+      return false;
+    }
+    const res = await send('Runtime.evaluate', {
+      expression: "document.getElementById('bsengine-status')?.textContent ?? ''",
+      returnByValue: true,
+    });
+    const status = res.result?.result?.value ?? '';
+    if (status !== last && !/^frames=/.test(status)) console.log(`  status: ${status}`);
+    last = status;
+    if (status.startsWith('error')) {
+      console.error(`FAIL: ${status}`);
+      finish(1);
+      return false;
+    }
+    const m = status.match(/frames=(\d+) draw_calls=(\d+)/);
+    if (m && Number(m[1]) >= wantFrames) {
+      if (Number(m[2]) === 0) {
+        console.error(`FAIL: ${status} -- frames ran, nothing was drawn`);
+        finish(1);
+        return false;
+      }
+      console.log(`  drawn: ${status}`);
+      return true;
+    }
   }
+};
+
+// The text of `path` in whichever of the engine's save databases holds it
+// (`web_saves`: one per project, `bsengine-saves/<name>`), or null.
+const savedText = async (path) => {
   const res = await send('Runtime.evaluate', {
-    expression: "document.getElementById('bsengine-status')?.textContent ?? ''",
+    expression: `(async () => {
+      for (const { name } of await indexedDB.databases()) {
+        if (!name.startsWith('bsengine-saves/')) continue;
+        const db = await new Promise((ok, no) => {
+          const r = indexedDB.open(name);
+          r.onsuccess = () => ok(r.result);
+          r.onerror = () => no(r.error);
+        });
+        const value = await new Promise((ok) => {
+          const r = db.transaction('saves').objectStore('saves').get(${JSON.stringify(path)});
+          r.onsuccess = () => ok(r.result);
+          r.onerror = () => ok(undefined);
+        });
+        db.close();
+        if (typeof value === 'string') return value;
+      }
+      return null;
+    })()`,
+    awaitPromise: true,
     returnByValue: true,
   });
-  const status = res.result?.result?.value ?? '';
-  if (status !== last && !/^frames=/.test(status)) console.log(`  status: ${status}`);
-  last = status;
-  if (status.startsWith('error')) {
-    console.error(`FAIL: ${status}`);
-    finish(1);
-    break;
+  return res.result?.result?.value ?? null;
+};
+
+if (await drewFrames()) {
+  if (screenshot) {
+    const shot = await send('Page.captureScreenshot', { format: 'png' });
+    writeFileSync(screenshot, Buffer.from(shot.result.data, 'base64'));
+    console.log(`  screenshot: ${screenshot}`);
   }
-  const m = status.match(/frames=(\d+) draw_calls=(\d+)/);
-  if (m && Number(m[1]) >= wantFrames) {
-    if (Number(m[2]) === 0) {
-      console.error(`FAIL: ${status} -- frames ran, nothing was drawn`);
+  if (!expectSave) {
+    console.log('PASS');
+    finish(0);
+  } else {
+    const text = await savedText(expectSave);
+    let entities;
+    try { entities = JSON.parse(text).entities; } catch {}
+    if (!Array.isArray(entities)) {
+      console.error(`FAIL: ${expectSave} is not in IndexedDB as a save file (found: ${String(text).slice(0, 200)})`);
       finish(1);
     } else {
-      if (screenshot) {
-        const shot = await send('Page.captureScreenshot', { format: 'png' });
-        writeFileSync(screenshot, Buffer.from(shot.result.data, 'base64'));
-        console.log(`  screenshot: ${screenshot}`);
+      console.log(`  saved: ${expectSave} in IndexedDB, ${entities.length} entities`);
+      // The next visit: the same profile, so the same IndexedDB.
+      restored = undefined;
+      await send('Page.reload');
+      if (await drewFrames()) {
+        if (!(restored > 0)) {
+          console.error(`FAIL: after a reload the game did not read its saves back (restored: ${restored})`);
+          finish(1);
+        } else {
+          console.log(`PASS: ${restored} save(s) read back after a reload`);
+          finish(0);
+        }
       }
-      console.log(`PASS: ${status}`);
-      finish(0);
     }
-    break;
   }
 }

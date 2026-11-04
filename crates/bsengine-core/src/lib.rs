@@ -255,7 +255,7 @@ pub use reflection_probe::{ReflectionProbe, MAX_REFLECTION_PROBES};
 pub use root_motion::RootMotion;
 pub use rpc_state::{OutgoingRpc, RpcCall, RpcQueues, RpcTarget};
 pub use save_data::SaveData;
-pub use save_dir::SaveDir;
+pub use save_dir::{SaveDir, SaveStore};
 pub use screen_size::ScreenSize;
 pub use screen_space_gi::ScreenSpaceGlobalIllumination;
 pub use screen_space_reflections::ScreenSpaceReflections;

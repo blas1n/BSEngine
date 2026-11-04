@@ -602,12 +602,11 @@ impl GpuMeshRegistry {
                 );
             }
         };
+        // A first pose is copied here too, and again after its dispatch below,
+        // which is the copy that counts; skipping this one would only save a
+        // copy of the rest pose on a mesh's first frame.
         for id in pending.iter().chain(&held) {
-            let Some(mesh) = self.meshes.get(id) else {
-                continue;
-            };
-            let first_pose = mesh.skinned.as_ref().is_some_and(|s| !s.posed);
-            if !first_pose {
+            if let Some(mesh) = self.meshes.get(id) {
                 to_previous(&mut encoder, mesh);
             }
         }

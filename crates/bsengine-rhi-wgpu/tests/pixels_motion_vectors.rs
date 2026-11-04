@@ -566,15 +566,22 @@ fn joint_at(x: f32) -> [Mat4; 1] {
 fn a_skinned_mesh_writes_the_motion_of_its_pose() {
     let mut h = Harness::new();
     let cube = h.cube();
-    // The reference: the plain square, moved by its model matrix.
+    // The reference: the plain square, moved by its model matrix from 0.3
+    // to 0.6.
     h.render_moving(
-        &scene(vec![backdrop(cube), square_at(cube, 0.0)]),
-        &scene(vec![backdrop(cube), moved(cube, 0.0, 0.6)]),
+        &scene(vec![backdrop(cube), square_at(cube, 0.3)]),
+        &scene(vec![backdrop(cube), moved(cube, 0.3, 0.6)]),
     );
     let reference = h.velocity();
 
+    // The pose moves twice running -- 0, then 0.05 (0.3 in the world), then
+    // 0.1 -- and the second move is the one measured: the previous frame has
+    // to be the 0.05 pose, copied before the dispatch that overwrote it. A
+    // single move from a first pose would read right with no such copy at
+    // all, since the first pose's own copy already put it there.
     let (skinned, draw) = skinned_square(&mut h);
     h.skin(skinned, &joint_at(0.0));
+    h.skin(skinned, &joint_at(0.05));
     let s = scene(vec![backdrop(cube), draw]);
     let after = h.render_moving_with(
         &s,
@@ -589,7 +596,7 @@ fn a_skinned_mesh_writes_the_motion_of_its_pose() {
     let (x, y) = ((left + right) / 2, HEIGHT / 2);
     let [rx, ry] = at(&reference, x, y);
     assert!(
-        rx * WIDTH as f32 >= 3.0,
+        rx * WIDTH as f32 >= 1.0,
         "premise: the reference square moved on screen: {} px",
         rx * WIDTH as f32
     );

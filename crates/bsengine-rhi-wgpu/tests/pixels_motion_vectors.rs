@@ -543,3 +543,122 @@ fn motion_blur_reprojects_by_the_camera_where_no_velocity_was_written() {
         custom.describe()
     );
 }
+
+/// The square as a skinned mesh standing still at the origin: whatever
+/// moves it is the pose -- the one joint every vertex follows -- not its model
+/// matrix. The joint moves in the mesh's own space, which `square_at`
+/// scales by 6 in x, so a joint shift of 0.1 is the 0.6 the plain square
+/// moves in `a_moving_object_writes_its_own_motion`.
+fn skinned_square(h: &mut Harness) -> (u64, Draw) {
+    let skinned = h.skinned_cube(1);
+    (skinned, square_at(skinned, 0.0))
+}
+
+fn joint_at(x: f32) -> [Mat4; 1] {
+    [Mat4::from_translation(Vec3::new(x, 0.0, 0.0))]
+}
+
+/// A skinned mesh whose bones move writes that motion, exactly as an entity
+/// that moved as far does. It used to write only its model matrix's motion
+/// -- none here -- so a walking character's swinging limbs were still to TAA
+/// and to motion blur: smeared by one, left sharp by the other.
+#[test]
+fn a_skinned_mesh_writes_the_motion_of_its_pose() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    // The reference: the plain square, moved by its model matrix from 0.3
+    // to 0.6.
+    h.render_moving(
+        &scene(vec![backdrop(cube), square_at(cube, 0.3)]),
+        &scene(vec![backdrop(cube), moved(cube, 0.3, 0.6)]),
+    );
+    let reference = h.velocity();
+
+    // The pose moves twice running -- 0, then 0.05 (0.3 in the world), then
+    // 0.1 -- and the second move is the one measured: the previous frame has
+    // to be the 0.05 pose, copied before the dispatch that overwrote it. A
+    // single move from a first pose would read right with no such copy at
+    // all, since the first pose's own copy already put it there.
+    let (skinned, draw) = skinned_square(&mut h);
+    h.skin(skinned, &joint_at(0.0));
+    h.skin(skinned, &joint_at(0.05));
+    let s = scene(vec![backdrop(cube), draw]);
+    let after = h.render_moving_with(
+        &s,
+        |h| {
+            h.skin(skinned, &joint_at(0.1));
+        },
+        &s,
+    );
+    let v = h.velocity();
+
+    let (left, right) = square_span(&after);
+    let (x, y) = ((left + right) / 2, HEIGHT / 2);
+    let [rx, ry] = at(&reference, x, y);
+    assert!(
+        rx * WIDTH as f32 >= 1.0,
+        "premise: the reference square moved on screen: {} px",
+        rx * WIDTH as f32
+    );
+    let [vx, vy] = at(&v, x, y);
+    assert!(
+        (vx - rx).abs() < 1e-3 && (vy - ry).abs() < 1e-3,
+        "the pose's motion is the same velocity as the entity's: {vx}, {vy} against {rx}, {ry}"
+    );
+    let [bx, by] = at(&v, 5, 5);
+    assert!(
+        bx.abs() < 1e-4 && by.abs() < 1e-4,
+        "the still backdrop has none: {bx}, {by}"
+    );
+}
+
+/// A pose that held -- the skinning system ran, nothing posed this mesh --
+/// has no motion. The previous frame is then the current one; a mesh that
+/// kept its last *moving* frame as "previous" would smear forever after its
+/// animation stopped.
+#[test]
+fn a_skinned_mesh_whose_pose_held_has_no_motion() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let (skinned, draw) = skinned_square(&mut h);
+    h.skin(skinned, &joint_at(0.0));
+    h.skin(skinned, &joint_at(0.1));
+    let s = scene(vec![backdrop(cube), draw]);
+    let after = h.render_moving_with(&s, |h| h.flush_skinning(), &s);
+    let v = h.velocity();
+    let (left, right) = square_span(&after);
+    let [vx, vy] = at(&v, (left + right) / 2, HEIGHT / 2);
+    assert!(
+        vx.abs() < 1e-4 && vy.abs() < 1e-4,
+        "a held pose is a still mesh: {vx}, {vy}"
+    );
+}
+
+/// A skinned mesh's first pose has no previous frame: the rest pose before it
+/// was never on screen, so jumping from it is not motion. Without this every
+/// character smeared on the frame it appeared, by the distance from its bind
+/// pose to its first animation frame.
+#[test]
+fn a_skinned_meshs_first_pose_has_no_motion() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let (skinned, draw) = skinned_square(&mut h);
+    // The frame before has no square: the character appears already posed,
+    // as one does when the skinning system runs before its first draw.
+    let before = scene(vec![backdrop(cube)]);
+    let s = scene(vec![backdrop(cube), draw]);
+    let after = h.render_moving_with(
+        &before,
+        |h| {
+            h.skin(skinned, &joint_at(0.1));
+        },
+        &s,
+    );
+    let v = h.velocity();
+    let (left, right) = square_span(&after);
+    let [vx, vy] = at(&v, (left + right) / 2, HEIGHT / 2);
+    assert!(
+        vx.abs() < 1e-4 && vy.abs() < 1e-4,
+        "the first pose is where the mesh starts, not a move: {vx}, {vy}"
+    );
+}

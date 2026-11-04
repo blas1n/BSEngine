@@ -289,6 +289,17 @@ pub struct SkinnedBuffers {
     /// Joints the palette has room for; a palette longer than this is
     /// refused rather than overrun.
     joint_capacity: u32,
+    /// The skinned vertices as they were the frame before: what the opaque
+    /// pass reads `prev_pos` from, so a pose that moved writes its motion to
+    /// the velocity buffer (see [`GpuMeshRegistry::flush_skinning`]).
+    pub(crate) previous: wgpu::Buffer,
+    /// Whether the mesh has been posed since it was built. Its first pose
+    /// has no previous frame -- the rest pose before it was never seen -- so
+    /// it is its own.
+    posed: bool,
+    /// Whether `previous` holds what the vertex buffer holds now: true for a
+    /// pose that held, and then nothing is copied again until it moves.
+    previous_is_current: bool,
 }
 
 impl SkinnedBuffers {
@@ -358,6 +369,13 @@ impl SkinnedBuffers {
                 },
             ],
         });
+        // The rest pose to begin with, as the vertex buffer does: until the
+        // first pose the two agree, and the mesh has no motion.
+        let previous = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("skinned vertices, previous frame"),
+            contents: bytemuck::cast_slice(vertices),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
         Self {
             rest,
             skin: skin_buffer,
@@ -367,6 +385,9 @@ impl SkinnedBuffers {
             bind_group,
             vertex_count: vertices.len() as u32,
             joint_capacity,
+            previous,
+            posed: false,
+            previous_is_current: true,
         }
     }
 }
@@ -542,30 +563,62 @@ impl GpuMeshRegistry {
     /// flushes itself. A mesh that was replaced or never registered since it
     /// was posed is skipped rather than dispatched against buffers that no
     /// longer exist.
+    ///
+    /// It also keeps each skinned mesh's previous frame (`SkinnedBuffers::
+    /// previous`), which is what gives a skinned mesh its motion vectors --
+    /// Unreal's skin cache and Unity's skinned motion vectors keep last
+    /// frame's skinned positions the same way. A mesh posed this frame has
+    /// its current vertices copied there *before* the dispatch overwrites
+    /// them; one whose pose held has them copied once, so a character that
+    /// stopped moving stops smearing rather than repeating its last motion
+    /// forever; and a mesh's first pose is copied *after*, since the rest
+    /// pose before it was never on screen.
     pub fn flush_skinning(&mut self, queue: &wgpu::Queue) -> usize {
         let pending = std::mem::take(&mut self.pending_skins);
-        if pending.is_empty() {
+        let held: Vec<u64> = self
+            .meshes
+            .iter()
+            .filter(|(id, m)| {
+                m.skinned.as_ref().is_some_and(|s| !s.previous_is_current) && !pending.contains(id)
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        if pending.is_empty() && held.is_empty() {
             return 0;
         }
-        let Some(pipeline) = self.skinning.as_ref() else {
-            // Unreachable in practice: `build_skinned` creates the pipeline
-            // before any mesh can be pending.
-            return 0;
-        };
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("compute skinning"),
             });
+        let to_previous = |encoder: &mut wgpu::CommandEncoder, mesh: &crate::mesh::GpuMesh| {
+            if let Some(skinned) = mesh.skinned.as_ref() {
+                encoder.copy_buffer_to_buffer(
+                    &mesh.vertex_buffer,
+                    0,
+                    &skinned.previous,
+                    0,
+                    mesh.vertex_buffer.size(),
+                );
+            }
+        };
+        // A first pose is copied here too, and again after its dispatch below,
+        // which is the copy that counts; skipping this one would only save a
+        // copy of the rest pose on a mesh's first frame.
+        for id in pending.iter().chain(&held) {
+            if let Some(mesh) = self.meshes.get(id) {
+                to_previous(&mut encoder, mesh);
+            }
+        }
         let mut dispatched = 0;
-        {
+        if let Some(pipeline) = self.skinning.as_ref() {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("compute skinning"),
                 timestamp_writes: None,
             });
             pass.set_pipeline(&pipeline.pipeline);
-            for id in pending {
-                let Some(skinned) = self.meshes.get(&id).and_then(|m| m.skinned.as_ref()) else {
+            for id in &pending {
+                let Some(skinned) = self.meshes.get(id).and_then(|m| m.skinned.as_ref()) else {
                     continue;
                 };
                 pass.set_bind_group(0, &skinned.bind_group, &[]);
@@ -573,7 +626,28 @@ impl GpuMeshRegistry {
                 dispatched += 1;
             }
         }
+        for id in &pending {
+            let Some(mesh) = self.meshes.get(id) else {
+                continue;
+            };
+            if mesh.skinned.as_ref().is_some_and(|s| !s.posed) {
+                to_previous(&mut encoder, mesh);
+            }
+        }
         queue.submit(Some(encoder.finish()));
+
+        for id in &pending {
+            if let Some(skinned) = self.meshes.get_mut(id).and_then(|m| m.skinned.as_mut()) {
+                // A first pose was copied after its dispatch: no motion yet.
+                skinned.previous_is_current = !skinned.posed;
+                skinned.posed = true;
+            }
+        }
+        for id in &held {
+            if let Some(skinned) = self.meshes.get_mut(id).and_then(|m| m.skinned.as_mut()) {
+                skinned.previous_is_current = true;
+            }
+        }
         dispatched
     }
 

@@ -631,10 +631,16 @@ impl Harness {
     /// and flushes the dispatch so the next render sees it -- what the
     /// skinning system does once per frame for every character.
     pub fn skin(&mut self, id: u64, joints: &[Mat4]) -> bool {
-        let queue = self.surface.queue_arc();
-        let accepted = self.registry.skin(&queue, id, joints);
-        self.registry.flush_skinning(&queue);
+        let accepted = self.registry.skin(&self.surface.queue_arc(), id, joints);
+        self.flush_skinning();
         accepted
+    }
+
+    /// The skinning system's end-of-frame flush with no character posed --
+    /// a frame in which every pose held.
+    pub fn flush_skinning(&mut self) {
+        let queue = self.surface.queue_arc();
+        self.registry.flush_skinning(&queue);
     }
 
     /// Registers a mesh exactly as given -- for a test that needs a vertex
@@ -880,6 +886,22 @@ struct VertOut {{
     pub fn render_moving(&mut self, from: &Scene, to: &Scene) -> Pixels {
         self.surface.invalidate_taa_history();
         self.render_frame_at(from, 0, 0.0);
+        self.render_frame_at(to, 0, 0.0)
+    }
+
+    /// [`Self::render_moving`] with `between` run after the first frame and
+    /// before the second -- where a running game poses its characters for the
+    /// next frame (`Self::skin`), which a scene alone cannot say.
+    #[allow(dead_code)] // only pixels_motion_vectors.rs poses between frames
+    pub fn render_moving_with(
+        &mut self,
+        from: &Scene,
+        between: impl FnOnce(&mut Self),
+        to: &Scene,
+    ) -> Pixels {
+        self.surface.invalidate_taa_history();
+        self.render_frame_at(from, 0, 0.0);
+        between(self);
         self.render_frame_at(to, 0, 0.0)
     }
 

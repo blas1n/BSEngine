@@ -130,6 +130,19 @@ pub struct GpuMesh {
     pub(crate) skinned: Option<crate::skinning::SkinnedBuffers>,
 }
 
+impl GpuMesh {
+    /// The vertices as they were the frame before, for the velocity the
+    /// opaque pass writes (vertex buffer slot 1, `prev_pos`): a skinned
+    /// mesh's last pose, kept by `GpuMeshRegistry::flush_skinning`, and for
+    /// every other mesh its own vertices -- which do not change, so the only
+    /// motion left is the model matrix's, exactly as before.
+    pub fn previous_vertex_buffer(&self) -> &wgpu::Buffer {
+        self.skinned
+            .as_ref()
+            .map_or(&self.vertex_buffer, |s| &s.previous)
+    }
+}
+
 /// Owns every GPU mesh uploaded for the running app, keyed by a registry-assigned id.
 #[derive(Resource)]
 pub struct GpuMeshRegistry {

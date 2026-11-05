@@ -1160,13 +1160,13 @@ pub struct SsrCameraGpu {
 }
 
 /// Screen-space GI's trace: per pixel, rays in a cosine-weighted hemisphere
-/// about its normal, marched through the depth buffer as the reflection's ray
-/// is; a ray that goes behind what is drawn there, within the thickness, has
-/// hit it, and brings back the light that surface sends towards the camera
-/// in this frame's lit HDR scene (Lambertian surfaces send it every way
-/// alike). Writes the light of the rays that hit, `sum(L) / N`, and the share
-/// that hit, both times the intensity: the composite replaces that share of
-/// the surface's indirect light with this.
+/// about its normal, walked through the depth pyramid (`trace_ray`); a ray
+/// that goes behind what is drawn there, within the thickness, has hit it,
+/// and brings back the light that surface sends towards the camera in this
+/// frame's lit HDR scene (Lambertian surfaces send it every way alike).
+/// Writes the light of the rays that hit, `sum(L) / N`, and the share that
+/// hit, both times the intensity: the composite replaces that share of the
+/// surface's indirect light with this.
 ///
 /// `sum(L) / N`, not `PI * sum(L) / N`: the cosine-weighted estimate of the
 /// irradiance is the latter, but the shading here keeps irradiance as
@@ -1200,6 +1200,8 @@ struct SsgiCamera {
 @group(0) @binding(0) var scene_tex: texture_2d<f32>;
 @group(0) @binding(1) var history_tex: texture_2d<f32>;
 @group(0) @binding(2) var scene_samp: sampler;
+// The nearest depth of each cell (`HizPyramid`): mip `n` is level `n + 1`.
+@group(0) @binding(3) var hiz_tex: texture_2d<f32>;
 @group(1) @binding(0) var depth_tex: texture_depth_2d;
 @group(2) @binding(0) var normal_tex: texture_2d<f32>;
 @group(2) @binding(1) var normal_samp: sampler;
@@ -1221,12 +1223,6 @@ fn world_at(uv: vec2<f32>, depth: f32) -> vec3<f32> {
     let ndc = vec3<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth);
     let p = cam.inv_view_proj * vec4<f32>(ndc, 1.0);
     return p.xyz / p.w;
-}
-
-fn project(p: vec3<f32>) -> vec3<f32> {
-    let clip = cam.proj * cam.view * vec4<f32>(p, 1.0);
-    let ndc = clip.xyz / clip.w;
-    return vec3<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5, ndc.z);
 }
 
 // The full-resolution pixel a trace pixel stands for: itself at full
@@ -1261,6 +1257,141 @@ fn cosine_direction(n: vec3<f32>, u1: f32, u2: f32) -> vec3<f32> {
     return normalize(t * (r * cos(phi)) + b * (r * sin(phi)) + n * sqrt(max(1.0 - u1, 0.0)));
 }
 
+// What is nearest the camera in the cell of `2^level` pixels at `cell`:
+// level 0 is the depth buffer itself.
+fn nearest_depth(cell: vec2<i32>, level: i32) -> f32 {
+    if level == 0 {
+        return textureLoad(depth_tex, cell, 0);
+    }
+    return textureLoad(hiz_tex, cell, level - 1).r;
+}
+
+struct RayHit {
+    found: bool,
+    // The pixel it met, the depth there, and where in the frame it met it.
+    px: vec2<i32>,
+    depth: f32,
+    uv: vec2<f32>,
+};
+
+// One ray through the depth pyramid, as Unity HDRP's and Unreal's screen
+// traces and Godot's go (Uludag, "Hi-Z Screen-Space Cone-Traced Reflections",
+// GPU Pro 5). In screen space, where a straight ray stays straight and NDC
+// depth is linear along it, so "where does it reach this depth" is one
+// division. A cell's nearest depth says the ray cannot meet anything in that
+// cell while it stays in front of it: so it crosses the cell in one read and
+// climbs a level, or, where it would reach that depth inside the cell, goes
+// there and comes down one -- until, in level 0, it meets a pixel.
+//
+// So `steps` counts reads, not distance, and the ray looks at every pixel it
+// could meet. A march at a fixed `stride` looked at one point per stride and
+// jumped over what was narrower on screen: a post eight times thinner than the
+// stride lit a floor half as much as it should have.
+fn trace_ray(
+    start: vec3<f32>, d: vec3<f32>, reach: f32, world: vec3<f32>, n: vec3<f32>,
+    clearance: f32, coord: vec2<i32>, dims: vec2<f32>,
+) -> RayHit {
+    var miss: RayHit;
+    miss.found = false;
+    let view_proj = cam.proj * cam.view;
+    let c0 = view_proj * vec4<f32>(start, 1.0);
+    var c1 = view_proj * vec4<f32>(start + d * reach, 1.0);
+    if c0.z < 0.0 || c0.w <= 0.0 {
+        return miss;
+    }
+    // Cut at the near plane: past it the divide by `w` mirrors the ray.
+    if c1.z < 0.0 {
+        c1 = mix(c0, c1, c0.z / (c0.z - c1.z));
+    }
+    let n0 = c0.xyz / c0.w;
+    let n1 = c1.xyz / c1.w;
+    let o = vec3<f32>((n0.x * 0.5 + 0.5) * dims.x, (0.5 - n0.y * 0.5) * dims.y, n0.z);
+    let e = vec3<f32>((n1.x * 0.5 + 0.5) * dims.x, (0.5 - n1.y * 0.5) * dims.y, n1.z);
+    if o.x < 0.0 || o.x >= dims.x || o.y < 0.0 || o.y >= dims.y || o.z > 1.0 {
+        return miss;
+    }
+    let dir = e - o;
+    // Where it leaves the frame, or passes the far plane.
+    var t_end = 1.0;
+    if dir.x != 0.0 {
+        t_end = min(t_end, (select(0.0, dims.x, dir.x > 0.0) - o.x) / dir.x);
+    }
+    if dir.y != 0.0 {
+        t_end = min(t_end, (select(0.0, dims.y, dir.y > 0.0) - o.y) / dir.y);
+    }
+    if dir.z > 0.0 {
+        t_end = min(t_end, (1.0 - o.z) / dir.z);
+    }
+    // Over a cell's edge, by a hundredth of a pixel.
+    let nudge = 0.01 / max(max(abs(dir.x), abs(dir.y)), 1e-3);
+    let side = select(vec2<f32>(0.0), vec2<f32>(1.0), dir.xy > vec2<f32>(0.0));
+    let top = i32(textureNumLevels(hiz_tex));
+    let last = vec2<i32>(dims) - vec2<i32>(1);
+    let thickness = cam.params.w;
+    var t = 0.0;
+    var level = 1;
+    for (var i = 0; i < i32(cam.params.y); i++) {
+        if t >= t_end {
+            break;
+        }
+        let p = o + dir * t;
+        let px = min(vec2<i32>(floor(p.xy)), last);
+        let cell = px >> vec2<u32>(u32(level));
+        let next = (vec2<f32>(cell) + side) * f32(1 << u32(level));
+        var t_cell = t_end;
+        if dir.x != 0.0 {
+            t_cell = min(t_cell, (next.x - o.x) / dir.x);
+        }
+        if dir.y != 0.0 {
+            t_cell = min(t_cell, (next.y - o.y) / dir.y);
+        }
+        let near = nearest_depth(cell, level);
+        var t_near = t;
+        if p.z < near {
+            // In front of everything here: where it reaches that depth, if
+            // it ever does -- a ray coming toward the camera does not.
+            t_near = select(t_end + 1.0, (near - o.z) / dir.z, dir.z > 0.0);
+            if t_near >= t_cell {
+                t = t_cell + nudge;
+                level = min(level + 1, top);
+                continue;
+            }
+        }
+        if level > 0 {
+            t = t_near;
+            level -= 1;
+            continue;
+        }
+        let q = o + dir * t_near;
+        if q.z - near < thickness && any(px != coord) {
+            // ⚠️ Not the surface the ray left. Near its start, a grazing
+            // ray is a fraction of a pixel above that surface, and the
+            // depth it is compared with is the pixel centre's -- on a
+            // surface seen at a slant, nearer than the ray by more than
+            // its height -- so it reads as behind its own surface, and
+            // a flat floor lit itself with its own colour. A surface
+            // in the plane the ray left cannot be what it meets: it
+            // leaves that plane at once (cosine-weighted, into the
+            // hemisphere above it). So a "hit" within the clearance of
+            // that plane is no hit, and the ray walks on.
+            let hit = world_at((vec2<f32>(px) + vec2<f32>(0.5)) / dims, near);
+            if dot(hit - world, n) >= clearance {
+                var out: RayHit;
+                out.found = true;
+                out.px = px;
+                out.depth = near;
+                out.uv = q.xy / dims;
+                return out;
+            }
+        }
+        // Too far behind this pixel to be touching it: it went past. The
+        // pyramid has nothing to say about what is behind a surface, so on
+        // to the next pixel, until the ray is in front of something again.
+        t = t_cell + nudge;
+    }
+    return miss;
+}
+
 @fragment
 fn fs_ssgi(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     let full = vec2<i32>(textureDimensions(depth_tex, 0));
@@ -1277,9 +1408,14 @@ fn fs_ssgi(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     let n = normalize(nr.xyz);
     let world = world_at(uv, depth);
     let rays = u32(cam.params.x);
-    let steps = i32(cam.params.y);
-    let stride = cam.params.z;
-    let thickness = cam.params.w;
+    let reach = cam.params.y * cam.params.z;
+    // Two pixels' width at this distance, in world units: how far off its
+    // surface a ray starts, so it does not find the surface it leaves. Tied
+    // to the pixel because that is the size of the error it covers -- a share
+    // of the `stride`, as a march needed, put a stride of 0.8 0.4 off the
+    // floor, where it could not see the foot of what stood on it.
+    let w = (cam.proj * cam.view * vec4<f32>(world, 1.0)).w;
+    let clearance = 2.0 * w * 2.0 / (cam.proj[1][1] * dims.y);
     let seed = pcg(u32(coord.x) ^ pcg(u32(coord.y) ^ pcg(u32(cam.cam_pos.w))));
 
     var light = vec3<f32>(0.0);
@@ -1287,61 +1423,187 @@ fn fs_ssgi(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     for (var r = 0u; r < rays; r++) {
         let h = pcg(seed ^ pcg(r));
         let d = cosine_direction(n, unit(h), unit(pcg(h)));
-        // Off the surface by half a step, as the reflection's ray starts, so
-        // it does not find the surface it leaves.
-        var p = world + n * (stride * 0.5);
-        for (var i = 0; i < steps; i++) {
-            p = p + d * stride;
-            let s = project(p);
-            if s.x < 0.0 || s.x > 1.0 || s.y < 0.0 || s.y > 1.0 || s.z > 1.0 {
-                break;
-            }
-            let px = vec2<i32>(s.xy * dims);
-            if px.x == coord.x && px.y == coord.y {
-                continue;
-            }
-            let scene_depth = textureLoad(depth_tex, px, 0);
-            let behind = s.z - scene_depth;
-            if behind > 0.0 && behind < thickness {
-                // ⚠️ Not the surface the ray left. Near its start, a grazing
-                // ray is a fraction of a pixel above that surface, and the
-                // depth it is compared with is the pixel centre's -- on a
-                // surface seen at a slant, nearer than the ray by more than
-                // its height -- so it reads as behind its own surface, and
-                // a flat floor lit itself with its own colour. A surface
-                // in the plane the ray left cannot be what it meets: it
-                // leaves that plane at once (cosine-weighted, into the
-                // hemisphere above it). So a "hit" within half a step of
-                // that plane is no hit, and the ray marches on.
-                let hit = world_at((vec2<f32>(px) + vec2<f32>(0.5)) / dims, scene_depth);
-                if dot(hit - world, n) < 0.5 * stride {
-                    continue;
+        let ray = trace_ray(world + n * clearance, d, reach, world, n, clearance, coord, dims);
+        if !ray.found {
+            continue;
+        }
+        // Where the hit was last frame, through last frame's camera, and its
+        // light then -- lit by the GI as well, which is the next bounce; or,
+        // with no last frame or the hit outside what it saw, this frame's,
+        // lit directly: one bounce, never none.
+        var hit_light = textureSampleLevel(scene_tex, scene_samp, ray.uv, 0.0).rgb;
+        if (cam.misc.x > 0.5) {
+            let hit = world_at((vec2<f32>(ray.px) + vec2<f32>(0.5)) / dims, ray.depth);
+            let prev_clip = cam.prev_view_proj * vec4<f32>(hit, 1.0);
+            if (prev_clip.w > 0.0) {
+                let p = prev_clip.xy / prev_clip.w;
+                let prev_uv = vec2<f32>(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5);
+                if (all(prev_uv >= vec2<f32>(0.0)) && all(prev_uv <= vec2<f32>(1.0))) {
+                    hit_light = textureSampleLevel(history_tex, scene_samp, prev_uv, 0.0).rgb;
                 }
-                // Where the hit was last frame, through last frame's camera,
-                // and its light then -- lit by the GI as well, which is the
-                // next bounce; or, with no last frame or the hit outside what
-                // it saw, this frame's, lit directly: one bounce, never none.
-                var hit_light = textureSampleLevel(scene_tex, scene_samp, s.xy, 0.0).rgb;
-                if (cam.misc.x > 0.5) {
-                    let prev_clip = cam.prev_view_proj * vec4<f32>(hit, 1.0);
-                    if (prev_clip.w > 0.0) {
-                        let p = prev_clip.xy / prev_clip.w;
-                        let prev_uv = vec2<f32>(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5);
-                        if (all(prev_uv >= vec2<f32>(0.0)) && all(prev_uv <= vec2<f32>(1.0))) {
-                            hit_light = textureSampleLevel(history_tex, scene_samp, prev_uv, 0.0).rgb;
-                        }
-                    }
-                }
-                light += hit_light;
-                hits += 1.0;
-                break;
             }
         }
+        light += hit_light;
+        hits += 1.0;
     }
     let k = cam.params2.x / f32(max(rays, 1u));
     return vec4<f32>(light * k, hits * k);
 }
 "#;
+
+/// The pyramid's first level from the depth buffer: each texel the nearest
+/// of the 2 x 2 pixels it covers. The pyramid is wider than the frame
+/// (`hiz_size`), and what lies past the frame's edge is the far plane.
+const HIZ_FIRST_WGSL: &str = r#"
+@group(0) @binding(0) var depth_tex: texture_depth_2d;
+
+@vertex
+fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
+    var p = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -1.0),
+        vec2<f32>(3.0, -1.0),
+        vec2<f32>(-1.0, 3.0),
+    );
+    return vec4<f32>(p[vi], 0.0, 1.0);
+}
+
+@fragment
+fn fs_first(@builtin(position) frag: vec4<f32>) -> @location(0) f32 {
+    let size = vec2<i32>(textureDimensions(depth_tex, 0));
+    let base = vec2<i32>(frag.xy) * 2;
+    var nearest = 1.0;
+    for (var y = 0; y < 2; y++) {
+        for (var x = 0; x < 2; x++) {
+            let c = base + vec2<i32>(x, y);
+            if c.x < size.x && c.y < size.y {
+                nearest = min(nearest, textureLoad(depth_tex, c, 0));
+            }
+        }
+    }
+    return nearest;
+}
+"#;
+
+/// Every later level of the pyramid from the one below: the nearest of 2 x 2.
+const HIZ_DOWN_WGSL: &str = r#"
+@group(0) @binding(0) var below: texture_2d<f32>;
+
+@vertex
+fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
+    var p = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -1.0),
+        vec2<f32>(3.0, -1.0),
+        vec2<f32>(-1.0, 3.0),
+    );
+    return vec4<f32>(p[vi], 0.0, 1.0);
+}
+
+@fragment
+fn fs_down(@builtin(position) frag: vec4<f32>) -> @location(0) f32 {
+    let base = vec2<i32>(frag.xy) * 2;
+    return min(
+        min(textureLoad(below, base, 0).r, textureLoad(below, base + vec2<i32>(1, 0), 0).r),
+        min(textureLoad(below, base + vec2<i32>(0, 1), 0).r, textureLoad(below, base + vec2<i32>(1, 1), 0).r),
+    );
+}
+"#;
+
+/// Levels of the depth pyramid above the depth buffer: the coarsest cell is
+/// 64 pixels across.
+const HIZ_MIPS: u32 = 6;
+
+/// The pyramid's first level for a `width` x `height` frame: half of each,
+/// after rounding up to whole coarsest cells.
+///
+/// So that every level halves exactly and a pixel's cell at level `n` is
+/// always `pixel >> n`. A texture's mips round down, so on a frame of odd size
+/// the last column belongs to no texel of the next level, and a ray crossing
+/// that level would skip whatever stands there. Unreal rounds its HZB up for
+/// the same reason. The cost is a few rows of far plane.
+fn hiz_size(width: u32, height: u32) -> (u32, u32) {
+    let coarsest = 1u32 << HIZ_MIPS;
+    (
+        width.max(1).next_multiple_of(coarsest) / 2,
+        height.max(1).next_multiple_of(coarsest) / 2,
+    )
+}
+
+/// The nearest depth of every 2^n-pixel cell, rebuilt each frame the trace
+/// runs: Unity HDRP's depth pyramid, Unreal's HZB. From half resolution up,
+/// as Unreal's is, because level 0 is the depth buffer itself and a copy would
+/// cost three times what all the rest do. Nearest and not farthest, since what
+/// the trace wants to know of a cell is how far a ray can go before it could
+/// touch anything in it.
+struct HizPyramid {
+    _texture: crate::profiler::TrackedTexture,
+    /// Every level, as the trace reads them.
+    view: wgpu::TextureView,
+    /// Each level alone, to render into.
+    levels: Vec<wgpu::TextureView>,
+    /// `reads[i]` reads `levels[i]`, to make `levels[i + 1]`.
+    reads: Vec<wgpu::BindGroup>,
+}
+
+impl HizPyramid {
+    fn new(
+        device: &wgpu::Device,
+        width: u32,
+        height: u32,
+        level_bgl: &wgpu::BindGroupLayout,
+    ) -> Self {
+        let (w, h) = hiz_size(width, height);
+        let texture = crate::profiler::create_tracked_texture(
+            device,
+            &wgpu::TextureDescriptor {
+                label: Some("pp hiz pyramid"),
+                size: wgpu::Extent3d {
+                    width: w,
+                    height: h,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: HIZ_MIPS,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: HIZ_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            },
+        );
+        let levels: Vec<wgpu::TextureView> = (0..HIZ_MIPS)
+            .map(|mip| {
+                texture.create_view(&wgpu::TextureViewDescriptor {
+                    label: Some("pp hiz level"),
+                    base_mip_level: mip,
+                    mip_level_count: Some(1),
+                    ..Default::default()
+                })
+            })
+            .collect();
+        let reads = levels[..levels.len() - 1]
+            .iter()
+            .map(|level| {
+                device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("pp hiz read bg"),
+                    layout: level_bgl,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(level),
+                    }],
+                })
+            })
+            .collect();
+        Self {
+            view: texture.create_view(&wgpu::TextureViewDescriptor {
+                label: Some("pp hiz view"),
+                ..Default::default()
+            }),
+            _texture: texture,
+            levels,
+            reads,
+        }
+    }
+}
 
 /// Replaces the share of each pixel's indirect diffuse light that the trace
 /// found something for: `reflectance * E_traced - share * indirect`, added
@@ -1695,6 +1957,10 @@ pub const SSGI_HISTORY_BLEND: f32 = 0.1;
 /// Format of the history's view depth: a half float is within the 5% the
 /// rejection compares at, to well past any distance a screen trace sees.
 const SSGI_DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg16Float;
+/// The depth pyramid's texels: as many bits as the depth they are taken from.
+/// A half float would round a nearest depth away from the camera, and a ray
+/// would pass through what it should have met.
+const HIZ_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Float;
 
 /// Screen-space GI's trace scale until a camera asks for full resolution:
 /// half, as `ScreenSpaceGlobalIllumination::full_resolution` defaults.
@@ -3053,8 +3319,10 @@ struct PostProcessTargets {
     /// Last frame's lit scene, which a hit's light is read from.
     lit_history_texture: crate::profiler::TrackedTexture,
     lit_history_bg: wgpu::BindGroup,
-    /// This frame's lit scene and that one, as the GI trace reads them.
+    /// This frame's lit scene, that one and the depth pyramid, as the GI
+    /// trace reads them.
     ssgi_scene_bg: wgpu::BindGroup,
+    hiz: HizPyramid,
     ldr_texture: crate::profiler::TrackedTexture,
     ldr_view: wgpu::TextureView,
     ldr_bg: wgpu::BindGroup,
@@ -3204,8 +3472,14 @@ pub struct PostProcessState {
     /// after screen-space GI: what a hit's light is read from.
     lit_history_texture: crate::profiler::TrackedTexture,
     lit_history_bg: wgpu::BindGroup,
-    /// This frame's lit scene and last frame's, as the GI trace reads them.
+    /// This frame's lit scene, last frame's and the depth pyramid, as the GI
+    /// trace reads them.
     ssgi_scene_bg: wgpu::BindGroup,
+    hiz: HizPyramid,
+    hiz_first_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
+    hiz_down_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
+    hiz_level_bgl: std::sync::Arc<wgpu::BindGroupLayout>,
+    ssgi_trace_bgl: std::sync::Arc<wgpu::BindGroupLayout>,
     /// Whether [`Self::lit_history_texture`] holds the frame before this one:
     /// not on the first frame, after a resize, or after a frame without
     /// reflections.
@@ -4183,6 +4457,53 @@ impl PostProcessState {
                 },
             ],
         });
+        let unfilterable = |binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        };
+        // The trace's group 0: the two scenes and their sampler, and the
+        // depth pyramid, which is only ever loaded (32-bit float does not
+        // filter in WebGPU).
+        let ssgi_trace_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("pp ssgi trace bgl"),
+            entries: &[
+                filterable(0),
+                filterable(1),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                unfilterable(3),
+            ],
+        });
+        let hiz_level_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("pp hiz level bgl"),
+            entries: &[unfilterable(0)],
+        });
+        let hiz_first_pipeline = Self::make_targets_pipeline(
+            device,
+            "hiz first",
+            HIZ_FIRST_WGSL,
+            "fs_first",
+            &[&depth_bgl],
+            &[HIZ_FORMAT],
+        );
+        let hiz_down_pipeline = Self::make_targets_pipeline(
+            device,
+            "hiz down",
+            HIZ_DOWN_WGSL,
+            "fs_down",
+            &[&hiz_level_bgl],
+            &[HIZ_FORMAT],
+        );
         // Two textures and a sampler is also the reflections' group 2: the
         // prepass's normals and its velocities.
         let ssr_pipeline = Self::make_ssr_pipeline(
@@ -4231,7 +4552,7 @@ impl PostProcessState {
             "ssgi",
             SSGI_WGSL,
             "fs_ssgi",
-            &[&ssgi_history_bgl, &depth_bgl, &tex2d_bgl, &ssr_cam_bgl],
+            &[&ssgi_trace_bgl, &depth_bgl, &tex2d_bgl, &ssr_cam_bgl],
             Some(wgpu::BlendState::REPLACE),
             wgpu::ColorWrites::ALL,
         );
@@ -4290,6 +4611,8 @@ impl PostProcessState {
             &depth_bgl,
             &ssgi_history_bgl,
             &ssgi_composite_bgl,
+            &ssgi_trace_bgl,
+            &hiz_level_bgl,
             SSGI_DEFAULT_SCALE,
             surface_format,
         );
@@ -4365,6 +4688,11 @@ impl PostProcessState {
             lit_history_texture: targets.lit_history_texture,
             lit_history_bg: targets.lit_history_bg,
             ssgi_scene_bg: targets.ssgi_scene_bg,
+            hiz: targets.hiz,
+            hiz_first_pipeline,
+            hiz_down_pipeline,
+            hiz_level_bgl,
+            ssgi_trace_bgl,
             lit_history_valid: false,
             ldr_bg: targets.ldr_bg,
             depth_bg: targets.depth_bg,
@@ -4551,6 +4879,8 @@ impl PostProcessState {
         depth_bgl: &wgpu::BindGroupLayout,
         ssgi_history_bgl: &wgpu::BindGroupLayout,
         ssgi_composite_bgl: &wgpu::BindGroupLayout,
+        ssgi_trace_bgl: &wgpu::BindGroupLayout,
+        hiz_level_bgl: &wgpu::BindGroupLayout,
         ssgi_scale: u32,
         surface_format: wgpu::TextureFormat,
     ) -> PostProcessTargets {
@@ -4749,10 +5079,12 @@ impl PostProcessState {
             ],
         });
         let lit_history_bg = make_tex2d_bg("pp lit history bg", &lit_history_view);
-        // This frame's lit scene and last frame's, for the GI trace.
+        let hiz = HizPyramid::new(device, width, height, hiz_level_bgl);
+        // This frame's lit scene, last frame's and the depth pyramid, for the
+        // GI trace.
         let ssgi_scene_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("pp ssgi scene bg"),
-            layout: ssgi_history_bgl,
+            layout: ssgi_trace_bgl,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -4765,6 +5097,10 @@ impl PostProcessState {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: wgpu::BindingResource::Sampler(sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&hiz.view),
                 },
             ],
         });
@@ -4843,6 +5179,7 @@ impl PostProcessState {
             lit_history_texture,
             lit_history_bg,
             ssgi_scene_bg,
+            hiz,
             ldr_texture,
             ldr_view,
             ldr_bg,
@@ -5513,6 +5850,8 @@ impl PostProcessState {
             &self.depth_bgl,
             &self.ssgi_history_bgl,
             &self.ssgi_composite_bgl,
+            &self.ssgi_trace_bgl,
+            &self.hiz_level_bgl,
             self.ssgi_scale,
             self.surface_format,
         );
@@ -5555,6 +5894,7 @@ impl PostProcessState {
         self.lit_history_texture = t.lit_history_texture;
         self.lit_history_bg = t.lit_history_bg;
         self.ssgi_scene_bg = t.ssgi_scene_bg;
+        self.hiz = t.hiz;
         // A new texture holds no frame: no reflection until one is copied.
         self.lit_history_valid = false;
         self.ldr_view = t.ldr_view;
@@ -6050,6 +6390,32 @@ impl PostProcessState {
         // surface the reflections then show. Trace, then composite -- the
         // trace samples the scene the composite writes to.
         if self.ssgi_enabled && !fast_render {
+            for (i, level) in self.hiz.levels.iter().enumerate() {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("hiz level pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: level,
+                        resolve_target: None,
+                        depth_slice: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    ..Default::default()
+                });
+                if i == 0 {
+                    pass.set_pipeline(&self.hiz_first_pipeline);
+                    pass.set_bind_group(0, &self.depth_bg, &[]);
+                } else {
+                    pass.set_pipeline(&self.hiz_down_pipeline);
+                    pass.set_bind_group(0, &self.hiz.reads[i - 1], &[]);
+                }
+                pass.draw(0..3, 0..1);
+                draw_calls += 1;
+                triangles += 1;
+            }
             {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("ssgi pass"),
@@ -6557,6 +6923,38 @@ impl PostProcessState {
 
 #[cfg(test)]
 mod tests {
+    /// Every level of the pyramid halves exactly, on a frame of any size, and
+    /// covers the whole frame: `pixel >> n` is a texel of level `n`, the
+    /// addressing the trace relies on. A mip chain rounds down, so without the
+    /// rounding up a frame 150 tall has a level 6 of 2 rows, and row 149's cell
+    /// is the third.
+    #[test]
+    fn hiz_levels_halve_exactly_and_cover_the_frame() {
+        for (width, height) in [
+            (200, 150),
+            (1920, 1080),
+            (1, 1),
+            (63, 65),
+            (64, 64),
+            (1279, 719),
+        ] {
+            let (w, h) = super::hiz_size(width, height);
+            for level in 1..=super::HIZ_MIPS {
+                let mip = level - 1;
+                let (mw, mh) = (w >> mip, h >> mip);
+                assert_eq!(
+                    (mw << mip, mh << mip),
+                    (w, h),
+                    "{width} x {height}, level {level}"
+                );
+                assert!(
+                    (width - 1) >> level < mw && (height - 1) >> level < mh,
+                    "{width} x {height}: the last pixel's cell at level {level} is in {mw} x {mh}"
+                );
+            }
+        }
+    }
+
     use super::*;
     use crate::surface::WgpuSurface;
 

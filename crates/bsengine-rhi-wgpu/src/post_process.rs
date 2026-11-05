@@ -1346,15 +1346,6 @@ fn trace_ray(
         }
         let near = nearest_depth(cell, level);
         var t_near = t;
-        // Set in the branch rather than as `o + dir * t_near` below, though it
-        // is the same sum. Written below, Windows' software adapter (WARP, the
-        // only one Windows CI has) got it wrong for a ray that arrived already
-        // behind the surface: the right pixel, met on the right read, and a
-        // point far from that pixel, so what it found was read from elsewhere
-        // and a floor lit from behind the post went dark (0.047 for 0.084 on
-        // one CPU, 0.068 on another). `p + dir * (t_near - t)` went the same
-        // way; every other adapter measured was right.
-        var q = p;
         if p.z < near {
             // In front of everything here: where it reaches that depth, if
             // it ever does -- a ray coming toward the camera does not.
@@ -1364,19 +1355,25 @@ fn trace_ray(
                 level = min(level + 1, top);
                 continue;
             }
-            q = o + dir * t_near;
         }
         if level > 0 {
             t = t_near;
             level -= 1;
             continue;
         }
-        if q.z - near < thickness {
+        // Where the ray came into this pixel, not `o + dir * t_near`, where it
+        // reached the depth: inside the same pixel, so no test can tell them
+        // apart -- and Windows' software adapter (WARP, all Windows CI has)
+        // got that sum wrong for a ray arriving already behind the surface.
+        // The right pixel, on the right read, and a point far from it, so what
+        // it met was read from elsewhere and a floor lit from behind the post
+        // went dark (0.047 for 0.084 on one CPU, 0.068 on another).
+        if p.z - near < thickness {
             var out: RayHit;
             out.found = true;
             out.px = px;
             out.depth = near;
-            out.uv = q.xy / dims;
+            out.uv = p.xy / dims;
             return out;
         }
         // Too far behind this pixel to be touching it: it went past. The

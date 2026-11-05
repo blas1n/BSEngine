@@ -1181,7 +1181,7 @@ struct SsgiCamera {
     inv_view_proj: mat4x4<f32>,
     // xyz camera position, w the frame index (the rays' rotation).
     cam_pos: vec4<f32>,
-    // x rays, y steps, z stride in world units, w thickness in NDC depth.
+    // x rays, y steps, z stride and w thickness in world units.
     params: vec4<f32>,
     // x intensity, y the history's blend, z whether the history holds a
     // previous frame (the temporal pass's), w the trace's scale: 1 at full
@@ -1273,6 +1273,16 @@ struct RayHit {
     depth: f32,
     uv: vec2<f32>,
 };
+
+// How far along the view NDC depth `z` is. NDC depth bunches up away from the
+// camera, so a thickness measured in it is a different depth at every distance
+// -- as the square of it: 0.002 was 0.2 world units at distance 3, and 1.6 at
+// 9, where a ray passing 1.5 behind a post 0.1 wide counted as meeting it, and
+// the post lit the floor five times what it should.
+fn view_distance(z: f32) -> f32 {
+    let p = cam.proj;
+    return abs((p[3][2] - z * p[3][3]) / (z * p[2][3] - p[2][2]));
+}
 
 // One ray through the depth pyramid, as Unity HDRP's and Unreal's screen
 // traces and Godot's go (Uludag, "Hi-Z Screen-Space Cone-Traced Reflections",
@@ -1368,7 +1378,7 @@ fn trace_ray(
         // The right pixel, on the right read, and a point far from it, so what
         // it met was read from elsewhere and a floor lit from behind the post
         // went dark (0.047 for 0.084 on one CPU, 0.068 on another).
-        if p.z - near < thickness {
+        if view_distance(p.z) - view_distance(near) < thickness {
             var out: RayHit;
             out.found = true;
             out.px = px;
@@ -1930,8 +1940,7 @@ pub struct SsgiCameraGpu {
     pub inv_view_proj: [[f32; 4]; 4],
     /// `xyz` camera position; `w` the frame index, which turns the rays.
     pub cam_pos: [f32; 4],
-    /// `x` rays, `y` steps, `z` stride in world units, `w` thickness in NDC
-    /// depth.
+    /// `x` rays, `y` steps, `z` stride and `w` thickness in world units.
     pub params: [f32; 4],
     /// `x` intensity; zero is off. `y` the share of each frame in the
     /// history, `z` whether the history holds a previous frame (set by

@@ -27,10 +27,11 @@ pub struct ScreenSpaceGlobalIllumination {
     /// Rays each pixel traces, in a cosine-weighted hemisphere. More is less
     /// noise for more time.
     pub rays: u32,
-    /// How many steps a ray takes before giving up. A ray that runs out of
-    /// steps finds nothing, and leaves that share of the light as it was.
+    /// How many depth reads a ray takes before giving up. It walks the depth
+    /// pyramid, so a read can cross 64 empty pixels; a ray that runs out finds
+    /// nothing, and leaves that share of the light as it was.
     pub steps: u32,
-    /// World-space distance per step; `steps * stride` is the reach.
+    /// `steps * stride` is the reach, in world units.
     pub stride: f32,
     /// How deep a surface is assumed to be, in NDC depth: the depth buffer
     /// says where surfaces start, never where they end.
@@ -49,8 +50,10 @@ impl Default for ScreenSpaceGlobalIllumination {
             enabled: true,
             intensity: 1.0,
             rays: 4,
-            steps: 24,
-            stride: 0.2,
+            // The same reach as ever, 4.8, on HDRP's scale of 32 to 64 steps:
+            // at 1080p 24 reads found half of what 128 do, 48 over nine tenths.
+            steps: 48,
+            stride: 0.1,
             thickness: 0.002,
             full_resolution: false,
         }
@@ -87,6 +90,18 @@ impl ScreenSpaceGlobalIllumination {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The default reads enough for the frame sizes games run at, over the
+    /// reach it has always had. Pinned here because the pixel tests' frame,
+    /// 200 x 150, cannot see it: a ray crosses a tenth of the pixels there, and
+    /// 24 reads find nine tenths of what 128 do, where at 1080p they find half
+    /// and 48 over nine tenths (`pixels_ssgi.rs`' post, measured by hand).
+    #[test]
+    fn the_default_budget_is_for_1080p() {
+        let d = ScreenSpaceGlobalIllumination::default();
+        assert!(d.steps >= 48, "{} reads", d.steps);
+        assert!((d.steps as f32 * d.stride - 4.8).abs() < 1e-3);
+    }
 
     #[test]
     fn disabling_is_the_same_as_contributing_nothing() {

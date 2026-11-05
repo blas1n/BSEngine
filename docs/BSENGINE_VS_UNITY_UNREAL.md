@@ -174,6 +174,7 @@ RTX 3060(드라이버 2026-03)과 Ryzen 7900X3D의 내장 Radeon(드라이버 20
   재배치 순회 제거, 계수 배열을 변수 9개로, 동적 `vec4` 인덱스를 `select`로. 라이트맵 베이크(바운스 항 없음)는 같은
   조합에서 통과한다. 재현: `WGPU_BACKEND=dx12 WGPU_ADAPTER_NAME=AMD cargo test -p bsengine-rhi-wgpu --test realtime_gi
   -- --test-threads=1`. CI의 D3D12는 WARP뿐이라 이 조합은 CI가 볼 수 없다.
+- **SSGI 깊이 피라미드(2026-11-05)**: 고정 보폭 행진 → Hi-Z(HDRP depth pyramid·Unreal HZB·Godot). `steps`는 이제 읽기 횟수, 기본 48 × 보폭 0.1(도달 거리 4.8 그대로). 릴리스 Radeon iGPU 1080p: 절반 해상도 39~42 → 20.5 ms, 전체 132 → 58 ms(아래 RTX 3060 수치는 그 전 것). 형태 인자 수치 적분과 3% 이내(`the_trace_lights_the_floor_by_the_form_factor`). SSR은 아직 고정 보폭. ⚠️ `thickness`는 NDC라 거리마다 월드 두께가 다름(기본 0.002는 거리 9쯤에서 약 1.6 단위 → 폭 0.1 기둥이 5배 밝음, 폭 1.0은 30%). 확인: `grep -n "fn trace_ray" crates/bsengine-rhi-wgpu/src/post_process.rs`
 - **성능(릴리스, RTX 3060, 1080p)**: SSGI 1.76 ms(Vulkan) · 1.82 ms(D3D12), SSR 1.19 · 1.78 ms, **실시간 GI(4096 프로브 ×
   64 광선) 2.13 ms · 6.42 ms — D3D12가 3배 느리다**고 적었으나, 2026-10-30에 백엔드를 번갈아 다시 재니 3배는 재현되지 않았다
   (첫 실행들은 GPU 클록 탓에 들쭉날쭉하다). 프로파일러가 이제 GI 패스를 잰다(`realtime_gi`). 같은 장면에서 GI 패스는 1.50 ms

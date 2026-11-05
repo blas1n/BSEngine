@@ -734,8 +734,11 @@ fn switched_back_on_it_starts_over() {
 /// pixels_ssgi -- --ignored --nocapture bench_ssgi` -- release, because a
 /// debug build's validation layers dominate any GPU timing (CLAUDE.md).
 /// Each frame is read back, which costs the same with and without; the
-/// difference is the trace, the two filters and the composite. On an RTX
-/// 3060: about 1.4-1.7 ms at half resolution, 4.9 at full.
+/// difference is the trace, the two filters and the composite. On a Radeon
+/// iGPU (`WGPU_ADAPTER_NAME=Radeon`): 20.5 ms at half resolution, 58 at full;
+/// the fixed-stride march before the depth pyramid took 39-42 and 132 with
+/// half the reads. Compare only runs on the same idle GPU: with a game holding
+/// an RTX 3060 at 90%, the frame without it read 42 ms instead of 5.
 #[test]
 #[ignore]
 fn bench_ssgi() {
@@ -1144,5 +1147,272 @@ fn a_hit_the_last_frame_did_not_see_is_read_from_this_one() {
     assert!(
         ((many - one) / one).abs().max_element() < 0.01,
         "every hit unseen last frame, one bounce: {many} against {one}"
+    );
+}
+
+/// A post on the floor at `x`, `width` across and 3 tall, at z = -6, glowing
+/// [`RED`].
+fn post(h: &mut Harness, x: f32, width: f32) -> Draw {
+    let n = [0.0, 0.0, 1.0];
+    let z = -6.0;
+    let m = h.mesh(
+        &[
+            vertex([x - width / 2.0, 0.0, z], n),
+            vertex([x + width / 2.0, 0.0, z], n),
+            vertex([x + width / 2.0, 3.0, z], n),
+            vertex([x - width / 2.0, 3.0, z], n),
+        ],
+        &[0, 1, 2, 0, 2, 3],
+    );
+    Draw::new(m, Vec3::ZERO).colour(Vec3::ZERO).emissive(RED)
+}
+
+fn floor_and_post(h: &mut Harness, x: f32, width: f32) -> Vec<Draw> {
+    let f = floor(h);
+    let p = post(h, x, width);
+    vec![Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0), p]
+}
+
+/// Linear red the trace adds to the floor in the frame's middle columns, as
+/// [`floor_band`] picks it out, beside a post at x = 0.
+fn red_gain_by_post(ssgi: Option<ScreenSpaceGlobalIllumination>, width: f32) -> f32 {
+    let off = first_frame(None, |h| floor_and_post(h, 0.0, width));
+    let on = first_frame(ssgi, |h| floor_and_post(h, 0.0, width));
+    floor_band(&on, WIDTH / 4, WIDTH * 3 / 4).x - floor_band(&off, WIDTH / 4, WIDTH * 3 / 4).x
+}
+
+/// `steps` reads over the same reach, 6.4, whatever the budget, at every
+/// pixel: so what differs is what the rays find.
+fn budget(steps: u32, thickness: f32) -> Option<ScreenSpaceGlobalIllumination> {
+    Some(ScreenSpaceGlobalIllumination {
+        rays: 16,
+        steps,
+        stride: 6.4 / steps as f32,
+        thickness,
+        full_resolution: true,
+        ..Default::default()
+    })
+}
+
+/// A thickness at which the post is thin to the trace: about 0.16 world units
+/// at this distance. Thickness is in NDC, so the default 0.002 is 1.6 units
+/// here, and a ray passing 1.5 units behind the post counts as meeting it:
+/// a post 0.1 wide lit the floor five times what it should.
+const THIN: f32 = 0.0002;
+
+/// What the post lights the floor by, by quadrature over the post from every
+/// floor pixel of [`floor_band`] -- from the camera and the geometry alone --
+/// as `reflectance * (L - ambient) * form_factor`, the light the trace
+/// replaces with the light it finds. Counts both faces of the post, as a
+/// depth buffer cannot tell them apart.
+fn post_reference(width: f32, reach: f32) -> f32 {
+    let camera = Vec3::new(-1.5, 3.0, 2.0);
+    let forward = (Vec3::new(0.0, 0.0, -8.0) - camera).normalize();
+    let right = forward.cross(Vec3::Y).normalize();
+    let up = right.cross(forward);
+    let half_height = (30f32).to_radians().tan();
+    let half_width = half_height * WIDTH as f32 / HEIGHT as f32;
+    let (mut sum, mut n) = (0.0, 0.0);
+    for y in HEIGHT / 2..HEIGHT * 3 / 4 {
+        for x in WIDTH / 4..WIDTH * 3 / 4 {
+            let ndc_x = (x as f32 + 0.5) / WIDTH as f32 * 2.0 - 1.0;
+            let ndc_y = 1.0 - (y as f32 + 0.5) / HEIGHT as f32 * 2.0;
+            let d = forward + right * (ndc_x * half_width) + up * (ndc_y * half_height);
+            let p = camera + d * (camera.y / -d.y);
+            // Past the floor's edge is not floor, as [`floor_band`] sees by colour.
+            if !(-8.0..=1.0).contains(&p.x) || !(-16.0..=-2.0).contains(&p.z) {
+                continue;
+            }
+            // The post's own pixels are not floor.
+            let at_post = camera + d * ((-6.0 - camera.z) / d.z);
+            if at_post.x.abs() < width / 2.0 && (0.0..3.0).contains(&at_post.y) && p.z < -6.0 {
+                continue;
+            }
+            let (nx, ny) = (8, 60);
+            let (dx, dy) = (width / nx as f32, 3.0 / ny as f32);
+            for i in 0..nx {
+                for j in 0..ny {
+                    let q = Vec3::new(
+                        -width / 2.0 + (i as f32 + 0.5) * dx,
+                        (j as f32 + 0.5) * dy,
+                        -6.0,
+                    );
+                    let to = q - p;
+                    let r = to.length();
+                    if r <= reach {
+                        sum += (to.y / r) * (to.z / r).abs() / (std::f32::consts::PI * r * r)
+                            * dx
+                            * dy;
+                    }
+                }
+            }
+            n += 1.0;
+        }
+    }
+    FLOOR.x * (RED.x - AMBIENT.x) * sum / n
+}
+
+/// The trace against the answer: with the budget to spare and the post thin
+/// to it, what the rays bring back is what the post sends, to 3%. A pyramid
+/// that kept a cell's farthest depth, or a ray that crossed a cell it should
+/// have stopped in, lights less; anything that hit too readily, more.
+#[test]
+fn the_trace_lights_the_floor_by_the_form_factor() {
+    for (width, stride) in [(1.0, 0.05), (0.5, 0.05), (1.0, 1.0)] {
+        // The last with a reach of 128, past the camera: a ray not cut at the
+        // near plane turns round into the frame, and meets the post from
+        // places it could never reach.
+        let reach = 128.0 * stride;
+        let got = red_gain_by_post(
+            Some(ScreenSpaceGlobalIllumination {
+                rays: 16,
+                steps: 128,
+                stride,
+                thickness: THIN,
+                full_resolution: true,
+                ..Default::default()
+            }),
+            width,
+        );
+        let expected = post_reference(width, reach);
+        assert!(expected > 0.01, "premise: the post lights the floor");
+        assert!(
+            (got - expected).abs() < expected * 0.03,
+            "a post {width} wide, reach {reach}: {got} against {expected}"
+        );
+    }
+}
+
+/// The ray looks at every pixel it could meet, not at one point per `stride`,
+/// and crosses empty floor in a few reads: 24 reads over a reach of 6.4, where
+/// a post a tenth of a unit wide stands, find it as 128 do. A march with that
+/// stride, 0.27, stepped over it most of the time; a walk with no pyramid
+/// would have gone 24 pixels of the hundred the reach covers.
+#[test]
+fn a_thing_narrower_than_the_stride_is_not_stepped_over() {
+    let plenty = red_gain_by_post(budget(128, THIN), 0.1);
+    let few = red_gain_by_post(budget(24, THIN), 0.1);
+    assert!(
+        plenty > 0.005,
+        "premise: the post lights the floor ({plenty})"
+    );
+    assert!(
+        (few - plenty).abs() < plenty * 0.1,
+        "24 reads, as 128: {few} against {plenty}"
+    );
+}
+
+/// Every texel of a level stands for all four below it: a post about a pixel
+/// wide is found whichever column it lands on, odd or even. A level that took
+/// one of the four would lose it on every other column, and the rays, which
+/// start a level up, would cross it in one read.
+#[test]
+fn a_thing_a_pixel_wide_is_found_on_any_column() {
+    let gains: Vec<f32> = (0..6)
+        .map(|i| {
+            let x = i as f32 * 0.035;
+            let off = first_frame(None, |h| floor_and_post(h, x, 0.07));
+            let on = first_frame(budget(128, THIN), |h| floor_and_post(h, x, 0.07));
+            floor_band(&on, WIDTH / 4, WIDTH * 3 / 4).x
+                - floor_band(&off, WIDTH / 4, WIDTH * 3 / 4).x
+        })
+        .collect();
+    let (lo, hi) = gains
+        .iter()
+        .fold((f32::MAX, f32::MIN), |(lo, hi), &g| (lo.min(g), hi.max(g)));
+    assert!(hi > 0.003, "premise: the post lights the floor: {gains:?}");
+    assert!(lo > hi * 0.5, "every column alike: {gains:?}");
+}
+
+/// A floor seen from low down, its pixels long along the view, does not light
+/// itself: a ray close above it would read as behind the depth at a pixel's
+/// centre, but for the clearance it starts with.
+#[test]
+fn a_floor_seen_at_a_grazing_angle_does_not_light_itself() {
+    let at = |ssgi| {
+        let mut h = Harness::new();
+        let d = floor_alone(&mut h);
+        h.render(&Scene {
+            camera_pos: Vec3::new(-1.5, 0.3, 2.0),
+            look_at: Vec3::new(0.0, 0.3, -8.0),
+            ..scene(d, ssgi)
+        })
+    };
+    let (off, on) = (at(None), at(on_with_defaults()));
+    let (a, b) = (
+        floor_band(&off, WIDTH / 4, WIDTH * 3 / 4),
+        floor_band(&on, WIDTH / 4, WIDTH * 3 / 4),
+    );
+    assert!(
+        (a - b).abs().max_element() < 0.001,
+        "an empty floor, with nothing to find: {a} -> {b}"
+    );
+}
+
+fn on_with_defaults() -> Option<ScreenSpaceGlobalIllumination> {
+    Some(ScreenSpaceGlobalIllumination {
+        rays: 16,
+        full_resolution: true,
+        ..Default::default()
+    })
+}
+
+/// The pyramid is this frame's: a post that moved is found where it now is,
+/// and not where it was. Built once, or a frame late, a ray crossing the empty
+/// floor it now stands on would cross it in one read, and the place it left
+/// would still stop rays that find only floor there.
+#[test]
+fn the_pyramid_follows_what_moved() {
+    let mut h = Harness::new();
+    let at = |h: &mut Harness, x| scene(floor_and_post(h, x, 1.0), budget(48, THIN));
+    let (left, right) = (at(&mut h, -4.0), at(&mut h, 0.0));
+    let (near_new, near_old) = ((WIDTH * 2 / 5, WIDTH * 3 / 5), (0, WIDTH / 5));
+    for frame in 0..4 {
+        h.render_at_frame(&left, frame);
+    }
+    let before = h.render_at_frame(&left, 4);
+    for frame in 5..30 {
+        h.render_at_frame(&right, frame);
+    }
+    let after = h.render_at_frame(&right, 30);
+    let band = |p: &Pixels, (x0, x1): (u32, u32)| floor_band(p, x0, x1).x;
+    assert!(
+        band(&after, near_new) > band(&before, near_new) + 0.03,
+        "the floor by its new place reddens: {} -> {}",
+        band(&before, near_new),
+        band(&after, near_new)
+    );
+    assert!(
+        band(&before, near_old) > band(&after, near_old) + 0.01,
+        "and the floor by its old place stops: {} -> {}",
+        band(&before, near_old),
+        band(&after, near_old)
+    );
+}
+
+/// A ray cut at the far plane: with a reach past it, nothing is found on an
+/// empty floor. Rays rising only a little keep to the frame all the way out,
+/// and past the far plane they are behind the empty sky's depth, which is no
+/// surface to have met.
+#[test]
+fn a_ray_past_the_far_plane_finds_nothing() {
+    let off = first_frame(None, floor_alone);
+    let on = first_frame(
+        Some(ScreenSpaceGlobalIllumination {
+            rays: 16,
+            steps: 128,
+            stride: 1.0,
+            full_resolution: true,
+            ..Default::default()
+        }),
+        floor_alone,
+    );
+    let (a, b) = (
+        floor_band(&off, WIDTH / 4, WIDTH * 3 / 4),
+        floor_band(&on, WIDTH / 4, WIDTH * 3 / 4),
+    );
+    assert!(
+        (a - b).abs().max_element() < 0.002,
+        "an empty floor, with nothing to find: {a} -> {b}"
     );
 }

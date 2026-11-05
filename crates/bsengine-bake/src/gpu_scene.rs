@@ -68,7 +68,8 @@ pub struct GpuTri {
 /// One light: `kind` 0 directional (`a` = direction, `c` = colour), 1 point
 /// (`a` = position, `c` = colour), 2 spot (`a` position, `b` direction, `c`
 /// colour, `d.x` inner cos, `d.y` outer cos), 3 rect (`a` centre, `b` half
-/// width, `c` half height, `d` radiance).
+/// width, `c` half height, `d` radiance), 4 tube (laid out as a rect: `b`
+/// half the axis, `c`'s length the radius).
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GpuLight {
@@ -374,9 +375,10 @@ fn gpu_light(light: &BakeLight) -> GpuLight {
             half_height,
             radiance,
             range,
+            tube,
             ..
         } => GpuLight {
-            kind: 3,
+            kind: if tube { 4 } else { 3 },
             contribution,
             range,
             intensity: 0.0,

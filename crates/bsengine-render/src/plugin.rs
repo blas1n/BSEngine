@@ -66,6 +66,7 @@ fn rect_light_entry(
             (r, p)
         })
         .unwrap_or((t.rotation.0, t.position.0));
+    let tube = rl.shape == bsengine_core::AreaLightShape::Tube;
     bsengine_rhi_wgpu::area_light::RectLightEntry {
         position,
         half_width: rotation * Vec3::X * (rl.width * 0.5),
@@ -73,8 +74,12 @@ fn rect_light_entry(
         color: *rl.color,
         intensity: rl.intensity,
         range: rl.range,
-        shadows: rl.shadows,
+        // A tube's light goes all round, and the shadow map a panel casts
+        // looks down its -z from its centre: half the tube's light would be
+        // shadowed by nothing. HDRP's tubes cast none either.
+        shadows: rl.shadows && !tube,
         baked: bakes_direct(rl.bake_mode),
+        tube,
     }
 }
 
@@ -3226,6 +3231,24 @@ mod tests {
         assert!(
             super::rect_light_entry(&shadowed, Some(&gt), &Transform::default()).shadows,
             "and the panel's own choice reaches the renderer"
+        );
+        assert!(!e.tube, "a panel unless asked");
+        // A tube keeps the panel's axes -- half its length along the width,
+        // its radius across -- and drops a shadow it was asked for: a
+        // panel's map would shadow half its light by nothing.
+        let tube = super::rect_light_entry(
+            &bsengine_core::RectLight {
+                shape: bsengine_core::AreaLightShape::Tube,
+                ..shadowed
+            },
+            Some(&gt),
+            &Transform::default(),
+        );
+        assert!(tube.tube, "the shape reaches the renderer");
+        assert!(!tube.shadows, "a tube casts no shadow, asked or not");
+        assert_eq!(
+            (tube.half_width, tube.half_height),
+            (e.half_width, e.half_height)
         );
     }
 

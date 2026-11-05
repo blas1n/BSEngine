@@ -219,6 +219,7 @@ pub fn lights(
                 radiance: *l.color * l.intensity,
                 range: l.range,
                 contribution,
+                tube: l.shape == bsengine_core::AreaLightShape::Tube,
             });
         }
     }
@@ -280,5 +281,50 @@ pub fn sky(path: Option<&str>, ambient: Vec3) -> Sky {
             );
             Sky::Uniform(ambient)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A rect light's shape reaches the bake and the realtime GI: the tube
+    /// and the panel in one world come out as one of each, with the axes
+    /// they share either way. A bake that read every rect light as a panel
+    /// would light only one side of a tube.
+    #[test]
+    fn a_tubes_shape_reaches_the_bake() {
+        let mut world = World::new();
+        for shape in [
+            bsengine_core::AreaLightShape::Rectangle,
+            bsengine_core::AreaLightShape::Tube,
+        ] {
+            world.spawn((
+                RectLight {
+                    shape,
+                    width: 2.0,
+                    height: 0.1,
+                    ..Default::default()
+                },
+                Transform::default(),
+            ));
+        }
+        let mut tubes: Vec<bool> = lights(&mut world, realtime_contribution)
+            .into_iter()
+            .map(|l| match l {
+                BakeLight::Rect {
+                    half_width,
+                    half_height,
+                    tube,
+                    ..
+                } => {
+                    assert_eq!((half_width, half_height), (Vec3::X, Vec3::Y * 0.05));
+                    tube
+                }
+                other => panic!("not a rect light: {other:?}"),
+            })
+            .collect();
+        tubes.sort();
+        assert_eq!(tubes, [false, true]);
     }
 }

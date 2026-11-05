@@ -184,6 +184,9 @@ impl Validate for SpotLight {
 /// shaded with linearly transformed cosines, as both engines do. No shadow
 /// map: an occluder between the panel and a surface does not stop its light.
 ///
+/// Or a tube instead of a panel, `shape` ([`AreaLightShape::Tube`]): HDRP's
+/// Tube shape, Unreal's point light with a Source Length.
+///
 /// `intensity` is the panel's own brightness, so a bigger panel at the same
 /// intensity lights more (Unreal's and HDRP's nits/luminance option); its
 /// rotation comes from the entity's `Transform` and its scale is ignored, as
@@ -210,6 +213,37 @@ pub struct RectLight {
     pub shadows: bool,
     /// What a lightmap bake takes from this light ([`LightBakeMode`]).
     pub bake_mode: LightBakeMode,
+    /// The emitter's shape ([`AreaLightShape`]): the panel described above,
+    /// or a tube along the same local x axis. Defaulted when a scene written
+    /// before shapes existed leaves it out.
+    #[reflect(default)]
+    pub shape: AreaLightShape,
+}
+
+/// What a [`RectLight`] emits from, as HDRP's Area Light picks its shape.
+///
+/// HDRP's three shapes are Rectangle, Tube and Disc, and only the first two
+/// are lit in real time there (Disc is baked only, as both of Unity's area
+/// lights are in the built-in and Universal pipelines); Unreal has the tube
+/// as a point light's Source Length. So the two every real-time renderer of
+/// the three has: no disc.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Reflect, serde::Serialize, serde::Deserialize,
+)]
+#[reflect(Default)]
+pub enum AreaLightShape {
+    /// A one-sided `width` x `height` panel, lit out of its local -z.
+    #[default]
+    Rectangle,
+    /// A glowing tube -- a fluorescent strip, a neon bar, a light sabre --
+    /// `width` long along the local x axis and `height` across, shining
+    /// every way round its axis. Seen from the side it covers what a
+    /// `width` x `height` panel facing you would, so the same `intensity`
+    /// lights the same. Its ends are not lit (HDRP's and Unreal's tubes are
+    /// lines too), and it casts no shadow: `shadows` is a panel's, cast
+    /// from its centre down its -z, which a light shining all round has not
+    /// got.
+    Tube,
 }
 
 impl Default for RectLight {
@@ -222,6 +256,7 @@ impl Default for RectLight {
             range: 10.0,
             shadows: false,
             bake_mode: LightBakeMode::default(),
+            shape: AreaLightShape::default(),
         }
     }
 }

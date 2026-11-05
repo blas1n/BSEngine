@@ -52,6 +52,11 @@ pub struct RectLightEntry {
     /// Its direct light is in the lightmaps (`LightBakeMode::Baked`): a
     /// lightmapped draw skips it, everything else is lit by it as usual.
     pub baked: bool,
+    /// A tube (`AreaLightShape::Tube`) rather than a panel: `half_width` is
+    /// half its axis and `half_height`'s length its radius, and it shines
+    /// all round. Never `shadows` as well (`RectLightEntry`'s maker clears
+    /// it): a tube's shadow is not a panel's.
+    pub tube: bool,
 }
 
 #[repr(C)]
@@ -63,7 +68,8 @@ struct RectLightGpu {
     /// The light's shadow map layer (`crate::spot_shadow`).
     shadow_layer: f32,
     half_height: [f32; 3],
-    _p1: f32,
+    /// 1 for a tube, 0 for a panel.
+    tube: f32,
     radiance: [f32; 3],
     _p2: f32,
 }
@@ -95,7 +101,7 @@ impl RectLightUniform {
                     -1.0
                 },
                 half_height: e.half_height.to_array(),
-                _p1: 0.0,
+                tube: if e.tube { 1.0 } else { 0.0 },
                 radiance: (e.color * e.intensity).to_array(),
                 _p2: 0.0,
             };
@@ -190,7 +196,9 @@ struct RectLightEntry {
     // Layer of the light's shadow map (`shadow_layer_lookup`).
     shadow_layer: f32,
     half_height: vec3<f32>,
-    _p1: f32,
+    // 1 for a tube: `half_width` is half its axis, `half_height`'s length
+    // its radius.
+    tube: f32,
     radiance: vec3<f32>,
     _p2: f32,
 };
@@ -248,6 +256,19 @@ fn horizon_cut(a: vec3<f32>, b: vec3<f32>) -> vec3<f32> {
     return -a.z * b + b.z * a;
 }
 
+// World to a frame around the normal with the view in its xz plane, which
+// is how the tables are oriented. Looking straight down the normal the view
+// gives no direction, and any tangent will do: the lobe is symmetric.
+fn ltc_frame(n: vec3<f32>, v: vec3<f32>) -> mat3x3<f32> {
+    var t1 = v - n * dot(v, n);
+    if dot(t1, t1) < 1e-8 {
+        t1 = cross(n, select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), abs(n.x) > 0.9));
+    }
+    t1 = normalize(t1);
+    let t2 = -cross(n, t1);
+    return transpose(mat3x3<f32>(t1, t2, n));
+}
+
 // The form factor of the rectangle `c0..c3` (counter-clockwise seen from
 // the side it lights) through the lobe `m_inv`, seen from `p`.
 //
@@ -261,16 +282,7 @@ fn ltc_evaluate(
     n: vec3<f32>, v: vec3<f32>, p: vec3<f32>, m_inv: mat3x3<f32>,
     c0: vec3<f32>, c1: vec3<f32>, c2: vec3<f32>, c3: vec3<f32>,
 ) -> f32 {
-    // A frame around the normal with the view in its xz plane, which is how
-    // the tables are oriented. Looking straight down the normal the view
-    // gives no direction, and any tangent will do: the lobe is symmetric.
-    var t1 = v - n * dot(v, n);
-    if dot(t1, t1) < 1e-8 {
-        t1 = cross(n, select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), abs(n.x) > 0.9));
-    }
-    t1 = normalize(t1);
-    let t2 = -cross(n, t1);
-    let m = m_inv * transpose(mat3x3<f32>(t1, t2, n));
+    let m = m_inv * ltc_frame(n, v);
     var l0 = m * (c0 - p);
     var l1 = m * (c1 - p);
     var l2 = m * (c2 - p);
@@ -381,6 +393,81 @@ fn ltc_evaluate(
     return max(sum, 0.0);
 }
 
+// The inverse of `m`'s transpose: what carries a plane's normal through `m`.
+// (WGSL has no `inverse`; this is the adjugate, column by column.)
+fn inverse_transpose(m: mat3x3<f32>) -> mat3x3<f32> {
+    let c0 = cross(m[1], m[2]);
+    let c1 = cross(m[2], m[0]);
+    let c2 = cross(m[0], m[1]);
+    return mat3x3<f32>(c0, c1, c2) * (1.0 / dot(m[0], c0));
+}
+
+// `ltc_evaluate` for a tube of `radius` from `a` to `b`: Heitz and Hill's
+// linear lights ("Real-Time Line- and Disk-Light Shading with Linearly
+// Transformed Cosines", 2017), HDRP's tube light.
+//
+// A thin cylinder seen from `p` is a strip along its axis, `2 radius` wide
+// across it, so its form factor is the clamped cosine integrated along the
+// axis line, times that width. For the line `po + l wt`, `d = |po|`:
+//
+//   (1/pi) integral cos dw = (radius/pi) [po.z F_po(l) + wt.z F_wt(l)],
+//   F_po = l / (d (d^2 + l^2)) + atan(l/d) / d^2,   F_wt = l^2 / (d (d^2 + l^2))
+//
+// (the strip's solid angle per length is `2 radius sin(alpha) / r^2`, and
+// `sin(alpha) = d / r`). Carried through `m_inv` the line stays a line, but
+// the strip's width -- across the plane the line and `p` span -- scales by
+// `1 / |m_inv^-T o|` for that plane's normal `o`, the paper's width factor.
+// The ends are not integrated: a tube is a line here, as in HDRP and
+// Unreal.
+//
+// Exact for a long tube; a short one reads low by about half `radius / d`
+// (6% for a tube 1 long, 0.1 round, 0.7 away; 1.5% at 0.05 -- against
+// quadrature over the cylinder and Monte Carlo rays, which agree). The
+// cylinder's near side is nearer than its axis, so it reaches further out
+// along the axis in angle than the line does. HDRP's tube has no radius at
+// all: it is that thin line's light.
+fn ltc_line(
+    n: vec3<f32>, v: vec3<f32>, p: vec3<f32>, m_inv: mat3x3<f32>,
+    a: vec3<f32>, b: vec3<f32>, radius: f32,
+) -> f32 {
+    let frame = ltc_frame(n, v);
+    let qa = frame * (a - p);
+    let qb = frame * (b - p);
+    let ortho = cross(qa, qb);
+    let ortho_len = length(ortho);
+    // `p` on the axis line itself: seen end on, the strip has no length.
+    if ortho_len < 1e-8 {
+        return 0.0;
+    }
+    let width = 1.0 / length(inverse_transpose(m_inv) * (ortho / ortho_len));
+    var p1 = m_inv * qa;
+    var p2 = m_inv * qb;
+    // Clipped to the horizon: the part below it is under the clamped cosine.
+    if p1.z <= 0.0 && p2.z <= 0.0 {
+        return 0.0;
+    }
+    if p1.z < 0.0 {
+        p1 = mix(p1, p2, p1.z / (p1.z - p2.z));
+    } else if p2.z < 0.0 {
+        p2 = mix(p2, p1, p2.z / (p2.z - p1.z));
+    }
+    let along = p2 - p1;
+    let len = length(along);
+    if len < 1e-8 {
+        return 0.0;
+    }
+    let wt = along / len;
+    let l1 = dot(p1, wt);
+    let l2 = l1 + len;
+    let po = p1 - l1 * wt;
+    let d = max(length(po), 1e-4);
+    let d2 = d * d;
+    let f_po = l2 / (d * (d2 + l2 * l2)) + atan(l2 / d) / d2
+        - l1 / (d * (d2 + l1 * l1)) - atan(l1 / d) / d2;
+    let f_wt = l2 * l2 / (d * (d2 + l2 * l2)) - l1 * l1 / (d * (d2 + l1 * l1));
+    return max(radius * width / 3.14159265 * (po.z * f_po + wt.z * f_wt), 0.0);
+}
+
 // `skip` has bit `i` set for each panel this draw must leave out: the mesh
 // shader passes the baked panels' bits for a lightmapped draw, every other
 // caller 0.
@@ -418,10 +505,6 @@ fn rect_light_radiance(
             continue;
         }
         let rl = rect_lights.lights[i];
-        let c0 = rl.position + rl.half_width - rl.half_height;
-        let c1 = rl.position - rl.half_width - rl.half_height;
-        let c2 = rl.position - rl.half_width + rl.half_height;
-        let c3 = rl.position + rl.half_width + rl.half_height;
         // Faded to nothing at `range` from the centre, smoothly, by the
         // window Unreal and Frostbite put on their lights' attenuation radius.
         let d = length(rl.position - p) / max(rl.range, 1e-4);
@@ -438,8 +521,22 @@ fn rect_light_radiance(
                 continue;
             }
         }
-        let spec = ltc_evaluate(n, v, p, m_inv, c0, c1, c2, c3);
-        let diff = ltc_evaluate(n, v, p, identity, c0, c1, c2, c3);
+        var spec = 0.0;
+        var diff = 0.0;
+        if rl.tube > 0.5 {
+            let a = rl.position - rl.half_width;
+            let b = rl.position + rl.half_width;
+            let radius = length(rl.half_height);
+            spec = ltc_line(n, v, p, m_inv, a, b, radius);
+            diff = ltc_line(n, v, p, identity, a, b, radius);
+        } else {
+            let c0 = rl.position + rl.half_width - rl.half_height;
+            let c1 = rl.position - rl.half_width - rl.half_height;
+            let c2 = rl.position - rl.half_width + rl.half_height;
+            let c3 = rl.position + rl.half_width + rl.half_height;
+            spec = ltc_evaluate(n, v, p, m_inv, c0, c1, c2, c3);
+            diff = ltc_evaluate(n, v, p, identity, c0, c1, c2, c3);
+        }
         sum += rl.radiance * (window * lit) * (fresnel * spec + diffuse * diff);
     }
     return sum;

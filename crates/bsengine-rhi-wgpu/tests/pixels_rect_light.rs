@@ -29,6 +29,7 @@ fn wall(cube: u64, roughness: f32, metallic: f32) -> Draw {
 fn panel(width: f32, height: f32, distance: f32, intensity: f32, rotation: Quat) -> RectLightEntry {
     RectLightEntry {
         baked: false,
+        tube: false,
         position: Vec3::new(0.0, 0.0, WALL_Z + distance),
         half_width: rotation * Vec3::X * (width * 0.5),
         half_height: rotation * Vec3::Y * (height * 0.5),
@@ -272,6 +273,7 @@ fn the_part_of_a_panel_below_the_horizon_does_not_light() {
     let down = Quat::from_rotation_x(-PI / 2.0);
     let flat = |z_centre: f32, depth: f32| RectLightEntry {
         baked: false,
+        tube: false,
         position: Vec3::new(0.0, 0.5, z_centre),
         half_width: down * Vec3::X * 0.5,
         half_height: down * Vec3::Y * (depth * 0.5),
@@ -357,6 +359,7 @@ fn every_way_a_panel_crosses_the_horizon_is_clipped_right() {
         let rot = Quat::from_rotation_y(turn);
         let rect = RectLightEntry {
             baked: false,
+            tube: false,
             position: Vec3::new(0.0, 0.5, WALL_Z + offset),
             half_width: rot * Vec3::X * 0.5,
             half_height: rot * Vec3::NEG_Z * 0.5,
@@ -544,5 +547,198 @@ fn a_rect_lights_shadow_edge_is_softened() {
     assert!(
         soft >= hard + 2,
         "soft {soft} partly shadowed pixels against hard {hard}"
+    );
+}
+
+/// A tube `length` long and `radius` round, its centre `centre`, along
+/// `axis` (a unit vector).
+fn tube(length: f32, radius: f32, centre: Vec3, axis: Vec3, intensity: f32) -> RectLightEntry {
+    RectLightEntry {
+        baked: false,
+        tube: true,
+        position: centre,
+        half_width: axis * (length * 0.5),
+        // Any direction across the axis: only its length, the radius, is read.
+        half_height: axis.any_orthonormal_vector() * radius,
+        color: Vec3::ONE,
+        intensity,
+        range: 100.0,
+        shadows: false,
+    }
+}
+
+/// The form factor from the wall's centre (normal +z) to the curved surface
+/// of a cylinder, counting only the part in front of the wall -- by
+/// quadrature over the surface itself, `cos cos / (pi r^2) dA` point by
+/// point, so nothing of the shader's line integral is assumed: not the strip
+/// it stands the tube in for, not its width factor. The ends are left out,
+/// as the shader leaves them.
+fn cylinder_form_factor(length: f32, radius: f32, centre: Vec3, axis: Vec3) -> f32 {
+    let (u, v) = axis.any_orthonormal_pair();
+    let (nt, nphi) = (800, 256);
+    let (dt, dphi) = (length / nt as f32, 2.0 * PI / nphi as f32);
+    let mut sum = 0.0;
+    for i in 0..nt {
+        let t = -length / 2.0 + (i as f32 + 0.5) * dt;
+        for k in 0..nphi {
+            let phi = (k as f32 + 0.5) * dphi;
+            let normal = u * phi.cos() + v * phi.sin();
+            let r = centre + axis * t + normal * radius;
+            if r.z <= 0.0 {
+                continue;
+            }
+            let d2 = r.length_squared();
+            let dir = r / d2.sqrt();
+            let (cos_wall, cos_tube) = (dir.z, -normal.dot(dir));
+            if cos_tube > 0.0 {
+                sum += cos_wall * cos_tube / (PI * d2) * radius * dphi * dt;
+            }
+        }
+    }
+    sum
+}
+
+/// [`linear`] averaged over the four pixels round the frame's exact centre,
+/// which lies between them (`the_part_of_a_panel_below_the_horizon_...`).
+fn centre_average(p: &Pixels) -> f32 {
+    let (x, y) = CENTRE;
+    (linear(p, x - 1, y - 1) + linear(p, x, y - 1) + linear(p, x - 1, y) + linear(p, x, y)) / 4.0
+}
+
+/// A tube lights the wall by its form factor -- the surface integral over
+/// the cylinder -- held across, tilted toward the wall (one end nearer, so
+/// the strip is foreshortened unevenly along its length), off to one side
+/// (the wall's centre not under it at all) and long and short. Each at the
+/// 3% the panels are held to; the rough wall's little specular is in that.
+///
+/// Thin tubes, radius a few hundredths of the distance: the line the shader
+/// integrates reads a short tube low by about half `radius / distance`
+/// (`ltc_line`), 1.5% at the first case's 0.05 -- and 6% at 0.14, which a
+/// 1 x 0.1 tube 0.7 away failed this test by.
+#[test]
+fn a_tube_lights_the_wall_by_its_form_factor() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let wall_centre = Vec3::new(0.0, 0.0, WALL_Z);
+    for (length, radius, offset, axis, intensity) in [
+        (2.0, 0.05, Vec3::new(0.0, 0.0, 1.0), Vec3::X, 1.0),
+        (1.0, 0.02, Vec3::new(0.0, 0.0, 0.7), Vec3::Y, 8.0),
+        (
+            2.0,
+            0.05,
+            Vec3::new(0.0, 0.0, 1.0),
+            Quat::from_rotation_y(0.4) * Vec3::X,
+            1.0,
+        ),
+        (2.0, 0.05, Vec3::new(0.0, 0.6, 0.8), Vec3::X, 2.0),
+        (6.0, 0.02, Vec3::new(0.0, 0.0, 0.5), Vec3::X, 4.0),
+    ] {
+        let p = h.render(&scene(
+            vec![wall(cube, 1.0, 0.0)],
+            vec![tube(length, radius, wall_centre + offset, axis, intensity)],
+        ));
+        let got = centre_average(&p);
+        let expected = intensity * cylinder_form_factor(length, radius, offset, axis);
+        assert!(
+            expected > 0.01,
+            "premise: the tube lights the centre measurably ({expected})"
+        );
+        assert!(
+            (got - expected).abs() < expected * 0.03,
+            "{length} x {radius} tube at {offset} along {axis}: {got} against {expected}"
+        );
+    }
+}
+
+/// A tube shines all round: turned over about its own axis it lights the
+/// wall exactly as before, where a panel turned over lights nothing
+/// (`a_panel_lights_nothing_behind_it`). And it lights the wall as the
+/// `width` x `height` panel facing the wall it looks like from there does
+/// -- `RectLight`'s promise that the same `intensity` lights the same.
+#[test]
+fn a_tube_shines_all_round_and_as_the_panel_it_looks_like() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let centre = Vec3::new(0.0, 0.0, WALL_Z + 1.5);
+    let mut lit = |light: RectLightEntry| {
+        let p = h.render(&scene(vec![wall(cube, 1.0, 0.0)], vec![light]));
+        centre_average(&p)
+    };
+    let upright = lit(tube(2.0, 0.05, centre, Vec3::X, 4.0));
+    let over = lit(RectLightEntry {
+        half_height: Vec3::NEG_Y * 0.05,
+        ..tube(2.0, 0.05, centre, Vec3::X, 4.0)
+    });
+    let panel_like = lit(panel(2.0, 0.1, 1.5, 4.0, Quat::IDENTITY));
+    let panel_over = lit(panel(2.0, 0.1, 1.5, 4.0, Quat::from_rotation_x(PI)));
+    assert!(
+        upright > 0.01,
+        "premise: the tube lights the wall ({upright})"
+    );
+    assert_eq!(panel_over, 0.0, "premise: the panel turned over does not");
+    assert_eq!(over, upright, "the tube turned over lights as before");
+    assert!(
+        (upright - panel_like).abs() < panel_like * 0.03,
+        "as the panel it looks like: {upright} against {panel_like}"
+    );
+}
+
+/// Horizon clipping, for the line: a tube lying flat above the wall's centre
+/// and running into it, half sunk behind the wall, lights the centre as its
+/// front half alone does, both by the front half's form factor. Wholly
+/// behind, nothing.
+#[test]
+fn the_part_of_a_tube_below_the_horizon_does_not_light() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let into_wall = Vec3::Z;
+    let mut centre = |z_centre: f32, length: f32| {
+        let at = Vec3::new(0.0, 0.5, z_centre);
+        let p = h.render(&scene(
+            vec![wall(cube, 1.0, 0.0)],
+            vec![tube(length, 0.05, at, into_wall, 1.0)],
+        ));
+        centre_average(&p)
+    };
+    let straddling = centre(WALL_Z, 2.0);
+    let front_half = centre(WALL_Z + 0.5, 1.0);
+    let behind = centre(WALL_Z - 0.6, 1.0);
+    let expected = cylinder_form_factor(2.0, 0.05, Vec3::new(0.0, 0.5, 0.0), into_wall);
+    assert!(
+        (front_half - expected).abs() < expected * 0.05,
+        "the front half lights the centre by its form factor: {front_half} against {expected}"
+    );
+    assert!(
+        (straddling - front_half).abs() < front_half * 0.02,
+        "half sunk behind the wall, as much as its front half: {straddling} against {front_half}"
+    );
+    assert_eq!(behind, 0.0, "wholly behind the wall, nothing");
+}
+
+/// A glossy wall reflects a tube as a line along its axis -- and turned a
+/// quarter, across: the specular half of the line integral, with the width
+/// factor the lobe's matrix puts on it.
+#[test]
+fn a_glossy_surface_reflects_the_tubes_line() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let mut extent = |axis: Vec3| {
+        let p = h.render(&scene(
+            vec![wall(cube, 0.25, 1.0)],
+            vec![tube(2.0, 0.1, Vec3::new(0.0, 0.0, WALL_Z + 1.5), axis, 1.0)],
+        ));
+        let wide = (0..WIDTH).filter(|&x| p.at(x, CENTRE.1)[0] > 128).count();
+        let tall = (0..HEIGHT).filter(|&y| p.at(CENTRE.0, y)[0] > 128).count();
+        (wide, tall)
+    };
+    let (wide, tall) = extent(Vec3::X);
+    assert!(
+        wide >= 3 * tall && tall > 0,
+        "a tube across, a wide highlight: {wide} x {tall}"
+    );
+    let (wide, tall) = extent(Vec3::Y);
+    assert!(
+        tall >= 3 * wide && wide > 0,
+        "turned a quarter, a tall one: {wide} x {tall}"
     );
 }

@@ -1015,6 +1015,7 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     app.register_type::<bsengine_core::SpotLight>();
     app.register_type::<bsengine_core::RectLight>();
     app.register_type::<bsengine_core::LightBakeMode>();
+    app.register_type::<bsengine_core::AreaLightShape>();
     app.register_type::<bsengine_core::LightmapStatic>();
     app.register_type::<bsengine_core::ExcludeFromGi>();
     app.register_type::<bsengine_core::Material>();
@@ -2998,6 +2999,36 @@ mod tests {
         // Named as None, and left out altogether: both flat.
         assert_eq!(terrain.layer2_normal_path, None);
         assert_eq!(terrain.layer0_normal_path, None);
+    }
+
+    /// A rect light's shape is read from the scene, and a scene written
+    /// before rect lights had shapes -- naming none -- still loads, as the
+    /// panel every rect light was then (`#[reflect(default)]`).
+    #[test]
+    fn scene_plugin_rect_light_shape_loads_and_defaults_to_a_panel() {
+        let ron = r#"SceneDescriptor(entities: [
+            EntityDescriptor(name: "Old", components: [
+                ("bsengine_core::light::RectLight", "(color: (1.0, 1.0, 1.0), intensity: 2.0, width: 1.0, height: 0.5, range: 10.0, shadows: false, bake_mode: Indirect)"),
+            ]),
+            EntityDescriptor(name: "Neon", components: [
+                ("bsengine_core::light::RectLight", "(color: (1.0, 1.0, 1.0), intensity: 2.0, width: 1.0, height: 0.5, range: 10.0, shadows: false, bake_mode: Indirect, shape: Tube)"),
+            ]),
+        ])"#;
+        let path = write_temp_scene("test_rect_light_shape.ron", ron);
+        let mut app = new_app();
+        app.add_plugins(ScenePlugin::from_file(&path));
+        app.update();
+
+        let mut q = app
+            .world_mut()
+            .query::<(&Name, &bsengine_core::RectLight)>();
+        let shapes: std::collections::HashMap<String, bsengine_core::AreaLightShape> = q
+            .iter(app.world())
+            .map(|(n, l)| (n.0.clone(), l.shape))
+            .collect();
+        assert_eq!(shapes.len(), 2, "premise: both lights spawn: {shapes:?}");
+        assert_eq!(shapes["Old"], bsengine_core::AreaLightShape::Rectangle);
+        assert_eq!(shapes["Neon"], bsengine_core::AreaLightShape::Tube);
     }
 
     // ---- resolution by identity (roadmap item 30, sub-item C) -------------

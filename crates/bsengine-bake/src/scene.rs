@@ -84,6 +84,10 @@ pub enum BakeLight {
         radiance: Vec3,
         range: f32,
         contribution: Contribution,
+        /// A tube (`AreaLightShape::Tube`): `half_width` is half its axis,
+        /// `half_height`'s length its radius, and it shines all round --
+        /// integrated along its axis line, as the renderer's `ltc_line` is.
+        tube: bool,
     },
 }
 
@@ -167,6 +171,7 @@ pub(crate) fn irradiance(light: &BakeLight, p: Vec3, n: Vec3, bvh: &Bvh, rng: &m
             half_height,
             radiance,
             range,
+            tube,
             ..
         } => {
             let d = (position - p).length() / range.max(1e-4);
@@ -174,6 +179,11 @@ pub(crate) fn irradiance(light: &BakeLight, p: Vec3, n: Vec3, bvh: &Bvh, rng: &m
             let window = w * w;
             if window <= 0.0 {
                 return Vec3::ZERO;
+            }
+            if tube {
+                return radiance
+                    * tube_form(bvh, rng, p, n, position, half_width, half_height.length())
+                    * window;
             }
             let cross = half_width.cross(half_height);
             let area = 4.0 * cross.length();
@@ -206,6 +216,55 @@ pub(crate) fn irradiance(light: &BakeLight, p: Vec3, n: Vec3, bvh: &Bvh, rng: &m
             radiance * (sum * area / (RECT_SAMPLES * RECT_SAMPLES) as f32) * window
         }
     }
+}
+
+/// `E / L` from a tube of `radius` round the axis `centre +- half_axis`:
+/// the strip `2 radius` wide the renderer stands the tube in for
+/// (`ltc_line`), whose solid angle per length is `2 radius sin(alpha) / r^2`,
+/// so `E = L * integral(cos_s 2 radius sin(alpha) / r^2 dl)`.
+///
+/// Stratified in the angle `theta` along the line from its nearest point,
+/// `d` away, not in length: with `l = d tan(theta)` the integrand is
+/// `cos_s cos(theta) / d`, smooth, where in length it is a spike `d` wide
+/// that sixteen points along a long tube land on or miss. Shadowed toward
+/// each point on the axis.
+fn tube_form(
+    bvh: &Bvh,
+    rng: &mut Rng,
+    p: Vec3,
+    n: Vec3,
+    centre: Vec3,
+    half_axis: Vec3,
+    radius: f32,
+) -> f32 {
+    let half_len = half_axis.length();
+    if half_len <= 0.0 {
+        return 0.0;
+    }
+    let axis = half_axis / half_len;
+    let rel = centre - p;
+    let along = rel.dot(axis);
+    let foot = rel - axis * along;
+    let d = foot.length();
+    // On the axis line itself: seen end on, the strip has no length.
+    if d <= 1e-6 {
+        return 0.0;
+    }
+    let (t1, t2) = ((along - half_len).atan2(d), (along + half_len).atan2(d));
+    let samples = RECT_SAMPLES * RECT_SAMPLES;
+    let mut sum = 0.0;
+    for i in 0..samples {
+        let theta = t1 + (t2 - t1) * (i as f32 + rng.next_f32()) / samples as f32;
+        let to = foot + axis * (d * theta.tan());
+        let r = to.length();
+        let l = to / r;
+        let cos_s = n.dot(l);
+        if cos_s <= 0.0 || bvh.occluded(p, l, r - EPS) {
+            continue;
+        }
+        sum += cos_s * theta.cos();
+    }
+    2.0 * radius * sum * (t2 - t1) / (samples as f32 * d)
 }
 
 /// The direction `light`'s light arrives at `p` from: toward the light, a
@@ -347,6 +406,7 @@ mod tests {
             radiance: Vec3::splat(10.0),
             range: 1000.0,
             contribution: Contribution::Baked,
+            tube: false,
         };
         let e = irradiance(&light, Vec3::ZERO, Vec3::Y, &nothing(), &mut Rng::new(0));
         let want = 10.0 * s * s / (h * h);
@@ -359,10 +419,68 @@ mod tests {
             radiance: Vec3::splat(10.0),
             range: 1000.0,
             contribution: Contribution::Baked,
+            tube: false,
         };
         assert_eq!(
             irradiance(&up, Vec3::ZERO, Vec3::Y, &nothing(), &mut Rng::new(0)),
             Vec3::ZERO
+        );
+    }
+
+    /// Closed form: under an infinitely long cylinder of radius `r` lying
+    /// parallel at height `h`, the form factor is `r / h`, so `E = pi L r /
+    /// h` -- a tube 40 long stands in for one, short of it by 0.1%. Pins the
+    /// strip's width, the angle stratification (sixteen points in length
+    /// along a tube this long land on a peak one unit wide or miss it) and
+    /// the cosine. Turned about its own axis, the same; a short one, less;
+    /// half sunk below the horizon, as its upper half; and seen end on,
+    /// nothing.
+    #[test]
+    fn a_tube_light_gives_the_cylinders_irradiance() {
+        let (r, h) = (0.05f32, 1.0f32);
+        let tube = |half_axis: Vec3, half_height: Vec3, position: Vec3| BakeLight::Rect {
+            position,
+            half_width: half_axis,
+            half_height,
+            radiance: Vec3::splat(10.0),
+            range: 1000.0,
+            contribution: Contribution::Baked,
+            tube: true,
+        };
+        let e = |light: &BakeLight| {
+            irradiance(light, Vec3::ZERO, Vec3::Y, &nothing(), &mut Rng::new(7)).x
+        };
+        let above = Vec3::new(0.0, h, 0.0);
+        let long = e(&tube(Vec3::X * 20.0, Vec3::Y * r, above));
+        let want = std::f32::consts::PI * 10.0 * r / h;
+        assert!((long / want - 1.0).abs() < 0.01, "{long} vs {want}");
+        assert_eq!(
+            e(&tube(Vec3::X * 20.0, Vec3::Z * r, above)),
+            long,
+            "turned about its axis, the same"
+        );
+        let short = e(&tube(Vec3::X * 0.5, Vec3::Y * r, above));
+        assert!(
+            short < long * 0.8 && short > 0.0,
+            "a short one, less: {short}"
+        );
+        // Upright beside the patch, half sunk below its plane: the half below
+        // the horizon adds nothing.
+        let sunk = e(&tube(Vec3::Y * 0.5, Vec3::X * r, Vec3::new(0.5, 0.0, 0.0)));
+        let upper = e(&tube(
+            Vec3::Y * 0.25,
+            Vec3::X * r,
+            Vec3::new(0.5, 0.25, 0.0),
+        ));
+        assert!(upper > 0.0, "premise: the upper half lights the patch");
+        assert!(
+            (sunk / upper - 1.0).abs() < 0.02,
+            "half below the horizon, as its upper half: {sunk} against {upper}"
+        );
+        assert_eq!(
+            e(&tube(Vec3::Y * 0.5, Vec3::X * r, above)),
+            0.0,
+            "end on, nothing"
         );
     }
 

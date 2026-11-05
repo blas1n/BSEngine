@@ -214,9 +214,9 @@ pub struct RectLight {
     /// What a lightmap bake takes from this light ([`LightBakeMode`]).
     pub bake_mode: LightBakeMode,
     /// The emitter's shape ([`AreaLightShape`]): the panel described above,
-    /// or a tube along the same local x axis. Defaulted when a scene written
-    /// before shapes existed leaves it out.
-    #[reflect(default)]
+    /// or a tube along the same local x axis. A scene written before shapes
+    /// existed leaves it out and gets the panel: the struct's
+    /// `#[reflect(Default)]` fills a missing field.
     pub shape: AreaLightShape,
 }
 

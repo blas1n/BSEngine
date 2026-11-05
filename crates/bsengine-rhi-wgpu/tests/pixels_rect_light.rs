@@ -742,3 +742,45 @@ fn a_glossy_surface_reflects_the_tubes_line() {
         "turned a quarter, a tall one: {wide} x {tall}"
     );
 }
+
+/// The glossy half of a tube's light at an angle: a metal wall seen
+/// obliquely reflects a thin tube as it reflects the thin panel of the same
+/// footprint, the strip the tube stands for -- the panel integrated as the
+/// exact polygon it is. Seen obliquely because head on the lobe's matrix
+/// leaves the strip's width alone, and a tube that skipped the width factor
+/// (`ltc_line`) passed every other test here; at this angle it reflects
+/// several times too much or too little.
+#[test]
+fn a_tube_seen_at_an_angle_reflects_as_its_strip() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    // Near the mirror direction of the view, (0, 3, 2), so the lobe reaches
+    // it; the panel turned to face the wall's centre, as the strip does.
+    let offset = Vec3::new(0.0, 0.9, 0.6);
+    let centre = Vec3::new(0.0, 0.0, WALL_Z) + offset;
+    let facing = Quat::from_rotation_arc(Vec3::NEG_Z, -offset.normalize());
+    let mut lit = |light: RectLightEntry, roughness: f32| {
+        let p = h.render(&Scene {
+            camera_pos: Vec3::new(0.0, -3.0, WALL_Z + 2.0),
+            look_at: Vec3::new(0.0, 0.0, WALL_Z),
+            ..scene(vec![wall(cube, roughness, 1.0)], vec![light])
+        });
+        centre_average(&p)
+    };
+    let strip = || RectLightEntry {
+        position: centre,
+        ..panel(2.0, 0.04, 0.6, 1.0, facing)
+    };
+    for roughness in [0.3, 0.5] {
+        let tube_light = lit(tube(2.0, 0.02, centre, Vec3::X, 1.0), roughness);
+        let panel_light = lit(strip(), roughness);
+        assert!(
+            panel_light > 0.005,
+            "premise: the panel's reflection reaches the centre ({panel_light})"
+        );
+        assert!(
+            (tube_light - panel_light).abs() < panel_light * 0.06,
+            "roughness {roughness}: tube {tube_light} against its strip {panel_light}"
+        );
+    }
+}

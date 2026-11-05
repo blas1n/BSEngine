@@ -728,6 +728,7 @@ mod tests {
                 radiance: Vec3::splat(4.0),
                 range: 5.0,
                 contribution: Contribution::Baked,
+                tube: false,
             },
         ];
         let sky = Sky::Uniform(Vec3::new(0.1, 0.15, 0.3));
@@ -789,6 +790,50 @@ mod tests {
         off.sort_by(f32::total_cmp);
         let p95 = off[off.len() * 95 / 100];
         assert!(p95 < 0.15, "95th percentile direction difference {p95}");
+    }
+
+    /// A tube light bakes the same on both backends: a lone baked tube over
+    /// the floor under a black sky, with no bounce to dilute it, so a GPU
+    /// that read it as the panel its layout shares -- or as nothing --
+    /// misses by far more than the angle samples' noise.
+    #[test]
+    fn the_gpu_bakes_a_tube_as_the_cpu_does() {
+        let tris = floor(0, Vec3::splat(0.5));
+        let sky = Sky::Uniform(Vec3::ZERO);
+        let lights = [BakeLight::Rect {
+            position: Vec3::new(0.5, 0.4, 0.5),
+            half_width: Vec3::X * 0.4,
+            half_height: Vec3::Y * 0.03,
+            radiance: Vec3::splat(10.0),
+            range: 5.0,
+            contribution: Contribution::Baked,
+            tube: true,
+        }];
+        let bake = |baker: &dyn LightmapBaker| {
+            texels_of(
+                &baker.bake(
+                    &BakeInput {
+                        triangles: &tris,
+                        renderers: &renderers(1),
+                        lights: &lights,
+                        sky: &sky,
+                    },
+                    &settings(4, 1, true),
+                ),
+                0,
+            )
+        };
+        let (cpu, gpu) = (bake(&CpuBaker), bake(baker()));
+        let mean = |v: &[Vec3]| v.iter().map(|t| t.x).sum::<f32>() / v.len() as f32;
+        let (mc, mg) = (mean(&cpu), mean(&gpu));
+        assert!(mc > 0.05, "premise: the floor is lit: {mc}");
+        assert!((mg / mc - 1.0).abs() < 0.02, "means: cpu {mc}, gpu {mg}");
+        let worst = cpu
+            .iter()
+            .zip(&gpu)
+            .map(|(c, g)| (c.x - g.x).abs() / c.x.max(1e-3))
+            .fold(0.0f32, f32::max);
+        assert!(worst < 0.05, "worst texel {worst}");
     }
 
     /// Six inward-facing quads of a unit box around the origin's cell, every

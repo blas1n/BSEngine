@@ -476,6 +476,7 @@ fn a_rect_lights_shadow_map_leaves_the_spot_lights_alone() {
             // lights nothing here, but draws its map.
             rects: vec![bsengine_rhi_wgpu::area_light::RectLightEntry {
                 baked: false,
+                tube: false,
                 position: Vec3::new(30.0, 2.0, 0.0),
                 half_width: Vec3::new(0.0, 0.0, 0.5),
                 half_height: Vec3::new(0.0, 0.5, 0.0),

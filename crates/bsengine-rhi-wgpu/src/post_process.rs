@@ -699,7 +699,12 @@ fn cs_inject(@builtin(global_invocation_id) gid: vec3<u32>) {
         if rl.shadow_layer >= 0.0 {
             lit = shadow_layer_lookup(i32(rl.shadow_layer), world_pos, 0u);
         }
-        let solid_angle = rect_solid_angle(rl, world_pos);
+        var solid_angle = 0.0;
+        if rl.tube > 0.5 {
+            solid_angle = tube_solid_angle(rl, world_pos);
+        } else {
+            solid_angle = rect_solid_angle(rl, world_pos);
+        }
         let rl_phase = henyey_greenstein(dot(view_dir, normalize(rl.position - world_pos)), fog.anisotropy);
         in_scatter += rl.radiance * (solid_angle * window * lit) * scattering * rl_phase;
     }
@@ -795,7 +800,8 @@ fn cs_integrate(@builtin(global_invocation_id) gid: vec3<u32>) {
 ///
 /// Van Oosterom and Strackee's formula for a triangle's solid angle, over
 /// the rectangle's two halves. One-sided, as the panel lights surfaces: zero
-/// behind its plane.
+/// behind its plane. A tube's is its axis strip's, all round
+/// (`tube_solid_angle`).
 const FOG_RECT_WGSL: &str = r#"
 fn triangle_solid_angle(a: vec3<f32>, b: vec3<f32>, c: vec3<f32>) -> f32 {
     let la = length(a);
@@ -817,6 +823,30 @@ fn rect_solid_angle(rl: RectLightEntry, p: vec3<f32>) -> f32 {
     let c2 = rl.position - rl.half_width + rl.half_height - p;
     let c3 = rl.position + rl.half_width + rl.half_height - p;
     return triangle_solid_angle(c0, c1, c2) + triangle_solid_angle(c0, c2, c3);
+}
+
+// A tube's (`RectLightEntry::tube`), as the scene shader sees it
+// (`ltc_line`): a strip `2 radius` wide along its axis, whose solid angle per
+// length is `2 radius sin(alpha) / r^2`, so, with `d` the distance from the
+// axis line and `l` along it,
+//
+//   (2 radius / d) [l / sqrt(d^2 + l^2)] from one end to the other.
+//
+// All round, so no side is dark. A froxel inside the tube itself is taken as
+// at its surface: the formula's `1 / d` is otherwise unbounded near the axis.
+fn tube_solid_angle(rl: RectLightEntry, p: vec3<f32>) -> f32 {
+    let radius = length(rl.half_height);
+    let half_len = length(rl.half_width);
+    if half_len < 1e-8 {
+        return 0.0;
+    }
+    let wt = rl.half_width / half_len;
+    let rel = p - rl.position;
+    let along = dot(rel, wt);
+    let d = max(length(rel - along * wt), radius);
+    let l1 = -half_len - along;
+    let l2 = half_len - along;
+    return 2.0 * radius / d * (l2 / sqrt(d * d + l2 * l2) - l1 / sqrt(d * d + l1 * l1));
 }
 "#;
 

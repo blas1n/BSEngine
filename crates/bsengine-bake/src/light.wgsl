@@ -4,7 +4,8 @@
 //   var<uniform> scene: Scene;
 //   var sky: texture_2d<f32>;           (Rgba32Float, unfilterable)
 
-// kind: 0 directional, 1 point, 2 spot, 3 rect. contribution: 0 indirect,
+// kind: 0 directional, 1 point, 2 spot, 3 rect, 4 tube (a rect light's
+// `AreaLightShape::Tube`, laid out as a rect). contribution: 0 indirect,
 // 1 baked. a/b/c/d per kind -- see `gpu_scene.rs::GpuLight`.
 struct Light {
     kind: u32,
@@ -67,6 +68,9 @@ fn irradiance(li: Light, p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
     if window <= 0.0 {
         return vec3<f32>(0.0);
     }
+    if li.kind == 4u {
+        return li.d.xyz * tube_form(p, n, li.a.xyz, li.b.xyz, length(li.c.xyz)) * window;
+    }
     let cr = cross(li.b.xyz, li.c.xyz);
     let area = 4.0 * length(cr);
     if area <= 0.0 {
@@ -95,6 +99,40 @@ fn irradiance(li: Light, p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
         }
     }
     return li.d.xyz * (sum * area / f32(RECT_SAMPLES * RECT_SAMPLES)) * window;
+}
+
+// `scene.rs::tube_form`: the strip `2 radius` wide along the axis line,
+// `E = L * integral(cos_s 2 radius sin(alpha) / r^2 dl)`, stratified in the
+// angle along the line, where the integrand is `cos_s cos(theta) / d`.
+fn tube_form(p: vec3<f32>, n: vec3<f32>, centre: vec3<f32>, half_axis: vec3<f32>, radius: f32) -> f32 {
+    let half_len = length(half_axis);
+    if half_len <= 0.0 {
+        return 0.0;
+    }
+    let axis = half_axis / half_len;
+    let rel = centre - p;
+    let along = dot(rel, axis);
+    let foot = rel - axis * along;
+    let d = length(foot);
+    if d <= 1e-6 {
+        return 0.0;
+    }
+    let t1 = atan2(along - half_len, d);
+    let t2 = atan2(along + half_len, d);
+    let samples = RECT_SAMPLES * RECT_SAMPLES;
+    var sum = 0.0;
+    for (var i = 0u; i < samples; i++) {
+        let theta = t1 + (t2 - t1) * (f32(i) + next_f32()) / f32(samples);
+        let to = foot + axis * (d * tan(theta));
+        let r = length(to);
+        let l = to / r;
+        let cos_s = dot(n, l);
+        if cos_s <= 0.0 || occluded(p, l, r - EPS) {
+            continue;
+        }
+        sum += cos_s * cos(theta);
+    }
+    return 2.0 * radius * sum * (t2 - t1) / (f32(samples) * d);
 }
 
 // The direction `li`'s light arrives at `p` from (`scene.rs::light_direction`):

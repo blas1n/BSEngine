@@ -352,6 +352,7 @@ fn lit_by(kind: Kind, baked: bool, draws: Vec<Draw>) -> Scene {
                 range: 10.0,
                 shadows: false,
                 baked,
+                tube: false,
             }),
     }
     scene

@@ -634,6 +634,7 @@ fn rect_lamp(
     let depth = if facing_up { 2.0 } else { -2.0 };
     bsengine_rhi_wgpu::area_light::RectLightEntry {
         baked: false,
+        tube: false,
         position: LAMP.position,
         half_width: Vec3::new(width / 2.0, 0.0, 0.0),
         half_height: Vec3::new(0.0, 0.0, depth),
@@ -708,6 +709,58 @@ fn a_rect_light_lights_the_fog_from_its_lit_side_by_its_size() {
     assert!(
         short < lit * 0.5,
         "a panel whose range ends just past the fog lights little of it: {short:.1} against {lit:.1}"
+    );
+}
+
+/// A tube where [`LAMP`] hangs, `length` along x and 0.5 round -- its
+/// radius direction `up` or down, which a tube does not care about.
+fn tube_lamp(
+    length: f32,
+    intensity: f32,
+    up: bool,
+) -> bsengine_rhi_wgpu::area_light::RectLightEntry {
+    bsengine_rhi_wgpu::area_light::RectLightEntry {
+        tube: true,
+        half_width: Vec3::new(length / 2.0, 0.0, 0.0),
+        half_height: Vec3::new(0.0, if up { 0.5 } else { -0.5 }, 0.0),
+        ..rect_lamp(length, intensity, false, false)
+    }
+}
+
+/// A tube lights the fog all round its axis (`tube_solid_angle`): turned
+/// over it lights the fog below exactly as before, where a panel turned
+/// over lights none of it -- and from below it lights the fog as the
+/// `length` x 1 panel facing down that it looks like from there. Twice the
+/// tube at half the brightness, about the same: the fog sees its length.
+#[test]
+fn a_tube_lights_the_fog_all_round() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let lit = rect_fog_luma(&mut h, cube, None, tube_lamp(4.0, 120.0, true));
+    let over = rect_fog_luma(&mut h, cube, None, tube_lamp(4.0, 120.0, false));
+    let panel_like = rect_fog_luma(
+        &mut h,
+        cube,
+        None,
+        bsengine_rhi_wgpu::area_light::RectLightEntry {
+            half_height: Vec3::new(0.0, 0.0, -0.5),
+            ..rect_lamp(4.0, 120.0, false, false)
+        },
+    );
+    let long_dim = rect_fog_luma(&mut h, cube, None, tube_lamp(8.0, 60.0, true));
+    println!("tube fog: lit {lit:.1}, over {over:.1}, as a panel {panel_like:.1}, long and dim {long_dim:.1}");
+    assert!(
+        (10.0..200.0).contains(&lit),
+        "premise: the tube lights the fog, short of saturating it ({lit:.1})"
+    );
+    assert_eq!(over, lit, "turned over, the same fog");
+    assert!(
+        (lit - panel_like).abs() < panel_like * 0.1,
+        "as the panel it looks like from below: {lit:.1} against {panel_like:.1}"
+    );
+    assert!(
+        (long_dim - lit).abs() < lit * 0.15,
+        "twice the tube at half the brightness, about the same fog: {long_dim:.1} against {lit:.1}"
     );
 }
 

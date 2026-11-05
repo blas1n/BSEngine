@@ -1255,13 +1255,27 @@ fn post_reference(width: f32, reach: f32) -> f32 {
 /// have stopped in, lights less; anything that hit too readily, more.
 #[test]
 fn the_trace_lights_the_floor_by_the_form_factor() {
-    for width in [1.0, 0.5] {
-        let got = red_gain_by_post(budget(128, THIN), width);
-        let expected = post_reference(width, 6.4);
+    for (width, stride) in [(1.0, 0.05), (0.5, 0.05), (1.0, 1.0)] {
+        // The last with a reach of 128, past the camera: a ray not cut at the
+        // near plane turns round into the frame, and meets the post from
+        // places it could never reach.
+        let reach = 128.0 * stride;
+        let got = red_gain_by_post(
+            Some(ScreenSpaceGlobalIllumination {
+                rays: 16,
+                steps: 128,
+                stride,
+                thickness: THIN,
+                full_resolution: true,
+                ..Default::default()
+            }),
+            width,
+        );
+        let expected = post_reference(width, reach);
         assert!(expected > 0.01, "premise: the post lights the floor");
         assert!(
             (got - expected).abs() < expected * 0.03,
-            "a post {width} wide: {got} against {expected}"
+            "a post {width} wide, reach {reach}: {got} against {expected}"
         );
     }
 }
@@ -1285,34 +1299,59 @@ fn a_thing_narrower_than_the_stride_is_not_stepped_over() {
     );
 }
 
-/// The default budget has the reads it needs: 48 at this frame's size is as
-/// good as 128. (24 found half of it at 1080p, where the same ray crosses ten
-/// times the pixels, low over a floor that keeps bringing it down a level.)
+/// Every texel of a level stands for all four below it: a post about a pixel
+/// wide is found whichever column it lands on, odd or even. A level that took
+/// one of the four would lose it on every other column, and the rays, which
+/// start a level up, would cross it in one read.
 #[test]
-fn the_default_budget_finds_what_plenty_does() {
-    let default = ScreenSpaceGlobalIllumination::default();
-    let reach = default.steps as f32 * default.stride;
-    let plenty = Some(ScreenSpaceGlobalIllumination {
-        steps: 128,
-        stride: reach / 128.0,
-        rays: 16,
-        full_resolution: true,
-        ..default
-    });
-    let defaults = Some(ScreenSpaceGlobalIllumination {
-        rays: 16,
-        full_resolution: true,
-        ..default
-    });
-    let (found, full) = (
-        red_gain_by_post(defaults, 1.0),
-        red_gain_by_post(plenty, 1.0),
+fn a_thing_a_pixel_wide_is_found_on_any_column() {
+    let gains: Vec<f32> = (0..6)
+        .map(|i| {
+            let x = i as f32 * 0.035;
+            let off = first_frame(None, |h| floor_and_post(h, x, 0.07));
+            let on = first_frame(budget(128, THIN), |h| floor_and_post(h, x, 0.07));
+            floor_band(&on, WIDTH / 4, WIDTH * 3 / 4).x
+                - floor_band(&off, WIDTH / 4, WIDTH * 3 / 4).x
+        })
+        .collect();
+    let (lo, hi) = gains
+        .iter()
+        .fold((f32::MAX, f32::MIN), |(lo, hi), &g| (lo.min(g), hi.max(g)));
+    assert!(hi > 0.003, "premise: the post lights the floor: {gains:?}");
+    assert!(lo > hi * 0.5, "every column alike: {gains:?}");
+}
+
+/// A floor seen from low down, its pixels long along the view, does not light
+/// itself: a ray close above it reads as behind the depth at a pixel's
+/// centre, and only the test against the plane it left says otherwise.
+#[test]
+fn a_floor_seen_at_a_grazing_angle_does_not_light_itself() {
+    let at = |ssgi| {
+        let mut h = Harness::new();
+        let d = floor_alone(&mut h);
+        h.render(&Scene {
+            camera_pos: Vec3::new(-1.5, 0.3, 2.0),
+            look_at: Vec3::new(0.0, 0.3, -8.0),
+            ..scene(d, ssgi)
+        })
+    };
+    let (off, on) = (at(None), at(on_with_defaults()));
+    let (a, b) = (
+        floor_band(&off, WIDTH / 4, WIDTH * 3 / 4),
+        floor_band(&on, WIDTH / 4, WIDTH * 3 / 4),
     );
-    assert!(full > 0.02, "premise: the post lights the floor ({full})");
     assert!(
-        (found - full).abs() < full * 0.05,
-        "the default against plenty: {found} against {full}"
+        (a - b).abs().max_element() < 0.005,
+        "an empty floor, with nothing to find: {a} -> {b}"
     );
+}
+
+fn on_with_defaults() -> Option<ScreenSpaceGlobalIllumination> {
+    Some(ScreenSpaceGlobalIllumination {
+        rays: 16,
+        full_resolution: true,
+        ..Default::default()
+    })
 }
 
 /// The pyramid is this frame's: a post that moved is found where it now is,
@@ -1348,12 +1387,12 @@ fn the_pyramid_follows_what_moved() {
     );
 }
 
-/// A ray cut at the near plane: with a reach long enough for rays leaving the
-/// floor to pass behind the camera, nothing is found on an empty floor. Past
-/// the near plane the divide by `w` turns a ray round into the frame, where it
-/// lands on floor it reads as a hit from the wrong side.
+/// A ray cut at the far plane: with a reach past it, nothing is found on an
+/// empty floor. Rays rising only a little keep to the frame all the way out,
+/// and past the far plane they are behind the empty sky's depth, which is no
+/// surface to have met.
 #[test]
-fn a_ray_passing_behind_the_camera_finds_nothing() {
+fn a_ray_past_the_far_plane_finds_nothing() {
     let off = first_frame(None, floor_alone);
     let on = first_frame(
         Some(ScreenSpaceGlobalIllumination {
@@ -1370,7 +1409,7 @@ fn a_ray_passing_behind_the_camera_finds_nothing() {
         floor_band(&on, WIDTH / 4, WIDTH * 3 / 4),
     );
     assert!(
-        (a - b).abs().max_element() < 0.005,
+        (a - b).abs().max_element() < 0.002,
         "an empty floor, with nothing to find: {a} -> {b}"
     );
 }

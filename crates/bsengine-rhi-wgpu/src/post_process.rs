@@ -1289,7 +1289,7 @@ struct RayHit {
 // stride lit a floor half as much as it should have.
 fn trace_ray(
     start: vec3<f32>, d: vec3<f32>, reach: f32, world: vec3<f32>, n: vec3<f32>,
-    clearance: f32, coord: vec2<i32>, dims: vec2<f32>,
+    clearance: f32, dims: vec2<f32>,
 ) -> RayHit {
     var miss: RayHit;
     miss.found = false;
@@ -1363,7 +1363,7 @@ fn trace_ray(
             continue;
         }
         let q = o + dir * t_near;
-        if q.z - near < thickness && any(px != coord) {
+        if q.z - near < thickness {
             // ⚠️ Not the surface the ray left. Near its start, a grazing
             // ray is a fraction of a pixel above that surface, and the
             // depth it is compared with is the pixel centre's -- on a
@@ -1423,7 +1423,7 @@ fn fs_ssgi(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     for (var r = 0u; r < rays; r++) {
         let h = pcg(seed ^ pcg(r));
         let d = cosine_direction(n, unit(h), unit(pcg(h)));
-        let ray = trace_ray(world + n * clearance, d, reach, world, n, clearance, coord, dims);
+        let ray = trace_ray(world + n * clearance, d, reach, world, n, clearance, dims);
         if !ray.found {
             continue;
         }

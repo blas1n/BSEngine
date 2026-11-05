@@ -33,8 +33,10 @@ pub struct ScreenSpaceGlobalIllumination {
     pub steps: u32,
     /// `steps * stride` is the reach, in world units.
     pub stride: f32,
-    /// How deep a surface is assumed to be, in NDC depth: the depth buffer
-    /// says where surfaces start, never where they end.
+    /// How deep a surface is assumed to be, in world units: the depth buffer
+    /// says where surfaces start, never where they end. So a ray passing this
+    /// far behind what is drawn has met it. Too little and light leaks past
+    /// solid things; too much and a thin thing lights like a thick one.
     pub thickness: f32,
     /// Trace every pixel rather than one in each 2 x 2 block. Off -- the
     /// default, as in Unity HDRP (its "Full Resolution" unticked) and Godot
@@ -54,7 +56,7 @@ impl Default for ScreenSpaceGlobalIllumination {
             // at 1080p 24 reads found half of what 128 do, 48 over nine tenths.
             steps: 48,
             stride: 0.1,
-            thickness: 0.002,
+            thickness: 0.25,
             full_resolution: false,
         }
     }

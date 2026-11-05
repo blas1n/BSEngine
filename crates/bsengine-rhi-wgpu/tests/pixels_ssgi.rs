@@ -89,7 +89,6 @@ fn on() -> Option<ScreenSpaceGlobalIllumination> {
         rays: 16,
         steps: 48,
         stride: 0.1,
-        thickness: 0.002,
         ..Default::default()
     })
 }
@@ -1194,11 +1193,8 @@ fn budget(steps: u32, thickness: f32) -> Option<ScreenSpaceGlobalIllumination> {
     })
 }
 
-/// A thickness at which the post is thin to the trace: about 0.16 world units
-/// at this distance. Thickness is in NDC, so the default 0.002 is 1.6 units
-/// here, and a ray passing 1.5 units behind the post counts as meeting it:
-/// a post 0.1 wide lit the floor five times what it should.
-const THIN: f32 = 0.0002;
+/// A thickness at which the post is thin to the trace.
+const THIN: f32 = 0.1;
 
 /// What the post lights the floor by, by quadrature over the post from every
 /// floor pixel of [`floor_band`] -- from the camera and the geometry alone --
@@ -1206,7 +1202,10 @@ const THIN: f32 = 0.0002;
 /// replaces with the light it finds. Counts both faces of the post, as a
 /// depth buffer cannot tell them apart.
 fn post_reference(width: f32, reach: f32) -> f32 {
-    let camera = Vec3::new(-1.5, 3.0, 2.0);
+    post_reference_from(Vec3::new(-1.5, 3.0, 2.0), width, reach)
+}
+
+fn post_reference_from(camera: Vec3, width: f32, reach: f32) -> f32 {
     let forward = (Vec3::new(0.0, 0.0, -8.0) - camera).normalize();
     let right = forward.cross(Vec3::Y).normalize();
     let up = right.cross(forward);
@@ -1414,5 +1413,103 @@ fn a_ray_past_the_far_plane_finds_nothing() {
     assert!(
         (a - b).abs().max_element() < 0.002,
         "an empty floor, with nothing to find: {a} -> {b}"
+    );
+}
+
+/// Red the trace adds to the floor beside a post, with the camera at `camera`.
+fn red_gain_by_post_from(
+    camera: Vec3,
+    ssgi: Option<ScreenSpaceGlobalIllumination>,
+    width: f32,
+) -> f32 {
+    let at = |ssgi| {
+        let mut h = Harness::new();
+        let d = floor_and_post(&mut h, 0.0, width);
+        floor_band(
+            &h.render(&Scene {
+                camera_pos: camera,
+                ..scene(d, ssgi)
+            }),
+            WIDTH / 4,
+            WIDTH * 3 / 4,
+        )
+        .x
+    };
+    at(ssgi) - at(None)
+}
+
+/// Thickness is a depth in the world, whatever the distance it is seen from:
+/// the same post, the same thickness, right from near and right from far. In
+/// NDC depth it grew as the square of the distance, so what was thin to the
+/// trace from one place lit the floor too much from three times as far. The far
+/// post is five pixels wide and reads 6% low, so the margin is wider than the
+/// quadrature test's.
+#[test]
+fn the_thickness_is_the_same_depth_from_any_distance() {
+    let ssgi = budget(128, THIN);
+    let mut ratios = Vec::new();
+    for camera in [Vec3::new(-1.5, 3.0, 2.0), Vec3::new(-1.5, 3.0, 20.0)] {
+        let expected = post_reference_from(camera, 1.0, 6.4);
+        assert!(expected > 0.01, "premise: the post lights the floor");
+        let got = red_gain_by_post_from(camera, ssgi, 1.0);
+        ratios.push(got / expected);
+    }
+    for r in &ratios {
+        assert!((r - 1.0).abs() < 0.08, "against the answer: {ratios:?}");
+    }
+}
+
+/// A box 1 across, 3 tall and 2 deep, glowing [`RED`], where the post stands:
+/// solid, so a ray passing behind its front face is inside it.
+fn floor_and_box(h: &mut Harness) -> Vec<Draw> {
+    let f = floor(h);
+    let (a, b, z0, z1, top) = (-0.5, 0.5, -5.0, -7.0, 3.0);
+    let (front, up, side) = ([0.0, 0.0, 1.0], [0.0, 1.0, 0.0], [-1.0, 0.0, 0.0]);
+    let m = h.mesh(
+        &[
+            vertex([a, 0.0, z0], front),
+            vertex([b, 0.0, z0], front),
+            vertex([b, top, z0], front),
+            vertex([a, top, z0], front),
+            vertex([a, top, z0], up),
+            vertex([b, top, z0], up),
+            vertex([b, top, z1], up),
+            vertex([a, top, z1], up),
+            vertex([a, 0.0, z1], side),
+            vertex([a, 0.0, z0], side),
+            vertex([a, top, z0], side),
+            vertex([a, top, z1], side),
+        ],
+        &[0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7, 8, 9, 10, 8, 10, 11],
+    );
+    vec![
+        Draw::new(f, Vec3::ZERO).colour(FLOOR).roughness(1.0),
+        Draw::new(m, Vec3::ZERO).colour(Vec3::ZERO).emissive(RED),
+    ]
+}
+
+/// The default is the bargain between the two ways a depth buffer can be
+/// wrong: a thin thing lit as if thick, and light leaking past a solid thing.
+/// Too much and the first side fails, too little and the second.
+#[test]
+fn the_default_thickness_suits_both_thin_and_solid_things() {
+    let expected = post_reference(1.0, 4.8);
+    let post = red_gain_by_post(on_with_defaults(), 1.0);
+    assert!(
+        post < expected * 1.1,
+        "a post a unit wide stays as bright as it is: {post} against {expected}"
+    );
+    let band = |p: &Pixels| floor_band(p, WIDTH / 4, WIDTH * 3 / 4).x;
+    let thick = on_with_defaults().map(|s| ScreenSpaceGlobalIllumination {
+        thickness: 2.0,
+        ..s
+    });
+    let off = band(&first_frame(None, floor_and_box));
+    let all = band(&first_frame(thick, floor_and_box)) - off;
+    let got = band(&first_frame(on_with_defaults(), floor_and_box)) - off;
+    assert!(all > 0.1, "premise: the box lights the floor: {all}");
+    assert!(
+        got > all * 0.7,
+        "and most of a solid box's light is found: {got} of {all}"
     );
 }

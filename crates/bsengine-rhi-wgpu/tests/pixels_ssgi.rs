@@ -734,8 +734,11 @@ fn switched_back_on_it_starts_over() {
 /// pixels_ssgi -- --ignored --nocapture bench_ssgi` -- release, because a
 /// debug build's validation layers dominate any GPU timing (CLAUDE.md).
 /// Each frame is read back, which costs the same with and without; the
-/// difference is the trace, the two filters and the composite. On an RTX
-/// 3060: about 1.4-1.7 ms at half resolution, 4.9 at full.
+/// difference is the trace, the two filters and the composite. On a Radeon
+/// iGPU (`WGPU_ADAPTER_NAME=Radeon`): 20.5 ms at half resolution, 58 at full;
+/// the fixed-stride march before the depth pyramid took 39-42 and 132 with
+/// half the reads. Compare only runs on the same idle GPU: with a game holding
+/// an RTX 3060 at 90%, the frame without it read 42 ms instead of 5.
 #[test]
 #[ignore]
 fn bench_ssgi() {

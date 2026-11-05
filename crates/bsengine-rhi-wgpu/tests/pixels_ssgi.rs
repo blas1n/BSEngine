@@ -1322,8 +1322,8 @@ fn a_thing_a_pixel_wide_is_found_on_any_column() {
 }
 
 /// A floor seen from low down, its pixels long along the view, does not light
-/// itself: a ray close above it reads as behind the depth at a pixel's
-/// centre, and only the test against the plane it left says otherwise.
+/// itself: a ray close above it would read as behind the depth at a pixel's
+/// centre, but for the clearance it starts with.
 #[test]
 fn a_floor_seen_at_a_grazing_angle_does_not_light_itself() {
     let at = |ssgi| {
@@ -1341,7 +1341,7 @@ fn a_floor_seen_at_a_grazing_angle_does_not_light_itself() {
         floor_band(&on, WIDTH / 4, WIDTH * 3 / 4),
     );
     assert!(
-        (a - b).abs().max_element() < 0.005,
+        (a - b).abs().max_element() < 0.001,
         "an empty floor, with nothing to find: {a} -> {b}"
     );
 }

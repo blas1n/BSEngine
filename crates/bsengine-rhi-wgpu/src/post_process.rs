@@ -1288,8 +1288,7 @@ struct RayHit {
 // jumped over what was narrower on screen: a post eight times thinner than the
 // stride lit a floor half as much as it should have.
 fn trace_ray(
-    start: vec3<f32>, d: vec3<f32>, reach: f32, world: vec3<f32>, n: vec3<f32>,
-    clearance: f32, dims: vec2<f32>,
+    start: vec3<f32>, d: vec3<f32>, reach: f32, dims: vec2<f32>,
 ) -> RayHit {
     var miss: RayHit;
     miss.found = false;
@@ -1364,25 +1363,12 @@ fn trace_ray(
         }
         let q = o + dir * t_near;
         if q.z - near < thickness {
-            // ⚠️ Not the surface the ray left. Near its start, a grazing
-            // ray is a fraction of a pixel above that surface, and the
-            // depth it is compared with is the pixel centre's -- on a
-            // surface seen at a slant, nearer than the ray by more than
-            // its height -- so it reads as behind its own surface, and
-            // a flat floor lit itself with its own colour. A surface
-            // in the plane the ray left cannot be what it meets: it
-            // leaves that plane at once (cosine-weighted, into the
-            // hemisphere above it). So a "hit" within the clearance of
-            // that plane is no hit, and the ray walks on.
-            let hit = world_at((vec2<f32>(px) + vec2<f32>(0.5)) / dims, near);
-            if dot(hit - world, n) >= clearance {
-                var out: RayHit;
-                out.found = true;
-                out.px = px;
-                out.depth = near;
-                out.uv = q.xy / dims;
-                return out;
-            }
+            var out: RayHit;
+            out.found = true;
+            out.px = px;
+            out.depth = near;
+            out.uv = q.xy / dims;
+            return out;
         }
         // Too far behind this pixel to be touching it: it went past. The
         // pyramid has nothing to say about what is behind a surface, so on
@@ -1410,10 +1396,13 @@ fn fs_ssgi(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     let rays = u32(cam.params.x);
     let reach = cam.params.y * cam.params.z;
     // Two pixels' width at this distance, in world units: how far off its
-    // surface a ray starts, so it does not find the surface it leaves. Tied
-    // to the pixel because that is the size of the error it covers -- a share
-    // of the `stride`, as a march needed, put a stride of 0.8 0.4 off the
-    // floor, where it could not see the foot of what stood on it.
+    // surface a ray starts, so it does not find the surface it leaves. The
+    // depth it is compared with is a pixel centre's, and on a surface seen at
+    // a slant that is nearer than the ray by as much as half a pixel on
+    // screen; seen at a slant, this lifts the ray two pixels on screen, clear
+    // of that. Tied to the pixel because that is the size of the error -- a
+    // share of the `stride`, as a march needed, put a stride of 0.8 0.4 off
+    // the floor, where it could not see the foot of what stood on it.
     let w = (cam.proj * cam.view * vec4<f32>(world, 1.0)).w;
     let clearance = 2.0 * w * 2.0 / (cam.proj[1][1] * dims.y);
     let seed = pcg(u32(coord.x) ^ pcg(u32(coord.y) ^ pcg(u32(cam.cam_pos.w))));
@@ -1423,7 +1412,7 @@ fn fs_ssgi(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     for (var r = 0u; r < rays; r++) {
         let h = pcg(seed ^ pcg(r));
         let d = cosine_direction(n, unit(h), unit(pcg(h)));
-        let ray = trace_ray(world + n * clearance, d, reach, world, n, clearance, dims);
+        let ray = trace_ray(world + n * clearance, d, reach, dims);
         if !ray.found {
             continue;
         }

@@ -1213,11 +1213,7 @@ fn fs_ssr(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
         let start = world + refl * (ray_clearance(world, dims) / lift);
         let ray = trace_ray(start, refl, cam.params.x * cam.params.y, dims, reads, cam.params.z);
         if (ray.found) {
-            // That pixel's centre, not where in it the ray arrived: the light
-            // is read through a filtering sampler, and at a pixel's edge it
-            // would be half the neighbour's, which on a mirror is a blur along
-            // every edge in the reflection.
-            hit_uv = (vec2<f32>(ray.px) + vec2<f32>(0.5)) / dims;
+            hit_uv = ray.uv;
             found = 1.0;
         }
     }

@@ -73,6 +73,24 @@ pub enum NodeKind {
     /// Input ports: `"color"` (`vec3<f32>`, required) and `"alpha"`
     /// (`f32`, optional -- defaults to fully opaque when unconnected).
     Output,
+    /// The shader's result as a surface for the engine to light, in place of
+    /// [`NodeKind::Output`]'s final colour: shadows, every kind of light, the
+    /// environment, decals, reflections and screen-space GI, by the same code
+    /// as the standard material. Exactly one graph node must be an output of
+    /// either kind.
+    ///
+    /// Input ports, all optional: `"base_color"` (`vec3<f32>`, linear),
+    /// `"normal"` (`vec3<f32>`, world space, as [`NodeKind::Normal`] gives it),
+    /// `"metallic"`, `"roughness"` and `"occlusion"` (`f32`) and `"emissive"`
+    /// (`vec3<f32>`). What is unconnected stays what the entity's material
+    /// says, maps included, so with nothing connected this *is* the standard
+    /// material. Opacity is always the material's.
+    ///
+    /// The outputs Unity's Shader Graph Lit target, Unreal's Default Lit and
+    /// Godot's `fragment()` all have. They differ on what an unconnected port
+    /// is (a constant in the first two); here a material is per entity and a
+    /// graph is shared, so following it is what lets one graph serve many.
+    LitOutput,
 }
 
 /// A node: a stable id plus what it does.

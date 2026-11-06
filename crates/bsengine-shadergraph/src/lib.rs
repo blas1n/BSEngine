@@ -18,5 +18,5 @@
 pub mod compile;
 pub mod graph;
 
-pub use compile::{compile, Port, ValueType};
+pub use compile::{compile, is_lit_shader, Port, ValueType, LIT_DIRECTIVE};
 pub use graph::{Edge, GraphError, GraphNode, NodeKind, ShaderGraph};

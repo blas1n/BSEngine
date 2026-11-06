@@ -109,12 +109,34 @@ fn normal_mapped(n: vec3<f32>, tangent: vec4<f32>, uv: vec2<f32>, scale: f32) ->
     };
 }
 
-/// `pub(crate)` only so that
-/// `post_process::tests::the_injection_pass_ports_point_shadow_factor_verbatim`
-/// can compare this text against the froxel injection shader's copy of
-/// `point_shadow_factor`. Nothing outside a test reads it.
-pub(crate) const MESH_WGSL: &str = concat!(
-    r#"
+/// The two fragment stages [`MESH_WGSL`] and a lit custom shader share. Both
+/// ask `surface` what is there, which each of the two defines its own way.
+macro_rules! mesh_entry_points_wgsl {
+    () => {
+        r#"
+@fragment
+fn fs_ssr_normal(in: VertOut) -> SsrSurfaceOut {
+    let s = surface(in);
+    var out: SsrSurfaceOut;
+    out.normal_roughness = vec4<f32>(normalize(s.normal), max(s.roughness, 0.04));
+    out.velocity = fragment_velocity(in);
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertOut) -> SceneOut {
+    return shade(in, surface(in));
+}
+"#
+    };
+}
+
+/// [`MESH_WGSL`] but for `surface` and the entry points: the bindings, the
+/// vertex stage and all of the lighting.
+macro_rules! mesh_shading_wgsl {
+    () => {
+        concat!(
+            r#"
 const MAX_POINT_LIGHTS: u32 = 8u;
 const MAX_SPOT_LIGHTS: u32 = 8u;
 const PI: f32 = 3.14159265358979323846;
@@ -597,58 +619,84 @@ struct SsrSurfaceOut {
     @location(1) velocity: vec2<f32>,
 };
 
-@fragment
-fn fs_ssr_normal(in: VertOut) -> SsrSurfaceOut {
-    var n = normalize(in.world_normal);
+// What a surface is, before any light has touched it: everything a material
+// decides and nothing a light does. `surface` makes one and `shade` lights it,
+// and that seam is all a lit custom shader is -- its author replaces the first
+// half. The fields are the ones Unity's Shader Graph, Unreal's material outputs
+// and Godot's `fragment()` converge on.
+struct Surface {
+    // Linear colour, before the decals are painted on it.
+    albedo: vec3<f32>,
+    // World space, before the decals; `shade` normalises what comes out of them.
+    normal: vec3<f32>,
+    metallic: f32,
+    // `shade` keeps it from 0, where the highlight has no width.
+    roughness: f32,
+    // How much of the indirect light gets here: 1 for all of it.
+    occlusion: f32,
+    emissive: vec3<f32>,
+};
+
+// The vertex normal, or the material's normal map on it. `normal_scale` is per
+// draw, so the branch is uniform.
+fn surface_normal(in: VertOut) -> vec3<f32> {
+    let n = normalize(in.world_normal);
     if (model_data.normal_scale != 0.0) {
-        n = normal_mapped(n, in.world_tangent, in.uv, model_data.normal_scale);
+        return normal_mapped(n, in.world_tangent, in.uv, model_data.normal_scale);
     }
-    let orm = textureSample(t_orm, s_orm, in.uv).rgb;
-    let roughness = max(model_data.roughness * orm.g, 0.04);
-    var out: SsrSurfaceOut;
-    out.normal_roughness = vec4<f32>(n, roughness);
-    if in.prev_clip.w <= 1e-5 {
-        out.velocity = vec2<f32>(65504.0);
-    } else {
-        let curr_ndc = in.curr_clip.xy / in.curr_clip.w;
-        let prev_ndc = in.prev_clip.xy / in.prev_clip.w;
-        out.velocity = (curr_ndc - prev_ndc) * vec2<f32>(0.5, -0.5);
-    }
-    return out;
+    return n;
 }
 
-@fragment
-fn fs_main(in: VertOut) -> SceneOut {
-    var geom_n = normalize(in.world_normal);
-    // The material's normal map, under any decal: a decal is painted onto the
-    // surface as it is, bumps and all, so it blends with the mapped normal.
-    // `normal_scale` is per draw, so the branch is uniform.
-    if (model_data.normal_scale != 0.0) {
-        geom_n = normal_mapped(geom_n, in.world_tangent, in.uv, model_data.normal_scale);
-    }
-    // A surface with no decal reads (0, 0, 0, 1) here and keeps its own normal
-    // exactly.
-    let dnorm = decal_normal(vec2<i32>(in.clip_pos.xy));
-    let n = normalize(
-        geom_n * dnorm.a + (2.0 * dnorm.rgb - vec3<f32>(1.0 - dnorm.a))
-    );
-    let v = normalize(camera.cam_pos - in.world_pos);
-    var albedo = textureSample(t_diffuse, s_diffuse, in.uv).rgb * in.col * model_data.base_color;
-    // Decals, before a single light has touched it. This is the whole reason
-    // the buffer exists: a decal blended after lighting would stay bright in a
-    // shadow, because nothing about the surface would have changed.
-    let dbuf = decal_colour(vec2<i32>(in.clip_pos.xy));
-    albedo = albedo * dbuf.a + dbuf.rgb;
+// The entity's `Material`, as a `Surface`. A lit custom shader starts from
+// this and changes what it means to change, so whatever it leaves alone keeps
+// following the material the entity was given.
+fn material_surface(in: VertOut) -> Surface {
+    var s: Surface;
+    s.albedo = textureSample(t_diffuse, s_diffuse, in.uv).rgb * in.col * model_data.base_color;
+    s.normal = surface_normal(in);
     // The ORM map scales the factors, as glTF defines it: roughness by G,
     // metallic by B. Sampled whatever the material names -- the default is
     // white, which a texel decodes to exactly 1.0, so no map changes nothing.
     let orm = textureSample(t_orm, s_orm, in.uv).rgb;
-    let metallic = model_data.metallic * orm.b;
-    let roughness = max(model_data.roughness * orm.g, 0.04);
+    s.metallic = model_data.metallic * orm.b;
+    s.roughness = model_data.roughness * orm.g;
+    s.occlusion = mix(1.0, orm.r, model_data.occlusion_strength);
+    s.emissive = model_data.emissive * textureSample(t_emissive, s_emissive, in.uv).rgb;
+    return s;
+}
+
+// How far this fragment moved on screen since last frame. Behind last frame's
+// camera there is no previous screen position: the "no velocity" value hands
+// the pixel back to camera reprojection, which gives up on it the same way.
+fn fragment_velocity(in: VertOut) -> vec2<f32> {
+    if in.prev_clip.w <= 1e-5 {
+        return vec2<f32>(65504.0);
+    }
+    let curr_ndc = in.curr_clip.xy / in.curr_clip.w;
+    let prev_ndc = in.prev_clip.xy / in.prev_clip.w;
+    return (curr_ndc - prev_ndc) * vec2<f32>(0.5, -0.5);
+}
+
+fn shade(in: VertOut, s: Surface) -> SceneOut {
+    // A decal is painted onto the surface as it is, bumps and all, so it blends
+    // with the mapped normal. A surface with no decal reads (0, 0, 0, 1) here
+    // and keeps its own normal exactly.
+    let dnorm = decal_normal(vec2<i32>(in.clip_pos.xy));
+    let n = normalize(
+        s.normal * dnorm.a + (2.0 * dnorm.rgb - vec3<f32>(1.0 - dnorm.a))
+    );
+    let v = normalize(camera.cam_pos - in.world_pos);
+    // Decals, before a single light has touched it. This is the whole reason
+    // the buffer exists: a decal blended after lighting would stay bright in a
+    // shadow, because nothing about the surface would have changed.
+    let dbuf = decal_colour(vec2<i32>(in.clip_pos.xy));
+    let albedo = s.albedo * dbuf.a + dbuf.rgb;
+    let metallic = s.metallic;
+    let roughness = max(s.roughness, 0.04);
     let f0 = mix(vec3<f32>(0.04, 0.04, 0.04), albedo, metallic);
     let n_dot_v = max(dot(n, v), 0.0001);
     let lit = shadow_factor(in.world_pos);
-    let emitted = model_data.emissive * textureSample(t_emissive, s_emissive, in.uv).rgb;
+    let emitted = s.emissive;
 
     var lo = vec3<f32>(0.0, 0.0, 0.0);
     // A lightmapped draw has every `Baked` light's direct light and shadow in
@@ -885,7 +933,7 @@ fn fs_main(in: VertOut) -> SceneOut {
     // light, whose shadow already says what blocks it (glTF: "the occlusion
     // values are linearly sampled... and should be applied to indirect
     // lighting"; Unity and Unreal alike).
-    let occlusion = mix(1.0, orm.r, model_data.occlusion_strength);
+    let occlusion = s.occlusion;
     let ambient_term = (diffuse_term + specular_ibl) * occlusion;
     let color = ambient_term + lo + emitted;
     var out: SceneOut;
@@ -894,26 +942,40 @@ fn fs_main(in: VertOut) -> SceneOut {
     let gi_reflectance = diffuse_factor * occlusion;
     out.gi_indirect = vec4<f32>(diffuse_term * occlusion, gi_reflectance.r);
     out.gi_albedo = gi_reflectance.gb;
-    // Behind last frame's camera there is no previous screen position: the
-    // "no velocity" value hands the pixel back to camera reprojection,
-    // which gives up on it the same way.
-    if in.prev_clip.w <= 1e-5 {
-        out.velocity = vec2<f32>(65504.0);
-    } else {
-        let curr_ndc = in.curr_clip.xy / in.curr_clip.w;
-        let prev_ndc = in.prev_clip.xy / in.prev_clip.w;
-        out.velocity = (curr_ndc - prev_ndc) * vec2<f32>(0.5, -0.5);
-    }
+    out.velocity = fragment_velocity(in);
     return out;
 }
 "#,
-    normal_map_wgsl!(),
-    crate::area_light::rect_light_wgsl!(),
-    crate::cookie::cookie_wgsl!(),
-    crate::lightmap::lightmap_wgsl!(),
-    crate::spot_shadow::spot_shadow_wgsl!(),
-    crate::realtime_gi::probe_grid_wgsl!()
+            normal_map_wgsl!(),
+            crate::area_light::rect_light_wgsl!(),
+            crate::cookie::cookie_wgsl!(),
+            crate::lightmap::lightmap_wgsl!(),
+            crate::spot_shadow::spot_shadow_wgsl!(),
+            crate::realtime_gi::probe_grid_wgsl!()
+        )
+    };
+}
+
+/// `pub(crate)` only so that
+/// `post_process::tests::the_injection_pass_ports_point_shadow_factor_verbatim`
+/// can compare this text against the froxel injection shader's copy of
+/// `point_shadow_factor`. Nothing outside a test reads it.
+pub(crate) const MESH_WGSL: &str = concat!(
+    mesh_shading_wgsl!(),
+    mesh_entry_points_wgsl!(),
+    r#"
+// The standard material: what the entity's `Material` says, unchanged.
+fn surface(in: VertOut) -> Surface {
+    return material_surface(in);
+}
+"#
 );
+
+/// A lit custom shader, without the author's half: everything [`MESH_WGSL`]
+/// has except its `surface`, which is what the author wrote. A lit custom
+/// surface is therefore lit by this very text rather than by a copy of it --
+/// every feature the standard material gains, it gains.
+const MESH_LIT_WGSL: &str = concat!(mesh_shading_wgsl!(), mesh_entry_points_wgsl!());
 
 const TERRAIN_WGSL: &str = concat!(
     r#"
@@ -3561,6 +3623,337 @@ fn terrain_flat_normal(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Text
     texture.create_view(&wgpu::TextureViewDescriptor::default())
 }
 
+const MESH_VERTEX_BUFFER: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLayout {
+    array_stride: VERTEX_STRIDE,
+    step_mode: wgpu::VertexStepMode::Vertex,
+    attributes: &MESH_VERTEX_ATTRIBUTES,
+};
+
+/// The vertex buffers of every pipeline on `MESH_WGSL`'s `vs_main`. Slot 1 is
+/// the same vertices as they were last frame, of which only the position is
+/// read (`prev_pos`, for the velocity). See `PREVIOUS_POSITION_ATTRIBUTE`.
+const MESH_VERTEX_BUFFERS: [Option<wgpu::VertexBufferLayout<'static>>; 2] = [
+    Some(MESH_VERTEX_BUFFER),
+    Some(wgpu::VertexBufferLayout {
+        array_stride: VERTEX_STRIDE,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &PREVIOUS_POSITION_ATTRIBUTE,
+    }),
+];
+
+const MESH_PRIMITIVE: wgpu::PrimitiveState = wgpu::PrimitiveState {
+    topology: wgpu::PrimitiveTopology::TriangleList,
+    strip_index_format: None,
+    front_face: wgpu::FrontFace::Ccw,
+    cull_mode: Some(wgpu::Face::Back),
+    unclipped_depth: false,
+    polygon_mode: wgpu::PolygonMode::Fill,
+    conservative: false,
+};
+
+/// The reflections' prepass, for the standard material and for a lit custom
+/// shader's `module`. These descriptions are functions so that the two cannot
+/// drift: a lit custom surface is drawn by the pipeline the standard one is,
+/// but for the module.
+fn ssr_normal_desc<'a>(
+    label: &'a str,
+    module: &'a wgpu::ShaderModule,
+    layout: &'a wgpu::PipelineLayout,
+) -> wgpu::RenderPipelineDescriptor<'a> {
+    wgpu::RenderPipelineDescriptor {
+        label: Some(label),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module,
+            entry_point: Some("vs_main"),
+            buffers: &MESH_VERTEX_BUFFERS,
+            compilation_options: Default::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module,
+            entry_point: Some("fs_ssr_normal"),
+            targets: &[
+                Some(wgpu::ColorTargetState {
+                    format: crate::post_process::NORMAL_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                }),
+                Some(wgpu::ColorTargetState {
+                    format: crate::post_process::VELOCITY_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                }),
+            ],
+            compilation_options: Default::default(),
+        }),
+        primitive: MESH_PRIMITIVE,
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: DEPTH_FORMAT,
+            // On the depth prepass's depth, unwritten: the nearest surface
+            // at each pixel is the one whose normal is kept.
+            depth_write_enabled: Some(false),
+            depth_compare: Some(wgpu::CompareFunction::LessEqual),
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState::default(),
+        multiview_mask: None,
+        cache: None,
+    }
+}
+
+/// The opaque pass, for the standard material and a lit custom shader's
+/// `module` (see [`ssr_normal_desc`]).
+fn opaque_mesh_desc<'a>(
+    label: &'a str,
+    module: &'a wgpu::ShaderModule,
+    layout: &'a wgpu::PipelineLayout,
+) -> wgpu::RenderPipelineDescriptor<'a> {
+    wgpu::RenderPipelineDescriptor {
+        label: Some(label),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module,
+            entry_point: Some("vs_main"),
+            buffers: &MESH_VERTEX_BUFFERS,
+            compilation_options: Default::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module,
+            entry_point: Some("fs_main"),
+            targets: &[
+                Some(wgpu::ColorTargetState {
+                    format: crate::post_process::HDR_FORMAT,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                }),
+                // The screen-space normal SSR traces along.
+                Some(wgpu::ColorTargetState {
+                    format: crate::post_process::NORMAL_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                }),
+                // How far each surface moved on screen since last frame,
+                // for TAA and motion blur.
+                Some(wgpu::ColorTargetState {
+                    format: crate::post_process::VELOCITY_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                }),
+                // The GI albedo and the indirect light this pass applied,
+                // for screen-space GI to replace (`post_process::GI_*`).
+                Some(wgpu::ColorTargetState {
+                    format: crate::post_process::GI_INDIRECT_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                }),
+                Some(wgpu::ColorTargetState {
+                    format: crate::post_process::GI_ALBEDO_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                }),
+            ],
+            compilation_options: Default::default(),
+        }),
+        primitive: MESH_PRIMITIVE,
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: DEPTH_FORMAT,
+            depth_write_enabled: Some(true),
+            depth_compare: Some(wgpu::CompareFunction::Less),
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState::default(),
+        multiview_mask: None,
+        cache: None,
+    }
+}
+
+const TRANSPARENT_MESH_TARGETS: [Option<wgpu::ColorTargetState>; 5] = [
+    Some(wgpu::ColorTargetState {
+        format: crate::post_process::HDR_FORMAT,
+        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+        write_mask: wgpu::ColorWrites::ALL,
+    }),
+    // Declared because this pass shares `fs_main`, which writes two
+    // locations -- but masked off. A reflection traced from a pane
+    // of glass's normal would replace what is *behind* the glass,
+    // which is the one thing the surface is there to show.
+    Some(wgpu::ColorTargetState {
+        format: crate::post_process::NORMAL_FORMAT,
+        blend: None,
+        write_mask: wgpu::ColorWrites::empty(),
+    }),
+    // Masked off too, as Unity and Unreal leave translucency out of the
+    // velocity buffer by default: the pixel keeps the motion of the
+    // opaque surface behind the glass, which is what TAA sees there.
+    Some(wgpu::ColorTargetState {
+        format: crate::post_process::VELOCITY_FORMAT,
+        blend: None,
+        write_mask: wgpu::ColorWrites::empty(),
+    }),
+    // The GI albedo and indirect light: masked off, as the
+    // velocity is -- the opaque mesh pass's are what stand.
+    Some(wgpu::ColorTargetState {
+        format: crate::post_process::GI_INDIRECT_FORMAT,
+        blend: None,
+        write_mask: wgpu::ColorWrites::empty(),
+    }),
+    Some(wgpu::ColorTargetState {
+        format: crate::post_process::GI_ALBEDO_FORMAT,
+        blend: None,
+        write_mask: wgpu::ColorWrites::empty(),
+    }),
+];
+
+/// The transparent pass, for the standard material and a lit custom shader's
+/// `module` (see [`ssr_normal_desc`]).
+///
+/// Same shader, same layout, same vertex format as the opaque pipeline.
+/// Exactly two things differ, and both are what drawing transparent geometry
+/// means:
+///
+///   - alpha blending, so what is already in the buffer shows through
+///   - depth writes off, so one transparent surface does not stop the one
+///     behind it from being drawn
+///
+/// The depth *test* stays on: transparent geometry behind an opaque wall is
+/// still hidden by it.
+fn transparent_mesh_desc<'a>(
+    label: &'a str,
+    module: &'a wgpu::ShaderModule,
+    layout: &'a wgpu::PipelineLayout,
+) -> wgpu::RenderPipelineDescriptor<'a> {
+    wgpu::RenderPipelineDescriptor {
+        label: Some(label),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module,
+            entry_point: Some("vs_main"),
+            buffers: &MESH_VERTEX_BUFFERS,
+            compilation_options: Default::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module,
+            entry_point: Some("fs_main"),
+            targets: &TRANSPARENT_MESH_TARGETS,
+            compilation_options: Default::default(),
+        }),
+        primitive: MESH_PRIMITIVE,
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: DEPTH_FORMAT,
+            depth_write_enabled: Some(false),
+            depth_compare: Some(wgpu::CompareFunction::Less),
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState::default(),
+        multiview_mask: None,
+        cache: None,
+    }
+}
+
+const UNLIT_CUSTOM_TARGETS: [Option<wgpu::ColorTargetState>; 5] = [
+    Some(wgpu::ColorTargetState {
+        format: crate::post_process::HDR_FORMAT,
+        blend: Some(wgpu::BlendState::REPLACE),
+        write_mask: wgpu::ColorWrites::ALL,
+    }),
+    // Declared with the pass's format and its write masked
+    // off. `None` is not an option: wgpu compares the
+    // pipeline's target *formats* against the pass's
+    // attachments, and a `None` against a real attachment is
+    // "incompatible", not "writes nothing".
+    //
+    // An unlit custom shader is the author's own WGSL with a single
+    // output, so it has nothing to put here -- and a surface
+    // drawn with one therefore reflects into nothing, which
+    // is a limitation to know rather than a bug to chase.
+    Some(wgpu::ColorTargetState {
+        format: crate::post_process::NORMAL_FORMAT,
+        blend: None,
+        write_mask: wgpu::ColorWrites::empty(),
+    }),
+    // Masked for the same reason: an unlit custom shader has no velocity to
+    // write. Its pixels fall back to camera reprojection, so a
+    // custom-shaded object that moves smears as it did before.
+    Some(wgpu::ColorTargetState {
+        format: crate::post_process::VELOCITY_FORMAT,
+        blend: None,
+        write_mask: wgpu::ColorWrites::empty(),
+    }),
+    // The GI albedo and indirect light: masked off, as the
+    // velocity is -- the opaque mesh pass's are what stand.
+    Some(wgpu::ColorTargetState {
+        format: crate::post_process::GI_INDIRECT_FORMAT,
+        blend: None,
+        write_mask: wgpu::ColorWrites::empty(),
+    }),
+    Some(wgpu::ColorTargetState {
+        format: crate::post_process::GI_ALBEDO_FORMAT,
+        blend: None,
+        write_mask: wgpu::ColorWrites::empty(),
+    }),
+];
+
+// The mesh pipeline's attributes, all of them: a custom shader that
+// declares `@location(5) tangent` (or `@location(4) uv2`) needs the
+// layout to offer it, and one that does not is unaffected. This used
+// to be its own copy listing locations 0-3, written before the
+// lightmap UVs and tangents existed and never updated, so a
+// hand-written shader could not read a normal map at all -- pipeline
+// creation refused the tangent it asked for.
+const UNLIT_CUSTOM_VERTEX_BUFFERS: [Option<wgpu::VertexBufferLayout<'static>>; 1] =
+    [Some(MESH_VERTEX_BUFFER)];
+
+/// An unlit custom shader's pipeline: the author's two stages and one colour.
+fn unlit_custom_desc<'a>(
+    module: &'a wgpu::ShaderModule,
+    layout: &'a wgpu::PipelineLayout,
+) -> wgpu::RenderPipelineDescriptor<'a> {
+    wgpu::RenderPipelineDescriptor {
+        label: Some("custom pipeline"),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module,
+            entry_point: Some("vs_main"),
+            buffers: &UNLIT_CUSTOM_VERTEX_BUFFERS,
+            compilation_options: Default::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module,
+            entry_point: Some("fs_main"),
+            targets: &UNLIT_CUSTOM_TARGETS,
+            compilation_options: Default::default(),
+        }),
+        primitive: MESH_PRIMITIVE,
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: DEPTH_FORMAT,
+            depth_write_enabled: Some(true),
+            depth_compare: Some(wgpu::CompareFunction::Less),
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState::default(),
+        multiview_mask: None,
+        cache: None,
+    }
+}
+
+/// What a lit custom shader has beyond an unlit one's opaque pipelines: as it
+/// is the standard material but for `surface`, it takes part in the passes the
+/// standard material does and an unlit one does not.
+struct LitCustomPipelines {
+    /// Its normal and roughness for the reflections' trace. Reads no lights:
+    /// its group 2 is empty, so a `surface` that reads the lighting group is
+    /// refused here (`compile_and_store_shader`), as the light it would read is
+    /// not this prepass's to give.
+    ssr_normal: std::sync::Arc<wgpu::RenderPipeline>,
+    /// For `opacity < 1`, blended and masked as the standard material is.
+    transparent: std::sync::Arc<wgpu::RenderPipeline>,
+    transparent_msaa: Option<std::sync::Arc<wgpu::RenderPipeline>>,
+}
+
 /// A custom shader compiled in a browser, waiting for the device's verdict
 /// on it (`WgpuSurface::compile_and_store_shader`).
 #[cfg(target_arch = "wasm32")]
@@ -3568,6 +3961,7 @@ struct PendingCustomShader {
     path: String,
     pipeline: std::sync::Arc<wgpu::RenderPipeline>,
     pipeline_msaa: Option<std::sync::Arc<wgpu::RenderPipeline>>,
+    lit_pipelines: Option<LitCustomPipelines>,
     /// Set once by the spawned error-scope future: `None` inside for
     /// accepted, the device's message for rejected.
     verdict: std::sync::Arc<std::sync::OnceLock<Option<String>>>,
@@ -3610,6 +4004,8 @@ pub struct WgpuSurface {
     /// not written), the opaque meshes' normals and roughness into
     /// `post_process.ssr_normal_view`. The same `vs_main`, so the same depth.
     ssr_normal_pipeline: std::sync::Arc<wgpu::RenderPipeline>,
+    /// Its layout, for a lit custom shader's own (`LitCustomPipelines`).
+    ssr_normal_layout: std::sync::Arc<wgpu::PipelineLayout>,
     /// Group 2 of [`Self::ssr_normal_pipeline`]: nothing.
     empty_bind_group: wgpu::BindGroup,
     camera_buffer: wgpu::Buffer,
@@ -3828,6 +4224,8 @@ pub struct WgpuSurface {
     custom_pipelines: std::collections::HashMap<String, std::sync::Arc<wgpu::RenderPipeline>>,
     /// Each custom shader's multisampled pipeline, alongside.
     custom_pipelines_msaa: std::collections::HashMap<String, std::sync::Arc<wgpu::RenderPipeline>>,
+    /// The custom shaders that are lit, by the same path.
+    lit_custom_pipelines: std::collections::HashMap<String, LitCustomPipelines>,
     /// In a browser, custom shaders whose device verdict has not arrived:
     /// see [`Self::compile_and_store_shader`] and
     /// [`Self::settle_custom_shaders`].
@@ -6121,209 +6519,23 @@ impl WgpuSurface {
             ],
             immediate_size: 0,
         });
-        let ssr_normal_pipeline = device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("ssr normal pipeline"),
-            layout: Some(&ssr_normal_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[
-                    Some(vertex_buffer_layout.clone()),
-                    Some(previous_position_layout.clone()),
-                ],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_ssr_normal"),
-                targets: &[
-                    Some(wgpu::ColorTargetState {
-                        format: crate::post_process::NORMAL_FORMAT,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    }),
-                    Some(wgpu::ColorTargetState {
-                        format: crate::post_process::VELOCITY_FORMAT,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    }),
-                ],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                cull_mode: Some(wgpu::Face::Back),
-                front_face: wgpu::FrontFace::Ccw,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH_FORMAT,
-                // On the depth prepass's depth, unwritten: the nearest surface
-                // at each pixel is the one whose normal is kept.
-                depth_write_enabled: Some(false),
-                depth_compare: Some(wgpu::CompareFunction::LessEqual),
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
+        let ssr_normal_pipeline = device.cached_render_pipeline(&ssr_normal_desc(
+            "ssr normal pipeline",
+            &shader,
+            &ssr_normal_layout,
+        ));
         let empty_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("empty bg"),
             layout: &empty_bgl,
             entries: &[],
         });
 
-        let pipeline_desc = wgpu::RenderPipelineDescriptor {
-            label: Some("mesh pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[
-                    Some(vertex_buffer_layout.clone()),
-                    Some(previous_position_layout.clone()),
-                ],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[
-                    Some(wgpu::ColorTargetState {
-                        format: crate::post_process::HDR_FORMAT,
-                        blend: Some(wgpu::BlendState::REPLACE),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    }),
-                    // The screen-space normal SSR traces along.
-                    Some(wgpu::ColorTargetState {
-                        format: crate::post_process::NORMAL_FORMAT,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    }),
-                    // How far each surface moved on screen since last frame,
-                    // for TAA and motion blur.
-                    Some(wgpu::ColorTargetState {
-                        format: crate::post_process::VELOCITY_FORMAT,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    }),
-                    // The GI albedo and the indirect light this pass applied,
-                    // for screen-space GI to replace (`post_process::GI_*`).
-                    Some(wgpu::ColorTargetState {
-                        format: crate::post_process::GI_INDIRECT_FORMAT,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    }),
-                    Some(wgpu::ColorTargetState {
-                        format: crate::post_process::GI_ALBEDO_FORMAT,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    }),
-                ],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                cull_mode: Some(wgpu::Face::Back),
-                front_face: wgpu::FrontFace::Ccw,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH_FORMAT,
-                depth_write_enabled: Some(true),
-                depth_compare: Some(wgpu::CompareFunction::Less),
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        };
+        let pipeline_desc = opaque_mesh_desc("mesh pipeline", &shader, &pipeline_layout);
         let pipeline = device.cached_render_pipeline(&pipeline_desc);
         let pipeline_msaa = crate::msaa::variant(&device, &pipeline_desc, msaa_supported);
 
-        // Same shader, same layout, same vertex format as the opaque pipeline.
-        // Exactly two things differ, and both are what drawing transparent
-        // geometry means:
-        //
-        //   - alpha blending, so what is already in the buffer shows through
-        //   - depth writes off, so one transparent surface does not stop the
-        //     one behind it from being drawn
-        //
-        // The depth *test* stays on: transparent geometry behind an opaque
-        // wall is still hidden by it.
-        let transparent_desc = wgpu::RenderPipelineDescriptor {
-            label: Some("transparent mesh pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[
-                    Some(vertex_buffer_layout.clone()),
-                    Some(previous_position_layout.clone()),
-                ],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[
-                    Some(wgpu::ColorTargetState {
-                        format: crate::post_process::HDR_FORMAT,
-                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    }),
-                    // Declared because this pass shares `fs_main`, which writes two
-                    // locations -- but masked off. A reflection traced from a pane
-                    // of glass's normal would replace what is *behind* the glass,
-                    // which is the one thing the surface is there to show.
-                    Some(wgpu::ColorTargetState {
-                        format: crate::post_process::NORMAL_FORMAT,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::empty(),
-                    }),
-                    // Masked off too, as Unity and Unreal leave translucency out of the
-                    // velocity buffer by default: the pixel keeps the motion of the
-                    // opaque surface behind the glass, which is what TAA sees there.
-                    Some(wgpu::ColorTargetState {
-                        format: crate::post_process::VELOCITY_FORMAT,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::empty(),
-                    }),
-                    // The GI albedo and indirect light: masked off, as the
-                    // velocity is -- the opaque mesh pass's are what stand.
-                    Some(wgpu::ColorTargetState {
-                        format: crate::post_process::GI_INDIRECT_FORMAT,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::empty(),
-                    }),
-                    Some(wgpu::ColorTargetState {
-                        format: crate::post_process::GI_ALBEDO_FORMAT,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::empty(),
-                    }),
-                ],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                cull_mode: Some(wgpu::Face::Back),
-                front_face: wgpu::FrontFace::Ccw,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH_FORMAT,
-                depth_write_enabled: Some(false),
-                depth_compare: Some(wgpu::CompareFunction::Less),
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        };
+        let transparent_desc =
+            transparent_mesh_desc("transparent mesh pipeline", &shader, &pipeline_layout);
         let transparent_pipeline = device.cached_render_pipeline(&transparent_desc);
         let transparent_pipeline_msaa =
             crate::msaa::variant(&device, &transparent_desc, msaa_supported);
@@ -6463,6 +6675,7 @@ impl WgpuSurface {
             decals,
             depth_prepass_pipeline,
             ssr_normal_pipeline,
+            ssr_normal_layout,
             empty_bind_group,
             camera_buffer,
             camera_bind_group,
@@ -6554,6 +6767,7 @@ impl WgpuSurface {
             terrain_flat_normal,
             custom_pipelines: std::collections::HashMap::new(),
             custom_pipelines_msaa: std::collections::HashMap::new(),
+            lit_custom_pipelines: std::collections::HashMap::new(),
             #[cfg(target_arch = "wasm32")]
             pending_custom_shaders: Vec::new(),
             post_process,
@@ -9428,9 +9642,10 @@ impl WgpuSurface {
         }
         if ssr_on {
             // The opaque meshes' normals and roughness on that depth, for the
-            // trace. Terrain and custom-shaded draws are left at the clear --
-            // no surface, no reflection -- as the trace treats a pixel with
-            // no normal.
+            // trace. Terrain and unlit custom-shaded draws are left at the
+            // clear -- no surface, no reflection -- as the trace treats a pixel
+            // with no normal. A lit custom shader says what its surface is,
+            // through its own pipeline, as it does in the opaque pass.
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("ssr normal prepass"),
                 color_attachments: &[
@@ -9467,14 +9682,18 @@ impl WgpuSurface {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            pass.set_pipeline(&self.ssr_normal_pipeline);
             pass.set_bind_group(0, &self.camera_bind_group, &[]);
             pass.set_bind_group(2, &self.empty_bind_group, &[]);
             for &i in &opaque {
                 let (mesh_id, _, tex_id, mat, custom_path) = &draw_calls[i];
-                if custom_path.is_some() {
-                    continue;
-                }
+                let pipeline = match custom_path.as_deref() {
+                    None => &self.ssr_normal_pipeline,
+                    Some(path) => match self.lit_custom_pipelines.get(path) {
+                        Some(lit) => &lit.ssr_normal,
+                        None => continue,
+                    },
+                };
+                pass.set_pipeline(pipeline);
                 let Some(mesh) = registry.get(*mesh_id) else {
                     continue;
                 };
@@ -9716,8 +9935,9 @@ impl WgpuSurface {
             pass.set_bind_group(0, &self.camera_bind_group, &[]);
             pass.set_bind_group(2, &self.light_bind_group, &[]);
 
-            // Terrain first, then custom-shaded draws, then the rest. Neither of
-            // the first two writes a velocity (their pipelines mask it off), so
+            // Terrain first, then custom-shaded draws, then the rest. Neither
+            // terrain nor an unlit custom shader writes a velocity (their
+            // pipelines mask it off), so
             // a pixel they cover has to keep the clear value -- "no velocity",
             // camera reprojection. Drawn after a mesh behind them, they would
             // leave that mesh's velocity on top instead, and a moving object
@@ -9968,12 +10188,22 @@ impl WgpuSurface {
                 let Some(mesh) = registry.get(*mesh_id) else {
                     continue;
                 };
-                // A custom shader keeps its own pipeline, which is opaque. That
-                // is a documented limitation rather than an oversight: a custom
-                // shader decides its own output, alpha included.
+                // An unlit custom shader keeps its own pipeline, which is
+                // opaque. That is a documented limitation rather than an
+                // oversight: it decides its own output, alpha included. A lit
+                // one's alpha is the material's, and it blends as the standard
+                // material does.
                 let pipeline = custom_path
                     .as_deref()
-                    .and_then(|p| custom_pipelines.get(p))
+                    .and_then(|p| {
+                        self.lit_custom_pipelines
+                            .get(p)
+                            .map(|lit| match &lit.transparent_msaa {
+                                Some(msaa) if msaa_on => msaa,
+                                _ => &lit.transparent,
+                            })
+                            .or_else(|| custom_pipelines.get(p))
+                    })
                     .unwrap_or(transparent_pipeline);
                 pass.set_pipeline(pipeline);
                 let tex_bg = self
@@ -11017,7 +11247,15 @@ impl WgpuSurface {
     /// backstop for what a device-independent pre-pass cannot know -- capability
     /// gaps, a renamed `vs_main`/`fs_main`, bindings that do not match
     /// `pipeline_layout`.
+    ///
+    /// A source that opens with [`bsengine_shadergraph::LIT_DIRECTIVE`] is half
+    /// a shader: a `surface` for the standard mesh shader's lighting, which is
+    /// put after it here. After, so a mistake in the author's half is reported
+    /// at the line the author sees in their file.
     pub fn compile_and_store_shader(&mut self, path: &str, wgsl: &str) -> Result<(), String> {
+        let lit = bsengine_shadergraph::is_lit_shader(wgsl);
+        let composed = lit.then(|| format!("{wgsl}\n{MESH_LIT_WGSL}"));
+        let wgsl = composed.as_deref().unwrap_or(wgsl);
         if let Err(e) = Self::validate_wgsl(path, wgsl) {
             tracing::warn!(
                 "[custom_shader] '{path}' is not valid WGSL; keeping the previously compiled pipeline:\n{e}"
@@ -11031,93 +11269,37 @@ impl WgpuSurface {
                 label: Some("custom shader"),
                 source: wgpu::ShaderSource::Wgsl(wgsl.into()),
             });
-        // The mesh pipeline's attributes, all of them: a custom shader that
-        // declares `@location(5) tangent` (or `@location(4) uv2`) needs the
-        // layout to offer it, and one that does not is unaffected. This used
-        // to be its own copy listing locations 0-3, written before the
-        // lightmap UVs and tangents existed and never updated, so a
-        // hand-written shader could not read a normal map at all -- pipeline
-        // creation refused the tangent it asked for.
-        let vbl = wgpu::VertexBufferLayout {
-            array_stride: VERTEX_STRIDE,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &MESH_VERTEX_ATTRIBUTES,
-        };
-        let pipeline_desc = wgpu::RenderPipelineDescriptor {
-            label: Some("custom pipeline"),
-            layout: Some(&self.pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[Some(vbl)],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[
-                    Some(wgpu::ColorTargetState {
-                        format: crate::post_process::HDR_FORMAT,
-                        blend: Some(wgpu::BlendState::REPLACE),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    }),
-                    // Declared with the pass's format and its write masked
-                    // off. `None` is not an option: wgpu compares the
-                    // pipeline's target *formats* against the pass's
-                    // attachments, and a `None` against a real attachment is
-                    // "incompatible", not "writes nothing".
-                    //
-                    // A custom shader is the author's own WGSL with a single
-                    // output, so it has nothing to put here -- and a surface
-                    // drawn with one therefore reflects into nothing, which
-                    // is a limitation to know rather than a bug to chase.
-                    Some(wgpu::ColorTargetState {
-                        format: crate::post_process::NORMAL_FORMAT,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::empty(),
-                    }),
-                    // Masked for the same reason: a custom shader has no velocity to
-                    // write. Its pixels fall back to camera reprojection, so a
-                    // custom-shaded object that moves smears as it did before.
-                    Some(wgpu::ColorTargetState {
-                        format: crate::post_process::VELOCITY_FORMAT,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::empty(),
-                    }),
-                    // The GI albedo and indirect light: masked off, as the
-                    // velocity is -- the opaque mesh pass's are what stand.
-                    Some(wgpu::ColorTargetState {
-                        format: crate::post_process::GI_INDIRECT_FORMAT,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::empty(),
-                    }),
-                    Some(wgpu::ColorTargetState {
-                        format: crate::post_process::GI_ALBEDO_FORMAT,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::empty(),
-                    }),
-                ],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                cull_mode: Some(wgpu::Face::Back),
-                front_face: wgpu::FrontFace::Ccw,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH_FORMAT,
-                depth_write_enabled: Some(true),
-                depth_compare: Some(wgpu::CompareFunction::Less),
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
+        let pipeline_desc = if lit {
+            opaque_mesh_desc("lit custom pipeline", &shader, &self.pipeline_layout)
+        } else {
+            unlit_custom_desc(&shader, &self.pipeline_layout)
         };
         let pipeline = self.device.create_render_pipeline(&pipeline_desc);
         let pipeline_msaa = crate::msaa::variant(&self.device, &pipeline_desc, self.msaa_supported);
+        let lit_pipelines = lit.then(|| {
+            let transparent_desc = transparent_mesh_desc(
+                "lit custom transparent pipeline",
+                &shader,
+                &self.pipeline_layout,
+            );
+            LitCustomPipelines {
+                ssr_normal: std::sync::Arc::new(self.device.create_render_pipeline(
+                    &ssr_normal_desc(
+                        "lit custom ssr normal pipeline",
+                        &shader,
+                        &self.ssr_normal_layout,
+                    ),
+                )),
+                transparent: std::sync::Arc::new(
+                    self.device.create_render_pipeline(&transparent_desc),
+                ),
+                transparent_msaa: crate::msaa::variant(
+                    &self.device,
+                    &transparent_desc,
+                    self.msaa_supported,
+                ),
+            }
+        });
         // In a browser the verdict is a JavaScript promise the page resolves
         // later, and blocking on it is not possible: `pollster` waits on a
         // condvar, which a wasm build without threads panics on ("condvar
@@ -11141,6 +11323,7 @@ impl WgpuSurface {
                 // Uncached, as below and for the same reason.
                 pipeline: std::sync::Arc::new(pipeline),
                 pipeline_msaa,
+                lit_pipelines,
                 verdict,
             });
             Ok(())
@@ -11166,7 +11349,12 @@ impl WgpuSurface {
             // (Its MSAA variant goes through `msaa::variant`, which asks the
             // cache, and is made uncached there: its module is not one the
             // cache made.)
-            self.store_custom_pipeline(path, std::sync::Arc::new(pipeline), pipeline_msaa);
+            self.store_custom_pipeline(
+                path,
+                std::sync::Arc::new(pipeline),
+                pipeline_msaa,
+                lit_pipelines,
+            );
             Ok(())
         }
     }
@@ -11177,7 +11365,18 @@ impl WgpuSurface {
         path: &str,
         pipeline: std::sync::Arc<wgpu::RenderPipeline>,
         pipeline_msaa: Option<std::sync::Arc<wgpu::RenderPipeline>>,
+        lit_pipelines: Option<LitCustomPipelines>,
     ) {
+        // Replaced or removed with the rest: a shader edited from lit to unlit
+        // must not keep drawing its reflections' prepass from the old source.
+        match lit_pipelines {
+            Some(l) => {
+                self.lit_custom_pipelines.insert(path.to_string(), l);
+            }
+            None => {
+                self.lit_custom_pipelines.remove(path);
+            }
+        }
         self.custom_pipelines.insert(path.to_string(), pipeline);
         match pipeline_msaa {
             Some(p) => {
@@ -11200,7 +11399,9 @@ impl WgpuSurface {
         self.pending_custom_shaders = waiting;
         for p in settled {
             match p.verdict.get().cloned().flatten() {
-                None => self.store_custom_pipeline(&p.path, p.pipeline, p.pipeline_msaa),
+                None => {
+                    self.store_custom_pipeline(&p.path, p.pipeline, p.pipeline_msaa, p.lit_pipelines)
+                }
                 Some(msg) => tracing::warn!(
                     "[custom_shader] the GPU device rejected '{}'; keeping the previously compiled pipeline: {msg}",
                     p.path
@@ -11588,6 +11789,84 @@ mod tests {
             generated.contains(normal_map_wgsl!()),
             "the generated `normal_mapped` has drifted from `normal_map_wgsl!`. \
              Copy it verbatim into bsengine-shadergraph's NORMAL_BINDINGS:\n{generated}"
+        );
+    }
+
+    #[test]
+    fn a_graph_of_every_node_validates_against_the_lit_half() {
+        // A lit graph is half a shader, and every node's expression has to mean
+        // something in the other half: what `Uv`, `Time`, `TextureSample` and
+        // `Normal` read are the mesh shader's names there, not the unlit
+        // preamble's. Renaming one in `MESH_WGSL` breaks only lit graphs, and
+        // only ones that use that node; this asks naga about all of them.
+        use bsengine_shadergraph::{Edge, GraphNode, NodeKind, ShaderGraph};
+        let node = |id, kind| GraphNode {
+            id,
+            kind,
+            position: [0.0, 0.0],
+        };
+        let edge = |from: u32, to: u32, port: &str| Edge {
+            from: (from, "out".to_string()),
+            to: (to, port.to_string()),
+        };
+        let graph = ShaderGraph {
+            nodes: vec![
+                node(0, NodeKind::Uv),
+                node(1, NodeKind::Time),
+                node(2, NodeKind::TextureSample),
+                node(3, NodeKind::Normal),
+                node(4, NodeKind::Constant(0.5)),
+                node(5, NodeKind::ConstantVec3([0.5, 0.5, 0.5])),
+                node(6, NodeKind::Sin),
+                node(7, NodeKind::Fract),
+                node(8, NodeKind::Step),
+                node(9, NodeKind::Dot),
+                node(10, NodeKind::Add),
+                node(11, NodeKind::Multiply),
+                node(12, NodeKind::Lerp),
+                node(13, NodeKind::LitOutput),
+            ],
+            edges: vec![
+                edge(0, 2, "uv"),
+                edge(1, 6, "x"),
+                edge(6, 7, "x"),
+                edge(4, 8, "edge"),
+                edge(7, 8, "x"),
+                edge(3, 9, "a"),
+                edge(5, 9, "b"),
+                edge(2, 10, "a"),
+                edge(5, 10, "b"),
+                edge(10, 11, "a"),
+                edge(9, 11, "b"),
+                edge(11, 12, "a"),
+                edge(5, 12, "b"),
+                edge(8, 12, "t"),
+                edge(12, 13, "base_color"),
+                edge(3, 13, "normal"),
+                edge(8, 13, "metallic"),
+                edge(9, 13, "roughness"),
+                edge(7, 13, "occlusion"),
+                edge(5, 13, "emissive"),
+            ],
+        };
+        let generated = bsengine_shadergraph::compile(&graph).expect("the graph must compile");
+        let whole = format!("{generated}\n{MESH_LIT_WGSL}");
+        WgpuSurface::validate_wgsl("every_node", &whole)
+            .unwrap_or_else(|e| panic!("a lit graph must validate: {e}\n{generated}"));
+    }
+
+    #[test]
+    fn the_mesh_shader_and_the_lit_half_differ_only_by_surface() {
+        // What makes "a lit shader is lit by the standard material's code" true
+        // of the text, and not of whoever last kept two copies alike.
+        let rest = MESH_WGSL
+            .strip_prefix(MESH_LIT_WGSL)
+            .expect("MESH_WGSL must open with the lit half, whole");
+        assert!(rest.contains("fn surface("), "{rest}");
+        assert_eq!(
+            rest.matches("fn ").count(),
+            1,
+            "the standard material may add only its `surface`: {rest}"
         );
     }
 

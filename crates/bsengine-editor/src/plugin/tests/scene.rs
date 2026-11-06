@@ -53,12 +53,100 @@ fn mcp_terrain_write_spawns_a_terrain_entity_with_the_given_params() {
     assert_eq!(terrain.layer1_texture_path, "assets/terrain/rock.png");
     assert_eq!(terrain.layer2_texture_path, "assets/terrain/dirt.png");
     assert_eq!(terrain.layer3_texture_path, "assets/terrain/snow.png");
+    assert_eq!(terrain.layer0_normal_path, None);
+    assert_eq!(terrain.layer1_normal_path, None);
+    assert_eq!(terrain.layer2_normal_path, None);
+    assert_eq!(terrain.layer3_normal_path, None);
 }
 
-/// `splatmap_path` is the one optional `terrain_write` arg (the other 6
-/// are `required`); the test above proves omitting it still works, and
-/// this proves the field round-trips onto the spawned `Terrain` when the
-/// caller does provide it.
+/// A map per layer, all four different: a copy-paste that hands layer 1 the
+/// map of layer 0 would pass with one path repeated. And under a `ProjectDir`,
+/// because the form is the point: a map in the form the scene file's loader
+/// produces is one the asset server can find, and one as the caller wrote it
+/// loads nothing and draws that layer flat, with no error from this tool.
+#[test]
+fn mcp_terrain_write_gives_each_layer_its_normal_map_resolved_like_its_diffuse() {
+    let mut app = new_app();
+    app.add_plugins(McpPlugin);
+    app.add_plugins(EditorPlugin);
+    app.insert_resource(bsengine_core::ProjectDir("games/demo".to_string()));
+    app.update();
+
+    {
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let registry = mcp.0.lock().unwrap();
+        // What an agent reads to find the arguments: a handler that takes
+        // them behind a schema that hides them is as good as not taking them.
+        let tools = registry.list_tools();
+        let tool = tools
+            .iter()
+            .find(|t| t.name == "terrain_write")
+            .expect("terrain_write not registered");
+        let schema = tool.input_schema.as_ref().expect("a schema");
+        let required = schema["required"].as_array().expect("a required list");
+        for layer in 0..4 {
+            let key = format!("layer{layer}_normal_path");
+            assert!(
+                schema["properties"][&key].is_object(),
+                "{key} not in schema"
+            );
+            assert!(!required.iter().any(|r| r == &json!(key)), "{key} required");
+        }
+        let out = registry
+            .execute(
+                "terrain_write",
+                json!({
+                    "heightmap_path": "assets/terrain/test_heightmap.png",
+                    "chunk_count": [2, 2],
+                    "chunk_size": 32.0,
+                    "height_scale": 20.0,
+                    "layer0_texture_path": "assets/terrain/grass.png",
+                    "layer1_texture_path": "assets/terrain/rock.png",
+                    "layer2_texture_path": "assets/terrain/dirt.png",
+                    "layer3_texture_path": "assets/terrain/snow.png",
+                    "layer0_normal_path": "assets/terrain/grass_n.png",
+                    "layer1_normal_path": "assets/terrain/rock_n.png",
+                    "layer2_normal_path": "assets/terrain/dirt_n.png",
+                    "layer3_normal_path": "assets/terrain/snow_n.png",
+                }),
+            )
+            .expect("terrain_write not registered");
+        assert!(out.is_ok(), "terrain_write failed: {:?}", out.error);
+    }
+    app.update();
+
+    let mut query = app.world_mut().query::<&bsengine_app::terrain::Terrain>();
+    let terrain = query
+        .iter(app.world())
+        .next()
+        .expect("expected one entity with a Terrain component");
+    // The premise: the project directory reached the command at all.
+    assert_eq!(
+        terrain.layer0_texture_path,
+        "games/demo/assets/terrain/grass.png"
+    );
+    assert_eq!(
+        terrain.layer0_normal_path.as_deref(),
+        Some("games/demo/assets/terrain/grass_n.png")
+    );
+    assert_eq!(
+        terrain.layer1_normal_path.as_deref(),
+        Some("games/demo/assets/terrain/rock_n.png")
+    );
+    assert_eq!(
+        terrain.layer2_normal_path.as_deref(),
+        Some("games/demo/assets/terrain/dirt_n.png")
+    );
+    assert_eq!(
+        terrain.layer3_normal_path.as_deref(),
+        Some("games/demo/assets/terrain/snow_n.png")
+    );
+}
+
+/// `splatmap_path` is optional like the four normal maps (the other 8 args
+/// are `required`); the first test proves omitting it still works, and this
+/// proves the field round-trips onto the spawned `Terrain` when the caller
+/// does provide it.
 #[test]
 fn mcp_terrain_write_threads_an_optional_splatmap_path_through_when_given() {
     let mut app = new_app();

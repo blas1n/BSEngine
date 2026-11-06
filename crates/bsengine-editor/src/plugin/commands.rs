@@ -75,6 +75,10 @@ pub(super) fn process_editor_commands(
                 layer2_texture_path,
                 layer3_texture_path,
                 splatmap_path,
+                layer0_normal_path,
+                layer1_normal_path,
+                layer2_normal_path,
+                layer3_normal_path,
             } => {
                 let resolved =
                     bsengine_core::resolve_project_path(project_dir.as_deref(), &heightmap_path);
@@ -96,6 +100,12 @@ pub(super) fn process_editor_commands(
                 );
                 let splatmap_resolved = splatmap_path
                     .map(|p| bsengine_core::resolve_project_path(project_dir.as_deref(), &p));
+                // Left as written, a map would name a file the asset server
+                // never finds, and the terrain would load with that layer
+                // flat and only a warning to say why.
+                let resolve_normal = |path: Option<String>| {
+                    path.map(|p| bsengine_core::resolve_project_path(project_dir.as_deref(), &p))
+                };
                 // `bsengine_scene::Terrain`, not `bsengine_app::terrain::Terrain`
                 // (though `bsengine-app`'s module re-exports the same type under
                 // that path): `bsengine-app` depends on `bsengine-editor`, so
@@ -112,10 +122,10 @@ pub(super) fn process_editor_commands(
                         layer2_texture_path: layer2_resolved,
                         layer3_texture_path: layer3_resolved,
                         splatmap_path: splatmap_resolved,
-                        layer0_normal_path: None,
-                        layer1_normal_path: None,
-                        layer2_normal_path: None,
-                        layer3_normal_path: None,
+                        layer0_normal_path: resolve_normal(layer0_normal_path),
+                        layer1_normal_path: resolve_normal(layer1_normal_path),
+                        layer2_normal_path: resolve_normal(layer2_normal_path),
+                        layer3_normal_path: resolve_normal(layer3_normal_path),
                     },
                     Transform::default(),
                 ));

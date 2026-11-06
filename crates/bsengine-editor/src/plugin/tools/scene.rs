@@ -126,7 +126,11 @@ pub(super) fn register(mcp: &McpRegistryResource, cx: &ToolContext) {
                 "layer1_texture_path": { "type": "string", "description": "Diffuse texture for the steep-slope splat layer (e.g. rock)" },
                 "layer2_texture_path": { "type": "string", "description": "Diffuse texture for the paint-only splat layer (e.g. dirt)" },
                 "layer3_texture_path": { "type": "string", "description": "Diffuse texture for the high-altitude splat layer (e.g. snow)" },
-                "splatmap_path": { "type": "string", "description": "Optional path to a whole-terrain RGBA8 splatmap image; omit to keep procedural splat generation" }
+                "splatmap_path": { "type": "string", "description": "Optional path to a whole-terrain RGBA8 splatmap image; omit to keep procedural splat generation" },
+                "layer0_normal_path": { "type": "string", "description": "Optional tangent-space normal map for layer 0, tiled like its diffuse texture; omit for a flat layer" },
+                "layer1_normal_path": { "type": "string", "description": "Optional tangent-space normal map for layer 1; omit for a flat layer" },
+                "layer2_normal_path": { "type": "string", "description": "Optional tangent-space normal map for layer 2; omit for a flat layer" },
+                "layer3_normal_path": { "type": "string", "description": "Optional tangent-space normal map for layer 3; omit for a flat layer" }
             },
             "required": ["heightmap_path", "chunk_count", "chunk_size", "height_scale", "layer0_texture_path", "layer1_texture_path", "layer2_texture_path", "layer3_texture_path"]
         })),
@@ -183,6 +187,7 @@ pub(super) fn register(mcp: &McpRegistryResource, cx: &ToolContext) {
                 }
             };
             let splatmap_path = input["splatmap_path"].as_str().map(|s| s.to_string());
+            let normal_path = |key: &str| input[key].as_str().map(|s| s.to_string());
             queue_terrain.lock().unwrap().push(EditorCommand::SpawnTerrain {
                 heightmap_path,
                 chunk_count,
@@ -193,6 +198,10 @@ pub(super) fn register(mcp: &McpRegistryResource, cx: &ToolContext) {
                 layer2_texture_path,
                 layer3_texture_path,
                 splatmap_path,
+                layer0_normal_path: normal_path("layer0_normal_path"),
+                layer1_normal_path: normal_path("layer1_normal_path"),
+                layer2_normal_path: normal_path("layer2_normal_path"),
+                layer3_normal_path: normal_path("layer3_normal_path"),
             });
             McpToolOutput::success(json!({"status": "queued"}))
         }),

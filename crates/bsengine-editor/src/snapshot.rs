@@ -446,6 +446,14 @@ pub enum EditorCommand {
         layer3_texture_path: String,
         /// Mirrors `Terrain::splatmap_path`.
         splatmap_path: Option<String>,
+        /// Mirrors `Terrain::layer0_normal_path`.
+        layer0_normal_path: Option<String>,
+        /// Mirrors `Terrain::layer1_normal_path`.
+        layer1_normal_path: Option<String>,
+        /// Mirrors `Terrain::layer2_normal_path`.
+        layer2_normal_path: Option<String>,
+        /// Mirrors `Terrain::layer3_normal_path`.
+        layer3_normal_path: Option<String>,
     },
 }
 

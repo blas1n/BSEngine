@@ -154,6 +154,13 @@ pub(super) fn apply_inspector_cmds(
                     layer2_texture_path,
                     layer3_texture_path,
                     splatmap_path,
+                    // The Hierarchy's "create terrain" asks for a heightmap
+                    // only; the maps are set afterwards, in the Inspector,
+                    // with the layers' other textures.
+                    layer0_normal_path: None,
+                    layer1_normal_path: None,
+                    layer2_normal_path: None,
+                    layer3_normal_path: None,
                 });
             }
             InspectorCmd::Despawn { id } => {

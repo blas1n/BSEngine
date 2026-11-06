@@ -936,14 +936,172 @@ fn fs_bloom(in: FullscreenOut) -> @location(0) vec4<f32> {
 }
 "#;
 
+/// One ray through the depth pyramid: what reflections and screen-space GI both
+/// trace with. The shader around it binds `depth_tex`, `hiz_tex` and a `cam`
+/// with `proj` and `view`.
+macro_rules! hiz_trace_wgsl {
+    () => {
+        r#"
+// What is nearest the camera in the cell of `2^level` pixels at `cell`:
+// level 0 is the depth buffer itself.
+fn nearest_depth(cell: vec2<i32>, level: i32) -> f32 {
+    if level == 0 {
+        return textureLoad(depth_tex, cell, 0);
+    }
+    return textureLoad(hiz_tex, cell, level - 1).r;
+}
+
+struct RayHit {
+    found: bool,
+    // The pixel it met, the depth there, and where in the frame it met it.
+    px: vec2<i32>,
+    depth: f32,
+    uv: vec2<f32>,
+};
+
+// How far along the view NDC depth `z` is. NDC depth bunches up away from the
+// camera, so a thickness measured in it is a different depth at every distance
+// -- as the square of it: 0.002 was 0.2 world units at distance 3, and 1.6 at
+// 9, where a ray passing 1.5 behind a post 0.1 wide counted as meeting it, and
+// the post lit the floor five times what it should.
+fn view_distance(z: f32) -> f32 {
+    let p = cam.proj;
+    return abs((p[3][2] - z * p[3][3]) / (z * p[2][3] - p[2][2]));
+}
+
+// One ray through the depth pyramid, as Unity HDRP's and Unreal's screen
+// traces and Godot's go (Uludag, "Hi-Z Screen-Space Cone-Traced Reflections",
+// GPU Pro 5). In screen space, where a straight ray stays straight and NDC
+// depth is linear along it, so "where does it reach this depth" is one
+// division. A cell's nearest depth says the ray cannot meet anything in that
+// cell while it stays in front of it: so it crosses the cell in one read and
+// climbs a level, or, where it would reach that depth inside the cell, goes
+// there and comes down one -- until, in level 0, it meets a pixel.
+//
+// So `steps` counts reads, not distance, and the ray looks at every pixel it
+// could meet. A march at a fixed `stride` looked at one point per stride and
+// jumped over what was narrower on screen: a post eight times thinner than the
+// stride lit a floor half as much as it should have.
+fn trace_ray(
+    start: vec3<f32>, d: vec3<f32>, reach: f32, dims: vec2<f32>, reads: i32, thickness: f32,
+) -> RayHit {
+    var miss: RayHit;
+    miss.found = false;
+    let view_proj = cam.proj * cam.view;
+    let c0 = view_proj * vec4<f32>(start, 1.0);
+    var c1 = view_proj * vec4<f32>(start + d * reach, 1.0);
+    if c0.z < 0.0 || c0.w <= 0.0 {
+        return miss;
+    }
+    // Cut at the near plane: past it the divide by `w` mirrors the ray.
+    if c1.z < 0.0 {
+        c1 = mix(c0, c1, c0.z / (c0.z - c1.z));
+    }
+    let n0 = c0.xyz / c0.w;
+    let n1 = c1.xyz / c1.w;
+    let o = vec3<f32>((n0.x * 0.5 + 0.5) * dims.x, (0.5 - n0.y * 0.5) * dims.y, n0.z);
+    let e = vec3<f32>((n1.x * 0.5 + 0.5) * dims.x, (0.5 - n1.y * 0.5) * dims.y, n1.z);
+    if o.x < 0.0 || o.x >= dims.x || o.y < 0.0 || o.y >= dims.y || o.z > 1.0 {
+        return miss;
+    }
+    let dir = e - o;
+    // Where it leaves the frame, or passes the far plane.
+    var t_end = 1.0;
+    if dir.x != 0.0 {
+        t_end = min(t_end, (select(0.0, dims.x, dir.x > 0.0) - o.x) / dir.x);
+    }
+    if dir.y != 0.0 {
+        t_end = min(t_end, (select(0.0, dims.y, dir.y > 0.0) - o.y) / dir.y);
+    }
+    if dir.z > 0.0 {
+        t_end = min(t_end, (1.0 - o.z) / dir.z);
+    }
+    // Over a cell's edge, by a hundredth of a pixel.
+    let nudge = 0.01 / max(max(abs(dir.x), abs(dir.y)), 1e-3);
+    let side = select(vec2<f32>(0.0), vec2<f32>(1.0), dir.xy > vec2<f32>(0.0));
+    let top = i32(textureNumLevels(hiz_tex));
+    let last = vec2<i32>(dims) - vec2<i32>(1);
+    var t = 0.0;
+    var level = 1;
+    for (var i = 0; i < reads; i++) {
+        if t >= t_end {
+            break;
+        }
+        let p = o + dir * t;
+        let px = min(vec2<i32>(floor(p.xy)), last);
+        let cell = px >> vec2<u32>(u32(level));
+        let next = (vec2<f32>(cell) + side) * f32(1 << u32(level));
+        var t_cell = t_end;
+        if dir.x != 0.0 {
+            t_cell = min(t_cell, (next.x - o.x) / dir.x);
+        }
+        if dir.y != 0.0 {
+            t_cell = min(t_cell, (next.y - o.y) / dir.y);
+        }
+        let near = nearest_depth(cell, level);
+        var t_near = t;
+        if p.z < near {
+            // In front of everything here: where it reaches that depth, if
+            // it ever does -- a ray coming toward the camera does not.
+            t_near = select(t_end + 1.0, (near - o.z) / dir.z, dir.z > 0.0);
+            if t_near >= t_cell {
+                t = t_cell + nudge;
+                level = min(level + 1, top);
+                continue;
+            }
+        }
+        if level > 0 {
+            t = t_near;
+            level -= 1;
+            continue;
+        }
+        // Where the ray came into this pixel, not `o + dir * t_near`, where it
+        // reached the depth: inside the same pixel, so no test can tell them
+        // apart -- and Windows' software adapter (WARP, all Windows CI has)
+        // got that sum wrong for a ray arriving already behind the surface.
+        // The right pixel, on the right read, and a point far from it, so what
+        // it met was read from elsewhere and a floor lit from behind the post
+        // went dark (0.047 for 0.084 on one CPU, 0.068 on another).
+        if view_distance(p.z) - view_distance(near) < thickness {
+            var out: RayHit;
+            out.found = true;
+            out.px = px;
+            out.depth = near;
+            out.uv = p.xy / dims;
+            return out;
+        }
+        // Too far behind this pixel to be touching it: it went past. The
+        // pyramid has nothing to say about what is behind a surface, so on
+        // to the next pixel, until the ray is in front of something again.
+        t = t_cell + nudge;
+    }
+    return miss;
+}
+
+// Two pixels' width at this distance, in world units: how far off its surface
+// a ray starts, so it does not find the surface it leaves. The depth it is
+// compared with is a pixel centre's, and on a surface seen at a slant that is
+// nearer than the ray by as much as half a pixel on screen; seen at a slant,
+// this lifts the ray two pixels on screen, clear of that. Tied to the pixel
+// because that is the size of the error -- a share of the `stride`, as a march
+// needed, put a stride of 0.8 0.4 off the floor, where it could not see the
+// foot of what stood on it.
+fn ray_clearance(world: vec3<f32>, dims: vec2<f32>) -> f32 {
+    let w = (cam.proj * cam.view * vec4<f32>(world, 1.0)).w;
+    return 2.0 * w * 2.0 / (cam.proj[1][1] * dims.y);
+}
+"#
+    };
+}
+
 /// Screen-space reflections.
 ///
 /// # Why screen space, and what that costs
 ///
-/// Unity (HDRP), Unreal and Godot all march the depth buffer and sample the
+/// Unity (HDRP), Unreal and Godot all trace the depth buffer and sample the
 /// scene colour at the hit. The construction is the same in all three because
 /// the trade is the same: it reflects what is already on screen, for the cost
-/// of a march, and it cannot reflect what is not. A reflection that leaves the
+/// of a trace, and it cannot reflect what is not. A reflection that leaves the
 /// frame, or lands behind something, has no answer -- so every one of them
 /// fades those rays out rather than inventing a colour, and so does this.
 ///
@@ -951,14 +1109,15 @@ fn fs_bloom(in: FullscreenOut) -> @location(0) vec4<f32> {
 /// the screen returns nothing and the surface keeps its existing shading;
 /// without the fade it would return whatever happened to be at the edge, and a
 /// mirror would smear the frame's border across itself.
-const SSR_WGSL: &str = r#"
+const SSR_WGSL: &str = concat!(
+    r#"
 struct SsrCamera {
     view: mat4x4<f32>,
     proj: mat4x4<f32>,
     inv_view_proj: mat4x4<f32>,
     // xyz camera position, w the maximum roughness that still reflects.
     cam_pos: vec4<f32>,
-    // x steps, y stride in view-space units, z thickness, w intensity.
+    // x reads, y stride and z thickness in world units, w intensity.
     params: vec4<f32>,
     // Last frame's unjittered view-projection: where a hit was then.
     prev_view_proj: mat4x4<f32>,
@@ -970,7 +1129,9 @@ struct SsrCamera {
 // like then. The trace runs before this frame's opaque pass -- which reads
 // its result -- so this frame's scene does not exist yet.
 @group(0) @binding(0) var scene_tex: texture_2d<f32>;
-@group(0) @binding(1) var scene_samp: sampler;
+@group(0) @binding(2) var scene_samp: sampler;
+// The nearest depth of each cell (`HizPyramid`): mip `n` is level `n + 1`.
+@group(0) @binding(3) var hiz_tex: texture_2d<f32>;
 @group(1) @binding(0) var depth_tex: texture_depth_2d;
 @group(2) @binding(0) var normal_tex: texture_2d<f32>;
 // The prepass's velocities: how far each surface moved on screen since last
@@ -1003,6 +1164,9 @@ fn project(p: vec3<f32>) -> vec3<f32> {
     return vec3<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5, ndc.z);
 }
 
+"#,
+    hiz_trace_wgsl!(),
+    r#"
 @fragment
 fn fs_ssr(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     let dims = vec2<f32>(textureDimensions(depth_tex, 0));
@@ -1035,49 +1199,26 @@ fn fs_ssr(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     // wrong.
     let facing = clamp(dot(refl, view_dir), 0.0, 1.0);
 
-    let steps = i32(cam.params.x);
-    let stride = cam.params.y;
-    let thickness = cam.params.z;
-
     var hit_uv = vec2<f32>(0.0);
     var found = 0.0;
-    // ⚠️ The march starts just *off* the surface, not on it. A ray leaving
-    // exactly the point it reflects from lands, at a grazing angle, back on the
-    // same pixel -- and a mirror then reflects itself, brightly and everywhere.
-    //
-    // Half a step, not a distance of its own: an offset larger than the stride
-    // would reach further than the march it is supposed to be nudging, and the
-    // ray would find things a trace of that length could never have reached.
-    var p = world + normalize(n) * (stride * 0.5);
-    for (var i = 0; i < steps; i = i + 1) {
-        p = p + refl * stride;
-        let s = project(p);
-        // Off screen: no answer, and the loop stops rather than walking on.
-        //
-        // ⚠️ Deleting this is not observable from the tests, and the reason is
-        // worth knowing rather than guessing at: a `textureLoad` outside the
-        // texture reads zero, so an off-screen sample reports a depth of 0 and
-        // no ray ever hits anything there. What the break actually buys is the
-        // steps it stops spending -- which is real, and which no pixel shows.
-        if (s.x < 0.0 || s.x > 1.0 || s.y < 0.0 || s.y > 1.0 || s.z > 1.0) {
-            break;
-        }
-        let px = vec2<i32>(s.xy * dims);
-        // The pixel the ray left is the surface it left. Skipping it says that
-        // directly, rather than relying on an offset big enough to escape it --
-        // which is how the offset above grew past the stride the first time.
-        if (px.x == coord.x && px.y == coord.y) {
-            continue;
-        }
-        let scene_depth = textureLoad(depth_tex, px, 0);
-        // The ray has gone behind what is drawn there. `thickness` is how deep
-        // a surface is assumed to be: without it every ray eventually passes
-        // behind something and reports a hit on the far side of the world.
-        let behind = s.z - scene_depth;
-        if (behind > 0.0 && behind < thickness) {
-            hit_uv = s.xy;
+    // Only where a hit could show: most of a frame's pixels are not mirrors.
+    if (has_surface && rough_fade > 0.0 && facing > 0.0) {
+        let reads = i32(cam.params.x);
+        // Clear of the surface along the ray, not straight off it as the GI's
+        // start: a ray lifted off the mirror is a parallel ray, which meets
+        // what stands there that much higher, and the whole reflection sits two
+        // pixels up from where the mirror image is. On a diffuse surface no one
+        // can see that; here it is the picture.
+        let lift = max(dot(refl, normalize(n)), 0.05);
+        let start = world + refl * (ray_clearance(world, dims) / lift);
+        let ray = trace_ray(start, refl, cam.params.x * cam.params.y, dims, reads, cam.params.z);
+        if (ray.found) {
+            // That pixel's centre, not where in it the ray arrived: the light
+            // is read through a filtering sampler, and at a pixel's edge it
+            // would be half the neighbour's, which on a mirror is a blur along
+            // every edge in the reflection.
+            hit_uv = (vec2<f32>(ray.px) + vec2<f32>(0.5)) / dims;
             found = 1.0;
-            break;
         }
     }
 
@@ -1132,7 +1273,8 @@ fn fs_ssr(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     // pixel with no hit changes nothing.
     return vec4<f32>(reflected * weight, weight);
 }
-"#;
+"#,
+);
 
 /// What the reflection pass needs to know about the camera and the trace.
 #[repr(C)]
@@ -1174,7 +1316,8 @@ pub struct SsrCameraGpu {
 /// and the probes store `E / PI` -- so the reflectance multiplies the mean
 /// radiance as it is. With the PI, a floor whose rays met only floor under a
 /// uniform ambient brightened by PI where it should not have changed at all.
-const SSGI_WGSL: &str = r#"
+const SSGI_WGSL: &str = concat!(
+    r#"
 struct SsgiCamera {
     view: mat4x4<f32>,
     proj: mat4x4<f32>,
@@ -1257,143 +1400,9 @@ fn cosine_direction(n: vec3<f32>, u1: f32, u2: f32) -> vec3<f32> {
     return normalize(t * (r * cos(phi)) + b * (r * sin(phi)) + n * sqrt(max(1.0 - u1, 0.0)));
 }
 
-// What is nearest the camera in the cell of `2^level` pixels at `cell`:
-// level 0 is the depth buffer itself.
-fn nearest_depth(cell: vec2<i32>, level: i32) -> f32 {
-    if level == 0 {
-        return textureLoad(depth_tex, cell, 0);
-    }
-    return textureLoad(hiz_tex, cell, level - 1).r;
-}
-
-struct RayHit {
-    found: bool,
-    // The pixel it met, the depth there, and where in the frame it met it.
-    px: vec2<i32>,
-    depth: f32,
-    uv: vec2<f32>,
-};
-
-// How far along the view NDC depth `z` is. NDC depth bunches up away from the
-// camera, so a thickness measured in it is a different depth at every distance
-// -- as the square of it: 0.002 was 0.2 world units at distance 3, and 1.6 at
-// 9, where a ray passing 1.5 behind a post 0.1 wide counted as meeting it, and
-// the post lit the floor five times what it should.
-fn view_distance(z: f32) -> f32 {
-    let p = cam.proj;
-    return abs((p[3][2] - z * p[3][3]) / (z * p[2][3] - p[2][2]));
-}
-
-// One ray through the depth pyramid, as Unity HDRP's and Unreal's screen
-// traces and Godot's go (Uludag, "Hi-Z Screen-Space Cone-Traced Reflections",
-// GPU Pro 5). In screen space, where a straight ray stays straight and NDC
-// depth is linear along it, so "where does it reach this depth" is one
-// division. A cell's nearest depth says the ray cannot meet anything in that
-// cell while it stays in front of it: so it crosses the cell in one read and
-// climbs a level, or, where it would reach that depth inside the cell, goes
-// there and comes down one -- until, in level 0, it meets a pixel.
-//
-// So `steps` counts reads, not distance, and the ray looks at every pixel it
-// could meet. A march at a fixed `stride` looked at one point per stride and
-// jumped over what was narrower on screen: a post eight times thinner than the
-// stride lit a floor half as much as it should have.
-fn trace_ray(
-    start: vec3<f32>, d: vec3<f32>, reach: f32, dims: vec2<f32>,
-) -> RayHit {
-    var miss: RayHit;
-    miss.found = false;
-    let view_proj = cam.proj * cam.view;
-    let c0 = view_proj * vec4<f32>(start, 1.0);
-    var c1 = view_proj * vec4<f32>(start + d * reach, 1.0);
-    if c0.z < 0.0 || c0.w <= 0.0 {
-        return miss;
-    }
-    // Cut at the near plane: past it the divide by `w` mirrors the ray.
-    if c1.z < 0.0 {
-        c1 = mix(c0, c1, c0.z / (c0.z - c1.z));
-    }
-    let n0 = c0.xyz / c0.w;
-    let n1 = c1.xyz / c1.w;
-    let o = vec3<f32>((n0.x * 0.5 + 0.5) * dims.x, (0.5 - n0.y * 0.5) * dims.y, n0.z);
-    let e = vec3<f32>((n1.x * 0.5 + 0.5) * dims.x, (0.5 - n1.y * 0.5) * dims.y, n1.z);
-    if o.x < 0.0 || o.x >= dims.x || o.y < 0.0 || o.y >= dims.y || o.z > 1.0 {
-        return miss;
-    }
-    let dir = e - o;
-    // Where it leaves the frame, or passes the far plane.
-    var t_end = 1.0;
-    if dir.x != 0.0 {
-        t_end = min(t_end, (select(0.0, dims.x, dir.x > 0.0) - o.x) / dir.x);
-    }
-    if dir.y != 0.0 {
-        t_end = min(t_end, (select(0.0, dims.y, dir.y > 0.0) - o.y) / dir.y);
-    }
-    if dir.z > 0.0 {
-        t_end = min(t_end, (1.0 - o.z) / dir.z);
-    }
-    // Over a cell's edge, by a hundredth of a pixel.
-    let nudge = 0.01 / max(max(abs(dir.x), abs(dir.y)), 1e-3);
-    let side = select(vec2<f32>(0.0), vec2<f32>(1.0), dir.xy > vec2<f32>(0.0));
-    let top = i32(textureNumLevels(hiz_tex));
-    let last = vec2<i32>(dims) - vec2<i32>(1);
-    let thickness = cam.params.w;
-    var t = 0.0;
-    var level = 1;
-    for (var i = 0; i < i32(cam.params.y); i++) {
-        if t >= t_end {
-            break;
-        }
-        let p = o + dir * t;
-        let px = min(vec2<i32>(floor(p.xy)), last);
-        let cell = px >> vec2<u32>(u32(level));
-        let next = (vec2<f32>(cell) + side) * f32(1 << u32(level));
-        var t_cell = t_end;
-        if dir.x != 0.0 {
-            t_cell = min(t_cell, (next.x - o.x) / dir.x);
-        }
-        if dir.y != 0.0 {
-            t_cell = min(t_cell, (next.y - o.y) / dir.y);
-        }
-        let near = nearest_depth(cell, level);
-        var t_near = t;
-        if p.z < near {
-            // In front of everything here: where it reaches that depth, if
-            // it ever does -- a ray coming toward the camera does not.
-            t_near = select(t_end + 1.0, (near - o.z) / dir.z, dir.z > 0.0);
-            if t_near >= t_cell {
-                t = t_cell + nudge;
-                level = min(level + 1, top);
-                continue;
-            }
-        }
-        if level > 0 {
-            t = t_near;
-            level -= 1;
-            continue;
-        }
-        // Where the ray came into this pixel, not `o + dir * t_near`, where it
-        // reached the depth: inside the same pixel, so no test can tell them
-        // apart -- and Windows' software adapter (WARP, all Windows CI has)
-        // got that sum wrong for a ray arriving already behind the surface.
-        // The right pixel, on the right read, and a point far from it, so what
-        // it met was read from elsewhere and a floor lit from behind the post
-        // went dark (0.047 for 0.084 on one CPU, 0.068 on another).
-        if view_distance(p.z) - view_distance(near) < thickness {
-            var out: RayHit;
-            out.found = true;
-            out.px = px;
-            out.depth = near;
-            out.uv = p.xy / dims;
-            return out;
-        }
-        // Too far behind this pixel to be touching it: it went past. The
-        // pyramid has nothing to say about what is behind a surface, so on
-        // to the next pixel, until the ray is in front of something again.
-        t = t_cell + nudge;
-    }
-    return miss;
-}
-
+"#,
+    hiz_trace_wgsl!(),
+    r#"
 @fragment
 fn fs_ssgi(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     let full = vec2<i32>(textureDimensions(depth_tex, 0));
@@ -1411,16 +1420,7 @@ fn fs_ssgi(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     let world = world_at(uv, depth);
     let rays = u32(cam.params.x);
     let reach = cam.params.y * cam.params.z;
-    // Two pixels' width at this distance, in world units: how far off its
-    // surface a ray starts, so it does not find the surface it leaves. The
-    // depth it is compared with is a pixel centre's, and on a surface seen at
-    // a slant that is nearer than the ray by as much as half a pixel on
-    // screen; seen at a slant, this lifts the ray two pixels on screen, clear
-    // of that. Tied to the pixel because that is the size of the error -- a
-    // share of the `stride`, as a march needed, put a stride of 0.8 0.4 off
-    // the floor, where it could not see the foot of what stood on it.
-    let w = (cam.proj * cam.view * vec4<f32>(world, 1.0)).w;
-    let clearance = 2.0 * w * 2.0 / (cam.proj[1][1] * dims.y);
+    let clearance = ray_clearance(world, dims);
     let seed = pcg(u32(coord.x) ^ pcg(u32(coord.y) ^ pcg(u32(cam.cam_pos.w))));
 
     var light = vec3<f32>(0.0);
@@ -1428,7 +1428,9 @@ fn fs_ssgi(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     for (var r = 0u; r < rays; r++) {
         let h = pcg(seed ^ pcg(r));
         let d = cosine_direction(n, unit(h), unit(pcg(h)));
-        let ray = trace_ray(world + n * clearance, d, reach, dims);
+        let ray = trace_ray(
+            world + n * clearance, d, reach, dims, i32(cam.params.y), cam.params.w,
+        );
         if !ray.found {
             continue;
         }
@@ -1454,7 +1456,8 @@ fn fs_ssgi(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     let k = cam.params2.x / f32(max(rays, 1u));
     return vec4<f32>(light * k, hits * k);
 }
-"#;
+"#,
+);
 
 /// The pyramid's first level from the depth buffer: each texel the nearest
 /// of the 2 x 2 pixels it covers. The pyramid is wider than the frame
@@ -3323,6 +3326,9 @@ struct PostProcessTargets {
     /// Last frame's lit scene, which a hit's light is read from.
     lit_history_texture: crate::profiler::TrackedTexture,
     lit_history_bg: wgpu::BindGroup,
+    /// Last frame's lit scene and the depth pyramid, as the reflections read
+    /// them.
+    ssr_scene_bg: wgpu::BindGroup,
     /// This frame's lit scene, that one and the depth pyramid, as the GI
     /// trace reads them.
     ssgi_scene_bg: wgpu::BindGroup,
@@ -3476,6 +3482,9 @@ pub struct PostProcessState {
     /// after screen-space GI: what a hit's light is read from.
     lit_history_texture: crate::profiler::TrackedTexture,
     lit_history_bg: wgpu::BindGroup,
+    /// Last frame's lit scene and the depth pyramid, as the reflections read
+    /// them.
+    ssr_scene_bg: wgpu::BindGroup,
     /// This frame's lit scene, last frame's and the depth pyramid, as the GI
     /// trace reads them.
     ssgi_scene_bg: wgpu::BindGroup,
@@ -4512,7 +4521,7 @@ impl PostProcessState {
         // prepass's normals and its velocities.
         let ssr_pipeline = Self::make_ssr_pipeline(
             device,
-            &tex2d_bgl,
+            &ssgi_trace_bgl,
             &depth_bgl,
             &ssgi_history_bgl,
             &ssr_cam_bgl,
@@ -4691,6 +4700,7 @@ impl PostProcessState {
             ssr_normal_bg: targets.ssr_normal_bg,
             lit_history_texture: targets.lit_history_texture,
             lit_history_bg: targets.lit_history_bg,
+            ssr_scene_bg: targets.ssr_scene_bg,
             ssgi_scene_bg: targets.ssgi_scene_bg,
             hiz: targets.hiz,
             hiz_first_pipeline,
@@ -5084,6 +5094,30 @@ impl PostProcessState {
         });
         let lit_history_bg = make_tex2d_bg("pp lit history bg", &lit_history_view);
         let hiz = HizPyramid::new(device, width, height, hiz_level_bgl);
+        // Last frame's lit scene and the depth pyramid, for the reflections.
+        // The GI trace's layout: they have one scene to read where it has two.
+        let ssr_scene_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("pp ssr scene bg"),
+            layout: ssgi_trace_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&lit_history_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&lit_history_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&hiz.view),
+                },
+            ],
+        });
         // This frame's lit scene, last frame's and the depth pyramid, for the
         // GI trace.
         let ssgi_scene_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -5182,6 +5216,7 @@ impl PostProcessState {
             ssr_normal_bg,
             lit_history_texture,
             lit_history_bg,
+            ssr_scene_bg,
             ssgi_scene_bg,
             hiz,
             ldr_texture,
@@ -5466,7 +5501,7 @@ impl PostProcessState {
 
     fn make_ssr_pipeline(
         device: &wgpu::Device,
-        tex2d_bgl: &wgpu::BindGroupLayout,
+        scene_bgl: &wgpu::BindGroupLayout,
         depth_bgl: &wgpu::BindGroupLayout,
         surface_bgl: &wgpu::BindGroupLayout,
         ssr_cam_bgl: &wgpu::BindGroupLayout,
@@ -5478,7 +5513,7 @@ impl PostProcessState {
         let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("ssr pll"),
             bind_group_layouts: &[
-                Some(tex2d_bgl),
+                Some(scene_bgl),
                 Some(depth_bgl),
                 Some(surface_bgl),
                 Some(ssr_cam_bgl),
@@ -5897,6 +5932,7 @@ impl PostProcessState {
         self.ssr_normal_bg = t.ssr_normal_bg;
         self.lit_history_texture = t.lit_history_texture;
         self.lit_history_bg = t.lit_history_bg;
+        self.ssr_scene_bg = t.ssr_scene_bg;
         self.ssgi_scene_bg = t.ssgi_scene_bg;
         self.hiz = t.hiz;
         // A new texture holds no frame: no reflection until one is copied.
@@ -6282,6 +6318,7 @@ impl PostProcessState {
     /// it every frame, and a stale trace would stay on screen.
     pub fn trace_ssr(&mut self, encoder: &mut wgpu::CommandEncoder, fast_render: bool) -> u32 {
         let trace = self.ssr_enabled && !fast_render;
+        let levels = if trace { self.build_hiz(encoder) } else { 0 };
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some(if trace { "ssr pass" } else { "ssr clear" }),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -6300,12 +6337,44 @@ impl PostProcessState {
             return 0;
         }
         pass.set_pipeline(&self.ssr_pipeline);
-        pass.set_bind_group(0, &self.lit_history_bg, &[]);
+        pass.set_bind_group(0, &self.ssr_scene_bg, &[]);
         pass.set_bind_group(1, &self.depth_bg, &[]);
         pass.set_bind_group(2, &self.ssr_normal_bg, &[]);
         pass.set_bind_group(3, &self.ssr_cam_bg, &[]);
         pass.draw(0..3, 0..1);
-        1
+        levels + 1
+    }
+
+    /// Builds the depth pyramid from the depth buffer as it stands, for a trace
+    /// about to read it. Each trace builds its own: the reflections' runs on
+    /// the prepass's depth, before the opaque pass, and the GI's after every
+    /// opaque thing has been drawn. Returns the draws it took.
+    fn build_hiz(&self, encoder: &mut wgpu::CommandEncoder) -> u32 {
+        for (i, level) in self.hiz.levels.iter().enumerate() {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("hiz level pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: level,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                ..Default::default()
+            });
+            if i == 0 {
+                pass.set_pipeline(&self.hiz_first_pipeline);
+                pass.set_bind_group(0, &self.depth_bg, &[]);
+            } else {
+                pass.set_pipeline(&self.hiz_down_pipeline);
+                pass.set_bind_group(0, &self.hiz.reads[i - 1], &[]);
+            }
+            pass.draw(0..3, 0..1);
+        }
+        self.hiz.levels.len() as u32
     }
 
     /// Uploads the current frame's camera projection matrices for SSAO depth reconstruction.
@@ -6394,32 +6463,9 @@ impl PostProcessState {
         // surface the reflections then show. Trace, then composite -- the
         // trace samples the scene the composite writes to.
         if self.ssgi_enabled && !fast_render {
-            for (i, level) in self.hiz.levels.iter().enumerate() {
-                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("hiz level pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: level,
-                        resolve_target: None,
-                        depth_slice: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    ..Default::default()
-                });
-                if i == 0 {
-                    pass.set_pipeline(&self.hiz_first_pipeline);
-                    pass.set_bind_group(0, &self.depth_bg, &[]);
-                } else {
-                    pass.set_pipeline(&self.hiz_down_pipeline);
-                    pass.set_bind_group(0, &self.hiz.reads[i - 1], &[]);
-                }
-                pass.draw(0..3, 0..1);
-                draw_calls += 1;
-                triangles += 1;
-            }
+            let levels = self.build_hiz(encoder);
+            draw_calls += levels;
+            triangles += u64::from(levels);
             {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("ssgi pass"),

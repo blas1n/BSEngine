@@ -1205,6 +1205,26 @@ mod tests {
     }
 
     #[test]
+    fn the_add_menu_offers_every_kind_once() {
+        // The array's length is checked by the compiler and what is in it by
+        // nothing else: a kind listed twice, or one replaced by another, still
+        // makes fifteen.
+        let kinds = addable_kinds();
+        for (i, a) in kinds.iter().enumerate() {
+            for b in &kinds[i + 1..] {
+                assert_ne!(
+                    std::mem::discriminant(a),
+                    std::mem::discriminant(b),
+                    "listed twice: {a:?}"
+                );
+            }
+        }
+        assert!(kinds.contains(&NodeKind::Output));
+        assert!(kinds.contains(&NodeKind::LitOutput));
+        assert_eq!(node_title(&NodeKind::LitOutput), "Lit Output");
+    }
+
+    #[test]
     fn merely_rendering_the_panel_leaves_the_graph_untouched() {
         // The opposite-direction guard: a panel that spuriously edited on
         // every frame would still pass any "it draws" assertion. Several

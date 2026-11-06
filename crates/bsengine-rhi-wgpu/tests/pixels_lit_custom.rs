@@ -503,36 +503,53 @@ fn a_transparent_one_blends_under_msaa_too() {
     );
 }
 
+/// The mirror floor the two tests below look at, through a lit shader.
+fn lit_mirror(port: &str, value: NodeKind, key: &str) -> Pixels {
+    let mut h = Harness::new();
+    let stage = Stage::new(&mut h);
+    let shader = compile(&mut h, &lit_graph(&[(port, value)]), key);
+    let mut s = stage.scene(
+        Draw::new(stage.quad, Vec3::ZERO)
+            .roughness(0.02)
+            .colour(Vec3::splat(0.02))
+            .shader(&shader),
+    );
+    s.camera_pos = Vec3::new(0.0, 1.2, 6.0);
+    s.look_at = Vec3::new(0.0, 0.6, 0.0);
+    s.ssr = Some(ScreenSpaceReflections::default());
+    settled(&mut h, &s, 3)
+}
+
 /// A graph's normal is whatever its nodes left it, and the reflections' prepass
-/// stores what it is given: unnormalised, a longer normal would be a different
-/// reflection from the same direction.
+/// stores what it is given. The trace takes a pixel whose stored normal is
+/// shorter than a half for one with no surface at all, so unnormalised, a short
+/// normal loses its reflections. (A long one would not show: the trace
+/// normalises what it reads.)
 #[test]
 fn a_normal_port_of_any_length_is_the_same_normal() {
-    let floor = |stage: &Stage, shader: &str| {
-        let mut s = stage.scene(
-            Draw::new(stage.quad, Vec3::ZERO)
-                .roughness(0.02)
-                .colour(Vec3::splat(0.02))
-                .shader(shader),
+    let unit = lit_mirror(
+        "normal",
+        NodeKind::ConstantVec3([0.0, 1.0, 0.0]),
+        "normal_unit",
+    );
+    for (length, key) in [(0.3, "normal_short"), (3.0, "normal_long")] {
+        let other = lit_mirror("normal", NodeKind::ConstantVec3([0.0, length, 0.0]), key);
+        assert_eq!(
+            other.max_channel_diff(&unit),
+            0,
+            "a normal of length {length} reflected differently"
         );
-        s.camera_pos = Vec3::new(0.0, 1.2, 6.0);
-        s.look_at = Vec3::new(0.0, 0.6, 0.0);
-        s.ssr = Some(ScreenSpaceReflections::default());
-        s
-    };
-    let picture = |port: [f32; 3], key: &str| {
-        let mut h = Harness::new();
-        let stage = Stage::new(&mut h);
-        let shader = compile(
-            &mut h,
-            &lit_graph(&[("normal", NodeKind::ConstantVec3(port))]),
-            key,
-        );
-        settled(&mut h, &floor(&stage, &shader), 3)
-    };
-    let unit = picture([0.0, 1.0, 0.0], "normal_unit");
-    let long = picture([0.0, 3.0, 0.0], "normal_long");
-    assert_eq!(long.max_channel_diff(&unit), 0);
+    }
+}
+
+/// The floor the shading keeps roughness at holds for the reflections too: they
+/// fade with roughness, so a port's 0 unfloored would reflect more strongly
+/// than the 0.04 the surface is shaded with.
+#[test]
+fn a_roughness_port_of_zero_reflects_as_the_floor_does() {
+    let zero = lit_mirror("roughness", NodeKind::Constant(0.0), "roughness_zero");
+    let floor = lit_mirror("roughness", NodeKind::Constant(0.04), "roughness_floor");
+    assert_eq!(zero.max_channel_diff(&floor), 0);
 }
 
 #[test]
@@ -742,10 +759,11 @@ fn numbers_out_of_range_are_brought_into_it() {
             NodeKind::ConstantVec3([1.0, 0.0, 0.5]),
         ),
         ("metallic", NodeKind::Constant(3.0), NodeKind::Constant(1.0)),
+        // Above, not below: below is the floor `shade` keeps it at either way.
         (
             "roughness",
-            NodeKind::Constant(-2.0),
-            NodeKind::Constant(0.0),
+            NodeKind::Constant(3.0),
+            NodeKind::Constant(1.0),
         ),
         (
             "occlusion",

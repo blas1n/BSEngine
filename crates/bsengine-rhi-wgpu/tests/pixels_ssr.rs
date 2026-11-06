@@ -191,6 +191,25 @@ fn a_ray_that_runs_out_of_steps_finds_nothing() {
         short.describe()
     );
 
+    // Reach to spare and one read: the ray stops when it has read enough, not
+    // only at `steps * stride`.
+    let unread = settled(
+        &mut h,
+        &scene(
+            cube,
+            Some(ScreenSpaceReflections {
+                steps: 1,
+                stride: 8.0,
+                ..Default::default()
+            }),
+        ),
+    );
+    assert!(
+        unread.max_channel_diff(&without) <= 2,
+        "one read cannot have found the pillar: {}",
+        unread.describe()
+    );
+
     // Reads to spare and no reach: the ray stops at `steps * stride`, not when
     // it has read enough.
     let near = settled(
@@ -841,5 +860,41 @@ fn a_thing_narrower_than_the_stride_is_reflected_whole() {
         (rows - (bottom - top)).abs() <= 1.5,
         "rows {:?}, by the geometry {top}..{bottom}",
         runs[1]
+    );
+}
+
+/// The edge of a reflection is as sharp as the edge it shows: each row of the
+/// image reads one pixel of what it met. Read where the ray came into that
+/// pixel -- its edge, through a filtering sampler -- every row would be half
+/// the next, and the row at the image's edge half floor.
+#[test]
+fn a_reflections_edge_is_as_sharp_as_what_it_shows() {
+    let camera = camera_at(1.0);
+    let mut h = Harness::new();
+    let (cube, plane) = (h.cube(), h.plane());
+    let frame = settled(
+        &mut h,
+        &plain(Scene {
+            draws: vec![metal_floor(plane, Vec3::ONE), floating_slab(cube, 1.0, 2.0)],
+            camera_pos: camera,
+            look_at: LOOK_AT,
+            ..scene(cube, Some(ScreenSpaceReflections::default()))
+        }),
+    );
+    let (top, bottom) = image_rows(camera, 1.0, 2.0);
+    let red = |y: u32| linear(frame.at(frame.width / 2, y)[0]);
+    let inside = red(((top + bottom) / 2.0) as u32);
+    let outside = red(top as u32 - 8);
+    assert!(
+        inside > outside + 0.1,
+        "premise: the image shows: {outside} -> {inside}"
+    );
+    let between: Vec<(u32, f32)> = (top as u32 - 6..top as u32 + 6)
+        .map(|y| (y, (red(y) - outside) / (inside - outside)))
+        .filter(|(_, share)| (0.1..0.9).contains(share))
+        .collect();
+    assert!(
+        between.is_empty(),
+        "rows part floor, part slab: {between:?}"
     );
 }

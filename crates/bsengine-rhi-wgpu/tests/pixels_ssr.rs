@@ -165,47 +165,6 @@ fn a_reflection_with_nothing_to_hit_adds_nothing() {
 }
 
 #[test]
-fn thickness_decides_whether_passing_behind_something_counts_as_hitting_it() {
-    // The depth buffer says where surfaces start and never where they end, so
-    // a ray that has gone behind one has to decide: did it hit, or pass by?
-    // `thickness` is that decision, and without an upper bound every ray that
-    // goes behind anything reports a hit on it.
-    //
-    // Measured by widening the window until it swallows the scene. If the
-    // default already behaved that way -- which is what deleting the bound
-    // does -- these two frames would be identical.
-    let mut h = Harness::new();
-    let cube = h.cube();
-
-    // A long stride on purpose: the ray steps *over* the pillar and lands well
-    // behind it, which is the only situation where the two answers differ. With
-    // short steps every sample that goes behind is already inside the window.
-    let coarse = ScreenSpaceReflections {
-        steps: 8,
-        stride: 3.0,
-        ..Default::default()
-    };
-    let normal = settled(&mut h, &scene(cube, Some(coarse)));
-    let swallowed = settled(
-        &mut h,
-        &scene(
-            cube,
-            Some(ScreenSpaceReflections {
-                // NDC depth spans 0..1, so this accepts a hit anywhere behind.
-                thickness: 10.0,
-                ..coarse
-            }),
-        ),
-    );
-
-    assert!(
-        swallowed.differs_from(&normal),
-        "a thickness that accepts any surface behind the ray has to find hits          the default rejects: {}",
-        swallowed.describe()
-    );
-}
-
-#[test]
 fn a_ray_that_runs_out_of_steps_finds_nothing() {
     // Paired with the first test: the same scene, the same surface, but a reach
     // of one short step. This is what separates "the trace found the pillar"
@@ -230,6 +189,43 @@ fn a_ray_that_runs_out_of_steps_finds_nothing() {
         short.max_channel_diff(&without) <= 2,
         "a ray reaching one centimetre cannot have found the pillar: {}",
         short.describe()
+    );
+
+    // Reach to spare and one read: the ray stops when it has read enough, not
+    // only at `steps * stride`.
+    let unread = settled(
+        &mut h,
+        &scene(
+            cube,
+            Some(ScreenSpaceReflections {
+                steps: 1,
+                stride: 8.0,
+                ..Default::default()
+            }),
+        ),
+    );
+    assert!(
+        unread.max_channel_diff(&without) <= 2,
+        "one read cannot have found the pillar: {}",
+        unread.describe()
+    );
+
+    // Reads to spare and no reach: the ray stops at `steps * stride`, not when
+    // it has read enough.
+    let near = settled(
+        &mut h,
+        &scene(
+            cube,
+            Some(ScreenSpaceReflections {
+                stride: 0.001,
+                ..Default::default()
+            }),
+        ),
+    );
+    assert!(
+        near.max_channel_diff(&without) <= 2,
+        "a ray reaching a few centimetres cannot have found the pillar: {}",
+        near.describe()
     );
 }
 
@@ -730,5 +726,139 @@ fn a_moving_object_is_reflected_where_it_is() {
         lit[0] as f32 >= dark[0] as f32 + 0.7 * (standing[0] as f32 - dark[0] as f32),
         "the moving pillar should be reflected where it is now, as brightly as a \
          standing one: floor {dark:?}, moving {lit:?}, standing {standing:?} at ({x}, {y})"
+    );
+}
+
+/// A slab floating over the mirror, x from -1 to 1 and y from `y0` to `y1`,
+/// 0.1 deep with its front at z = 0.
+fn floating_slab(mesh: u64, y0: f32, y1: f32) -> Draw {
+    let at = Vec3::new(0.0, (y0 + y1) / 2.0, -0.05);
+    Draw::new(mesh, at)
+        .scaled(Vec3::new(2.0, y1 - y0, 0.1), at)
+        .colour(Vec3::ZERO)
+        .emissive(RED)
+}
+
+const LOOK_AT: Vec3 = Vec3::new(0.0, 0.8, 0.0);
+
+/// A camera on the z axis, above the mirror, `k` times as far as the first.
+fn camera_at(k: f32) -> Vec3 {
+    Vec3::new(0.0, 0.5, 0.0) + Vec3::new(0.0, 1.0, 6.0) * k
+}
+
+/// The row a world height at z = 0 lands on, from `camera`.
+fn row_of(camera: Vec3, y: f32) -> f32 {
+    let aspect = common::WIDTH as f32 / common::HEIGHT as f32;
+    let proj = glam::Mat4::perspective_rh(60.0_f32.to_radians(), aspect, 0.1, 100.0);
+    let view = glam::Mat4::look_at_rh(camera, LOOK_AT, Vec3::Y);
+    let n = (proj * view).project_point3(Vec3::new(0.0, y, 0.0));
+    (0.5 - n.y * 0.5) * common::HEIGHT as f32
+}
+
+/// The runs of red rows down the frame's middle column, top to bottom. The
+/// slab itself is the first, and what the mirror shows of it the rest.
+fn red_runs(camera: Vec3, ssr: ScreenSpaceReflections, y0: f32, y1: f32) -> Vec<(u32, u32)> {
+    let mut h = Harness::new();
+    let (cube, plane) = (h.cube(), h.plane());
+    let frame = settled(
+        &mut h,
+        &plain(Scene {
+            draws: vec![metal_floor(plane, Vec3::ONE), floating_slab(cube, y0, y1)],
+            camera_pos: camera,
+            look_at: LOOK_AT,
+            ..scene(cube, Some(ssr))
+        }),
+    );
+    let mut runs: Vec<(u32, u32)> = Vec::new();
+    for y in 0..frame.height {
+        let [r, g, b, _] = frame.at(frame.width / 2, y);
+        if r as i32 > g as i32 + 20 && r as i32 > b as i32 + 20 {
+            match runs.last_mut() {
+                Some(run) if run.1 + 1 == y => run.1 = y,
+                _ => runs.push((y, y)),
+            }
+        }
+    }
+    runs
+}
+
+/// The floor at y = 0.5 mirrors a height `y` to `1 - y`.
+fn image_rows(camera: Vec3, y0: f32, y1: f32) -> (f32, f32) {
+    (row_of(camera, 1.0 - y0), row_of(camera, 1.0 - y1))
+}
+
+/// The reflection is where the mirror image is, to a pixel, from near and from
+/// three times as far. A ray started straight off the mirror, a parallel ray,
+/// put it two pixels up.
+#[test]
+fn a_reflection_lands_where_the_mirror_image_is() {
+    for k in [1.0, 3.0] {
+        let camera = camera_at(k);
+        let (top, bottom) = image_rows(camera, 1.0, 2.0);
+        let runs = red_runs(camera, ScreenSpaceReflections::default(), 1.0, 2.0);
+        assert_eq!(runs.len(), 2, "premise: the slab and its image: {runs:?}");
+        let image = runs[1];
+        assert!(
+            (image.0 as f32 + 0.5 - top).abs() <= 1.5
+                && (image.1 as f32 + 0.5 - bottom).abs() <= 1.5,
+            "from {k} times as far: rows {image:?}, by the geometry {top}..{bottom}"
+        );
+    }
+}
+
+/// `thickness` is how far behind what is drawn a ray still counts as touching
+/// it, in the world, from any distance. The floor seen below a floating slab
+/// sends rays up behind it: each close enough behind counts as a hit, and the
+/// image grows up toward the slab by what that distance comes to. In NDC depth
+/// the default was 6.5 units from three times as far, and the gap closed.
+#[test]
+fn thickness_is_the_same_depth_from_any_distance() {
+    for k in [1.0, 3.0] {
+        let camera = camera_at(k);
+        let (top, _) = image_rows(camera, 1.0, 2.0);
+        let at = |thickness| {
+            let ssr = ScreenSpaceReflections {
+                thickness,
+                ..Default::default()
+            };
+            let runs = red_runs(camera, ssr, 1.0, 2.0);
+            assert_eq!(runs.len(), 2, "premise: a gap under the slab: {runs:?}");
+            top - (runs[1].0 as f32 + 0.5)
+        };
+        let (thin, default, thick) = (
+            at(0.01),
+            at(ScreenSpaceReflections::default().thickness),
+            at(2.0),
+        );
+        assert!(thin.abs() <= 1.5, "nothing added at 0.01: {thin} rows");
+        assert!(
+            default.abs() <= 1.5,
+            "from {k} times as far the default adds next to nothing: {default} rows"
+        );
+        assert!(
+            thick >= thin + 2.0,
+            "premise: 2 units behind still counts: {thin} -> {thick} rows"
+        );
+    }
+}
+
+/// The ray looks at every pixel on its way: a slab a quarter of a unit tall is
+/// reflected whole with a stride of a unit, where a march looked at one point
+/// per unit and took a stripe or nothing.
+#[test]
+fn a_thing_narrower_than_the_stride_is_reflected_whole() {
+    let camera = camera_at(1.0);
+    let (top, bottom) = image_rows(camera, 1.2, 1.45);
+    let ssr = ScreenSpaceReflections {
+        stride: 1.0,
+        ..Default::default()
+    };
+    let runs = red_runs(camera, ssr, 1.2, 1.45);
+    assert_eq!(runs.len(), 2, "premise: the slab and its image: {runs:?}");
+    let rows = (runs[1].1 - runs[1].0 + 1) as f32;
+    assert!(
+        (rows - (bottom - top)).abs() <= 1.5,
+        "rows {:?}, by the geometry {top}..{bottom}",
+        runs[1]
     );
 }

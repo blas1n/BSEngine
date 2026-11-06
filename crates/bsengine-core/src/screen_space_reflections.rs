@@ -37,24 +37,20 @@ pub struct ScreenSpaceReflections {
     /// for it — all three reference engines fade the effect out with roughness
     /// rather than pretending one ray describes a rough reflection.
     pub max_roughness: f32,
-    /// How many steps a ray takes before giving up.
-    ///
-    /// The cost is linear in this and so is how far a reflection can reach.
-    /// A ray that runs out of steps returns nothing, which leaves the surface
-    /// shaded as it was.
+    /// How many times a ray reads the depth pyramid before giving up, on its
+    /// way as far as [`Self::stride`] lets it. A ray out of reads finds nothing,
+    /// which leaves the surface shaded as it was.
     pub steps: u32,
-    /// World-space distance per step.
-    ///
-    /// Together with [`Self::steps`] this is the reach: `steps * stride`. A
-    /// long stride reaches further for the same cost and steps over thin
-    /// geometry while doing it.
+    /// World-space distance per step: `steps * stride` is the reach. The ray
+    /// looks at every pixel on its way whatever this is, so nothing narrower
+    /// than it is stepped over.
     pub stride: f32,
-    /// How deep a surface is assumed to be, in NDC depth.
+    /// How deep a surface is assumed to be, in world units.
     ///
     /// The depth buffer says where surfaces start, never where they end, so a
     /// ray that has gone behind one has to decide whether it hit the surface or
-    /// passed it. Without this every ray eventually reports a hit on the far
-    /// side of the world.
+    /// passed it. Too little and a reflection shows through solid things; too
+    /// much and a thin thing's reflection smears sideways.
     pub thickness: f32,
 }
 
@@ -64,9 +60,9 @@ impl Default for ScreenSpaceReflections {
             enabled: true,
             intensity: 1.0,
             max_roughness: 0.4,
-            steps: 32,
-            stride: 0.25,
-            thickness: 0.002,
+            steps: 40,
+            stride: 0.2,
+            thickness: 0.25,
         }
     }
 }
@@ -75,9 +71,8 @@ impl ScreenSpaceReflections {
     /// The settings with every field clamped to a value the tracer can use.
     ///
     /// Each of these is silent rather than loud if left alone: a zero stride
-    /// marches in place and always reports a hit at the origin, a zero
-    /// thickness never reports one at all, and a negative intensity subtracts
-    /// light.
+    /// reaches nowhere, a zero thickness lets a ray pass behind everything, and
+    /// a negative intensity subtracts light.
     pub fn clamped(&self) -> Self {
         Self {
             enabled: self.enabled,
@@ -121,8 +116,7 @@ mod tests {
 
     #[test]
     fn a_zero_stride_is_widened_so_the_ray_actually_moves() {
-        // A ray that steps nowhere samples its own pixel every time and reports
-        // a hit at the surface it started from -- a mirror showing itself.
+        // Zero steps by zero reach nowhere, and a mirror reflects nothing.
         let s = ScreenSpaceReflections {
             stride: 0.0,
             ..Default::default()
@@ -133,8 +127,8 @@ mod tests {
 
     #[test]
     fn a_zero_thickness_is_widened_so_a_hit_is_possible() {
-        // Thickness is the window in which a ray counts as having hit. Zero
-        // closes it, and no ray ever hits anything.
+        // Thickness is how far behind a surface a ray still counts as touching
+        // it. Zero would leave only the rays that arrive in front of it.
         let s = ScreenSpaceReflections {
             thickness: 0.0,
             ..Default::default()
@@ -155,6 +149,16 @@ mod tests {
         assert_eq!(s.intensity, 1.0);
         assert_eq!(s.max_roughness, 0.0);
         assert_eq!(s.steps, 256, "an unbounded march would hang the frame");
+    }
+
+    #[test]
+    fn the_default_budget_is_for_1080p() {
+        // At 200 x 150, what the pixel tests render, 16 reads find nearly all
+        // that 256 do. At 1920 x 1080, of a floor reflecting five posts, 16
+        // found 11%, 24 found 88% and 32 found 99.9%: a cliff, with this just
+        // past its edge. Nothing the pixel tests can see holds it here.
+        let s = ScreenSpaceReflections::default().clamped();
+        assert!(s.steps > 32, "{} reads", s.steps);
     }
 
     #[test]

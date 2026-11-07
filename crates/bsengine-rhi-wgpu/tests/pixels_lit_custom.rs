@@ -735,16 +735,29 @@ fn what_is_unconnected_follows_each_entitys_material() {
         &lit_graph(&[("emissive", NodeKind::ConstantVec3([0.0, 0.0, 0.2]))]),
         "follows_material",
     );
+    let mut standards = Vec::new();
     for roughness in [0.15, 0.8] {
         let draw = || Draw::new(stage.quad, Vec3::ZERO).roughness(roughness);
         let standard = h.render(&stage.scene(draw().emissive(Vec3::new(0.0, 0.0, 0.2))));
         let lit = h.render(&stage.scene(draw().shader(&shader)));
-        assert_eq!(
-            lit.max_channel_diff(&standard),
-            0,
-            "at roughness {roughness}"
+        // Not 0: Ubuntu CI's lavapipe once read one channel 1 off at 0.15 (PR
+        // #2053), in a run whose Mesa was the same as the runs that read 0 --
+        // the cause was not found. One is far below what the roughness moves,
+        // which the premise below pins.
+        assert!(
+            lit.max_channel_diff(&standard) <= 1,
+            "at roughness {roughness}: off by {}",
+            lit.max_channel_diff(&standard)
         );
+        standards.push(standard);
     }
+    // A shader that took one fixed roughness would be off by this much at one of
+    // the two, so the tolerance above cannot hide it.
+    assert!(
+        standards[0].max_channel_diff(&standards[1]) > 20,
+        "premise: the two roughnesses draw far apart, {} apart",
+        standards[0].max_channel_diff(&standards[1])
+    );
 }
 
 /// A graph's numbers are whatever a `Sin` or an `Add` left them.

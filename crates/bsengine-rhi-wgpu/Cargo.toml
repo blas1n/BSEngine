@@ -19,6 +19,9 @@ egui.workspace = true
 egui-wgpu.workspace = true
 egui_dock.workspace = true
 egui-phosphor.workspace = true
+# The parser egui reads fonts with, at egui's version: a project font is
+# checked with it first, because egui panics on one it cannot parse.
+skrifa = { version = "0.44", default-features = false, features = ["std"] }
 serde_json.workspace = true
 bevy_reflect.workspace = true
 bytemuck.workspace = true

@@ -289,3 +289,165 @@ fn a_scroll_container_clips_what_overflows_it() {
         "the clipped container must still draw within its box"
     );
 }
+
+/// The font the UI font tests load (`tests/fonts/make_test_font.py`): '한'
+/// and '글', which none of egui's built-in fonts has, as three horizontal
+/// and three vertical bars; 'A' as a solid block; nothing else.
+const TEST_FONT: &[u8] = include_bytes!("fonts/test_glyphs.ttf");
+
+fn test_font() -> bsengine_core::UiFont {
+    bsengine_core::UiFont {
+        path: "assets/fonts/test_glyphs.ttf".into(),
+        bytes: TEST_FONT.to_vec(),
+    }
+}
+
+fn hud(h: &mut Harness, text: &str) -> common::Pixels {
+    h.render(&Scene {
+        hud: HashMap::from([("0".to_string(), text.to_string())]),
+        ..Scene::default()
+    })
+}
+
+/// The reason for the feature: without a font that has them, two different
+/// Hangul syllables draw as the same box, so a Korean string table is a row
+/// of boxes. With the project's font they are two different glyphs.
+#[test]
+fn a_project_font_draws_what_the_built_in_fonts_cannot() {
+    let mut h = Harness::new();
+    let blank = h.render(&Scene::default());
+    let han_boxed = hud(&mut h, "한");
+    let geul_boxed = hud(&mut h, "글");
+    // The premise, both halves: something is drawn, and it is the same thing
+    // for both characters -- a replacement, not the characters.
+    assert!(
+        han_boxed.differs_from(&blank),
+        "premise: the HUD draws at all"
+    );
+    assert!(
+        !han_boxed.differs_from(&geul_boxed),
+        "premise: without the font, '한' and '글' are the same replacement box"
+    );
+
+    let installed = h.surface_mut().set_ui_fonts(&[test_font()]);
+    assert_eq!(installed, ["assets/fonts/test_glyphs.ttf"]);
+    let han = hud(&mut h, "한");
+    let geul = hud(&mut h, "글");
+    assert!(
+        han.differs_from(&geul),
+        "with the font, '한' and '글' are different glyphs"
+    );
+    assert!(
+        han.differs_from(&han_boxed),
+        "and '한' is no longer the replacement box"
+    );
+}
+
+/// Order, both ways: the project's font is in front -- its 'A' (a block)
+/// replaces the built-in 'A' -- and a character it lacks still comes from
+/// the built-in fonts behind it, unchanged.
+#[test]
+fn the_project_font_comes_first_and_the_built_in_fonts_fill_in() {
+    let mut h = Harness::new();
+    let a_built_in = hud(&mut h, "A");
+    let b_built_in = hud(&mut h, "B");
+    assert!(
+        a_built_in.differs_from(&b_built_in),
+        "premise: the built-in 'A' and 'B' differ"
+    );
+
+    h.surface_mut().set_ui_fonts(&[test_font()]);
+    let blank = h.render(&Scene::default());
+    assert!(
+        !same_drawing(&blank, &hud(&mut h, "A"), &a_built_in),
+        "a character the project font has is drawn in the project font"
+    );
+    // The same drawing, not the same frame: the line's ascent and descent are
+    // the first font's, so a fallback glyph sits on the project font's
+    // baseline -- 2 px higher than on the built-in one's, with this font.
+    assert!(
+        same_drawing(&blank, &hud(&mut h, "B"), &b_built_in),
+        "a character it lacks is the built-in font's glyph, pixel for pixel"
+    );
+}
+
+/// Whether `a` and `b` draw the same thing over `blank`, wherever each put
+/// it: the boxes of what changed are the same size and hold the same pixels.
+fn same_drawing(blank: &common::Pixels, a: &common::Pixels, b: &common::Pixels) -> bool {
+    let (Some(p), Some(q)) = (changed_bounds(blank, a), changed_bounds(blank, b)) else {
+        return false;
+    };
+    let size = (p.2 - p.0, p.3 - p.1);
+    size == (q.2 - q.0, q.3 - q.1)
+        && (0..size.1)
+            .all(|y| (0..size.0).all(|x| a.at(p.0 + x, p.1 + y) == b.at(q.0 + x, q.1 + y)))
+}
+
+/// Between project fonts the manifest's order holds: of two fonts that both
+/// have 'A', the first one listed draws it. Each order against the drawing
+/// that font makes alone, so a list reversed on the way in fails one way or
+/// the other.
+#[test]
+fn the_first_listed_project_font_draws_a_character_both_have() {
+    let mut h = Harness::new();
+    let blank = h.render(&Scene::default());
+    let alt = bsengine_core::UiFont {
+        path: "assets/fonts/test_glyphs_alt.ttf".into(),
+        bytes: include_bytes!("fonts/test_glyphs_alt.ttf").to_vec(),
+    };
+    h.surface_mut().set_ui_fonts(&[test_font()]);
+    let a_block = hud(&mut h, "A");
+    h.surface_mut().set_ui_fonts(std::slice::from_ref(&alt));
+    let a_bars = hud(&mut h, "A");
+    assert!(
+        !same_drawing(&blank, &a_block, &a_bars),
+        "premise: the two fonts draw 'A' differently"
+    );
+
+    h.surface_mut().set_ui_fonts(&[test_font(), alt.clone()]);
+    assert!(
+        same_drawing(&blank, &hud(&mut h, "A"), &a_block),
+        "listed first, the block font draws 'A'"
+    );
+    h.surface_mut().set_ui_fonts(&[alt, test_font()]);
+    assert!(
+        same_drawing(&blank, &hud(&mut h, "A"), &a_bars),
+        "listed first, the bars font draws 'A'"
+    );
+}
+
+/// A corrupt font costs its own glyphs, not the game: egui panics on a font
+/// it cannot parse, so one has to be refused before egui sees it -- and the
+/// good font after it still goes in.
+#[test]
+fn a_file_that_is_not_a_font_is_left_out_and_the_rest_go_in() {
+    let mut h = Harness::new();
+    let han_boxed = hud(&mut h, "한");
+    let not_a_font = bsengine_core::UiFont {
+        path: "assets/fonts/broken.ttf".into(),
+        bytes: b"this is not a font".to_vec(),
+    };
+    let installed = h.surface_mut().set_ui_fonts(&[not_a_font, test_font()]);
+    assert_eq!(installed, ["assets/fonts/test_glyphs.ttf"]);
+    assert!(
+        hud(&mut h, "한").differs_from(&han_boxed),
+        "the frame is drawn, with the font that did parse"
+    );
+}
+
+/// An empty list is the built-in fonts alone: fonts set before do not linger.
+#[test]
+fn an_empty_font_list_is_the_built_in_fonts_again() {
+    let mut h = Harness::new();
+    let han_boxed = hud(&mut h, "한");
+    h.surface_mut().set_ui_fonts(&[test_font()]);
+    assert!(
+        hud(&mut h, "한").differs_from(&han_boxed),
+        "premise: the font took"
+    );
+    h.surface_mut().set_ui_fonts(&[]);
+    assert!(
+        !hud(&mut h, "한").differs_from(&han_boxed),
+        "back to the replacement box"
+    );
+}

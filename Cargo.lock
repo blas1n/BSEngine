@@ -1128,6 +1128,7 @@ dependencies = [
  "rayon",
  "ron 0.8.1",
  "serde_json",
+ "skrifa",
  "texpresso",
  "tracing",
  "wasm-bindgen-futures",

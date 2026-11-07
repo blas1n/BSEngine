@@ -266,6 +266,30 @@ struct PendingShaders(std::collections::HashMap<String, PendingShader>);
 /// winit window (see `compile_pending_shaders_runs_before_render_frame`), so
 /// an early return would make the give-up path unreachable in every test
 /// this workspace can write.
+/// Hands the project's UI fonts to the renderer: once the surface exists,
+/// and again whenever the resource changes. Its own system, not a parameter
+/// of `render_frame`, which is at Bevy's parameter limit.
+///
+/// The `Local` remembers that they went in: the surface can arrive frames
+/// after the fonts (a window is made on the event loop's first resume), and
+/// by then `is_changed` no longer says anything.
+fn sync_ui_fonts(
+    surface: Option<ResMut<WgpuSurfaceResource>>,
+    fonts: Option<Res<bsengine_core::UiFonts>>,
+    mut installed: Local<bool>,
+) {
+    use bevy_ecs::change_detection::DetectChanges;
+    let (Some(mut surface), Some(fonts)) = (surface, fonts) else {
+        return;
+    };
+    if *installed && !fonts.is_changed() {
+        return;
+    }
+    let paths = surface.0.set_ui_fonts(&fonts.0);
+    tracing::info!("[ui] fonts: {paths:?}");
+    *installed = true;
+}
+
 fn compile_pending_shaders(
     mut surface: Option<ResMut<WgpuSurfaceResource>>,
     custom_shaders: Query<&CustomShader>,
@@ -1545,6 +1569,7 @@ impl Plugin for RenderPlugin {
                     crate::realtime_gi::feed_realtime_gi,
                     crate::realtime_gi::feed_baked_probes,
                     crate::realtime_gi::feed_ssgi,
+                    sync_ui_fonts,
                     render_frame,
                 )
                     .chain(),
@@ -3646,6 +3671,46 @@ mod tests {
             captured(&app).len(),
             1,
             "a removed probe stops being captured, rather than lingering"
+        );
+    }
+
+    /// The project's `UiFonts` reach the renderer's egui, and a change to
+    /// them does too. Asked of egui's own fonts as they stand after a frame,
+    /// not of what the system passed on; the pixels are `pixels_ui.rs`'s.
+    #[test]
+    fn the_projects_ui_fonts_reach_the_renderer_and_follow_changes() {
+        use bsengine_core::{HudTexts, UiFont, UiFonts};
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::offscreen(64, 64, false));
+        app.add_plugins(RenderPlugin);
+        // Something to draw, or egui never runs and has no fonts to ask.
+        let mut hud = HudTexts::default();
+        hud.0.insert("line".into(), "한글".into());
+        app.insert_resource(hud);
+        let has_hangul = |app: &mut bevy_app::App| {
+            for _ in 0..2 {
+                app.update();
+            }
+            app.world()
+                .resource::<bsengine_rhi_wgpu::WgpuSurfaceResource>()
+                .0
+                .ui_has_glyph_for_testing('한')
+        };
+
+        assert!(
+            !has_hangul(&mut app),
+            "premise: the built-in fonts have no Hangul"
+        );
+        app.insert_resource(UiFonts(vec![UiFont {
+            path: "assets/fonts/test_glyphs.ttf".into(),
+            bytes: include_bytes!("../../bsengine-rhi-wgpu/tests/fonts/test_glyphs.ttf").to_vec(),
+        }]));
+        assert!(has_hangul(&mut app), "the project's font went in");
+        app.insert_resource(UiFonts(Vec::new()));
+        assert!(
+            !has_hangul(&mut app),
+            "and a changed list replaces it, rather than only the first being applied"
         );
     }
 

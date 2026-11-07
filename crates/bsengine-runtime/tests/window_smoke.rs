@@ -374,3 +374,75 @@ fn a_gltf_spawned_by_a_script_is_actually_drawn() {
          {control_draws}) -- the spawn never produced a mesh, or produced one nothing drew"
     );
 }
+
+/// A `[ui] fonts` entry that names no file stops the game at start, saying
+/// which -- in the shipped binary's windowed path and in `--test`, the two
+/// hosts that read the manifest. Shipping it would draw every translated
+/// string as boxes, which is what the setting exists to prevent; and the
+/// packaging test leans on `--test` stopping like this, to prove the font
+/// came out of the archive.
+///
+/// The control is the same project without the `[ui]` table: it runs, so
+/// the stop is the font's doing and not a broken fixture.
+#[test]
+fn a_ui_font_that_is_not_there_stops_the_game_at_start() {
+    let dir = std::env::temp_dir().join(format!("bsengine-ui-font-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("assets/scenes")).expect("fixture dirs");
+    std::fs::write(
+        dir.join("assets/scenes/main.ron"),
+        r#"SceneDescriptor(entities: [EntityDescriptor(name: "Camera", camera: true)])"#,
+    )
+    .expect("main.ron");
+    let manifest = |ui: &str| {
+        std::fs::write(
+            dir.join("project.toml"),
+            format!(
+                "[project]\nname = \"UI Font\"\nentry_scene = \"assets/scenes/main.ron\"\n\n\
+                 [window]\nwidth = 160\nheight = 120\n{ui}"
+            ),
+        )
+        .expect("project.toml");
+    };
+
+    manifest("");
+    let (control, stdout, stderr) = run_to_exit(&dir, FRAMES, &[]);
+    assert!(
+        control.success(),
+        "premise: the project runs without the font\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
+    );
+
+    manifest("\n[ui]\nfonts = [\"assets/fonts/missing.ttf\"]\n");
+    let said_why =
+        |stderr: &str| stderr.contains("Cannot read the UI font assets/fonts/missing.ttf");
+    let (windowed, stdout, stderr) = run_to_exit(&dir, FRAMES, &[]);
+    assert!(
+        !windowed.success() && said_why(&stderr),
+        "windowed: ran with a missing font ({windowed})\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
+    );
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_bsengine-runtime"))
+        .arg("--test")
+        .arg(&dir)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("run --test");
+    {
+        use std::io::Write;
+        // Ignored if it already stopped; ends the run if it did not.
+        let _ = writeln!(
+            child.stdin.as_mut().expect("stdin"),
+            r#"{{"cmd":"shutdown"}}"#
+        );
+    }
+    let test_mode = child.wait_with_output().expect("wait for --test");
+    let _ = std::fs::remove_dir_all(&dir);
+    let stderr = String::from_utf8_lossy(&test_mode.stderr);
+    assert!(
+        !test_mode.status.success() && said_why(&stderr),
+        "--test: ran with a missing font ({})\n--- stderr ---\n{stderr}",
+        test_mode.status
+    );
+}

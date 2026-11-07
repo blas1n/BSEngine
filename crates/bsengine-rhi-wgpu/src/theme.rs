@@ -85,10 +85,16 @@ pub fn build_visuals() -> egui::Visuals {
 /// Registers the Phosphor icon font and applies the hybrid dark theme to
 /// `ctx`. Call exactly once, right after the `egui::Context` is created.
 pub fn apply(ctx: &egui::Context) {
+    ctx.set_fonts(font_definitions());
+    ctx.set_visuals(build_visuals());
+}
+
+/// egui's built-in fonts plus the icons: what [`apply`] installs, and what
+/// a project's UI fonts go in front of.
+pub fn font_definitions() -> egui::FontDefinitions {
     let mut fonts = egui::FontDefinitions::default();
     egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
-    ctx.set_fonts(fonts);
-    ctx.set_visuals(build_visuals());
+    fonts
 }
 
 #[cfg(test)]

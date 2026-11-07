@@ -342,16 +342,27 @@ fn packaging_refuses_a_bad_input_binding_and_names_it() {
 /// on disk a runtime reading the file system instead of the archive would
 /// fail to start. A script puts `tr("GREETING")` on the HUD, the manifest
 /// asks for Korean, and the packaged build is asked what the HUD says.
+///
+/// The `[ui] fonts` the Korean is drawn in ride along: nothing references a
+/// font either, and the runtime reads it at start and stops if it cannot, so
+/// a build that left it out, or read it from the disk, never gets to answer.
 #[test]
 fn a_pak_build_carries_its_string_tables_and_translates_from_them() {
     let project = Output::new();
     std::fs::create_dir_all(project.0.join("assets/scenes")).unwrap();
     std::fs::create_dir_all(project.0.join("assets/scripts")).unwrap();
     std::fs::create_dir_all(project.0.join("assets/i18n")).unwrap();
+    std::fs::create_dir_all(project.0.join("assets/fonts")).unwrap();
     std::fs::write(
         project.0.join("project.toml"),
         "[project]\nname = \"Strings\"\nentry_scene = \"assets/scenes/main.ron\"\n\n\
-         [localization]\ntables = [\"assets/i18n/strings.csv\"]\ndefault_locale = \"en\"\nlocale = \"ko\"\n",
+         [localization]\ntables = [\"assets/i18n/strings.csv\"]\ndefault_locale = \"en\"\nlocale = \"ko\"\n\n\
+         [ui]\nfonts = [\"assets/fonts/hangul.ttf\"]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        project.0.join("assets/fonts/hangul.ttf"),
+        include_bytes!("../../bsengine-rhi-wgpu/tests/fonts/test_glyphs.ttf"),
     )
     .unwrap();
     std::fs::write(

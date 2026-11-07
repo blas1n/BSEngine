@@ -131,6 +131,10 @@ pub fn build_test_app_sized(
     // Before the archive moves into `PakAssetPlugin` below: the tables are
     // read out of it.
     crate::insert_localization(&mut app, project_dir, pak.as_deref(), &manifest);
+    // No renderer here to draw with them, but read all the same: a replay of
+    // a packaged build then stops where the game would, on a font the
+    // archive lacks.
+    crate::insert_ui_fonts(&mut app, project_dir, pak.as_deref(), &manifest);
     // Before `AssetPlugin`, and that ordering is the whole reason this is a
     // separate plugin: `bevy_asset` builds its sources during that plugin's
     // `build`, so a source registered afterwards is silently ignored -- and a

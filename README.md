@@ -302,6 +302,12 @@ SCORE,"Score: {points}","점수: {points}",
 tables = ["assets/i18n/strings.csv"]   # later tables override earlier ones
 default_locale = "en"                  # what a missing translation falls back to
 locale = "auto"                        # the system's locale, or e.g. "ko"
+
+[ui]
+# UI text is drawn in the first font; a character it lacks comes from the
+# next, and last from the built-in fonts, which cover Latin, Greek and
+# Cyrillic only. Korean, Japanese or Chinese needs a font that has them.
+fonts = ["assets/fonts/NotoSansKR-Regular.otf"]
 ```
 
 ```js

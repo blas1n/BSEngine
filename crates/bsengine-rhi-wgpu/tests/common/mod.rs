@@ -557,6 +557,12 @@ impl Harness {
         &self.surface
     }
 
+    /// The renderer under test, for a setting no [`Scene`] field carries.
+    #[allow(dead_code)] // only pixels_ui.rs asks
+    pub fn surface_mut(&mut self) -> &mut WgpuSurface {
+        &mut self.surface
+    }
+
     /// As if the window had been moved to a screen reporting `display`.
     #[allow(dead_code)] // only pixels_hdr.rs moves one
     pub fn move_to_display(&mut self, display: &wgpu::DisplayHdrInfo) {

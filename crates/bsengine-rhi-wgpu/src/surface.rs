@@ -11158,6 +11158,59 @@ impl WgpuSurface {
         // its size no longer matches and remakes it.
     }
 
+    /// Puts a project's UI fonts ahead of egui's built-in ones, the first
+    /// first: text is drawn in it, a character it lacks comes from the next,
+    /// and what none of them has from the built-in fonts, as before. A line's
+    /// height and baseline are the first font's, so a character that falls
+    /// back sits on that baseline, not its own font's. Only the proportional
+    /// family: no game widget draws in monospace (a text input is
+    /// proportional too; monospace is egui's code editor). An empty list is
+    /// the built-in fonts alone. Takes effect from the next frame.
+    ///
+    /// A file that is not a font is left out with an error rather than
+    /// handed on: egui panics on one it cannot parse, and a corrupt font
+    /// should cost its glyphs, not the game. Checked with egui's own parser
+    /// at egui's version, so what passes here is what egui accepts.
+    ///
+    /// Returns the paths installed, in order.
+    pub fn set_ui_fonts(&mut self, fonts: &[bsengine_core::UiFont]) -> Vec<String> {
+        let mut definitions = crate::theme::font_definitions();
+        let mut installed = Vec::new();
+        for font in fonts {
+            if let Err(e) = skrifa::FontRef::from_index(&font.bytes, 0) {
+                tracing::error!(
+                    "[ui] {} is not a font egui can read ({e}); left out",
+                    font.path
+                );
+                continue;
+            }
+            // Prefixed so a project font named like a built-in one (a
+            // project shipping its own "Hack") replaces nothing.
+            let name = format!("project:{}", font.path);
+            definitions.font_data.insert(
+                name.clone(),
+                std::sync::Arc::new(egui::FontData::from_owned(font.bytes.clone())),
+            );
+            definitions
+                .families
+                .entry(egui::FontFamily::Proportional)
+                .or_default()
+                .insert(installed.len(), name);
+            installed.push(font.path.clone());
+        }
+        self.egui_ctx.set_fonts(definitions);
+        installed
+    }
+
+    /// Whether UI text can draw `c` rather than a replacement box, as egui's
+    /// fonts stand now -- what [`Self::set_ui_fonts`] changes, a frame after
+    /// it is called. Panics before the first frame that drew any UI: egui
+    /// has no fonts at all until then.
+    pub fn ui_has_glyph_for_testing(&self, c: char) -> bool {
+        self.egui_ctx
+            .fonts_mut(|f| f.has_glyph(&egui::FontId::proportional(16.0), c))
+    }
+
     /// Sets the geometry passes' sample count: anything above 1 asks for
     /// MSAA at [`crate::msaa::MSAA_SAMPLES`] samples, 1 turns it off. On an
     /// adapter that cannot multisample every target, MSAA stays off (logged

@@ -211,9 +211,10 @@ pub fn cook_project(project_dir: impl AsRef<Path>) -> io::Result<CookedProject> 
                 ),
             )
         })?;
-    // `[package] extra_assets`, and the `[localization] tables` -- which no
+    // `[package] extra_assets`, the `[localization] tables` -- which no
     // scene references, and without which a build shows every string as its
-    // key. The runtime's `ProjectManifest::packaged_extras` is the same list.
+    // key -- and the `[ui] fonts`, without which it stops at start. The
+    // runtime's `ProjectManifest::packaged_extras` is the same list.
     let strings_at = |table: &str, key: &str| -> Vec<String> {
         manifest
             .get(table)
@@ -230,6 +231,7 @@ pub fn cook_project(project_dir: impl AsRef<Path>) -> io::Result<CookedProject> 
     };
     let mut extra_assets = strings_at("package", "extra_assets");
     extra_assets.extend(strings_at("localization", "tables"));
+    extra_assets.extend(strings_at("ui", "fonts"));
     cook(project_dir, entry_scene, &extra_assets)
 }
 
@@ -1478,6 +1480,22 @@ mod tests {
                 .edges
                 .contains(&(MANIFEST.to_string(), "assets/i18n/strings.csv".to_string())),
             "the string tables are walked from the manifest; got {:?}",
+            cooked.edges
+        );
+
+        // And `[ui] fonts`, for the same reason.
+        probe.write(
+            "project.toml",
+            "[project]\nname = \"P\"\nentry_scene = \"assets/scenes/start.ron\"\n\n\
+             [ui]\nfonts = [\"assets/fonts/ui.ttf\"]\n",
+        );
+        probe.write("assets/fonts/ui.ttf", "not read here");
+        let cooked = cook_project(&probe.0).expect("cook with fonts");
+        assert!(
+            cooked
+                .edges
+                .contains(&(MANIFEST.to_string(), "assets/fonts/ui.ttf".to_string())),
+            "the UI fonts are walked from the manifest; got {:?}",
             cooked.edges
         );
 

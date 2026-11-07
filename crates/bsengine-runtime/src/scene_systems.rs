@@ -34,6 +34,23 @@ pub struct ProjectManifest {
     pub input: InputSection,
     #[serde(default)]
     pub localization: LocalizationSection,
+    #[serde(default)]
+    pub ui: UiSection,
+}
+
+/// `project.toml`'s `[ui]` table.
+///
+/// ```toml
+/// [ui]
+/// # UI text is drawn in the first; a character it lacks comes from the
+/// # next, and last from the built-in fonts (Latin, Greek, Cyrillic).
+/// fonts = ["assets/fonts/Title.ttf", "assets/fonts/NotoSansKR-Regular.otf"]
+/// ```
+#[derive(Deserialize, Default)]
+pub struct UiSection {
+    /// `.ttf`/`.otf` files, project-relative. Packaged like `extra_assets`.
+    #[serde(default)]
+    pub fonts: Vec<String>,
 }
 
 /// `project.toml`'s `[localization]` table.
@@ -91,11 +108,13 @@ impl Default for LocalizationSection {
 
 impl ProjectManifest {
     /// What `--package` must include beyond what the entry scene reaches:
-    /// `[package] extra_assets` and the localization tables, which no scene
-    /// references and a build without would show every string as its key.
+    /// `[package] extra_assets`, the localization tables, which no scene
+    /// references and a build without would show every string as its key,
+    /// and the UI fonts, without which it would stop at start.
     pub fn packaged_extras(&self) -> Vec<String> {
         let mut extras = self.package.extra_assets.clone();
         extras.extend(self.localization.tables.iter().cloned());
+        extras.extend(self.ui.fonts.iter().cloned());
         extras
     }
 }

@@ -120,6 +120,19 @@ pub fn read_from(pak: Option<&Pak>, project_dir: &str, path: &str) -> io::Result
     std::fs::read_to_string(path)
 }
 
+/// [`read_from`] for a binary file -- a font, read before the archive is
+/// installed: the archive's entry if it has one, else the disk's.
+///
+/// # Errors
+///
+/// When neither the archive nor the disk can supply it.
+pub fn read_bytes_from(pak: Option<&Pak>, project_dir: &str, path: &str) -> io::Result<Vec<u8>> {
+    if let Some(bytes) = pak.and_then(|pak| pak.get(&archive_key(path, project_dir))) {
+        return Ok(bytes.to_vec());
+    }
+    std::fs::read(path)
+}
+
 /// [`read_from`] for a binary file: the archive's entry if it has one, else
 /// the disk's.
 ///

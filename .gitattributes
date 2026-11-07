@@ -34,6 +34,8 @@
 *.jpeg binary
 *.ktx2 binary
 *.dds binary
+*.ttf binary
+*.otf binary
 
 # Vendored crates, last so it wins over every rule above: byte for byte what
 # crates.io serves. Cargo checks each file against the crate's

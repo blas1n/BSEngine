@@ -559,6 +559,35 @@ pub(crate) fn insert_localization(
     app.insert_resource(localization);
 }
 
+/// `project.toml`'s `[ui] fonts`, read (out of the archive in a packaged
+/// build) and inserted for the renderer, which puts them ahead of its
+/// built-in fonts. A font that cannot be read stops the game at start, as a
+/// localization table does: the build would otherwise ship drawing its
+/// translations as boxes. One that reads but is not a font is the
+/// renderer's to refuse, with an error, at the cost of its glyphs only.
+pub(crate) fn insert_ui_fonts(
+    app: &mut bevy_app::App,
+    project_dir: &str,
+    pak: Option<&bsengine_asset::pak::Pak>,
+    manifest: &ProjectManifest,
+) {
+    let fonts = manifest
+        .ui
+        .fonts
+        .iter()
+        .map(|font| {
+            let path = format!("{project_dir}/{font}");
+            let bytes = bsengine_asset::pak_source::read_bytes_from(pak, project_dir, &path)
+                .unwrap_or_else(|e| panic!("Cannot read the UI font {font}: {e}"));
+            bsengine_core::UiFont {
+                path: font.clone(),
+                bytes,
+            }
+        })
+        .collect();
+    app.insert_resource(bsengine_core::UiFonts(fonts));
+}
+
 fn read_manifest(project_dir: &str, pak: Option<&bsengine_asset::pak::Pak>) -> ProjectManifest {
     let manifest_path = format!("{project_dir}/project.toml");
     let (text, source) = match pak.and_then(|pak| pak.get(bsengine_asset::cook::MANIFEST_ENTRY)) {
@@ -722,6 +751,7 @@ pub(crate) fn build_player_app(
     // Before the archive moves into `PakAssetPlugin` below: the tables are
     // read out of it.
     insert_localization(&mut app, project_dir, pak.as_deref(), &manifest);
+    insert_ui_fonts(&mut app, project_dir, pak.as_deref(), &manifest);
     // Before `AssetPlugin`, and that ordering is the whole reason this is a
     // separate plugin: `bevy_asset` builds its sources during that plugin's
     // `build`, so a source registered afterwards is silently ignored -- and a

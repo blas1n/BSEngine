@@ -37,7 +37,12 @@ fn a_terrain_draw_call_does_not_panic_alongside_regular_draw_calls() {
     ];
     let weight_id = textures.load_from_rgba(1, 1, &[255, 255, 255, 255]);
 
-    let terrain_draw_calls = vec![(mesh_id, Mat4::IDENTITY, layer_ids, weight_id, [None; 4])];
+    let terrain_draw_calls = vec![bsengine_rhi_wgpu::TerrainDrawCall::new(
+        mesh_id,
+        Mat4::IDENTITY,
+        layer_ids,
+        weight_id,
+    )];
 
     let ui_state = bsengine_core::UiState::default();
     let ui_textures = std::collections::HashMap::new();

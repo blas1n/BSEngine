@@ -37,4 +37,6 @@ pub mod timeline_preview;
 
 pub use plugin::EditorPlugin;
 pub use prefab_watcher::PrefabWatcherPlugin;
-pub use snapshot::{EditorCommand, EditorSnapshot, EditorSnapshotResource, EntityInfo};
+pub use snapshot::{
+    EditorCommand, EditorSnapshot, EditorSnapshotResource, EntityInfo, TerrainLayerMaps,
+};

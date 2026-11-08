@@ -272,7 +272,7 @@ fn terrain_keeps_no_velocity_over_a_hidden_moving_object() {
     let cube = h.cube();
     let grey = h.two_colour_texture([120, 120, 120, 255], [120, 120, 120, 255]);
     let weight = h.two_colour_texture([255, 0, 0, 255], [255, 0, 0, 255]);
-    let wall = (
+    let wall = bsengine_rhi_wgpu::TerrainDrawCall::new(
         cube,
         Mat4::from_scale_rotation_translation(
             Vec3::new(80.0, 80.0, 0.2),
@@ -281,7 +281,6 @@ fn terrain_keeps_no_velocity_over_a_hidden_moving_object() {
         ),
         [grey; 4],
         weight,
-        [None; 4],
     );
     let s = |square: Draw| Scene {
         terrain: vec![wall],

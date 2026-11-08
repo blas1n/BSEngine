@@ -57,6 +57,8 @@ fn mcp_terrain_write_spawns_a_terrain_entity_with_the_given_params() {
     assert_eq!(terrain.layer1_normal_path, None);
     assert_eq!(terrain.layer2_normal_path, None);
     assert_eq!(terrain.layer3_normal_path, None);
+    assert_eq!(terrain.layer0_orm_path, None);
+    assert_eq!(terrain.layer3_orm_path, None);
 }
 
 /// A map per layer, all four different: a copy-paste that hands layer 1 the
@@ -65,7 +67,7 @@ fn mcp_terrain_write_spawns_a_terrain_entity_with_the_given_params() {
 /// produces is one the asset server can find, and one as the caller wrote it
 /// loads nothing and draws that layer flat, with no error from this tool.
 #[test]
-fn mcp_terrain_write_gives_each_layer_its_normal_map_resolved_like_its_diffuse() {
+fn mcp_terrain_write_gives_each_layer_its_normal_and_orm_maps_resolved_like_its_diffuse() {
     let mut app = new_app();
     app.add_plugins(McpPlugin);
     app.add_plugins(EditorPlugin);
@@ -85,12 +87,14 @@ fn mcp_terrain_write_gives_each_layer_its_normal_map_resolved_like_its_diffuse()
         let schema = tool.input_schema.as_ref().expect("a schema");
         let required = schema["required"].as_array().expect("a required list");
         for layer in 0..4 {
-            let key = format!("layer{layer}_normal_path");
-            assert!(
-                schema["properties"][&key].is_object(),
-                "{key} not in schema"
-            );
-            assert!(!required.iter().any(|r| r == &json!(key)), "{key} required");
+            for kind in ["normal", "orm"] {
+                let key = format!("layer{layer}_{kind}_path");
+                assert!(
+                    schema["properties"][&key].is_object(),
+                    "{key} not in schema"
+                );
+                assert!(!required.iter().any(|r| r == &json!(key)), "{key} required");
+            }
         }
         let out = registry
             .execute(
@@ -108,6 +112,10 @@ fn mcp_terrain_write_gives_each_layer_its_normal_map_resolved_like_its_diffuse()
                     "layer1_normal_path": "assets/terrain/rock_n.png",
                     "layer2_normal_path": "assets/terrain/dirt_n.png",
                     "layer3_normal_path": "assets/terrain/snow_n.png",
+                    "layer0_orm_path": "assets/terrain/grass_orm.png",
+                    "layer1_orm_path": "assets/terrain/rock_orm.png",
+                    "layer2_orm_path": "assets/terrain/dirt_orm.png",
+                    "layer3_orm_path": "assets/terrain/snow_orm.png",
                 }),
             )
             .expect("terrain_write not registered");
@@ -141,6 +149,18 @@ fn mcp_terrain_write_gives_each_layer_its_normal_map_resolved_like_its_diffuse()
         terrain.layer3_normal_path.as_deref(),
         Some("games/demo/assets/terrain/snow_n.png")
     );
+    // The ORM maps the same way, each to its own layer.
+    for (layer, name) in [
+        (&terrain.layer0_orm_path, "grass"),
+        (&terrain.layer1_orm_path, "rock"),
+        (&terrain.layer2_orm_path, "dirt"),
+        (&terrain.layer3_orm_path, "snow"),
+    ] {
+        assert_eq!(
+            layer.as_deref(),
+            Some(format!("games/demo/assets/terrain/{name}_orm.png").as_str())
+        );
+    }
 }
 
 /// `splatmap_path` is optional like the four normal maps (the other 8 args

@@ -210,7 +210,7 @@ fn terrain_is_lit_by_rect_lights() {
     let cube = h.cube();
     let white = h.two_colour_texture([255, 255, 255, 255], [255, 255, 255, 255]);
     let weight = h.two_colour_texture([255, 0, 0, 255], [255, 0, 0, 255]);
-    let terrain_wall = (
+    let terrain_wall = bsengine_rhi_wgpu::TerrainDrawCall::new(
         cube,
         glam::Mat4::from_scale_rotation_translation(
             Vec3::new(40.0, 40.0, 0.2),
@@ -219,7 +219,6 @@ fn terrain_is_lit_by_rect_lights() {
         ),
         [white; 4],
         weight,
-        [None; 4],
     );
     let with = |rects| Scene {
         terrain: vec![terrain_wall],

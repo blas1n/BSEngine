@@ -73,13 +73,13 @@ impl Terrain {
         normals: [Option<u64>; 4],
     ) -> f32 {
         let pixels = h.render(&Scene {
-            terrain: vec![(
+            terrain: vec![bsengine_rhi_wgpu::TerrainDrawCall::new(
                 self.cube,
                 Mat4::from_scale(Vec3::new(20.0, 1.0, 20.0)),
                 self.layers,
                 weight,
-                normals,
-            )],
+            )
+            .with_normals(normals)],
             camera_pos: Vec3::new(0.0, 6.5, 0.01),
             look_at: Vec3::new(0.0, 0.5, 0.0),
             light,

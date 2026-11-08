@@ -130,7 +130,11 @@ pub(super) fn register(mcp: &McpRegistryResource, cx: &ToolContext) {
                 "layer0_normal_path": { "type": "string", "description": "Optional tangent-space normal map for layer 0, tiled like its diffuse texture; omit for a flat layer" },
                 "layer1_normal_path": { "type": "string", "description": "Optional tangent-space normal map for layer 1; omit for a flat layer" },
                 "layer2_normal_path": { "type": "string", "description": "Optional tangent-space normal map for layer 2; omit for a flat layer" },
-                "layer3_normal_path": { "type": "string", "description": "Optional tangent-space normal map for layer 3; omit for a flat layer" }
+                "layer3_normal_path": { "type": "string", "description": "Optional tangent-space normal map for layer 3; omit for a flat layer" },
+                "layer0_orm_path": { "type": "string", "description": "Optional ORM map for layer 0 (occlusion, roughness, metallic in R, G, B), tiled like its diffuse texture; omit for the terrain's own roughness" },
+                "layer1_orm_path": { "type": "string", "description": "Optional ORM map for layer 1; omit for the terrain's own roughness" },
+                "layer2_orm_path": { "type": "string", "description": "Optional ORM map for layer 2; omit for the terrain's own roughness" },
+                "layer3_orm_path": { "type": "string", "description": "Optional ORM map for layer 3; omit for the terrain's own roughness" }
             },
             "required": ["heightmap_path", "chunk_count", "chunk_size", "height_scale", "layer0_texture_path", "layer1_texture_path", "layer2_texture_path", "layer3_texture_path"]
         })),
@@ -187,7 +191,7 @@ pub(super) fn register(mcp: &McpRegistryResource, cx: &ToolContext) {
                 }
             };
             let splatmap_path = input["splatmap_path"].as_str().map(|s| s.to_string());
-            let normal_path = |key: &str| input[key].as_str().map(|s| s.to_string());
+            let map_path = |key: &str| input[key].as_str().map(|s| s.to_string());
             queue_terrain.lock().unwrap().push(EditorCommand::SpawnTerrain {
                 heightmap_path,
                 chunk_count,
@@ -198,10 +202,10 @@ pub(super) fn register(mcp: &McpRegistryResource, cx: &ToolContext) {
                 layer2_texture_path,
                 layer3_texture_path,
                 splatmap_path,
-                layer0_normal_path: normal_path("layer0_normal_path"),
-                layer1_normal_path: normal_path("layer1_normal_path"),
-                layer2_normal_path: normal_path("layer2_normal_path"),
-                layer3_normal_path: normal_path("layer3_normal_path"),
+                layer_maps: Box::new(crate::snapshot::TerrainLayerMaps {
+                    normals: std::array::from_fn(|l| map_path(&format!("layer{l}_normal_path"))),
+                    orms: std::array::from_fn(|l| map_path(&format!("layer{l}_orm_path"))),
+                }),
             });
             McpToolOutput::success(json!({"status": "queued"}))
         }),

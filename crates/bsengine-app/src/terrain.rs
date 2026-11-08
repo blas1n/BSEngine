@@ -241,41 +241,61 @@ fn generate_terrain_chunks(
             continue;
         }
 
-        // The layers' normal maps, through the same cache but as data
-        // (`upload_data`: linear whatever the sidecar says -- decoded as sRGB,
-        // every texel would point the wrong way). Waited for like the layers,
-        // because the ids are baked into each chunk's `TerrainSplat` once and
-        // never revisited: a map that arrived a frame after the chunks would
-        // never be drawn. One that cannot load is not worth the terrain,
-        // though -- unlike a missing layer, a missing normal map has an
-        // obvious stand-in -- so that layer is drawn flat, with a warning.
-        let normal_paths = [
-            terrain.layer0_normal_path.as_deref(),
-            terrain.layer1_normal_path.as_deref(),
-            terrain.layer2_normal_path.as_deref(),
-            terrain.layer3_normal_path.as_deref(),
+        // The layers' normal and ORM maps, through the same cache but as
+        // data (`upload_data`: linear whatever the sidecar says -- decoded as
+        // sRGB, every normal would point the wrong way and every roughness
+        // read rougher). Waited for like the layers, because the ids are baked
+        // into each chunk's `TerrainSplat` once and never revisited: a map that
+        // arrived a frame after the chunks would never be drawn. One that
+        // cannot load is not worth the terrain, though -- unlike a missing
+        // layer, a missing map has an obvious stand-in -- so that layer is
+        // drawn without it, with a warning.
+        let data_maps = [
+            (
+                "normal map",
+                "flat",
+                [
+                    terrain.layer0_normal_path.as_deref(),
+                    terrain.layer1_normal_path.as_deref(),
+                    terrain.layer2_normal_path.as_deref(),
+                    terrain.layer3_normal_path.as_deref(),
+                ],
+            ),
+            (
+                "ORM map",
+                "with the terrain's own roughness",
+                [
+                    terrain.layer0_orm_path.as_deref(),
+                    terrain.layer1_orm_path.as_deref(),
+                    terrain.layer2_orm_path.as_deref(),
+                    terrain.layer3_orm_path.as_deref(),
+                ],
+            ),
         ];
-        let mut normal_ids = [None; 4];
-        let mut normals_pending = false;
-        for (i, path) in normal_paths.into_iter().enumerate() {
-            let Some(path) = path else {
-                continue;
-            };
-            match texture_cache.upload_data(path, &asset_server, &mut textures, tex_reg) {
-                Some(id) => normal_ids[i] = Some(id),
-                None if texture_cache.gave_up(path) => {
-                    warn!(
-                        "[terrain] cannot load the normal map of layer {i} ('{path}') of '{}'; \
-                         that layer is drawn flat",
-                        terrain.heightmap_path
-                    );
+        let mut data_ids = [[None; 4]; 2];
+        let mut maps_pending = false;
+        for ((what, instead, paths), ids) in data_maps.into_iter().zip(&mut data_ids) {
+            for (i, path) in paths.into_iter().enumerate() {
+                let Some(path) = path else {
+                    continue;
+                };
+                match texture_cache.upload_data(path, &asset_server, &mut textures, tex_reg) {
+                    Some(id) => ids[i] = Some(id),
+                    None if texture_cache.gave_up(path) => {
+                        warn!(
+                            "[terrain] cannot load the {what} of layer {i} ('{path}') of '{}'; \
+                             that layer is drawn {instead}",
+                            terrain.heightmap_path
+                        );
+                    }
+                    None => maps_pending = true,
                 }
-                None => normals_pending = true,
             }
         }
-        if normals_pending {
+        if maps_pending {
             continue;
         }
+        let [normal_ids, orm_ids] = data_ids;
 
         let params = crate::terrain_chunking::ChunkParams {
             chunk_count: terrain.chunk_count,
@@ -387,6 +407,7 @@ fn generate_terrain_chunks(
                     weight_texture_id: weight_id,
                     layer_texture_ids: layer_ids,
                     layer_normal_texture_ids: normal_ids,
+                    layer_orm_texture_ids: orm_ids,
                 },
                 LodLevels {
                     mesh_ids: vec![lod1_mesh_id, lod2_mesh_id],
@@ -620,6 +641,10 @@ mod tests {
                     layer1_normal_path: None,
                     layer2_normal_path: None,
                     layer3_normal_path: None,
+                    layer0_orm_path: None,
+                    layer1_orm_path: None,
+                    layer2_orm_path: None,
+                    layer3_orm_path: None,
                 },
                 Transform::default(),
             ))
@@ -669,6 +694,10 @@ mod tests {
                     layer1_normal_path: None,
                     layer2_normal_path: None,
                     layer3_normal_path: None,
+                    layer0_orm_path: None,
+                    layer1_orm_path: None,
+                    layer2_orm_path: None,
+                    layer3_orm_path: None,
                 },
                 Transform::default(),
             ))
@@ -730,6 +759,10 @@ mod tests {
                     layer1_normal_path: None,
                     layer2_normal_path: None,
                     layer3_normal_path: None,
+                    layer0_orm_path: None,
+                    layer1_orm_path: None,
+                    layer2_orm_path: None,
+                    layer3_orm_path: None,
                 },
                 Transform::from_position(Vec3::new(100.0, 0.0, -50.0)),
             ))
@@ -807,6 +840,10 @@ mod tests {
                     layer1_normal_path: None,
                     layer2_normal_path: None,
                     layer3_normal_path: None,
+                    layer0_orm_path: None,
+                    layer1_orm_path: None,
+                    layer2_orm_path: None,
+                    layer3_orm_path: None,
                 },
                 Transform::from_position(Vec3::ZERO),
             ))
@@ -876,6 +913,10 @@ mod tests {
                     layer1_normal_path: None,
                     layer2_normal_path: None,
                     layer3_normal_path: None,
+                    layer0_orm_path: None,
+                    layer1_orm_path: None,
+                    layer2_orm_path: None,
+                    layer3_orm_path: None,
                 },
                 Transform::default(),
             ))
@@ -947,12 +988,15 @@ mod tests {
     /// A layer's normal map reaches every chunk, as the cache's *data* copy:
     /// the linear upload, not the sRGB one a colour texture of the same file
     /// would get -- decoded through sRGB every texel would point elsewhere.
-    /// The layers without one carry `None`, which draws them flat.
+    /// The layers without one carry `None`, which draws them flat. An ORM map
+    /// goes the same way, into its own slot: on another layer here, so a
+    /// loader that put one kind's ids in the other's slot is seen.
     #[test]
-    fn a_layers_normal_map_reaches_every_chunk_as_its_linear_upload() {
+    fn a_layers_normal_and_orm_maps_reach_every_chunk_as_their_linear_uploads() {
         let mut app = test_app();
         let path = write_test_heightmap("normals", 5, 5, &[10_000u16; 25]);
         let normal = write_test_texture("normals-n1", [200, 128, 255, 255]);
+        let orm = write_test_texture("normals-orm2", [255, 60, 200, 255]);
 
         let terrain_entity = app
             .world_mut()
@@ -971,6 +1015,10 @@ mod tests {
                     layer1_normal_path: Some(normal.clone()),
                     layer2_normal_path: None,
                     layer3_normal_path: None,
+                    layer0_orm_path: None,
+                    layer1_orm_path: None,
+                    layer2_orm_path: Some(orm.clone()),
+                    layer3_orm_path: None,
                 },
                 Transform::default(),
             ))
@@ -987,6 +1035,10 @@ mod tests {
             None,
             "and only as data: no colour (sRGB) copy of it exists"
         );
+        let linear_orm = cache
+            .id_for_data(&orm)
+            .expect("the ORM map is uploaded through the cache, as data");
+        assert_eq!(cache.id_for(&orm), None, "and only as data");
         let mut query = app.world_mut().query::<&TerrainSplat>();
         let splats: Vec<_> = query.iter(app.world()).collect();
         assert_eq!(splats.len(), 2, "premise: both chunks spawned");
@@ -994,6 +1046,10 @@ mod tests {
             assert_eq!(
                 splat.layer_normal_texture_ids,
                 [None, Some(linear), None, None]
+            );
+            assert_eq!(
+                splat.layer_orm_texture_ids,
+                [None, None, Some(linear_orm), None]
             );
         }
     }
@@ -1030,6 +1086,17 @@ mod tests {
                     layer1_normal_path: None,
                     layer2_normal_path: None,
                     layer3_normal_path: None,
+                    layer0_orm_path: None,
+                    // An ORM map is given up on the same way.
+                    layer1_orm_path: Some(
+                        fixture_dir()
+                            .join("bsengine_terrain_no_such_orm_map.png")
+                            .to_str()
+                            .unwrap()
+                            .to_owned(),
+                    ),
+                    layer2_orm_path: None,
+                    layer3_orm_path: None,
                 },
                 Transform::default(),
             ))
@@ -1040,6 +1107,7 @@ mod tests {
         let mut query = app.world_mut().query::<&TerrainSplat>();
         let splat = query.single(app.world()).expect("the one chunk spawned");
         assert_eq!(splat.layer_normal_texture_ids, [None; 4]);
+        assert_eq!(splat.layer_orm_texture_ids, [None; 4]);
     }
 
     #[test]
@@ -1063,6 +1131,10 @@ mod tests {
                     layer1_normal_path: None,
                     layer2_normal_path: None,
                     layer3_normal_path: None,
+                    layer0_orm_path: None,
+                    layer1_orm_path: None,
+                    layer2_orm_path: None,
+                    layer3_orm_path: None,
                 },
                 Transform::default(),
             ))
@@ -1118,6 +1190,10 @@ mod tests {
                     layer1_normal_path: None,
                     layer2_normal_path: None,
                     layer3_normal_path: None,
+                    layer0_orm_path: None,
+                    layer1_orm_path: None,
+                    layer2_orm_path: None,
+                    layer3_orm_path: None,
                 },
                 Transform::default(),
             ))
@@ -1211,6 +1287,10 @@ mod tests {
                     layer1_normal_path: None,
                     layer2_normal_path: None,
                     layer3_normal_path: None,
+                    layer0_orm_path: None,
+                    layer1_orm_path: None,
+                    layer2_orm_path: None,
+                    layer3_orm_path: None,
                 },
                 Transform::from_position(Vec3::ZERO),
             ))
@@ -1308,6 +1388,10 @@ mod tests {
                     layer1_normal_path: None,
                     layer2_normal_path: None,
                     layer3_normal_path: None,
+                    layer0_orm_path: None,
+                    layer1_orm_path: None,
+                    layer2_orm_path: None,
+                    layer3_orm_path: None,
                 },
                 Transform::default(),
             ))

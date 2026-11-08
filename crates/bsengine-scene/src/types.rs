@@ -801,6 +801,27 @@ pub struct Terrain {
     /// Layer 3's normal map; see [`Self::layer0_normal_path`].
     #[reflect(default)]
     pub layer3_normal_path: Option<String>,
+    /// ORM map for layer 0 -- occlusion, roughness, metallic in R, G, B, as
+    /// glTF packs them and a material's ORM map is read -- tiled like its
+    /// diffuse texture, or `None` for a layer with the terrain's own
+    /// roughness and metallic and no occlusion. Unity's
+    /// `TerrainLayer.maskMapTexture` and Terrain3D's per-texture roughness;
+    /// a layer's map gives its surface outright, as Unity's mask map does,
+    /// rather than scaling the terrain's fixed values. Read as data.
+    ///
+    /// `#[reflect(default)]` on these four, for the same reason as the
+    /// normal maps': a scene written before them reads back unchanged.
+    #[reflect(default)]
+    pub layer0_orm_path: Option<String>,
+    /// Layer 1's ORM map; see [`Self::layer0_orm_path`].
+    #[reflect(default)]
+    pub layer1_orm_path: Option<String>,
+    /// Layer 2's ORM map; see [`Self::layer0_orm_path`].
+    #[reflect(default)]
+    pub layer2_orm_path: Option<String>,
+    /// Layer 3's ORM map; see [`Self::layer0_orm_path`].
+    #[reflect(default)]
+    pub layer3_orm_path: Option<String>,
     /// Path to a whole-terrain RGBA8 splatmap image, one channel per layer
     /// (same [grass, rock, dirt, snow] order `splat_weight_for` packs).
     /// `None` means every chunk's splat weights are still generated

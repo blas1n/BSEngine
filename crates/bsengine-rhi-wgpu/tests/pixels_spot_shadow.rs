@@ -357,12 +357,11 @@ fn terrain_takes_spot_shadows() {
     let mut render = |draws: Vec<Draw>| {
         h.render(&Scene {
             // The unit cube scaled flat: its top at y = 0.5.
-            terrain: vec![(
+            terrain: vec![bsengine_rhi_wgpu::TerrainDrawCall::new(
                 cube,
                 glam::Mat4::from_scale(Vec3::new(20.0, 1.0, 20.0)),
                 [white; 4],
                 weight,
-                [None; 4],
             )],
             camera_pos: Vec3::new(0.0, 6.5, 0.01),
             look_at: Vec3::new(0.0, 0.5, 0.0),

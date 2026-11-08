@@ -81,6 +81,8 @@ pub mod surface;
 pub mod taa_jitter;
 /// Vertex tangents (MikkTSpace), the frame a normal map is read in.
 pub mod tangents;
+/// A terrain's layers of one kind as one texture array.
+pub mod terrain_layers;
 /// GPU texture loading and the texture registry.
 pub mod texture;
 pub mod theme;

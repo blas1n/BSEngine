@@ -158,12 +158,11 @@ fn a_normal_decal_lands_on_terrain_too() {
     let weight = h.two_colour_texture([255, 0, 0, 255], [255, 0, 0, 255]);
 
     let terrain_scene = |decals: Vec<DecalDraw>| Scene {
-        terrain: vec![(
+        terrain: vec![bsengine_rhi_wgpu::TerrainDrawCall::new(
             plane,
             Mat4::from_scale(Vec3::new(20.0, 1.0, 20.0)),
             layers,
             weight,
-            [None; 4],
         )],
         draws: Vec::new(),
         ..scene(plane, decals)

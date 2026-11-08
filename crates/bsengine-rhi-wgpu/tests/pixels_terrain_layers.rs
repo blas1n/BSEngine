@@ -40,12 +40,11 @@ fn all_on(h: &mut Harness, layer: usize) -> u64 {
 fn render(h: &mut Harness, layers: [u64; 4], weight: u64) -> Pixels {
     let cube = h.cube();
     h.render(&Scene {
-        terrain: vec![(
+        terrain: vec![bsengine_rhi_wgpu::TerrainDrawCall::new(
             cube,
             Mat4::from_scale(Vec3::new(20.0, 1.0, 20.0)),
             layers,
             weight,
-            [None; 4],
         )],
         camera_pos: Vec3::new(0.0, 6.5, 0.01),
         look_at: Vec3::new(0.0, 0.5, 0.0),

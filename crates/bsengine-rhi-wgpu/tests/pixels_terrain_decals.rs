@@ -18,12 +18,11 @@ use glam::{Mat4, Vec3};
 
 /// A big flat terrain chunk at the origin, lying in the XZ plane at y = 0.
 fn chunk(mesh: u64, layers: [u64; 4], weight: u64) -> bsengine_rhi_wgpu::TerrainDrawCall {
-    (
+    bsengine_rhi_wgpu::TerrainDrawCall::new(
         mesh,
         Mat4::from_scale(Vec3::new(20.0, 1.0, 20.0)),
         layers,
         weight,
-        [None; 4],
     )
 }
 

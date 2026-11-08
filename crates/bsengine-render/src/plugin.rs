@@ -1273,13 +1273,14 @@ fn render_frame(
         .iter()
         .map(|(mr, t, gt, splat)| {
             let model = gt.map(|g| g.to_matrix()).unwrap_or_else(|| t.to_matrix());
-            (
+            bsengine_rhi_wgpu::TerrainDrawCall::new(
                 mr.mesh_id,
                 model,
                 splat.layer_texture_ids,
                 splat.weight_texture_id,
-                splat.layer_normal_texture_ids,
             )
+            .with_normals(splat.layer_normal_texture_ids)
+            .with_orms(splat.layer_orm_texture_ids)
         })
         .collect();
 

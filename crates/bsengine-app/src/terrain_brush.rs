@@ -1123,6 +1123,10 @@ mod tests {
                     layer1_normal_path: None,
                     layer2_normal_path: None,
                     layer3_normal_path: None,
+                    layer0_orm_path: None,
+                    layer1_orm_path: None,
+                    layer2_orm_path: None,
+                    layer3_orm_path: None,
                 },
                 Transform::from_position(Vec3::ZERO),
             ))

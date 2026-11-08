@@ -454,6 +454,14 @@ pub enum EditorCommand {
         layer2_normal_path: Option<String>,
         /// Mirrors `Terrain::layer3_normal_path`.
         layer3_normal_path: Option<String>,
+        /// Mirrors `Terrain::layer0_orm_path`.
+        layer0_orm_path: Option<String>,
+        /// Mirrors `Terrain::layer1_orm_path`.
+        layer1_orm_path: Option<String>,
+        /// Mirrors `Terrain::layer2_orm_path`.
+        layer2_orm_path: Option<String>,
+        /// Mirrors `Terrain::layer3_orm_path`.
+        layer3_orm_path: Option<String>,
     },
 }
 

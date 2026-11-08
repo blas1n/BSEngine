@@ -1096,8 +1096,13 @@ struct TerrainLayers {
     // without, which is shaded with no map -- exactly +z, not an eight-bit
     // texel's approximation of it.
     has_normal: vec4<f32>,
+    // 1.0 for a layer whose ORM map is in `t_layer_orms`; see `layer_orm`.
+    has_orm: vec4<f32>,
 };
 @group(3) @binding(4) var<uniform> terrain_layers: TerrainLayers;
+// Each layer's ORM map -- occlusion, roughness, metallic in R, G, B, as glTF
+// and the mesh shader's `t_orm` pack them -- the same way.
+@group(3) @binding(5) var t_layer_orms: texture_2d_array<f32>;
 @group(2) @binding(1) var shadow_sampler: sampler_comparison;
 @group(2) @binding(2) var shadow_map: texture_depth_2d_array;
 @group(2) @binding(4) var point_shadow_map: texture_2d_array<f32>;
@@ -1279,6 +1284,18 @@ fn layer_normal(l: i32, uv: vec2<f32>) -> vec3<f32> {
     let mapped = textureSample(t_layer_normals, s_terrain, uv, l).xyz * 2.0 - vec3<f32>(1.0);
     return select(vec3<f32>(0.0, 0.0, 1.0), mapped, terrain_layers.has_normal[l] > 0.5);
 }
+// Layer `l`'s occlusion, roughness and metallic. A layer with an ORM map
+// takes them from the map; one without has the terrain's own roughness and
+// metallic (`model_data`, what every layer had before layers had ORM maps)
+// and no occlusion. The map *replaces* the terrain's values rather than
+// scaling them as the mesh shader's factors do: the terrain's are fixed
+// (rough, not metallic), so a factor of 0 metallic would leave a metallic
+// map nothing to show. Unity's terrain does the same with a layer's mask map.
+fn layer_orm(l: i32, uv: vec2<f32>) -> vec3<f32> {
+    let mapped = textureSample(t_layer_orms, s_terrain, uv, l).rgb;
+    let own = vec3<f32>(1.0, model_data.roughness, model_data.metallic);
+    return select(own, mapped, terrain_layers.has_orm[l] > 0.5);
+}
 fn terrain_normal_mapped(n: vec3<f32>, m: vec3<f32>) -> vec3<f32> {
     let t = vec3<f32>(1.0, 0.0, 0.0) - n * n.x;
     let len = length(t);
@@ -1349,8 +1366,13 @@ fn fs_main(in: VertOut) -> SceneOut {
     let dbuf = decal_colour(vec2<i32>(in.clip_pos.xy));
     albedo = albedo * dbuf.a + dbuf.rgb;
 
-    let metallic = model_data.metallic;
-    let roughness = max(model_data.roughness, 0.04);
+    // Blended by the splat weights like the colours, so a layer boundary
+    // shades halfway between the two layers' surfaces.
+    let orm = layer_orm(0, tiled_uv) * w.r + layer_orm(1, tiled_uv) * w.g
+        + layer_orm(2, tiled_uv) * w.b + layer_orm(3, tiled_uv) * w.a;
+    let occlusion = orm.r;
+    let metallic = orm.b;
+    let roughness = max(orm.g, 0.04);
     let f0 = mix(vec3<f32>(0.04, 0.04, 0.04), albedo, metallic);
     let n_dot_v = max(dot(n, v), 0.0001);
     let lit = shadow_factor(in.world_pos);
@@ -1416,7 +1438,10 @@ fn fs_main(in: VertOut) -> SceneOut {
     // Rect lights (see `crate::area_light`): their whole contribution,
     // diffuse and specular, already integrated over each rectangle.
     lo += rect_light_radiance(n, v, in.world_pos, albedo, f0, metallic, roughness, camera.shadow_filter, 0u);
-    let color = light.ambient * albedo + lo + model_data.emissive;
+    // Occlusion darkens the indirect light only -- here the ambient term --
+    // as the mesh shader's does: the direct lights' shadows already say what
+    // blocks them (glTF's occlusion texture is defined that way).
+    let color = light.ambient * albedo * occlusion + lo + model_data.emissive;
     var out: SceneOut;
     out.colour = vec4<f32>(color, model_data.opacity);
     out.normal_roughness = vec4<f32>(n, roughness);
@@ -3557,7 +3582,8 @@ fn terrain_light_bgl_entries() -> Vec<wgpu::BindGroupLayoutEntry> {
 
 /// The terrain's group 3: the layers' colours as one array (0), the weight
 /// texture (1), the sampler both are read through (2), the layers' normal
-/// maps as one array (3), and which layers have a normal map (4). Arrays
+/// maps as one array (3), which layers have a normal map and which an ORM
+/// map (4), and the layers' ORM maps as one array (5). Arrays
 /// rather than a texture per layer for the sixteen-texture limit; see
 /// `terrain_layers`. A function for the same test as [`light_bgl_entries`].
 fn terrain_texture_bgl_entries() -> Vec<wgpu::BindGroupLayoutEntry> {
@@ -3591,13 +3617,54 @@ fn terrain_texture_bgl_entries() -> Vec<wgpu::BindGroupLayoutEntry> {
             },
             count: None,
         },
+        texture(5, wgpu::TextureViewDimension::D2Array),
     ]
 }
 
-/// One terrain chunk to draw: its mesh, model matrix, the four layer textures,
-/// the splat weight texture, and the four layers' normal maps (`None` draws a
-/// layer flat). Every id is a `GpuTextureRegistry` id.
-pub type TerrainDrawCall = (u64, Mat4, [u64; 4], u64, [Option<u64>; 4]);
+/// One terrain chunk to draw. Every texture is a `GpuTextureRegistry` id.
+#[derive(Clone, Copy, Debug)]
+pub struct TerrainDrawCall {
+    /// The chunk's mesh.
+    pub mesh_id: u64,
+    /// Its model matrix.
+    pub model: Mat4,
+    /// The four layers' colours.
+    pub layers: [u64; 4],
+    /// The splat weights, one channel per layer.
+    pub weight: u64,
+    /// The four layers' normal maps; `None` draws a layer flat.
+    pub normals: [Option<u64>; 4],
+    /// The four layers' ORM maps (occlusion, roughness, metallic in R, G, B,
+    /// as glTF packs them); `None` gives a layer the terrain's own roughness
+    /// and metallic, and no occlusion.
+    pub orms: [Option<u64>; 4],
+}
+
+impl TerrainDrawCall {
+    /// A chunk with neither normal nor ORM maps.
+    pub fn new(mesh_id: u64, model: Mat4, layers: [u64; 4], weight: u64) -> Self {
+        Self {
+            mesh_id,
+            model,
+            layers,
+            weight,
+            normals: [None; 4],
+            orms: [None; 4],
+        }
+    }
+
+    /// The same chunk with these layer normal maps.
+    pub fn with_normals(mut self, normals: [Option<u64>; 4]) -> Self {
+        self.normals = normals;
+        self
+    }
+
+    /// The same chunk with these layer ORM maps.
+    pub fn with_orms(mut self, orms: [Option<u64>; 4]) -> Self {
+        self.orms = orms;
+        self
+    }
+}
 
 /// `TerrainLayers` in [`TERRAIN_WGSL`]: per layer, 1.0 when it has a normal
 /// map and 0.0 when it has none.
@@ -3605,6 +3672,7 @@ pub type TerrainDrawCall = (u64, Mat4, [u64; 4], u64, [Option<u64>; 4]);
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct TerrainLayersUniform {
     has_normal: [f32; 4],
+    has_orm: [f32; 4],
 }
 
 const MESH_VERTEX_BUFFER: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLayout {
@@ -4206,8 +4274,9 @@ pub struct WgpuSurface {
     /// The terrain's layers, each kind as one array (`crate::terrain_layers`).
     terrain_layers: crate::terrain_layers::TerrainLayerArrays,
     /// `TerrainLayersUniform` for each combination of layers with a normal
-    /// map, by the mask `TerrainLayerArrays::get` returns: sixteen at most,
-    /// made the first time one is drawn and kept.
+    /// map and layers with an ORM map, keyed by the two masks
+    /// `TerrainLayerArrays::get` returns (normals in the low four bits):
+    /// 256 at most, each made the first time it is drawn and kept.
     terrain_layer_flags: std::collections::HashMap<u32, wgpu::Buffer>,
     custom_pipelines: std::collections::HashMap<String, std::sync::Arc<wgpu::RenderPipeline>>,
     /// Each custom shader's multisampled pipeline, alongside.
@@ -9490,8 +9559,8 @@ impl WgpuSurface {
         let terrain_plan: Vec<(usize, usize)> = {
             let mut plan = Vec::new();
             let mut slot = draw_calls.len().min(MAX_OBJECTS);
-            for (i, (mesh_id, _, layer_ids, weight_id, _)) in terrain_draw_calls.iter().enumerate()
-            {
+            for (i, call) in terrain_draw_calls.iter().enumerate() {
+                let (mesh_id, layer_ids, weight_id) = (&call.mesh_id, &call.layers, &call.weight);
                 if slot >= MAX_OBJECTS {
                     break;
                 }
@@ -9527,27 +9596,36 @@ impl WgpuSurface {
                 use crate::terrain_layers::LayerKind;
                 use wgpu::util::DeviceExt;
                 let tex_reg = tex_registry.expect("the plan holds chunks only with a registry");
-                let (_, _, layer_ids, weight_id, normal_ids) = &terrain_draw_calls[i];
+                let call = &terrain_draw_calls[i];
                 let (colours, _) = self.terrain_layers.get(
                     &self.device,
                     &self.queue,
                     tex_reg,
                     LayerKind::Colour,
-                    layer_ids.map(Some),
+                    call.layers.map(Some),
                 );
                 let (normals, has_normal) = self.terrain_layers.get(
                     &self.device,
                     &self.queue,
                     tex_reg,
                     LayerKind::Data,
-                    *normal_ids,
+                    call.normals,
+                );
+                let (orms, has_orm) = self.terrain_layers.get(
+                    &self.device,
+                    &self.queue,
+                    tex_reg,
+                    LayerKind::Data,
+                    call.orms,
                 );
                 let flags = self
                     .terrain_layer_flags
-                    .entry(has_normal)
+                    .entry(has_normal | has_orm << 4)
                     .or_insert_with(|| {
+                        let bits = |mask: u32| std::array::from_fn(|l| (mask >> l & 1) as f32);
                         let uniform = TerrainLayersUniform {
-                            has_normal: std::array::from_fn(|l| (has_normal >> l & 1) as f32),
+                            has_normal: bits(has_normal),
+                            has_orm: bits(has_orm),
                         };
                         self.device
                             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -9557,7 +9635,7 @@ impl WgpuSurface {
                             })
                     });
                 let weight = tex_reg
-                    .get_view(*weight_id)
+                    .get_view(call.weight)
                     .expect("the plan checked the weight texture");
                 self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("terrain bg"),
@@ -9583,6 +9661,10 @@ impl WgpuSurface {
                             binding: 4,
                             resource: flags.as_entire_binding(),
                         },
+                        wgpu::BindGroupEntry {
+                            binding: 5,
+                            resource: wgpu::BindingResource::TextureView(&orms),
+                        },
                     ],
                 })
             })
@@ -9594,10 +9676,10 @@ impl WgpuSurface {
         // prepass reads the same matrices the main pass will draw with.
         for &(i, slot) in &terrain_plan {
             let model_data = ModelUniformData {
-                model: terrain_draw_calls[i].1.to_cols_array_2d(),
+                model: terrain_draw_calls[i].model.to_cols_array_2d(),
                 // Terrain writes no velocity (its pipeline masks it off);
                 // the camera reprojection covers what does not move.
-                prev_model: terrain_draw_calls[i].1.to_cols_array_2d(),
+                prev_model: terrain_draw_calls[i].model.to_cols_array_2d(),
                 metallic: 0.0,
                 roughness: 0.9,
                 _pad0: 0.0,
@@ -9693,7 +9775,7 @@ impl WgpuSurface {
                 // ground of a terrain level projects onto the far plane and
                 // vanishes -- which is most of what decals are for.
                 for &(i, slot) in &terrain_plan {
-                    let Some(mesh) = registry.get(terrain_draw_calls[i].0) else {
+                    let Some(mesh) = registry.get(terrain_draw_calls[i].mesh_id) else {
                         continue;
                     };
                     pass.set_bind_group(
@@ -10029,7 +10111,7 @@ impl WgpuSurface {
                 // Looked up again only to get the borrow, never to decide
                 // whether this chunk draws -- that decision is the slot
                 // numbering's, and it was made once.
-                let Some(mesh) = registry.get(terrain_draw_calls[i].0) else {
+                let Some(mesh) = registry.get(terrain_draw_calls[i].mesh_id) else {
                     continue;
                 };
                 pass.set_pipeline(terrain_pipeline);
@@ -12474,24 +12556,25 @@ mod tests {
             terrain <= limit,
             "the terrain pipeline binds {terrain} sampled textures; WebGPU allows {limit}"
         );
-        // The terrain's own group: one array of the layers' colours, one of
-        // their normal maps, and the weights -- three however many kinds of
-        // layer map there are (`terrain_layers`). With a texture per layer
-        // per kind it was nine, and the terrain sat at fifteen of sixteen with
-        // no room for the layers' ORM maps. Asserted exactly, so a layout
-        // that quietly dropped one could not pass for one under the limit.
+        // The terrain's own group: one array each of the layers' colours,
+        // normal maps and ORM maps, and the weights -- one more per kind of
+        // layer map, not four (`terrain_layers`). With a texture per layer
+        // per kind the first two kinds took nine, and the terrain sat at
+        // fifteen of sixteen with no room for the third. Asserted exactly, so
+        // a layout that quietly dropped one could not pass for one under the
+        // limit.
         assert_eq!(
             textures(&terrain_texture_bgl_entries()),
-            3,
-            "the layers' colours and normal maps as one array each, and the weights"
+            4,
+            "the layers' colours, normal maps and ORM maps as one array each, and the weights"
         );
         // The trimmed group 2 is no longer what keeps the terrain under the
         // limit -- the whole lighting group with these three would fit -- but
         // it is what leaves the room: kept for the next layer map, not the
         // limit.
         assert_eq!(
-            terrain, 9,
-            "six lighting textures (`TERRAIN_LIGHT_BINDINGS`) and three of the terrain's own"
+            terrain, 10,
+            "six lighting textures (`TERRAIN_LIGHT_BINDINGS`) and four of the terrain's own"
         );
         // Mesh, transparent and custom-shader pipelines: group 3 is the
         // material's textures (`material_textures`), every one of which a

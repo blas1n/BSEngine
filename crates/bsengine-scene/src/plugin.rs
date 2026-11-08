@@ -816,8 +816,8 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                                                     }
                                                 }
                                             }
-                                            // The layers' normal maps are paths the
-                                            // same way, but optional. A scene that
+                                            // The layers' normal and ORM maps are paths
+                                            // the same way, but optional. A scene that
                                             // leaves them out has no such field in
                                             // the proxy at all; the component's
                                             // `#[reflect(default)]` fills it in later.
@@ -830,6 +830,10 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                                                 "layer1_normal_path",
                                                 "layer2_normal_path",
                                                 "layer3_normal_path",
+                                                "layer0_orm_path",
+                                                "layer1_orm_path",
+                                                "layer2_orm_path",
+                                                "layer3_orm_path",
                                             ] {
                                                 let Some(field) = s.field_mut(field_name) else {
                                                     continue;
@@ -2972,13 +2976,16 @@ mod tests {
         );
         assert_eq!(terrain.layer0_normal_path, None);
         assert_eq!(terrain.layer3_normal_path, None);
+        // Nor ORM maps, which came later still.
+        assert_eq!(terrain.layer0_orm_path, None);
+        assert_eq!(terrain.layer3_orm_path, None);
     }
 
     #[test]
     fn scene_plugin_terrain_layer_normal_paths_resolve_against_project_dir() {
         let ron = r#"SceneDescriptor(entities: [
             EntityDescriptor(name: "Ground", components: [
-                ("bsengine_scene::types::Terrain", "(heightmap_path: \"terrain/hills.png\", chunk_count: (1, 1), chunk_size: 10.0, height_scale: 1.0, layer0_texture_path: \"terrain/grass.png\", layer1_texture_path: \"terrain/rock.png\", layer2_texture_path: \"terrain/dirt.png\", layer3_texture_path: \"terrain/snow.png\", splatmap_path: None, layer1_normal_path: Some(\"terrain/rock_n.png\"), layer2_normal_path: None)"),
+                ("bsengine_scene::types::Terrain", "(heightmap_path: \"terrain/hills.png\", chunk_count: (1, 1), chunk_size: 10.0, height_scale: 1.0, layer0_texture_path: \"terrain/grass.png\", layer1_texture_path: \"terrain/rock.png\", layer2_texture_path: \"terrain/dirt.png\", layer3_texture_path: \"terrain/snow.png\", splatmap_path: None, layer1_normal_path: Some(\"terrain/rock_n.png\"), layer2_normal_path: None, layer2_orm_path: Some(\"terrain/dirt_orm.png\"))"),
             ]),
         ])"#;
         let path = write_temp_scene("test_terrain_layer_normal_paths.ron", ron);
@@ -2999,6 +3006,13 @@ mod tests {
         // Named as None, and left out altogether: both flat.
         assert_eq!(terrain.layer2_normal_path, None);
         assert_eq!(terrain.layer0_normal_path, None);
+        // An ORM map the same way: a path like the others.
+        assert_eq!(
+            terrain.layer2_orm_path.as_deref(),
+            Some("games/demo/terrain/dirt_orm.png"),
+            "a layer's ORM map resolves like its diffuse texture"
+        );
+        assert_eq!(terrain.layer1_orm_path, None);
     }
 
     /// A rect light's shape is read from the scene, and a scene written

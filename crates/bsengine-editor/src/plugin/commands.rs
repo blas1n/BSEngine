@@ -75,14 +75,7 @@ pub(super) fn process_editor_commands(
                 layer2_texture_path,
                 layer3_texture_path,
                 splatmap_path,
-                layer0_normal_path,
-                layer1_normal_path,
-                layer2_normal_path,
-                layer3_normal_path,
-                layer0_orm_path,
-                layer1_orm_path,
-                layer2_orm_path,
-                layer3_orm_path,
+                layer_maps,
             } => {
                 let resolved =
                     bsengine_core::resolve_project_path(project_dir.as_deref(), &heightmap_path);
@@ -108,6 +101,10 @@ pub(super) fn process_editor_commands(
                 // never finds, and the terrain would load with that layer
                 // drawn without it and only a warning to say why. Normal and
                 // ORM maps alike.
+                let crate::snapshot::TerrainLayerMaps {
+                    mut normals,
+                    mut orms,
+                } = *layer_maps;
                 let resolve_map = |path: Option<String>| {
                     path.map(|p| bsengine_core::resolve_project_path(project_dir.as_deref(), &p))
                 };
@@ -127,14 +124,14 @@ pub(super) fn process_editor_commands(
                         layer2_texture_path: layer2_resolved,
                         layer3_texture_path: layer3_resolved,
                         splatmap_path: splatmap_resolved,
-                        layer0_normal_path: resolve_map(layer0_normal_path),
-                        layer1_normal_path: resolve_map(layer1_normal_path),
-                        layer2_normal_path: resolve_map(layer2_normal_path),
-                        layer3_normal_path: resolve_map(layer3_normal_path),
-                        layer0_orm_path: resolve_map(layer0_orm_path),
-                        layer1_orm_path: resolve_map(layer1_orm_path),
-                        layer2_orm_path: resolve_map(layer2_orm_path),
-                        layer3_orm_path: resolve_map(layer3_orm_path),
+                        layer0_normal_path: resolve_map(normals[0].take()),
+                        layer1_normal_path: resolve_map(normals[1].take()),
+                        layer2_normal_path: resolve_map(normals[2].take()),
+                        layer3_normal_path: resolve_map(normals[3].take()),
+                        layer0_orm_path: resolve_map(orms[0].take()),
+                        layer1_orm_path: resolve_map(orms[1].take()),
+                        layer2_orm_path: resolve_map(orms[2].take()),
+                        layer3_orm_path: resolve_map(orms[3].take()),
                     },
                     Transform::default(),
                 ));

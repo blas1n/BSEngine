@@ -202,14 +202,10 @@ pub(super) fn register(mcp: &McpRegistryResource, cx: &ToolContext) {
                 layer2_texture_path,
                 layer3_texture_path,
                 splatmap_path,
-                layer0_normal_path: map_path("layer0_normal_path"),
-                layer1_normal_path: map_path("layer1_normal_path"),
-                layer2_normal_path: map_path("layer2_normal_path"),
-                layer3_normal_path: map_path("layer3_normal_path"),
-                layer0_orm_path: map_path("layer0_orm_path"),
-                layer1_orm_path: map_path("layer1_orm_path"),
-                layer2_orm_path: map_path("layer2_orm_path"),
-                layer3_orm_path: map_path("layer3_orm_path"),
+                layer_maps: Box::new(crate::snapshot::TerrainLayerMaps {
+                    normals: std::array::from_fn(|l| map_path(&format!("layer{l}_normal_path"))),
+                    orms: std::array::from_fn(|l| map_path(&format!("layer{l}_orm_path"))),
+                }),
             });
             McpToolOutput::success(json!({"status": "queued"}))
         }),

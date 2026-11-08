@@ -446,23 +446,21 @@ pub enum EditorCommand {
         layer3_texture_path: String,
         /// Mirrors `Terrain::splatmap_path`.
         splatmap_path: Option<String>,
-        /// Mirrors `Terrain::layer0_normal_path`.
-        layer0_normal_path: Option<String>,
-        /// Mirrors `Terrain::layer1_normal_path`.
-        layer1_normal_path: Option<String>,
-        /// Mirrors `Terrain::layer2_normal_path`.
-        layer2_normal_path: Option<String>,
-        /// Mirrors `Terrain::layer3_normal_path`.
-        layer3_normal_path: Option<String>,
-        /// Mirrors `Terrain::layer0_orm_path`.
-        layer0_orm_path: Option<String>,
-        /// Mirrors `Terrain::layer1_orm_path`.
-        layer1_orm_path: Option<String>,
-        /// Mirrors `Terrain::layer2_orm_path`.
-        layer2_orm_path: Option<String>,
-        /// Mirrors `Terrain::layer3_orm_path`.
-        layer3_orm_path: Option<String>,
+        /// The layers' optional normal and ORM maps.
+        layer_maps: Box<TerrainLayerMaps>,
     },
+}
+
+/// A terrain's optional per-layer maps, as [`EditorCommand::SpawnTerrain`]
+/// carries them. Boxed there: eight `Option<String>`s inline made that one
+/// variant some 200 bytes larger than the next, and every queued command of
+/// any kind would have paid for it (`clippy::large_enum_variant`).
+#[derive(Debug, Default)]
+pub struct TerrainLayerMaps {
+    /// Mirrors `Terrain::layer0_normal_path` .. `layer3_normal_path`.
+    pub normals: [Option<String>; 4],
+    /// Mirrors `Terrain::layer0_orm_path` .. `layer3_orm_path`.
+    pub orms: [Option<String>; 4],
 }
 
 /// Undo/redo checkpoint stacks. Each entry is a full `EditorSnapshot` taken

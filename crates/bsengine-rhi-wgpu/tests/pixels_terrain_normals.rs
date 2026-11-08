@@ -189,6 +189,35 @@ fn layer_normal_maps_blend_by_the_splat_weights() {
     );
 }
 
+/// A normal map that is named but not on the GPU -- still loading, or failed
+/// -- is drawn as no map, not as the empty array layer it has: that layer is
+/// zeros, which decode to a normal pointing down and into the corner. The
+/// flag that says a layer has a map follows whether its texture is there, not
+/// whether an id was given.
+#[test]
+fn a_normal_map_not_on_the_gpu_is_drawn_as_none() {
+    let mut h = Harness::new();
+    let t = Terrain::new(&mut h);
+    let layer0 = weight(&mut h, [255, 0, 0, 0]);
+    let plus_u = normal_map(&mut h, Vec3::new(0.5, 0.0, 1.0));
+    let never_loaded = 999_999;
+
+    let none = t.render(&mut h, Vec3::X, layer0, [None; 4]);
+    let missing = t.render(
+        &mut h,
+        Vec3::X,
+        layer0,
+        [Some(never_loaded), None, None, None],
+    );
+    let mapped = t.render(&mut h, Vec3::X, layer0, [Some(plus_u), None, None, None]);
+
+    assert!(
+        mapped > none + 5.0,
+        "premise: a map that is there turns the surface ({none} -> {mapped})"
+    );
+    assert_eq!(missing, none, "a map that is not there leaves it flat");
+}
+
 /// A layer with no normal map shades exactly flat -- not almost. The stand-in
 /// it binds has to decode to exactly +z, and an eight-bit (128, 128, 255)
 /// texel decodes to 0.0039 in x and y: a fifth of a degree, nothing under

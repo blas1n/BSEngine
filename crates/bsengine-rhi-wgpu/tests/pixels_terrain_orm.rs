@@ -53,12 +53,24 @@ impl Terrain {
     }
 
     fn centre(&self, h: &mut Harness, light: Light, weight: u64, orms: [Option<u64>; 4]) -> f32 {
+        self.centre_with(h, light, weight, [None; 4], orms)
+    }
+
+    fn centre_with(
+        &self,
+        h: &mut Harness,
+        light: Light,
+        weight: u64,
+        normals: [Option<u64>; 4],
+        orms: [Option<u64>; 4],
+    ) -> f32 {
         let chunk = TerrainDrawCall::new(
             self.cube,
             Mat4::from_scale(Vec3::new(20.0, 1.0, 20.0)),
             self.layers,
             weight,
         )
+        .with_normals(normals)
         .with_orms(orms);
         h.render(&Scene {
             terrain: vec![chunk],
@@ -259,21 +271,35 @@ fn layer_orm_maps_blend_by_the_splat_weights() {
 /// The normal maps and the ORM maps are separate arrays with separate flags:
 /// a layer with an ORM map and no normal map is shaded flat, not with the ORM
 /// map read as a normal (nor the other way round). Both maps here are the
-/// same texel kind -- one linear 1x1 -- so only the flags and the bindings
-/// keep them apart.
+/// same texel -- one linear 1x1 -- so only the flags and the bindings keep
+/// them apart. Drawn as a normal map first, in the same renderer, so a flag
+/// buffer cached for "layer 0 has a normal map" cannot be handed to "layer 0
+/// has an ORM map" either.
 #[test]
 fn an_orm_map_is_not_a_normal_map() {
     let mut h = Harness::new();
     let t = Terrain::new(&mut h);
     let layer0 = weight(&mut h, [255, 0, 0, 0]);
-    // Read as a normal, (1.0, 0.9, 0.0) decodes to (1.0, 0.8, -1.0) and leans
-    // far toward +x, into the side sun; read as ORM it is the terrain's own
-    // surface (roughness 0.9, no metal, no occlusion).
+    // Read as a normal, (1.0, 0.9, 0.0) decodes to (1.0, 0.8, -1.0), below
+    // the surface; read as ORM it is the terrain's own surface (roughness
+    // 0.9, no metal, no occlusion).
     let orm = orm_map(&mut h, 255, 230, 0);
 
     let none = t.centre(&mut h, side_sun(), layer0, [None; 4]);
+    let as_normal = t.centre_with(
+        &mut h,
+        side_sun(),
+        layer0,
+        [Some(orm), None, None, None],
+        [None; 4],
+    );
     let with_orm = t.centre(&mut h, side_sun(), layer0, [Some(orm), None, None, None]);
 
+    // Read as a normal it points below the surface, and the chunk goes dark.
+    assert!(
+        (as_normal - none).abs() > 5.0,
+        "premise: read as a normal map, the texel turns the surface ({none} -> {as_normal})"
+    );
     assert!(
         none > 20.0,
         "premise: the side sun lights the chunk: {none}"

@@ -113,6 +113,25 @@ fn gpu_emitter_frame(
     }
 }
 
+/// A terrain chunk as the renderer takes it: every texture its `TerrainSplat`
+/// names, each kind in its own slot. A function so a test can hold the
+/// mapping to that -- a map id left behind here draws its layer without the
+/// map, with nothing anywhere to say so.
+fn terrain_draw_call(
+    mesh_id: u64,
+    model: glam::Mat4,
+    splat: &TerrainSplat,
+) -> bsengine_rhi_wgpu::TerrainDrawCall {
+    bsengine_rhi_wgpu::TerrainDrawCall::new(
+        mesh_id,
+        model,
+        splat.layer_texture_ids,
+        splat.weight_texture_id,
+    )
+    .with_normals(splat.layer_normal_texture_ids)
+    .with_orms(splat.layer_orm_texture_ids)
+}
+
 /// A point light as the renderer takes it: where it is, which way its
 /// cookie faces -- the world rotation, so a parented light turns with its
 /// parent -- and the cookie's texture id once it is on the GPU.
@@ -1273,14 +1292,7 @@ fn render_frame(
         .iter()
         .map(|(mr, t, gt, splat)| {
             let model = gt.map(|g| g.to_matrix()).unwrap_or_else(|| t.to_matrix());
-            bsengine_rhi_wgpu::TerrainDrawCall::new(
-                mr.mesh_id,
-                model,
-                splat.layer_texture_ids,
-                splat.weight_texture_id,
-            )
-            .with_normals(splat.layer_normal_texture_ids)
-            .with_orms(splat.layer_orm_texture_ids)
+            terrain_draw_call(mr.mesh_id, model, splat)
         })
         .collect();
 
@@ -1589,6 +1601,27 @@ mod tests {
     use bsengine_rhi_wgpu::{GpuMeshRegistry, Vertex, WgpuRHIPlugin};
     use bsengine_window::WindowResized;
     use glam::Vec3;
+
+    /// Every texture a chunk's `TerrainSplat` names reaches its draw call, in
+    /// the slot of its own kind -- distinct ids throughout, so one kind's ids
+    /// in another's slot, or one left out, is seen.
+    #[test]
+    fn a_terrain_chunks_textures_all_reach_its_draw_call() {
+        let splat = crate::components::TerrainSplat {
+            weight_texture_id: 9,
+            layer_texture_ids: [1, 2, 3, 4],
+            layer_normal_texture_ids: [Some(5), None, Some(6), None],
+            layer_orm_texture_ids: [None, Some(7), None, Some(8)],
+        };
+        let model = glam::Mat4::from_translation(Vec3::new(1.0, 2.0, 3.0));
+        let call = super::terrain_draw_call(42, model, &splat);
+        assert_eq!(call.mesh_id, 42);
+        assert_eq!(call.model, model);
+        assert_eq!(call.layers, [1, 2, 3, 4]);
+        assert_eq!(call.weight, 9);
+        assert_eq!(call.normals, [Some(5), None, Some(6), None]);
+        assert_eq!(call.orms, [None, Some(7), None, Some(8)]);
+    }
 
     #[test]
     fn render_plugin_runs_without_surface() {

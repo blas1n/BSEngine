@@ -23,15 +23,22 @@ pub fn variant(
     desc: &wgpu::RenderPipelineDescriptor<'_>,
     supported: bool,
 ) -> Option<std::sync::Arc<wgpu::RenderPipeline>> {
-    supported.then(|| {
-        device.cached_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            multisample: wgpu::MultisampleState {
-                count: MSAA_SAMPLES,
-                ..desc.multisample
-            },
-            ..desc.clone()
-        })
-    })
+    supported.then(|| device.cached_render_pipeline(&multisampled(desc)))
+}
+
+/// `desc` with [`MSAA_SAMPLES`] samples and nothing else changed, for a
+/// pipeline made without [`variant`]'s cache (a custom shader's, see
+/// `CustomShaderJob::make`).
+pub fn multisampled<'a>(
+    desc: &wgpu::RenderPipelineDescriptor<'a>,
+) -> wgpu::RenderPipelineDescriptor<'a> {
+    wgpu::RenderPipelineDescriptor {
+        multisample: wgpu::MultisampleState {
+            count: MSAA_SAMPLES,
+            ..desc.multisample
+        },
+        ..desc.clone()
+    }
 }
 
 /// The multisampled targets the geometry passes draw into.

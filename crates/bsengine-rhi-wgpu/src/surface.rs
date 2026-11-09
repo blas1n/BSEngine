@@ -3995,6 +3995,7 @@ fn unlit_custom_desc<'a>(
 /// What a lit custom shader has beyond an unlit one's opaque pipelines: as it
 /// is the standard material but for `surface`, it takes part in the passes the
 /// standard material does and an unlit one does not.
+#[derive(Clone)]
 struct LitCustomPipelines {
     /// Its normal and roughness for the reflections' trace. Reads no lights:
     /// its group 2 is empty, so a `surface` that reads the lighting group is
@@ -4006,17 +4007,111 @@ struct LitCustomPipelines {
     transparent_msaa: Option<std::sync::Arc<wgpu::RenderPipeline>>,
 }
 
-/// A custom shader compiled in a browser, waiting for the device's verdict
-/// on it (`WgpuSurface::compile_and_store_shader`).
-#[cfg(target_arch = "wasm32")]
-struct PendingCustomShader {
-    path: String,
+/// Everything one custom shader draws with, made together from one module.
+#[derive(Clone)]
+struct CustomShaderPipelines {
     pipeline: std::sync::Arc<wgpu::RenderPipeline>,
     pipeline_msaa: Option<std::sync::Arc<wgpu::RenderPipeline>>,
     lit_pipelines: Option<LitCustomPipelines>,
-    /// Set once by the spawned error-scope future: `None` inside for
-    /// accepted, the device's message for rejected.
-    verdict: std::sync::Arc<std::sync::OnceLock<Option<String>>>,
+}
+
+/// What the device said of a custom shader: its pipelines when it accepted
+/// them, its message when it did not.
+type CustomShaderVerdict = Result<CustomShaderPipelines, String>;
+
+/// A custom shader handed to the device, waiting for its verdict
+/// (`WgpuSurface::compile_and_store_shader`). Natively the verdict is a
+/// worker thread's, in a browser the page's error-scope promise's; either way
+/// it is set exactly once, and [`WgpuSurface::settle_custom_shaders`] picks
+/// it up at the start of a frame.
+struct PendingCustomShader {
+    path: String,
+    verdict: std::sync::Arc<std::sync::OnceLock<CustomShaderVerdict>>,
+}
+
+/// What a custom shader's pipelines are made from: owned, so the making can
+/// happen on a thread of its own.
+struct CustomShaderJob {
+    device: Arc<wgpu::Device>,
+    pipeline_layout: std::sync::Arc<wgpu::PipelineLayout>,
+    ssr_normal_layout: std::sync::Arc<wgpu::PipelineLayout>,
+    msaa_supported: bool,
+    /// The whole source -- for a lit shader, the author's half and the
+    /// standard lighting after it.
+    wgsl: String,
+    lit: bool,
+}
+
+impl CustomShaderJob {
+    /// The module and every pipeline the shader draws with.
+    ///
+    /// Made directly on the device, never through `pipeline_cache`: a custom
+    /// shader is the project's source, recompiled on every save, and the
+    /// error scope around this is how a rejection is seen -- a cached
+    /// pipeline would answer a second compile of a bad source with no error
+    /// at all. That goes for the MSAA variant too, which used to go through
+    /// `msaa::variant` and come out uncached anyway (its module is not one
+    /// the cache made) -- but made *inside* the cache's lock, process-wide,
+    /// which off the main thread would hold every other renderer's pipeline
+    /// creation for as long as the driver takes over this one.
+    fn make(&self) -> CustomShaderPipelines {
+        let shader = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("custom shader"),
+                source: wgpu::ShaderSource::Wgsl(self.wgsl.as_str().into()),
+            });
+        let make = |desc: &wgpu::RenderPipelineDescriptor| {
+            std::sync::Arc::new(self.device.create_render_pipeline(desc))
+        };
+        let make_msaa = |desc: &wgpu::RenderPipelineDescriptor| {
+            self.msaa_supported
+                .then(|| make(&crate::msaa::multisampled(desc)))
+        };
+        let pipeline_desc = if self.lit {
+            opaque_mesh_desc("lit custom pipeline", &shader, &self.pipeline_layout)
+        } else {
+            unlit_custom_desc(&shader, &self.pipeline_layout)
+        };
+        let lit_pipelines = self.lit.then(|| {
+            let transparent_desc = transparent_mesh_desc(
+                "lit custom transparent pipeline",
+                &shader,
+                &self.pipeline_layout,
+            );
+            LitCustomPipelines {
+                ssr_normal: make(&ssr_normal_desc(
+                    "lit custom ssr normal pipeline",
+                    &shader,
+                    &self.ssr_normal_layout,
+                )),
+                transparent: make(&transparent_desc),
+                transparent_msaa: make_msaa(&transparent_desc),
+            }
+        });
+        CustomShaderPipelines {
+            pipeline: make(&pipeline_desc),
+            pipeline_msaa: make_msaa(&pipeline_desc),
+            lit_pipelines,
+        }
+    }
+
+    /// [`Self::make`] inside a validation error scope, with the device's
+    /// verdict. Native only: there `pop_error_scope`'s future is already
+    /// resolved (wgpu-core reports validation errors synchronously into the
+    /// error sink and hands back a ready future), so this neither blocks on
+    /// the GPU nor needs the device polled. Error scopes are per thread
+    /// (wgpu keys them by `ThreadId`), so one opened here on a worker sees
+    /// only this shader's errors and none of the frame's.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn run(&self) -> CustomShaderVerdict {
+        let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let made = self.make();
+        match pollster::block_on(scope.pop()) {
+            None => Ok(made),
+            Some(err) => Err(err.to_string()),
+        }
+    }
 }
 
 /// Owns the render output target (a window's swapchain or an offscreen
@@ -4283,10 +4378,9 @@ pub struct WgpuSurface {
     custom_pipelines_msaa: std::collections::HashMap<String, std::sync::Arc<wgpu::RenderPipeline>>,
     /// The custom shaders that are lit, by the same path.
     lit_custom_pipelines: std::collections::HashMap<String, LitCustomPipelines>,
-    /// In a browser, custom shaders whose device verdict has not arrived:
-    /// see [`Self::compile_and_store_shader`] and
+    /// Custom shaders whose device verdict has not arrived: see
+    /// [`Self::compile_and_store_shader`] and
     /// [`Self::settle_custom_shaders`].
-    #[cfg(target_arch = "wasm32")]
     pending_custom_shaders: Vec<PendingCustomShader>,
     post_process: crate::post_process::PostProcessState,
     start_time: bsengine_core::clock::Instant,
@@ -6826,7 +6920,6 @@ impl WgpuSurface {
             custom_pipelines: std::collections::HashMap::new(),
             custom_pipelines_msaa: std::collections::HashMap::new(),
             lit_custom_pipelines: std::collections::HashMap::new(),
-            #[cfg(target_arch = "wasm32")]
             pending_custom_shaders: Vec::new(),
             post_process,
             // No frame has been rendered yet, so there is no previous
@@ -8391,9 +8484,8 @@ impl WgpuSurface {
     ) -> Result<std::collections::HashSet<String>, String> {
         // Wall-clock CPU time for this call, for `FrameStats::cpu_frame_time_ms`.
         let frame_start = bsengine_core::clock::Instant::now();
-        // In a browser, custom shaders whose device verdict arrived since the
-        // last frame start drawing from this one.
-        #[cfg(target_arch = "wasm32")]
+        // Custom shaders whose device verdict arrived since the last frame
+        // start drawing from this one.
         self.settle_custom_shaders();
 
         // The sub-pixel TAA jitter belongs to *rasterization only*, so it is
@@ -11394,23 +11486,44 @@ impl WgpuSurface {
         .map_err(|e| e.emit_to_string_with_path(wgsl, path))
     }
 
-    /// Compiles a WGSL custom shader and stores it as a render pipeline keyed
-    /// by `path`, replacing any previously compiled pipeline for that path.
+    /// Compiles a WGSL custom shader into the render pipelines keyed by
+    /// `path`, replacing any previously compiled ones for that path -- from
+    /// the first frame after the device has finished with it, not before.
     ///
-    /// Returns `Err` with the reason if the source does not compile, having
-    /// left `custom_pipelines` untouched -- so a shader edited into a broken
-    /// intermediate state keeps drawing with its last working pipeline instead
-    /// of vanishing. Callers use that to avoid re-attempting a compile that
-    /// cannot succeed until the file changes again.
+    /// Only the device-independent half happens here: naga's parse and
+    /// validation ([`Self::validate_wgsl`], about 4 ms for a lit shader in a
+    /// release build). An `Err` is its message, and `custom_pipelines` is
+    /// left untouched -- so a shader edited into a broken intermediate state
+    /// keeps drawing with its last working pipeline instead of vanishing.
+    /// Callers use that to avoid re-attempting a compile that cannot succeed
+    /// until the file changes again.
+    ///
+    /// The device half -- the driver compiling the module and every pipeline
+    /// made from it, five for a lit shader with MSAA -- is handed over, and
+    /// `Ok` means only that. Natively it runs on a thread of its own: on the
+    /// main thread it held a Radeon iGPU's frame for ~0.8 s (D3D12) / ~0.65 s
+    /// (Vulkan) per lit shader, at a level's start and again on every save.
+    /// In a browser it cannot be waited for at all (the verdict is a promise
+    /// the page resolves later, and `pollster` panics on a wasm build without
+    /// threads -- every game with a custom shader once stopped on its first
+    /// frame there). Either way the verdict is picked up by
+    /// [`Self::settle_custom_shaders`] at the start of a frame: accepted, the
+    /// pipelines replace the old ones; rejected, the old ones stay and the
+    /// device's message is logged. Until then a path that never compiled
+    /// draws with the standard material (as Unreal draws its default material
+    /// while a shader compiles), and one that did keeps its old pipelines. A
+    /// newer source for the same path supersedes one still waiting.
+    /// [`Self::finish_custom_shaders`] waits, for whoever needs the verdict
+    /// now.
     ///
     /// Nothing here may panic on bad *content*: hot reload recompiles at
     /// runtime from whatever the file currently says, and a half-typed shader
     /// must not take the running game down with it. `wgpu`'s default uncaptured
-    /// error handler panics, so the two device calls are wrapped in a
-    /// validation error scope. The naga pre-pass above is what produces a
-    /// readable message (line, column, offending token); the error scope is the
-    /// backstop for what a device-independent pre-pass cannot know -- capability
-    /// gaps, a renamed `vs_main`/`fs_main`, bindings that do not match
+    /// error handler panics, so the device calls are wrapped in a validation
+    /// error scope. The naga pre-pass is what produces a readable message
+    /// (line, column, offending token); the error scope is the backstop for
+    /// what a device-independent pre-pass cannot know -- capability gaps, a
+    /// renamed `vs_main`/`fs_main`, bindings that do not match
     /// `pipeline_layout`.
     ///
     /// A source that opens with [`bsengine_shadergraph::LIT_DIRECTIVE`] is half
@@ -11419,119 +11532,61 @@ impl WgpuSurface {
     /// at the line the author sees in their file.
     pub fn compile_and_store_shader(&mut self, path: &str, wgsl: &str) -> Result<(), String> {
         let lit = bsengine_shadergraph::is_lit_shader(wgsl);
-        let composed = lit.then(|| format!("{wgsl}\n{MESH_LIT_WGSL}"));
-        let wgsl = composed.as_deref().unwrap_or(wgsl);
-        if let Err(e) = Self::validate_wgsl(path, wgsl) {
+        let wgsl = if lit {
+            format!("{wgsl}\n{MESH_LIT_WGSL}")
+        } else {
+            wgsl.to_string()
+        };
+        if let Err(e) = Self::validate_wgsl(path, &wgsl) {
             tracing::warn!(
                 "[custom_shader] '{path}' is not valid WGSL; keeping the previously compiled pipeline:\n{e}"
             );
             return Err(e);
         }
-        let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let shader = self
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("custom shader"),
-                source: wgpu::ShaderSource::Wgsl(wgsl.into()),
-            });
-        let pipeline_desc = if lit {
-            opaque_mesh_desc("lit custom pipeline", &shader, &self.pipeline_layout)
-        } else {
-            unlit_custom_desc(&shader, &self.pipeline_layout)
+        let job = CustomShaderJob {
+            device: self.device.clone(),
+            pipeline_layout: self.pipeline_layout.clone(),
+            ssr_normal_layout: self.ssr_normal_layout.clone(),
+            msaa_supported: self.msaa_supported,
+            wgsl,
+            lit,
         };
-        let pipeline = self.device.create_render_pipeline(&pipeline_desc);
-        let pipeline_msaa = crate::msaa::variant(&self.device, &pipeline_desc, self.msaa_supported);
-        let lit_pipelines = lit.then(|| {
-            let transparent_desc = transparent_mesh_desc(
-                "lit custom transparent pipeline",
-                &shader,
-                &self.pipeline_layout,
-            );
-            LitCustomPipelines {
-                ssr_normal: std::sync::Arc::new(self.device.create_render_pipeline(
-                    &ssr_normal_desc(
-                        "lit custom ssr normal pipeline",
-                        &shader,
-                        &self.ssr_normal_layout,
-                    ),
-                )),
-                transparent: std::sync::Arc::new(
-                    self.device.create_render_pipeline(&transparent_desc),
-                ),
-                transparent_msaa: crate::msaa::variant(
-                    &self.device,
-                    &transparent_desc,
-                    self.msaa_supported,
-                ),
-            }
-        });
-        // In a browser the verdict is a JavaScript promise the page resolves
-        // later, and blocking on it is not possible: `pollster` waits on a
-        // condvar, which a wasm build without threads panics on ("condvar
-        // wait not supported") -- every game with a custom shader stopped on
-        // its first frame there. So the pipeline waits beside the others until
-        // the verdict lands (`settle_custom_shaders`), with the meaning native
-        // gives it: accepted, it replaces the old pipeline; rejected, the old
-        // one stays. `Ok` here means only that it was handed over.
+        let verdict = std::sync::Arc::new(std::sync::OnceLock::new());
+        let sink = verdict.clone();
+        #[cfg(not(target_arch = "wasm32"))]
+        std::thread::Builder::new()
+            .name("custom shader compile".into())
+            .spawn(move || {
+                let _ = sink.set(job.run());
+            })
+            .map_err(|e| format!("cannot start compiling '{path}': {e}"))?;
         #[cfg(target_arch = "wasm32")]
         {
-            let verdict = std::sync::Arc::new(std::sync::OnceLock::new());
-            let sink = verdict.clone();
-            let scope = error_scope.pop();
+            let scope = job.device.push_error_scope(wgpu::ErrorFilter::Validation);
+            let made = job.make();
+            let scope = scope.pop();
             wasm_bindgen_futures::spawn_local(async move {
-                let _ = sink.set(scope.await.map(|e| e.to_string()));
+                let _ = sink.set(match scope.await {
+                    None => Ok(made),
+                    Some(e) => Err(e.to_string()),
+                });
             });
-            // A newer edit of the same file supersedes one still waiting.
-            self.pending_custom_shaders.retain(|p| p.path != path);
-            self.pending_custom_shaders.push(PendingCustomShader {
-                path: path.to_string(),
-                // Uncached, as below and for the same reason.
-                pipeline: std::sync::Arc::new(pipeline),
-                pipeline_msaa,
-                lit_pipelines,
-                verdict,
-            });
-            Ok(())
         }
-        // `pop_error_scope`'s future is already resolved on every native
-        // backend (wgpu-core reports validation errors synchronously into the
-        // error sink and hands back a ready future), so this neither blocks nor
-        // needs the device polled.
-        #[cfg(not(target_arch = "wasm32"))]
-        if let Some(err) = pollster::block_on(error_scope.pop()) {
-            let msg = err.to_string();
-            tracing::warn!(
-                "[custom_shader] the GPU device rejected '{path}'; keeping the previously compiled pipeline: {msg}"
-            );
-            return Err(msg);
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            // Made here, not through `pipeline_cache`: a custom shader is the
-            // project's source, recompiled on every save, and the error scope
-            // above is how a rejection is seen -- a cached pipeline would
-            // answer a second compile of a bad source with no error at all.
-            // (Its MSAA variant goes through `msaa::variant`, which asks the
-            // cache, and is made uncached there: its module is not one the
-            // cache made.)
-            self.store_custom_pipeline(
-                path,
-                std::sync::Arc::new(pipeline),
-                pipeline_msaa,
-                lit_pipelines,
-            );
-            Ok(())
-        }
+        self.pending_custom_shaders.retain(|p| p.path != path);
+        self.pending_custom_shaders.push(PendingCustomShader {
+            path: path.to_string(),
+            verdict,
+        });
+        Ok(())
     }
 
     /// Puts a compiled custom shader's pipelines where the frame draws from.
-    fn store_custom_pipeline(
-        &mut self,
-        path: &str,
-        pipeline: std::sync::Arc<wgpu::RenderPipeline>,
-        pipeline_msaa: Option<std::sync::Arc<wgpu::RenderPipeline>>,
-        lit_pipelines: Option<LitCustomPipelines>,
-    ) {
+    fn store_custom_pipeline(&mut self, path: &str, made: CustomShaderPipelines) {
+        let CustomShaderPipelines {
+            pipeline,
+            pipeline_msaa,
+            lit_pipelines,
+        } = made;
         // Replaced or removed with the rest: a shader edited from lit to unlit
         // must not keep drawing its reflections' prepass from the old source.
         match lit_pipelines {
@@ -11553,26 +11608,51 @@ impl WgpuSurface {
         }
     }
 
-    /// In a browser: stores every waiting custom shader the device accepted,
-    /// and drops (with the warning native gives) every one it rejected.
-    /// Those still waiting keep waiting. Called at the start of each frame.
-    #[cfg(target_arch = "wasm32")]
-    fn settle_custom_shaders(&mut self) {
+    /// Stores every waiting custom shader the device accepted, and drops
+    /// (with a warning) every one it rejected. Those still waiting keep
+    /// waiting. Called at the start of each frame. Returns each settled
+    /// path with the device's message for a rejection.
+    fn settle_custom_shaders(&mut self) -> Vec<(String, Result<(), String>)> {
         let (settled, waiting): (Vec<_>, Vec<_>) = std::mem::take(&mut self.pending_custom_shaders)
             .into_iter()
             .partition(|p| p.verdict.get().is_some());
         self.pending_custom_shaders = waiting;
+        let mut verdicts = Vec::with_capacity(settled.len());
         for p in settled {
-            match p.verdict.get().cloned().flatten() {
-                None => {
-                    self.store_custom_pipeline(&p.path, p.pipeline, p.pipeline_msaa, p.lit_pipelines)
+            let verdict = p.verdict.get().cloned().expect("partitioned on being set");
+            let outcome = match verdict {
+                Ok(made) => {
+                    self.store_custom_pipeline(&p.path, made);
+                    Ok(())
                 }
-                Some(msg) => tracing::warn!(
-                    "[custom_shader] the GPU device rejected '{}'; keeping the previously compiled pipeline: {msg}",
-                    p.path
-                ),
-            }
+                Err(msg) => {
+                    tracing::warn!(
+                        "[custom_shader] the GPU device rejected '{}'; keeping the previously compiled pipeline: {msg}",
+                        p.path
+                    );
+                    Err(msg)
+                }
+            };
+            verdicts.push((p.path, outcome));
         }
+        verdicts
+    }
+
+    /// Waits for the device's verdict on every custom shader handed to it,
+    /// and settles them as the next frame would: the accepted ones are drawn
+    /// with from now on. Returns each path with the device's message for a
+    /// rejection, in the order they were handed over.
+    ///
+    /// For callers that need the verdict before the next frame -- a test
+    /// asserting on it, a tool reporting it. A game never needs to: the
+    /// frame picks the verdict up by itself. Native only; a browser cannot
+    /// wait (see [`Self::compile_and_store_shader`]).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn finish_custom_shaders(&mut self) -> Vec<(String, Result<(), String>)> {
+        for p in &self.pending_custom_shaders {
+            p.verdict.wait();
+        }
+        self.settle_custom_shaders()
     }
 
     /// Whether a custom shader has already been compiled and stored for `path`.

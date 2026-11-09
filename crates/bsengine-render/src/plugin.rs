@@ -221,9 +221,14 @@ struct PendingShader {
 enum CompileStatus {
     /// Loaded, but no GPU has seen it yet. The compile is deferred, not failed.
     NotYet,
-    /// Compiled; the pipeline is in the surface.
+    /// Handed to the surface. The device compiles it off this thread, and
+    /// its pipeline is drawn with from a later frame -- or, if the device
+    /// rejects it, never, with a warning from the surface
+    /// (`compile_and_store_shader`). Not retried either way, for the same
+    /// reason as `Failed`.
     Ok,
-    /// The source loaded but does not compile.
+    /// The source loaded but is not valid WGSL (naga's verdict, given at
+    /// once; the device's comes later and is the surface's to report).
     ///
     /// Sticky, so the compile is *not* retried every frame: the file is broken,
     /// recompiling it next frame produces the same failure and the same

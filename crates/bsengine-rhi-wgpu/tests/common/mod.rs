@@ -804,8 +804,7 @@ struct VertOut {{
 }}
 "#
         );
-        self.surface
-            .compile_and_store_shader(key, &wgsl)
+        self.compile_shader(key, &wgsl)
             .expect("the test shader should compile");
         key.to_string()
     }
@@ -975,8 +974,17 @@ struct VertOut {{
     /// graph -- need the source to be theirs to supply, and need the `Err` so
     /// they can print what failed to compile rather than leave a wgpu
     /// validation message to be interpreted on its own.
+    ///
+    /// Waits for the device's verdict too, which the surface otherwise picks
+    /// up at a later frame's start: a test asserting on a rejection needs it
+    /// now, and one rendering right after needs the pipeline already there.
     pub fn compile_shader(&mut self, key: &str, wgsl: &str) -> Result<(), String> {
-        self.surface.compile_and_store_shader(key, wgsl)
+        self.surface.compile_and_store_shader(key, wgsl)?;
+        self.surface
+            .finish_custom_shaders()
+            .into_iter()
+            .find(|(path, _)| path == key)
+            .map_or(Ok(()), |(_, verdict)| verdict)
     }
 
     /// One fresh frame at an arbitrary point in the frame counter.

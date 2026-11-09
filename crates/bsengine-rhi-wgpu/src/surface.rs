@@ -11370,7 +11370,10 @@ impl WgpuSurface {
     /// at egui's version, so what passes here is what egui accepts.
     ///
     /// Returns the paths installed, in order.
-    pub fn set_ui_fonts(&mut self, fonts: &[bsengine_core::UiFont]) -> Vec<String> {
+    pub fn set_ui_fonts<'a>(
+        &mut self,
+        fonts: impl IntoIterator<Item = &'a bsengine_core::UiFont>,
+    ) -> Vec<String> {
         let mut definitions = crate::theme::font_definitions();
         let mut installed = Vec::new();
         for font in fonts {

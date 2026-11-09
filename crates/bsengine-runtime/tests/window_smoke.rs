@@ -438,11 +438,69 @@ fn a_ui_font_that_is_not_there_stops_the_game_at_start() {
         );
     }
     let test_mode = child.wait_with_output().expect("wait for --test");
-    let _ = std::fs::remove_dir_all(&dir);
     let stderr = String::from_utf8_lossy(&test_mode.stderr);
     assert!(
         !test_mode.status.success() && said_why(&stderr),
         "--test: ran with a missing font ({})\n--- stderr ---\n{stderr}",
         test_mode.status
+    );
+
+    // `[ui.locale_fonts]` too, for a locale the game does not start in (it
+    // starts in English: no tables to match the system's locale against).
+    // The player can switch to it later; its font is found missing now.
+    manifest("\n[ui.locale_fonts]\nja = [\"assets/fonts/missing-ja.ttf\"]\n");
+    let (windowed, stdout, stderr) = run_to_exit(&dir, FRAMES, &[]);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(
+        !windowed.success()
+            && stderr.contains("Cannot read the UI font assets/fonts/missing-ja.ttf"),
+        "windowed: ran with another locale's font missing ({windowed})\n\
+         --- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
+    );
+}
+
+/// The shipped binary draws a game that starts in Japanese with Japanese's
+/// own font in front of `[ui] fonts`: asked of what the renderer says it
+/// installed, so the manifest's table has to survive the runtime's reading
+/// of it -- read and then dropped, the renderer would install `[ui] fonts`
+/// alone. A Korean entry is there too and must not be chosen.
+#[test]
+fn a_game_that_starts_in_a_locale_draws_in_that_locales_fonts() {
+    let dir = std::env::temp_dir().join(format!("bsengine-locale-font-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("assets/scenes")).expect("fixture dirs");
+    std::fs::create_dir_all(dir.join("assets/fonts")).expect("fixture dirs");
+    std::fs::create_dir_all(dir.join("assets/i18n")).expect("fixture dirs");
+    std::fs::write(
+        dir.join("assets/scenes/main.ron"),
+        r#"SceneDescriptor(entities: [EntityDescriptor(name: "Camera", camera: true)])"#,
+    )
+    .expect("main.ron");
+    std::fs::write(
+        dir.join("assets/i18n/strings.csv"),
+        "keys,en,ja,ko\nHI,Hi,やあ,안녕\n",
+    )
+    .expect("strings.csv");
+    let font = include_bytes!("../../bsengine-rhi-wgpu/tests/fonts/test_glyphs.ttf");
+    for name in ["shared.ttf", "jp.ttf", "kr.ttf"] {
+        std::fs::write(dir.join("assets/fonts").join(name), font).expect("font");
+    }
+    std::fs::write(
+        dir.join("project.toml"),
+        "[project]\nname = \"Locale Font\"\nentry_scene = \"assets/scenes/main.ron\"\n\n\
+         [window]\nwidth = 160\nheight = 120\n\n\
+         [localization]\ntables = [\"assets/i18n/strings.csv\"]\nlocale = \"ja\"\n\n\
+         [ui]\nfonts = [\"assets/fonts/shared.ttf\"]\n\n\
+         [ui.locale_fonts]\nja = [\"assets/fonts/jp.ttf\"]\nko = [\"assets/fonts/kr.ttf\"]\n",
+    )
+    .expect("project.toml");
+
+    let (status, stdout, stderr) = run_to_exit(&dir, FRAMES, &[]);
+    let _ = std::fs::remove_dir_all(&dir);
+    let installed =
+        r#"[ui] fonts for locale "ja": ["assets/fonts/jp.ttf", "assets/fonts/shared.ttf"]"#;
+    assert!(
+        status.success() && (stdout.contains(installed) || stderr.contains(installed)),
+        "expected `{installed}` ({status})\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
     );
 }

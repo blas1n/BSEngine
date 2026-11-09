@@ -346,6 +346,9 @@ fn packaging_refuses_a_bad_input_binding_and_names_it() {
 /// The `[ui] fonts` the Korean is drawn in ride along: nothing references a
 /// font either, and the runtime reads it at start and stops if it cannot, so
 /// a build that left it out, or read it from the disk, never gets to answer.
+/// So does `[ui.locale_fonts]`'s font for Japanese, a locale the build does
+/// not start in: the player may switch to it, so it is packaged and read at
+/// start like the rest.
 #[test]
 fn a_pak_build_carries_its_string_tables_and_translates_from_them() {
     let project = Output::new();
@@ -357,12 +360,18 @@ fn a_pak_build_carries_its_string_tables_and_translates_from_them() {
         project.0.join("project.toml"),
         "[project]\nname = \"Strings\"\nentry_scene = \"assets/scenes/main.ron\"\n\n\
          [localization]\ntables = [\"assets/i18n/strings.csv\"]\ndefault_locale = \"en\"\nlocale = \"ko\"\n\n\
-         [ui]\nfonts = [\"assets/fonts/hangul.ttf\"]\n",
+         [ui]\nfonts = [\"assets/fonts/hangul.ttf\"]\n\n\
+         [ui.locale_fonts]\nja = [\"assets/fonts/kana.ttf\"]\n",
     )
     .unwrap();
     std::fs::write(
         project.0.join("assets/fonts/hangul.ttf"),
         include_bytes!("../../bsengine-rhi-wgpu/tests/fonts/test_glyphs.ttf"),
+    )
+    .unwrap();
+    std::fs::write(
+        project.0.join("assets/fonts/kana.ttf"),
+        include_bytes!("../../bsengine-rhi-wgpu/tests/fonts/test_glyphs_alt.ttf"),
     )
     .unwrap();
     std::fs::write(

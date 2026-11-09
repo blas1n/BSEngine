@@ -1652,6 +1652,16 @@ impl RealtimeGi {
         self.frame = 0;
     }
 
+    /// How many probes the volume being updated has -- its bricks' or its
+    /// grid's, the count `update` walks -- or 0 before it has one.
+    pub(crate) fn probe_count(&self) -> u32 {
+        match (&self.bricks, &self.volume) {
+            (Some(l), _) => l.probes.len() as u32,
+            (None, Some((v, _))) => v.resolution.iter().product(),
+            (None, None) => 0,
+        }
+    }
+
     /// Starts copying the static set's meshes back, and the meshes the
     /// moving entities draw, unless that geometry is already built or
     /// already on its way.

@@ -713,6 +713,13 @@ pub struct InspectorState {
     /// Whether the viewport draws the ground-plane reference grid. Toggled
     /// by the viewport overlay's grid button.
     pub show_grid: bool,
+    /// Whether the viewport draws the light probes shading reads -- a baked
+    /// volume's bricks, a grid, a realtime volume -- as spheres lit by each
+    /// probe's own SH (Unity's Rendering Debugger "Display Probes", Unreal's
+    /// Volumetric Lightmap show flag). Off by default: an adaptive volume
+    /// can hold tens of thousands. Toggled by the viewport overlay; drawn
+    /// only while stopped, like the grid.
+    pub show_light_probes: bool,
     /// Editable visibility buffer for the selected entity.
     pub edit_visible: bool,
     prev_selected_id: Option<u64>,
@@ -861,6 +868,7 @@ impl Default for InspectorState {
             edit_scale: [1.0; 3],
             hierarchy_search: String::new(),
             show_grid: true,
+            show_light_probes: false,
             edit_visible: true,
             prev_selected_id: None,
             editor_mode: false,

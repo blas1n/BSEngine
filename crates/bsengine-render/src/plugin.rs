@@ -995,6 +995,17 @@ fn render_frame(
             None,
         ));
 
+    // The light probes as spheres: the viewport's toggle, while editing and
+    // stopped only -- in Play the viewport shows the game's camera, which
+    // draws what a build would, as the grid and gizmos already go by.
+    surface
+        .0
+        .set_show_light_probes(inspector.as_deref().is_some_and(|insp| {
+            insp.editor_mode
+                && insp.play_state == EditorPlayState::Stopped
+                && insp.show_light_probes
+        }));
+
     // While editing (not Playing), override camera matrices from the orbit
     // camera computed by EditorPlugin. Once Play starts, the viewport should
     // show what the game's own Camera entity sees, same as a build would.
@@ -2388,6 +2399,48 @@ mod tests {
         app.world_mut().resource_mut::<InspectorState>().play_state = EditorPlayState::Playing;
         app.update();
         assert!(active(&app), "and Play gives it back");
+    }
+
+    /// The viewport's light-probe toggle reaches the renderer while editing
+    /// and stopped, and only then: not in Play (the viewport is the game's
+    /// camera there, drawn as a build would be), not in a game (no editor),
+    /// and not with the toggle off -- which is how the editor starts.
+    #[test]
+    fn the_light_probe_toggle_reaches_the_renderer_while_editing() {
+        use bsengine_core::{EditorPlayState, InspectorState};
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::offscreen(64, 64, false));
+        app.add_plugins(RenderPlugin);
+        app.world_mut().spawn((
+            Camera::default(),
+            Transform::from_position(Vec3::new(0.0, 0.0, 10.0)),
+        ));
+        let shown = |app: &mut bevy_app::App| {
+            app.update();
+            app.world()
+                .resource::<bsengine_rhi_wgpu::WgpuSurfaceResource>()
+                .0
+                .shows_light_probes()
+        };
+        assert!(!shown(&mut app), "a game, with no editor, never shows them");
+
+        let mut editing = InspectorState::default();
+        editing.editor_mode = true;
+        editing.play_state = EditorPlayState::Stopped;
+        assert!(!editing.show_light_probes, "the toggle starts off");
+        app.world_mut().insert_resource(editing);
+        assert!(!shown(&mut app), "editing, with the toggle off");
+
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .show_light_probes = true;
+        assert!(shown(&mut app), "editing and stopped, with it on");
+
+        app.world_mut().resource_mut::<InspectorState>().play_state = EditorPlayState::Playing;
+        assert!(!shown(&mut app), "not in Play");
+        app.world_mut().resource_mut::<InspectorState>().play_state = EditorPlayState::Stopped;
+        assert!(shown(&mut app), "and back when Play stops");
     }
 
     /// The project's `MsaaSettings` reaches the renderer: 4 samples asked

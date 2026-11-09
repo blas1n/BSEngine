@@ -4256,6 +4256,10 @@ pub struct WgpuSurface {
     /// while set.
     baked_bricks: Option<std::sync::Arc<bsengine_bake::probe_bake::BakedProbes>>,
     uploaded_bricks: Option<std::sync::Arc<bsengine_bake::probe_bake::BakedProbes>>,
+    /// Whether the frame draws the light probes as spheres
+    /// ([`Self::set_show_light_probes`]); kept until changed.
+    show_light_probes: bool,
+    probe_display: crate::probe_display::ProbeDisplay,
     /// The camera's screen-space GI, or `None` for none
     /// ([`Self::set_ssgi`]); kept until changed.
     ssgi: Option<bsengine_core::ScreenSpaceGlobalIllumination>,
@@ -6780,6 +6784,8 @@ impl WgpuSurface {
 
         let particles =
             crate::particles::ParticleRenderer::new(&device, &camera_bgl, msaa_supported);
+        let probe_display =
+            crate::probe_display::ProbeDisplay::new(camera_bgl.clone(), msaa_supported);
         let gpu_particles = crate::gpu_particles::GpuParticles::new(&device);
         let depth_resolve = crate::msaa::DepthResolve::new(&device);
 
@@ -6874,6 +6880,8 @@ impl WgpuSurface {
             baked_probe_volume: None,
             baked_bricks: None,
             uploaded_bricks: None,
+            show_light_probes: false,
+            probe_display,
             ssgi: None,
             probe_layout: ProbeGridLayout::DEFAULT,
             reflection_probe_buffer,
@@ -8211,6 +8219,36 @@ impl WgpuSurface {
         bricks: Option<std::sync::Arc<bsengine_bake::probe_bake::BakedProbes>>,
     ) {
         self.baked_bricks = bricks;
+    }
+
+    /// Draws every light probe the scene shades from as a sphere lit by its
+    /// own SH, from the next frame until turned off (`crate::probe_display`)
+    /// -- the editor's "Toggle Light Probes", which the render plugin turns
+    /// on only while editing and stopped. Nothing is drawn without a volume.
+    pub fn set_show_light_probes(&mut self, on: bool) {
+        self.show_light_probes = on;
+    }
+
+    /// See [`Self::set_show_light_probes`].
+    pub fn shows_light_probes(&self) -> bool {
+        self.show_light_probes
+    }
+
+    /// How many probes [`Self::probe_buffer`] holds for shading: the
+    /// realtime volume's while it updates, else the baked bricks' while they
+    /// are uploaded, else the raster-baked grid's -- the same precedence
+    /// `render_frame` fills the buffer by. 0 with no volume.
+    fn probes_in_buffer(&self) -> u32 {
+        let count = if self.realtime_gi_active {
+            self.realtime_gi.as_ref().map_or(0, |gi| gi.probe_count())
+        } else if let Some(b) = &self.uploaded_bricks {
+            b.layout.probes.len() as u32
+        } else if let Some(v) = &self.baked_probe_volume {
+            v.resolution.iter().product()
+        } else {
+            0
+        };
+        count.min(self.probe_layout.capacity as u32)
     }
 
     /// Grows [`Self::probe_buffer`] to hold `probes` probes a half, when it
@@ -10438,6 +10476,32 @@ impl WgpuSurface {
             frame_draw_calls += particle_draw_calls;
             frame_objects_drawn += particle_draw_calls;
             frame_triangles += particle_triangles;
+        }
+
+        // --- light probe display (the editor's, see `crate::probe_display`) ---
+        // After everything the scene draws, so the spheres sit in its depth;
+        // before post-processing, so they are tonemapped as the scene is. Not
+        // under `fast_render` (a thumbnail or a probe capture): only the
+        // viewport shows them.
+        let shown_probes = if self.show_light_probes && !self.fast_render {
+            self.probes_in_buffer()
+        } else {
+            0
+        };
+        if shown_probes > 0 {
+            frame_triangles += self.probe_display.draw(
+                &self.device,
+                &mut encoder,
+                scene_color,
+                scene_resolve,
+                scene_depth,
+                msaa_on,
+                &self.camera_bind_group,
+                &self.probe_buffer,
+                shown_probes,
+            );
+            frame_draw_calls += 1;
+            frame_objects_drawn += shown_probes;
         }
 
         // --- MSAA depth resolve: each pixel's sample 0 into `depth_view`,

@@ -59,6 +59,8 @@ pub mod pipeline_cache;
 pub mod plugin;
 /// Post-processing render passes (bloom, tonemapping, etc).
 pub mod post_process;
+/// The editor's light-probe display: each probe as a sphere lit by its SH.
+pub(crate) mod probe_display;
 /// Frame/GPU statistics: texture memory tracking, draw-call/triangle
 /// counting, and feature-gated GPU pass timing.
 pub mod profiler;

@@ -457,6 +457,13 @@ impl EditorPanel for ViewportPanel {
                         {
                             insp.show_grid = !insp.show_grid;
                         }
+                        if ui
+                            .selectable_label(insp.show_light_probes, egui_phosphor::regular::ATOM)
+                            .on_hover_text("Toggle Light Probes")
+                            .clicked()
+                        {
+                            insp.show_light_probes = !insp.show_light_probes;
+                        }
 
                         // Explicit size, not a shrink-wrapped
                         // `selectable_label` like its sibling buttons above --

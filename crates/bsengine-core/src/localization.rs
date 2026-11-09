@@ -465,7 +465,7 @@ pub fn normalize_locale(locale: &str) -> String {
 }
 
 /// The language of a normalized locale: `pt` of `pt-BR`.
-fn language_of(locale: &str) -> &str {
+pub(crate) fn language_of(locale: &str) -> &str {
     locale.split('-').next().unwrap_or(locale)
 }
 

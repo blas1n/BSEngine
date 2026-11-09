@@ -565,27 +565,45 @@ pub(crate) fn insert_localization(
 /// localization table does: the build would otherwise ship drawing its
 /// translations as boxes. One that reads but is not a font is the
 /// renderer's to refuse, with an error, at the cost of its glyphs only.
+///
+/// `[ui.locale_fonts]` are read here too, every locale's and not only the
+/// starting one's: a font the archive lacks for a locale the player switches
+/// to later would otherwise be found then, mid-game, instead of at start.
 pub(crate) fn insert_ui_fonts(
     app: &mut bevy_app::App,
     project_dir: &str,
     pak: Option<&bsengine_asset::pak::Pak>,
     manifest: &ProjectManifest,
 ) {
-    let fonts = manifest
-        .ui
-        .fonts
-        .iter()
-        .map(|font| {
-            let path = format!("{project_dir}/{font}");
-            let bytes = bsengine_asset::pak_source::read_bytes_from(pak, project_dir, &path)
-                .unwrap_or_else(|e| panic!("Cannot read the UI font {font}: {e}"));
-            bsengine_core::UiFont {
-                path: font.clone(),
-                bytes,
-            }
-        })
-        .collect();
-    app.insert_resource(bsengine_core::UiFonts(fonts));
+    let read = |fonts: &[String]| -> Vec<bsengine_core::UiFont> {
+        fonts
+            .iter()
+            .map(|font| {
+                let path = format!("{project_dir}/{font}");
+                let bytes = bsengine_asset::pak_source::read_bytes_from(pak, project_dir, &path)
+                    .unwrap_or_else(|e| panic!("Cannot read the UI font {font}: {e}"));
+                bsengine_core::UiFont {
+                    path: font.clone(),
+                    bytes,
+                }
+            })
+            .collect()
+    };
+    let fonts = bsengine_core::UiFonts {
+        fonts: read(&manifest.ui.fonts),
+        by_locale: manifest
+            .ui
+            .locale_fonts
+            .iter()
+            .map(|(locale, fonts)| {
+                (
+                    bsengine_core::localization::normalize_locale(locale),
+                    read(fonts),
+                )
+            })
+            .collect(),
+    };
+    app.insert_resource(fonts);
 }
 
 fn read_manifest(project_dir: &str, pak: Option<&bsengine_asset::pak::Pak>) -> ProjectManifest {

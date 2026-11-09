@@ -308,6 +308,13 @@ locale = "auto"                        # the system's locale, or e.g. "ko"
 # next, and last from the built-in fonts, which cover Latin, Greek and
 # Cyrillic only. Korean, Japanese or Chinese needs a font that has them.
 fonts = ["assets/fonts/NotoSansKR-Regular.otf"]
+
+# While the locale is one of these (exactly, or by its language), its fonts
+# go in front of `fonts` -- one Han character is drawn differently in
+# Japanese and in Chinese, so each wants its own font first.
+[ui.locale_fonts]
+ja = ["assets/fonts/NotoSansJP-Regular.otf"]
+zh-CN = ["assets/fonts/NotoSansSC-Regular.otf"]
 ```
 
 ```js

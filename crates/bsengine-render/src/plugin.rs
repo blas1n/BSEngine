@@ -264,6 +264,41 @@ fn compile_status(result: Result<(), String>) -> CompileStatus {
 #[derive(bevy_ecs::prelude::Resource, Default)]
 struct PendingShaders(std::collections::HashMap<String, PendingShader>);
 
+/// Hands the project's UI fonts to the renderer: once the surface exists,
+/// again whenever the resource changes, and whenever the locale switches to
+/// one with other fonts ([`bsengine_core::UiFonts::for_locale`]) -- so a
+/// `setLocale("ja")` draws its next frame in the Japanese font. Its own
+/// system, not a parameter of `render_frame`, which is at Bevy's parameter
+/// limit.
+///
+/// The `Local` remembers what went in: the surface can arrive frames after
+/// the fonts (a window is made on the event loop's first resume), and by
+/// then `is_changed` no longer says anything. It holds the locale *entry*
+/// the fonts were chosen by, not the locale: egui rebuilds its glyph atlas
+/// on every `set_fonts`, and a switch between two locales with no fonts of
+/// their own (`en` to `fr`) changes nothing it draws with. The locale is
+/// compared, not `Localization`'s change tick, which any script `ResMut`
+/// sets.
+fn sync_ui_fonts(
+    surface: Option<ResMut<WgpuSurfaceResource>>,
+    fonts: Option<Res<bsengine_core::UiFonts>>,
+    localization: Option<Res<bsengine_core::Localization>>,
+    mut installed: Local<Option<Option<String>>>,
+) {
+    use bevy_ecs::change_detection::DetectChanges;
+    let (Some(mut surface), Some(fonts)) = (surface, fonts) else {
+        return;
+    };
+    let locale = localization.as_deref().map_or("", |l| l.locale());
+    let key = fonts.locale_key(locale).map(str::to_string);
+    if !fonts.is_changed() && installed.as_ref() == Some(&key) {
+        return;
+    }
+    let paths = surface.0.set_ui_fonts(fonts.for_locale(locale));
+    tracing::info!("[ui] fonts for locale {locale:?}: {paths:?}");
+    *installed = Some(key);
+}
+
 /// Lazy-compiles any `CustomShader` not yet cached in the surface, reading
 /// its WGSL source through `bsengine_asset::load` (`LoadMode::Async`) and
 /// handing the text to `compile_and_store_shader`. Split out of
@@ -290,30 +325,6 @@ struct PendingShaders(std::collections::HashMap<String, PendingShader>);
 /// winit window (see `compile_pending_shaders_runs_before_render_frame`), so
 /// an early return would make the give-up path unreachable in every test
 /// this workspace can write.
-/// Hands the project's UI fonts to the renderer: once the surface exists,
-/// and again whenever the resource changes. Its own system, not a parameter
-/// of `render_frame`, which is at Bevy's parameter limit.
-///
-/// The `Local` remembers that they went in: the surface can arrive frames
-/// after the fonts (a window is made on the event loop's first resume), and
-/// by then `is_changed` no longer says anything.
-fn sync_ui_fonts(
-    surface: Option<ResMut<WgpuSurfaceResource>>,
-    fonts: Option<Res<bsengine_core::UiFonts>>,
-    mut installed: Local<bool>,
-) {
-    use bevy_ecs::change_detection::DetectChanges;
-    let (Some(mut surface), Some(fonts)) = (surface, fonts) else {
-        return;
-    };
-    if *installed && !fonts.is_changed() {
-        return;
-    }
-    let paths = surface.0.set_ui_fonts(&fonts.0);
-    tracing::info!("[ui] fonts: {paths:?}");
-    *installed = true;
-}
-
 fn compile_pending_shaders(
     mut surface: Option<ResMut<WgpuSurfaceResource>>,
     custom_shaders: Query<&CustomShader>,
@@ -3741,15 +3752,72 @@ mod tests {
             !has_hangul(&mut app),
             "premise: the built-in fonts have no Hangul"
         );
-        app.insert_resource(UiFonts(vec![UiFont {
+        app.insert_resource(UiFonts::new(vec![UiFont {
             path: "assets/fonts/test_glyphs.ttf".into(),
             bytes: include_bytes!("../../bsengine-rhi-wgpu/tests/fonts/test_glyphs.ttf").to_vec(),
         }]));
         assert!(has_hangul(&mut app), "the project's font went in");
-        app.insert_resource(UiFonts(Vec::new()));
+        app.insert_resource(UiFonts::new(Vec::new()));
         assert!(
             !has_hangul(&mut app),
             "and a changed list replaces it, rather than only the first being applied"
+        );
+    }
+
+    /// A locale's own fonts follow the locale: switching to it puts them in
+    /// on the next frame, by its language too, and switching away takes them
+    /// out -- with `UiFonts` itself untouched throughout, so it is the
+    /// locale that the system watches. Asked of egui's fonts, as above; the
+    /// order they go in is `UiFonts::for_locale`'s, tested in core, and
+    /// honoured by the surface as `pixels_ui.rs` shows.
+    #[test]
+    fn a_locales_own_fonts_follow_the_locale() {
+        use bsengine_core::{HudTexts, Localization, UiFont, UiFonts};
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::offscreen(64, 64, false));
+        app.add_plugins(RenderPlugin);
+        let mut hud = HudTexts::default();
+        hud.0.insert("line".into(), "한글".into());
+        app.insert_resource(hud);
+        app.insert_resource(
+            Localization::from_csv_tables([("t.csv", "keys,en,ko\nHI,Hi,안녕\n")], "en").unwrap(),
+        );
+        let mut fonts = UiFonts::default();
+        fonts.by_locale.insert(
+            "ko".into(),
+            vec![UiFont {
+                path: "assets/fonts/test_glyphs.ttf".into(),
+                bytes: include_bytes!("../../bsengine-rhi-wgpu/tests/fonts/test_glyphs.ttf")
+                    .to_vec(),
+            }],
+        );
+        app.insert_resource(fonts);
+        let has_hangul_in = |app: &mut bevy_app::App, locale: &str| {
+            app.world_mut()
+                .resource_mut::<Localization>()
+                .set_locale(locale);
+            for _ in 0..2 {
+                app.update();
+            }
+            app.world()
+                .resource::<bsengine_rhi_wgpu::WgpuSurfaceResource>()
+                .0
+                .ui_has_glyph_for_testing('한')
+        };
+
+        assert!(
+            !has_hangul_in(&mut app, "en"),
+            "premise: English has no fonts of its own, and the built-in ones no Hangul"
+        );
+        assert!(has_hangul_in(&mut app, "ko"), "Korean's font went in");
+        assert!(
+            !has_hangul_in(&mut app, "en"),
+            "and came out when the locale switched away"
+        );
+        assert!(
+            has_hangul_in(&mut app, "ko-KR"),
+            "a regional locale takes its language's fonts"
         );
     }
 

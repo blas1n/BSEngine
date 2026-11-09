@@ -232,6 +232,21 @@ pub fn cook_project(project_dir: impl AsRef<Path>) -> io::Result<CookedProject> 
     let mut extra_assets = strings_at("package", "extra_assets");
     extra_assets.extend(strings_at("localization", "tables"));
     extra_assets.extend(strings_at("ui", "fonts"));
+    // `[ui.locale_fonts]`: a table of locale -> fonts, every locale's.
+    if let Some(by_locale) = manifest
+        .get("ui")
+        .and_then(|ui| ui.get("locale_fonts"))
+        .and_then(toml::Value::as_table)
+    {
+        extra_assets.extend(
+            by_locale
+                .values()
+                .filter_map(toml::Value::as_array)
+                .flatten()
+                .filter_map(toml::Value::as_str)
+                .map(str::to_string),
+        );
+    }
     cook(project_dir, entry_scene, &extra_assets)
 }
 
@@ -1498,6 +1513,25 @@ mod tests {
             "the UI fonts are walked from the manifest; got {:?}",
             cooked.edges
         );
+
+        // And each locale's own, every locale's.
+        probe.write(
+            "project.toml",
+            "[project]\nname = \"P\"\nentry_scene = \"assets/scenes/start.ron\"\n\n\
+             [ui.locale_fonts]\nja = [\"assets/fonts/jp.ttf\"]\nzh-CN = [\"assets/fonts/sc.ttf\"]\n",
+        );
+        probe.write("assets/fonts/jp.ttf", "not read here");
+        probe.write("assets/fonts/sc.ttf", "not read here");
+        let cooked = cook_project(&probe.0).expect("cook with locale fonts");
+        for font in ["assets/fonts/jp.ttf", "assets/fonts/sc.ttf"] {
+            assert!(
+                cooked
+                    .edges
+                    .contains(&(MANIFEST.to_string(), font.to_string())),
+                "{font} is walked from [ui.locale_fonts]; got {:?}",
+                cooked.edges
+            );
+        }
 
         probe.write("project.toml", "[project]\nname = \"P\"\n");
         let err = cook_project(&probe.0).expect_err("no entry scene");

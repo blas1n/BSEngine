@@ -45,12 +45,23 @@ pub struct ProjectManifest {
 /// # UI text is drawn in the first; a character it lacks comes from the
 /// # next, and last from the built-in fonts (Latin, Greek, Cyrillic).
 /// fonts = ["assets/fonts/Title.ttf", "assets/fonts/NotoSansKR-Regular.otf"]
+///
+/// # While the locale is one of these (exactly, or by its language), its
+/// # fonts go in front of `fonts`.
+/// [ui.locale_fonts]
+/// ja = ["assets/fonts/NotoSansJP-Regular.otf"]
+/// zh-CN = ["assets/fonts/NotoSansSC-Regular.otf"]
 /// ```
 #[derive(Deserialize, Default)]
 pub struct UiSection {
     /// `.ttf`/`.otf` files, project-relative. Packaged like `extra_assets`.
     #[serde(default)]
     pub fonts: Vec<String>,
+    /// Each locale's own fonts (`bsengine_core::UiFonts::for_locale`), by
+    /// locale as the string tables name them. Packaged like `fonts`, every
+    /// locale's: the player picks the locale after the build is made.
+    #[serde(default)]
+    pub locale_fonts: std::collections::BTreeMap<String, Vec<String>>,
 }
 
 /// `project.toml`'s `[localization]` table.
@@ -110,11 +121,13 @@ impl ProjectManifest {
     /// What `--package` must include beyond what the entry scene reaches:
     /// `[package] extra_assets`, the localization tables, which no scene
     /// references and a build without would show every string as its key,
-    /// and the UI fonts, without which it would stop at start.
+    /// and the UI fonts, every locale's, without which it would stop at
+    /// start.
     pub fn packaged_extras(&self) -> Vec<String> {
         let mut extras = self.package.extra_assets.clone();
         extras.extend(self.localization.tables.iter().cloned());
         extras.extend(self.ui.fonts.iter().cloned());
+        extras.extend(self.ui.locale_fonts.values().flatten().cloned());
         extras
     }
 }

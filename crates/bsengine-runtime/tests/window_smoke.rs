@@ -438,11 +438,23 @@ fn a_ui_font_that_is_not_there_stops_the_game_at_start() {
         );
     }
     let test_mode = child.wait_with_output().expect("wait for --test");
-    let _ = std::fs::remove_dir_all(&dir);
     let stderr = String::from_utf8_lossy(&test_mode.stderr);
     assert!(
         !test_mode.status.success() && said_why(&stderr),
         "--test: ran with a missing font ({})\n--- stderr ---\n{stderr}",
         test_mode.status
+    );
+
+    // `[ui.locale_fonts]` too, for a locale the game does not start in (it
+    // starts in English: no tables to match the system's locale against).
+    // The player can switch to it later; its font is found missing now.
+    manifest("\n[ui.locale_fonts]\nja = [\"assets/fonts/missing-ja.ttf\"]\n");
+    let (windowed, stdout, stderr) = run_to_exit(&dir, FRAMES, &[]);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(
+        !windowed.success()
+            && stderr.contains("Cannot read the UI font assets/fonts/missing-ja.ttf"),
+        "windowed: ran with another locale's font missing ({windowed})\n\
+         --- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
     );
 }

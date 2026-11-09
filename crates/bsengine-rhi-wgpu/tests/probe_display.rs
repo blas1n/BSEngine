@@ -346,6 +346,11 @@ fn finer_bricks_draw_smaller_spheres() {
 /// baked brick's come from its table -- sized by the lattice spacing: drawn
 /// at every front lattice point and a little off it, and not halfway between
 /// two, nor further off than a sphere reaches.
+///
+/// And each in its own probe's light: a red wall stands to the left of the
+/// volume, so the left-hand probes baked more red than the middle ones, and
+/// those more than the right-hand ones. A grid read in another index order
+/// puts the same spheres in the same places -- only this order tells.
 #[test]
 fn a_grid_volumes_probes_are_drawn_on_its_lattice_points() {
     // 3 x 2 x 2 probes 1.5 apart in x and y: spheres 0.225 across.
@@ -355,11 +360,11 @@ fn a_grid_volumes_probes_are_drawn_on_its_lattice_points() {
         resolution: [3, 2, 2],
     };
     let mut s = Scene::new();
-    // A red wall behind the volume. Without it the bake sees only the empty
-    // background and every probe comes out its exact grey -- spheres drawn,
-    // and indistinguishable from what is behind them. With it the background
-    // is red, and a sphere's camera-facing side, lit by the grey in front of
-    // it, is not.
+    // A blue wall behind the volume. Without one the bake sees only the
+    // empty background and every probe comes out its exact grey -- spheres
+    // drawn, and indistinguishable from what is behind them. With it the
+    // background is blue, and a sphere's camera-facing side, lit mostly by
+    // the grey in front of it, is not.
     s.push_quad(
         [
             Vec3::new(-3.0, -2.0, -1.5),
@@ -367,7 +372,19 @@ fn a_grid_volumes_probes_are_drawn_on_its_lattice_points() {
             Vec3::new(3.0, 2.0, -1.5),
             Vec3::new(-3.0, 2.0, -1.5),
         ],
-        Vec3::new(1.0, 0.0, 0.0),
+        Vec3::new(0.0, 0.0, 1.0),
+    );
+    // The red wall, at x = -2.5 facing +x: edge-on to the camera, outside
+    // what it sees, one unit from the left-hand probes and four from the
+    // right-hand ones.
+    s.push_quad(
+        [
+            Vec3::new(-2.5, -2.0, -2.0),
+            Vec3::new(-2.5, 2.0, -2.0),
+            Vec3::new(-2.5, 2.0, 2.0),
+            Vec3::new(-2.5, -2.0, 2.0),
+        ],
+        Vec3::new(4.0, 0.0, 0.0),
     );
     let blank = s.render_with(Some(volume));
     s.surface.set_show_light_probes(true);
@@ -391,6 +408,19 @@ fn a_grid_volumes_probes_are_drawn_on_its_lattice_points() {
         assert!(
             !drawn(between),
             "nothing between lattice points, at {between}"
+        );
+    }
+
+    // Each sphere's side facing the red wall, row by row.
+    for y in [-0.75, 0.75] {
+        let red = |x: f32| {
+            let c = rgb(&shown, Vec3::new(x - 0.12, y, 0.9));
+            c[0] - c[2]
+        };
+        let (left, middle, right) = (red(-1.5), red(0.0), red(1.5));
+        assert!(
+            left > middle && middle > right,
+            "redder the nearer the red wall, in the row y = {y}: {left}, {middle}, {right}"
         );
     }
 }

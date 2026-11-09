@@ -745,6 +745,59 @@ fn a_realtime_volume_lights_the_pixels_it_covers() {
     );
 }
 
+/// The editor's light-probe display shows a realtime volume's probes too
+/// (`WgpuSurface::set_show_light_probes`; the baked ones are
+/// `probe_display.rs`'s): a sphere on each lattice point while the volume
+/// updates, lit by the panel the probes see -- where the same frame without
+/// the display has only the background -- and nothing between them.
+#[test]
+fn the_probe_display_shows_a_realtime_volumes_probes() {
+    let mut s = GiScene::new(Vec3::ZERO);
+    // Facing -z, toward the volume, so its probes are lit.
+    s.add(
+        quad_corners(
+            Vec3::new(5.0, -5.0, 2.0),
+            Vec3::NEG_X * 10.0,
+            Vec3::Y * 10.0,
+        ),
+        Vec3::ZERO,
+        Vec3::splat(1.0),
+    );
+    // 2 x 2 x 2 probes, a unit apart: on screen (the identity camera) at
+    // x, y = +-0.5, spheres 0.15 across.
+    let volume = ProbeVolumeParams {
+        origin: Vec3::new(-0.5, -0.5, 0.2),
+        extent: Vec3::new(1.0, 1.0, 0.5),
+        resolution: [2, 2, 2],
+    };
+    let input = s.input(volume, 0.0, 1 << 20);
+    let at = |s: &GiScene, x: f32, y: f32| {
+        let pixels = s.scene.surface.read_pixels().expect("offscreen readback");
+        let (px, py) = (((x + 1.0) * 32.0) as usize, ((1.0 - y) * 32.0) as usize);
+        let i = (py * 64 + px) * 4;
+        [pixels[i], pixels[i + 1], pixels[i + 2]]
+    };
+    s.run(&input, 2);
+    let corners = [(-0.5, -0.5), (0.5, -0.5), (-0.5, 0.5), (0.5, 0.5)];
+    let background = at(&s, 0.0, 0.0);
+    let without: Vec<[u8; 3]> = corners.iter().map(|&(x, y)| at(&s, x, y)).collect();
+    assert!(
+        without.iter().all(|&c| c == background),
+        "premise: nothing but the background at the probes' places: {without:?}"
+    );
+
+    s.scene.surface.set_show_light_probes(true);
+    s.run(&input, 1);
+    for &(x, y) in &corners {
+        let c = at(&s, x, y);
+        assert!(
+            c != background,
+            "a sphere on the probe at ({x}, {y}): {c:?}, the background {background:?}"
+        );
+    }
+    assert_eq!(at(&s, 0.0, 0.0), background, "and nothing between them");
+}
+
 /// Not a test: what a full-grid realtime update costs, for the PR.
 /// `cargo test -p bsengine-rhi-wgpu --release --lib -- --ignored
 /// --nocapture bench_realtime_gi` -- release, because a debug build's

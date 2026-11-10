@@ -14,7 +14,7 @@
 //! reads, so saving a table changes only the cells that were edited.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use bsengine_core::localization::{normalize_locale, parse_csv, parse_csv_table, write_csv};
@@ -39,6 +39,11 @@ pub struct StringTableDoc {
     /// Whether the file started with a UTF-8 byte-order mark (Excel writes
     /// one), kept for the same reason.
     bom: bool,
+    /// The file as it was when opened or last saved: what tells an edit made
+    /// outside the editor from the watcher's echo of this panel's own save,
+    /// which arrives a debounce later -- possibly after typing has begun
+    /// again, when a "changed on disk" notice would be a false alarm.
+    disk_text: String,
     /// Edited since it was opened or saved.
     pub dirty: bool,
 }
@@ -85,8 +90,17 @@ impl StringTableDoc {
             rows,
             line_ending,
             bom,
+            disk_text: text.to_string(),
             dirty: false,
         })
+    }
+
+    /// Whether the file now holds something other than what was opened or
+    /// last saved -- an edit made outside the editor. A file that cannot be
+    /// read is not counted: there is nothing to take from it, and the next
+    /// save writes it again.
+    pub fn changed_on_disk(&self) -> bool {
+        std::fs::read_to_string(&self.path).is_ok_and(|text| text != self.disk_text)
     }
 
     /// The header: the key column's name, then each column's locale or
@@ -212,7 +226,8 @@ impl StringTableDoc {
     pub fn save(&mut self) -> Result<(), String> {
         let text = self.text();
         parse_csv_table(&text).map_err(|e| format!("{}: {e}", self.source))?;
-        std::fs::write(&self.path, text).map_err(|e| format!("{}: {e}", self.path.display()))?;
+        std::fs::write(&self.path, &text).map_err(|e| format!("{}: {e}", self.path.display()))?;
+        self.disk_text = text;
         self.dirty = false;
         Ok(())
     }
@@ -222,22 +237,42 @@ impl StringTableDoc {
 /// system that answers it. Shared like `MixerShared`: the panel cannot reach
 /// the world, so it sets a flag and [`reload_localization_tables`] does the
 /// reading.
+///
+/// It also carries the other direction: a count of the times a table changed
+/// on disk ([`Self::changed_on_disk`], called by `bsengine-render` from the
+/// asset watcher's `AssetFileChanged`), which the panel compares against the
+/// count it last saw to read its open table again.
 #[derive(bevy_ecs::prelude::Resource, Clone, Default)]
-pub struct LocalizationReload(Arc<AtomicBool>);
+pub struct LocalizationReload {
+    requested: Arc<AtomicBool>,
+    disk_changes: Arc<AtomicU64>,
+}
 
 impl LocalizationReload {
     /// Asks for the tables to be read again on the next update.
     pub fn request(&self) {
-        self.0.store(true, Ordering::Release);
+        self.requested.store(true, Ordering::Release);
+    }
+
+    /// A table changed on disk: the game reads the tables again, and the
+    /// panel looks at its open one.
+    pub fn changed_on_disk(&self) {
+        self.disk_changes.fetch_add(1, Ordering::AcqRel);
+        self.request();
+    }
+
+    fn disk_changes(&self) -> u64 {
+        self.disk_changes.load(Ordering::Acquire)
     }
 
     fn take(&self) -> bool {
-        self.0.swap(false, Ordering::AcqRel)
+        self.requested.swap(false, Ordering::AcqRel)
     }
 }
 
 /// Re-reads every table the game loaded, from disk, into the live
-/// [`Localization`] when the panel saved one -- every table, not just the
+/// [`Localization`] when the panel saved one, or a table changed on disk
+/// ([`LocalizationReload::changed_on_disk`]) -- every table, not just the
 /// saved one, because the game's tables are a merge in `project.toml`'s
 /// order and a later table overrides an earlier one key by key. The locale
 /// and settings stay ([`Localization::reload_tables`]): a game that switched
@@ -245,7 +280,8 @@ impl LocalizationReload {
 ///
 /// A table that does not load leaves the game's text as it was, with an
 /// error, rather than blanking it; the panel's own check means that is a
-/// table edited outside the editor in the meantime.
+/// table edited outside the editor -- a spreadsheet saving half a file, say,
+/// which its next save completes and the watcher reports again.
 pub fn reload_localization_tables(
     reload: Option<bevy_ecs::prelude::Res<LocalizationReload>>,
     project_dir: Option<bevy_ecs::prelude::Res<ProjectDir>>,
@@ -291,6 +327,13 @@ pub struct LocalizationPanel {
     doc: Option<StringTableDoc>,
     /// Why the selected table could not be opened or saved.
     error: Option<String>,
+    /// [`LocalizationReload`]'s count of disk changes, as last looked at.
+    seen_disk_changes: u64,
+    /// The open table changed on disk while it had edits here, which a
+    /// re-read would have dropped: said, and left to **Reload** or **Save**
+    /// to settle -- what Godot's script editor and Visual Studio do with a
+    /// file changed under unsaved edits.
+    changed_under_edits: bool,
     filter: String,
     new_key: String,
     new_locale: String,
@@ -307,10 +350,12 @@ impl LocalizationPanel {
         Self {
             project_dir,
             sources,
+            seen_disk_changes: reload.disk_changes(),
             reload,
             selected: 0,
             doc: None,
             error: None,
+            changed_under_edits: false,
             filter: String::new(),
             new_key: String::new(),
             new_locale: String::new(),
@@ -342,6 +387,9 @@ impl LocalizationPanel {
             return Ok(());
         };
         doc.save()?;
+        // Written over whatever changed on disk: that is what Save means
+        // once the notice has said so.
+        self.changed_under_edits = false;
         self.reload.request();
         Ok(())
     }
@@ -351,6 +399,35 @@ impl LocalizationPanel {
         self.selected = index;
         self.doc = None;
         self.error = None;
+        self.changed_under_edits = false;
+    }
+
+    /// Takes in the disk changes the watcher reported since the last frame.
+    /// The open table is read again when it changed and has no edits here;
+    /// with edits, the change is only said. A table that failed to open is
+    /// tried again -- the change may be its fix. The watcher's echo of this
+    /// panel's own save is no change (`changed_on_disk` compares contents).
+    fn take_disk_changes(&mut self) {
+        let changes = self.reload.disk_changes();
+        if changes == self.seen_disk_changes {
+            return;
+        }
+        self.seen_disk_changes = changes;
+        match &self.doc {
+            Some(doc) if doc.changed_on_disk() => {
+                if doc.dirty {
+                    self.changed_under_edits = true;
+                } else {
+                    self.select(self.selected);
+                }
+            }
+            Some(_) => {}
+            None => {
+                if self.error.is_some() {
+                    self.select(self.selected);
+                }
+            }
+        }
     }
 
     /// The key rows whose key or any cell contains the filter, ignoring
@@ -407,9 +484,9 @@ impl LocalizationPanel {
                 }
             }
             // Always enabled: it is also how a table edited outside the
-            // editor, or one that failed to open, is read again -- by the
-            // panel and by the game, which would otherwise keep the text it
-            // started with until the next save.
+            // editor is read again where the watcher does not see it -- a
+            // table outside `assets/`, which is all the watcher watches, or
+            // one changed under edits here -- by the panel and by the game.
             if ui
                 .button(format!(
                     "{} Reload",
@@ -565,10 +642,21 @@ impl EditorPanel for LocalizationPanel {
             );
             return;
         }
+        self.take_disk_changes();
         self.doc();
         self.toolbar(ui);
         if let Some(error) = &self.error {
             ui.colored_label(ui.visuals().error_fg_color, error);
+        }
+        if self.changed_under_edits {
+            ui.colored_label(
+                ui.visuals().warn_fg_color,
+                format!(
+                    "{} changed on disk. Reload takes that version and drops your edits; \
+                     Save writes yours over it.",
+                    self.sources[self.selected]
+                ),
+            );
         }
         if let Some(doc) = self.doc.as_mut() {
             Self::grid(ui, doc, &self.filter);
@@ -590,6 +678,7 @@ pub fn register_localization_panel(
     registry: Option<bevy_ecs::prelude::Res<bsengine_core::EditorPanelRegistry>>,
     localization: Option<bevy_ecs::prelude::Res<Localization>>,
     project_dir: Option<bevy_ecs::prelude::Res<ProjectDir>>,
+    reload: Option<bevy_ecs::prelude::Res<LocalizationReload>>,
 ) {
     let Some(registry) = registry else {
         return;
@@ -600,10 +689,17 @@ pub fn register_localization_panel(
     if panels.contains_key("localization") {
         return;
     }
-    // Inserted only with the panel that holds it: a second handle would be
-    // one no panel ever sets.
-    let reload = LocalizationReload::default();
-    commands.insert_resource(reload.clone());
+    // The handle the world already has (`RenderPlugin` inits one for the
+    // watcher, editor or not), so the panel hears the disk changes reported
+    // into it; a fresh one would be a second handle nobody else holds.
+    let reload = reload.map_or_else(
+        || {
+            let reload = LocalizationReload::default();
+            commands.insert_resource(reload.clone());
+            reload
+        },
+        |reload| reload.clone(),
+    );
     let sources = localization.map_or_else(Vec::new, |l| l.sources().to_vec());
     let project_dir = project_dir.map(|p| p.clone());
     panels.insert(
@@ -1033,5 +1129,161 @@ mod tests {
         app.world().resource::<LocalizationReload>().request();
         app.update();
         assert_eq!(app.world().resource::<Localization>().tr("QUIT"), "나가기");
+    }
+
+    /// Every text drawn on the second of two frames, on a context kept
+    /// across calls (the typed edits live in the panel, the focus in it).
+    fn shown(ctx: &egui::Context, panel: &mut dyn EditorPanel) -> Vec<String> {
+        frame(ctx, panel, Vec::new());
+        frame(ctx, panel, Vec::new())
+            .into_iter()
+            .map(|d| d.text)
+            .collect()
+    }
+
+    const NOTICE: &str = "changed on disk";
+
+    /// The open table, unedited here, is read again when the watcher
+    /// reports a change -- and not before, so it is the report doing it.
+    #[test]
+    fn an_open_table_changed_on_disk_is_read_again() {
+        let dir = temp_project("disk");
+        doc_in(&dir);
+        let reload = LocalizationReload::default();
+        let mut panel = panel_over(&dir, reload.clone());
+        let ctx = egui::Context::default();
+        assert!(shown(&ctx, &mut panel).iter().any(|t| t == "종료"));
+
+        std::fs::write(dir.join("strings.csv"), "keys,en,ko\nQUIT,Quit,나가기\n").unwrap();
+        assert!(
+            shown(&ctx, &mut panel).iter().any(|t| t == "종료"),
+            "premise: nothing is read again unreported"
+        );
+        reload.changed_on_disk();
+        let text = shown(&ctx, &mut panel);
+        assert!(text.iter().any(|t| t == "나가기"), "{text:?}");
+        assert!(!text.iter().any(|t| t.contains(NOTICE)), "{text:?}");
+    }
+
+    /// The hard side: with edits here, a change on disk must not drop them.
+    /// It is said; **Reload** then takes the disk's version, or **Save**
+    /// writes the edits over it -- either one clears the notice.
+    #[test]
+    fn a_change_under_edits_is_said_and_left_to_reload_or_save() {
+        for settle in ["Reload", "Save"] {
+            let dir = temp_project(&format!("under-edits-{settle}"));
+            doc_in(&dir);
+            let reload = LocalizationReload::default();
+            let mut panel = panel_over(&dir, reload.clone());
+            let ctx = egui::Context::default();
+            type_into(&ctx, &mut panel, "strings.csv", 2, 2, "!");
+            assert!(panel.doc().unwrap().dirty, "premise: edited here");
+
+            let outside = "keys,en,ko\nQUIT,Quit,나가기\n";
+            std::fs::write(dir.join("strings.csv"), outside).unwrap();
+            reload.changed_on_disk();
+            let text = shown(&ctx, &mut panel);
+            assert!(text.iter().any(|t| t.contains(NOTICE)), "{text:?}");
+            assert_eq!(panel.doc().unwrap().row(2)[2], "종료!", "the edit is kept");
+
+            click(&ctx, &mut panel, settle);
+            let text = shown(&ctx, &mut panel);
+            assert!(
+                !text.iter().any(|t| t.contains(NOTICE)),
+                "{settle}: {text:?}"
+            );
+            let on_disk = std::fs::read_to_string(dir.join("strings.csv")).unwrap();
+            if settle == "Reload" {
+                assert!(text.iter().any(|t| t == "나가기"), "{text:?}");
+                assert_eq!(on_disk, outside);
+            } else {
+                assert!(on_disk.contains("QUIT,Quit,종료!,"), "{on_disk}");
+            }
+        }
+    }
+
+    /// The watcher reports the panel's own save too, a debounce later and
+    /// perhaps after typing has started again. That is no change: no
+    /// notice, and the new typing stays.
+    #[test]
+    fn the_echo_of_a_save_is_no_change() {
+        let dir = temp_project("echo");
+        doc_in(&dir);
+        let reload = LocalizationReload::default();
+        let mut panel = panel_over(&dir, reload.clone());
+        let ctx = egui::Context::default();
+        type_into(&ctx, &mut panel, "strings.csv", 2, 2, "!");
+        click(&ctx, &mut panel, "Save");
+        type_into(&ctx, &mut panel, "strings.csv", 0, 1, "?");
+        assert!(panel.doc().unwrap().dirty, "premise: typing again");
+
+        reload.changed_on_disk();
+        let text = shown(&ctx, &mut panel);
+        assert!(!text.iter().any(|t| t.contains(NOTICE)), "{text:?}");
+        assert_eq!(panel.doc().unwrap().row(0)[1], "Hello?");
+        assert_eq!(panel.doc().unwrap().row(2)[2], "종료!");
+    }
+
+    /// A table that would not open is tried again when it changes on disk:
+    /// the change may well be its fix.
+    #[test]
+    fn a_table_that_failed_to_open_is_tried_again_when_it_changes() {
+        let dir = temp_project("fixed");
+        std::fs::write(dir.join("strings.csv"), "keys,en\nQUIT,\"open\n").unwrap();
+        let reload = LocalizationReload::default();
+        let mut panel = panel_over(&dir, reload.clone());
+        let ctx = egui::Context::default();
+        assert!(
+            panel.doc().is_none(),
+            "premise: the broken table does not open"
+        );
+
+        std::fs::write(dir.join("strings.csv"), TABLE).unwrap();
+        reload.changed_on_disk();
+        let text = shown(&ctx, &mut panel);
+        assert!(text.iter().any(|t| t == "종료"), "{text:?}");
+    }
+
+    /// The panel listens on the world's handle, the one the watcher reports
+    /// into (`RenderPlugin` inits it before this registers), not one of its
+    /// own that nothing else holds.
+    #[test]
+    fn the_panel_hears_the_worlds_reload_handle() {
+        let dir = temp_project("shared");
+        std::fs::write(dir.join("strings.csv"), TABLE).unwrap();
+        let reload = LocalizationReload::default();
+        let mut localization =
+            Localization::from_csv_tables([("strings.csv", TABLE)], "en").unwrap();
+        localization.set_locale("ko");
+        let mut app = bsengine_app::new_app();
+        app.insert_resource(bsengine_core::EditorPanelRegistry::default())
+            .insert_resource(ProjectDir(dir.display().to_string()))
+            .insert_resource(localization)
+            .insert_resource(reload.clone())
+            .add_systems(bevy_app::Startup, register_localization_panel)
+            .add_systems(bevy_app::Update, reload_localization_tables);
+        app.update();
+        let registry = app
+            .world()
+            .resource::<bsengine_core::EditorPanelRegistry>()
+            .0
+            .clone();
+        let mut panels = registry.lock().unwrap();
+        let panel = panels.get_mut("localization").unwrap().as_mut();
+        let ctx = egui::Context::default();
+        // Opened before the change, or its first draw would read the new
+        // file whatever it heard.
+        assert!(shown(&ctx, panel).iter().any(|t| t == "종료"));
+
+        std::fs::write(dir.join("strings.csv"), "keys,en,ko\nQUIT,Quit,나가기\n").unwrap();
+        reload.changed_on_disk();
+        app.update();
+        assert_eq!(
+            app.world().resource::<Localization>().tr("QUIT"),
+            "나가기",
+            "the game read it, through the handle inserted first"
+        );
+        let text = shown(&ctx, panel);
+        assert!(text.iter().any(|t| t == "나가기"), "{text:?}");
     }
 }

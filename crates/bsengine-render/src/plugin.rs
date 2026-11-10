@@ -299,6 +299,51 @@ fn sync_ui_fonts(
     *installed = Some(key);
 }
 
+/// Hot reload for the string tables: a table saved outside the editor -- by a
+/// spreadsheet, a merge, a translator's tool -- reaches the running game, and
+/// the Localization panel when it shows that table, without a restart or a
+/// click on **Reload**. Unity and Godot both re-import a changed CSV; this is
+/// the asset watcher's [`bsengine_asset::AssetFileChanged`] matched against
+/// the files `Localization` read, which then asks for the same reload a save
+/// in the panel does.
+///
+/// Editor or not: the runtime watches `assets/` in a windowed game too, and a
+/// behaviour tree already hot-reloads there. A table outside `assets/` is not
+/// watched (nothing is); the panel's **Reload** still reads it.
+///
+/// The paths are compared in the watcher's spelling, `<ProjectDir>/assets/..`
+/// with forward slashes; the table's is `project.toml`'s, normalised first so
+/// `./assets/strings.csv` or a backslash still matches -- a spelling that
+/// does not match reloads nothing, silently.
+fn localization_tables_changed_on_disk(
+    mut changes: MessageReader<bsengine_asset::AssetFileChanged>,
+    localization: Option<Res<bsengine_core::Localization>>,
+    project_dir: Option<Res<bsengine_core::ProjectDir>>,
+    reload: Res<bsengine_rhi_wgpu::panels::LocalizationReload>,
+) {
+    let Some(localization) = localization else {
+        changes.clear();
+        return;
+    };
+    let tables: Vec<String> = localization
+        .sources()
+        .iter()
+        .map(|source| {
+            let source = bsengine_core::project_path(source).unwrap_or_else(|_| source.clone());
+            bsengine_core::resolve_project_path(project_dir.as_deref(), &source).replace('\\', "/")
+        })
+        .collect();
+    // Every message read, so one change is not seen again next frame; one
+    // reload however many tables (or saves of one) the drain carried.
+    let mut changed = false;
+    for change in changes.read() {
+        changed |= tables.contains(&change.path.replace('\\', "/"));
+    }
+    if changed {
+        reload.changed_on_disk();
+    }
+}
+
 /// Lazy-compiles any `CustomShader` not yet cached in the surface, reading
 /// its WGSL source through `bsengine_asset::load` (`LoadMode::Async`) and
 /// handing the text to `compile_and_store_shader`. Split out of
@@ -1591,11 +1636,23 @@ impl Plugin for RenderPlugin {
                     bsengine_rhi_wgpu::panels::register_localization_panel,
                 ),
             )
-            // Does nothing until the Localization panel saves a table; then
-            // the game's text changes on the next frame.
+            // Registered here as well as by the watcher that sends it, so the
+            // reader works in a host with no watcher (a replay, a packaged
+            // game) and simply never sees one. The reload handle is the
+            // world's, editor or not: the watcher reports into it, and the
+            // panel, when there is one, takes the same handle.
+            .add_message::<bsengine_asset::AssetFileChanged>()
+            .init_resource::<bsengine_rhi_wgpu::panels::LocalizationReload>()
+            // Does nothing until the Localization panel saves a table or the
+            // watcher reports one changed; then the game's text changes on
+            // the same frame's update.
             .add_systems(
                 Update,
-                bsengine_rhi_wgpu::panels::reload_localization_tables,
+                (
+                    localization_tables_changed_on_disk,
+                    bsengine_rhi_wgpu::panels::reload_localization_tables,
+                )
+                    .chain(),
             )
             .add_systems(
                 Update,
@@ -2504,6 +2561,109 @@ mod tests {
             .request();
         app.update();
         assert_eq!(tr(&app), "Hello");
+    }
+
+    /// A string table under `assets/`, in the game's `RenderPlugin`, and the
+    /// real asset watcher with `watch` (added before the first update: it
+    /// starts watching in `Startup`).
+    fn app_with_table(
+        name: &str,
+        source: &str,
+        watch: bool,
+    ) -> (bevy_app::App, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "bsengine-render-localization-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let table = dir.join("assets").join("i18n").join("strings.csv");
+        std::fs::create_dir_all(table.parent().unwrap()).unwrap();
+        std::fs::write(&table, "keys,en\nHI,Hi\n").unwrap();
+        let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir(
+            dir.to_string_lossy().replace('\\', "/"),
+        ))
+        .insert_resource(
+            bsengine_core::Localization::from_csv_tables([(source, "keys,en\nHI,Hi\n")], "en")
+                .unwrap(),
+        );
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::offscreen(64, 64, false));
+        app.add_plugins(RenderPlugin);
+        if watch {
+            app.add_plugins(bsengine_asset::AssetWatcherPlugin);
+        }
+        app.update();
+        (app, table)
+    }
+
+    fn tr_hi(app: &bevy_app::App) -> String {
+        app.world()
+            .resource::<bsengine_core::Localization>()
+            .tr("HI")
+    }
+
+    /// A table changed on disk reaches the game with no editor and no click:
+    /// the watcher's notice for that file is enough, and the notice for any
+    /// other file is not. The table is named the way a hand-written
+    /// `project.toml` might (`./`), the notice the way the watcher spells it
+    /// -- a spelling the match missed would reload nothing, silently.
+    #[test]
+    fn a_table_changed_on_disk_reaches_the_game() {
+        let (mut app, table) = app_with_table("notice", "./assets/i18n/strings.csv", false);
+        std::fs::write(&table, "keys,en\nHI,Hello\n").unwrap();
+        let project_dir = app
+            .world()
+            .resource::<bsengine_core::ProjectDir>()
+            .0
+            .clone();
+        app.world_mut()
+            .write_message(bsengine_asset::AssetFileChanged {
+                path: format!("{project_dir}/assets/i18n/other.csv"),
+            });
+        app.update();
+        assert_eq!(
+            tr_hi(&app),
+            "Hi",
+            "premise: another file's notice reloads nothing"
+        );
+
+        app.world_mut()
+            .write_message(bsengine_asset::AssetFileChanged {
+                path: format!("{project_dir}/assets/i18n/strings.csv"),
+            });
+        app.update();
+        assert_eq!(tr_hi(&app), "Hello", "read on the notice's own update");
+        let _ = std::fs::remove_dir_all(table.ancestors().nth(3).unwrap());
+    }
+
+    /// The whole chain with nothing handed over by hand: the real asset
+    /// watcher sees a table saved on disk, and the running game's text
+    /// changes. What the test above cannot see is that the watcher's
+    /// spelling and the table's agree on a real path.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn the_asset_watcher_reloads_a_table_edited_on_disk() {
+        let (mut app, table) = app_with_table("watcher", "assets/i18n/strings.csv", true);
+        assert_eq!(tr_hi(&app), "Hi", "premise: the table as it started");
+
+        // Past the watcher's 200 ms debounce before the edit, so the write is
+        // not folded into whatever the start-up produced.
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        std::fs::write(&table, "keys,en\nHI,Hello\n").unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while tr_hi(&app) != "Hello" {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the edit never reached the running game"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            app.update();
+        }
+        let _ = std::fs::remove_dir_all(table.ancestors().nth(3).unwrap());
     }
 
     /// The project's `MsaaSettings` reaches the renderer: 4 samples asked

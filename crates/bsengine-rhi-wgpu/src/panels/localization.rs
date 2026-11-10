@@ -261,7 +261,9 @@ impl LocalizationReload {
         self.request();
     }
 
-    fn disk_changes(&self) -> u64 {
+    /// How many times a table changed on disk: what the panel compares
+    /// against the count it last saw.
+    pub fn disk_changes(&self) -> u64 {
         self.disk_changes.load(Ordering::Acquire)
     }
 

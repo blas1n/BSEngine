@@ -2630,6 +2630,12 @@ mod tests {
             "Hi",
             "premise: another file's notice reloads nothing"
         );
+        let disk_changes = |app: &bevy_app::App| {
+            app.world()
+                .resource::<bsengine_rhi_wgpu::panels::LocalizationReload>()
+                .disk_changes()
+        };
+        assert_eq!(disk_changes(&app), 0, "nor tells the panel anything");
 
         app.world_mut()
             .write_message(bsengine_asset::AssetFileChanged {
@@ -2637,6 +2643,11 @@ mod tests {
             });
         app.update();
         assert_eq!(tr_hi(&app), "Hello", "read on the notice's own update");
+        assert_eq!(
+            disk_changes(&app),
+            1,
+            "and the panel, which reads its open table on this count, is told"
+        );
         let _ = std::fs::remove_dir_all(table.ancestors().nth(3).unwrap());
     }
 

@@ -32,6 +32,10 @@ use bevy_ecs::prelude::Resource;
 #[derive(Resource, Debug, Clone, Default)]
 pub struct Localization {
     tables: Arc<HashMap<String, HashMap<String, String>>>,
+    /// The source of each table, in the order they were merged -- what the
+    /// editor's Localization panel opens, and what [`Self::reload_tables`]
+    /// is handed again.
+    sources: Arc<[String]>,
     locale: String,
     default_locale: String,
     /// Whether UI text that is a key is shown translated; see
@@ -50,19 +54,41 @@ impl Localization {
         tables: impl IntoIterator<Item = (&'a str, &'a str)>,
         default_locale: &str,
     ) -> Result<Self, String> {
-        let mut merged: HashMap<String, HashMap<String, String>> = HashMap::new();
-        for (source, text) in tables {
-            for (locale, entries) in parse_csv_table(text).map_err(|e| format!("{source}: {e}"))? {
-                merged.entry(locale).or_default().extend(entries);
-            }
-        }
+        let (tables, sources) = merge_csv_tables(tables)?;
         let default_locale = normalize_locale(default_locale);
         Ok(Self {
-            tables: Arc::new(merged),
+            tables,
+            sources,
             locale: default_locale.clone(),
             default_locale,
             auto_translate: true,
         })
+    }
+
+    /// Replaces every table with `tables`, merged as
+    /// [`Self::from_csv_tables`] merges them, and keeps the locale, the
+    /// default locale and [`Self::auto_translate`] -- what the editor does
+    /// after saving a table, so the text on screen changes without a restart
+    /// and without the game's `setLocale` being undone.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::from_csv_tables`]; the tables are then left as they were,
+    /// so a table saved half-written cannot blank the game's text.
+    pub fn reload_tables<'a>(
+        &mut self,
+        tables: impl IntoIterator<Item = (&'a str, &'a str)>,
+    ) -> Result<(), String> {
+        let (tables, sources) = merge_csv_tables(tables)?;
+        self.tables = tables;
+        self.sources = sources;
+        Ok(())
+    }
+
+    /// The source of each table (`project.toml`'s `[localization] tables`,
+    /// project-relative), in merge order; empty for an app with no tables.
+    pub fn sources(&self) -> &[String] {
+        &self.sources
     }
 
     /// The locale being shown, normalized (`ko`, `pt-BR`).
@@ -185,6 +211,23 @@ impl Localization {
     pub fn format(text: &str, args: &HashMap<String, String>) -> String {
         format_message("en", text, args)
     }
+}
+
+/// Locale -> key -> text, merged from each `(source, csv text)` with later
+/// sources overriding earlier ones key by key; and the sources, in order.
+#[allow(clippy::type_complexity)]
+fn merge_csv_tables<'a>(
+    tables: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> Result<(Arc<HashMap<String, HashMap<String, String>>>, Arc<[String]>), String> {
+    let mut merged: HashMap<String, HashMap<String, String>> = HashMap::new();
+    let mut sources = Vec::new();
+    for (source, text) in tables {
+        for (locale, entries) in parse_csv_table(text).map_err(|e| format!("{source}: {e}"))? {
+            merged.entry(locale).or_default().extend(entries);
+        }
+        sources.push(source.to_string());
+    }
+    Ok((Arc::new(merged), sources.into()))
 }
 
 /// Fills a message's placeholders from `args`, ICU MessageFormat's way --
@@ -538,9 +581,44 @@ pub fn parse_csv_table(text: &str) -> Result<HashMap<String, HashMap<String, Str
     Ok(tables)
 }
 
+/// Writes `rows` as RFC 4180 CSV, each row ended by `line_ending` (`"\n"` or
+/// `"\r\n"`): what [`parse_csv`] reads back cell for cell. A cell is quoted
+/// only when it must be -- it holds a comma, a quote or a line break, or
+/// starts or ends with a space, which a spreadsheet would trim -- so a table
+/// the editor saves differs from the hand-written one only where a cell
+/// changed, and its diff in version control shows just that.
+pub fn write_csv(rows: &[Vec<String>], line_ending: &str) -> String {
+    let mut out = String::new();
+    for row in rows {
+        for (i, cell) in row.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            let quote = cell.contains([',', '"', '\n', '\r'])
+                || cell.starts_with(' ')
+                || cell.ends_with(' ');
+            if quote {
+                out.push('"');
+                out.push_str(&cell.replace('"', "\"\""));
+                out.push('"');
+            } else {
+                out.push_str(cell);
+            }
+        }
+        out.push_str(line_ending);
+    }
+    out
+}
+
 /// RFC 4180 CSV: cells separated by commas, rows by `\n` or `\r\n`, a cell in
-/// double quotes may hold commas, newlines and `""` for a quote.
-fn parse_csv(text: &str) -> Result<Vec<Vec<String>>, String> {
+/// double quotes may hold commas, newlines and `""` for a quote. The rows as
+/// written, header and comment columns included -- [`parse_csv_table`] is
+/// what reads them as a string table.
+///
+/// # Errors
+///
+/// A quote that is never closed.
+pub fn parse_csv(text: &str) -> Result<Vec<Vec<String>>, String> {
     let mut rows = Vec::new();
     let mut row = Vec::new();
     let mut cell = String::new();
@@ -662,6 +740,73 @@ mod tests {
         .unwrap();
         assert_eq!(l.tr("A"), "base a");
         assert_eq!(l.tr("B"), "patched b");
+    }
+
+    /// What the editor does after a save: new text, the same locale. A game
+    /// that called `setLocale("ko")` must still be in Korean afterwards --
+    /// rebuilding the resource from `project.toml` would put it back in the
+    /// starting locale.
+    #[test]
+    fn reloading_tables_keeps_the_locale_and_settings() {
+        let mut l = loc("ko");
+        l.set_auto_translate(false);
+        assert_eq!(l.sources(), ["strings.csv"]);
+        l.reload_tables([
+            ("a.csv", "keys,en,ko\nGREETING,Hi,여보세요\n"),
+            ("b.csv", "keys,en\nNEW,New\n"),
+        ])
+        .unwrap();
+        assert_eq!(l.tr("GREETING"), "여보세요", "the new text");
+        assert_eq!(l.tr("NEW"), "New", "from the second table");
+        assert_eq!(l.tr("ONLY_EN"), "ONLY_EN", "the old tables are gone");
+        assert_eq!(l.locale(), "ko");
+        assert_eq!(l.default_locale(), "en");
+        assert!(!l.auto_translate());
+        assert_eq!(l.sources(), ["a.csv", "b.csv"]);
+
+        let err = l
+            .reload_tables([("a.csv", "keys,en\nX,\"open\n")])
+            .unwrap_err();
+        assert!(err.starts_with("a.csv: "), "{err}");
+        assert_eq!(
+            l.tr("GREETING"),
+            "여보세요",
+            "a table that does not parse leaves the tables as they were"
+        );
+        assert_eq!(l.sources(), ["a.csv", "b.csv"]);
+    }
+
+    /// The writer is the parser's inverse, cell for cell -- commas, quotes,
+    /// line breaks, edge spaces, empty cells, short rows -- and quotes only
+    /// the cells that need it, so an untouched table is written back as it
+    /// was hand-written.
+    #[test]
+    fn written_csv_reads_back_as_it_was() {
+        let rows: Vec<Vec<String>> = [
+            vec!["keys", "en", "ko", "_notes"],
+            vec!["A", "plain", "", "a, b"],
+            vec!["B", "say \"hi\"", "line\none", " padded "],
+            vec!["C", "crlf\r\ninside", "#{n}", ""],
+            vec!["D"],
+        ]
+        .iter()
+        .map(|r| r.iter().map(|c| c.to_string()).collect())
+        .collect();
+        for ending in ["\n", "\r\n"] {
+            let text = write_csv(&rows, ending);
+            assert_eq!(parse_csv(&text).unwrap(), rows, "{ending:?}: {text:?}");
+        }
+        assert_eq!(
+            write_csv(&rows[..2], "\n"),
+            "keys,en,ko,_notes\nA,plain,,\"a, b\"\n",
+            "only the cell with a comma is quoted"
+        );
+        let hand_written = "keys,en,ko\r\nGREETING,Hello,안녕하세요\r\nSCORE,\"Score: {points}\",\"점수, {points}\"\r\n";
+        assert_eq!(
+            write_csv(&parse_csv(hand_written).unwrap(), "\r\n"),
+            hand_written.replace("\"Score: {points}\"", "Score: {points}"),
+            "a table comes back byte for byte, but for quotes it did not need"
+        );
     }
 
     #[test]

@@ -1584,7 +1584,19 @@ impl Plugin for RenderPlugin {
             .init_resource::<crate::texture_cache::TextureCache>()
             .add_message::<WindowResized>()
             .add_message::<KeyInput>()
-            .add_systems(Startup, bsengine_rhi_wgpu::panels::register_mixer_panel)
+            .add_systems(
+                Startup,
+                (
+                    bsengine_rhi_wgpu::panels::register_mixer_panel,
+                    bsengine_rhi_wgpu::panels::register_localization_panel,
+                ),
+            )
+            // Does nothing until the Localization panel saves a table; then
+            // the game's text changes on the next frame.
+            .add_systems(
+                Update,
+                bsengine_rhi_wgpu::panels::reload_localization_tables,
+            )
             .add_systems(
                 Update,
                 (
@@ -2441,6 +2453,57 @@ mod tests {
         assert!(!shown(&mut app), "not in Play");
         app.world_mut().resource_mut::<InspectorState>().play_state = EditorPlayState::Stopped;
         assert!(shown(&mut app), "and back when Play stops");
+    }
+
+    /// The plugin is what puts the Localization panel in the editor and
+    /// answers its saves: with the editor's registry, the panel is there
+    /// over the game's tables, and a reload it asks for reaches the game's
+    /// `Localization` on the next update. The panel's own tests register
+    /// both systems themselves, so without this one the plugin could drop
+    /// either and every test would stay green.
+    #[test]
+    fn the_plugin_registers_the_localization_panel_and_answers_its_saves() {
+        let dir = std::env::temp_dir().join(format!(
+            "bsengine-render-localization-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let table = "keys,en\nHI,Hi\n";
+        std::fs::write(dir.join("strings.csv"), table).unwrap();
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::offscreen(64, 64, false));
+        app.insert_resource(bsengine_core::EditorPanelRegistry::default())
+            .insert_resource(bsengine_core::ProjectDir(dir.display().to_string()))
+            .insert_resource(
+                bsengine_core::Localization::from_csv_tables([("strings.csv", table)], "en")
+                    .unwrap(),
+            );
+        app.add_plugins(RenderPlugin);
+        app.update();
+        assert!(
+            app.world()
+                .resource::<bsengine_core::EditorPanelRegistry>()
+                .0
+                .lock()
+                .unwrap()
+                .contains_key("localization"),
+            "the panel is in the editor's registry"
+        );
+
+        std::fs::write(dir.join("strings.csv"), "keys,en\nHI,Hello\n").unwrap();
+        app.update();
+        let tr = |app: &bevy_app::App| {
+            app.world()
+                .resource::<bsengine_core::Localization>()
+                .tr("HI")
+        };
+        assert_eq!(tr(&app), "Hi", "premise: nothing reloads unasked");
+        app.world()
+            .resource::<bsengine_rhi_wgpu::panels::LocalizationReload>()
+            .request();
+        app.update();
+        assert_eq!(tr(&app), "Hello");
     }
 
     /// The project's `MsaaSettings` reaches the renderer: 4 samples asked

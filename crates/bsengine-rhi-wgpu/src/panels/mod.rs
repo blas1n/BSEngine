@@ -6,6 +6,9 @@ pub mod dock;
 pub mod hierarchy;
 /// The Inspector panel: displays and edits the selected entity's components.
 pub mod inspector;
+/// The Localization panel: the project's string tables as an editable
+/// key-by-locale grid.
+pub mod localization;
 /// The Mixer panel: the audio bus tree with a volume fader on each bus.
 pub mod mixer;
 /// The Particles panel: every emitter with its live count, plus the
@@ -35,6 +38,10 @@ pub use dock::{
 };
 pub use hierarchy::HierarchyPanel;
 pub use inspector::InspectorPanel;
+pub use localization::{
+    register_localization_panel, reload_localization_tables, LocalizationPanel, LocalizationReload,
+    StringTableDoc,
+};
 pub use mixer::{register_mixer_panel, MixerPanel};
 pub use particles::ParticlePanel;
 pub use profiler::ProfilerPanel;

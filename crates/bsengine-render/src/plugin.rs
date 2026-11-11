@@ -1645,12 +1645,14 @@ impl Plugin for RenderPlugin {
             .init_resource::<bsengine_rhi_wgpu::panels::LocalizationReload>()
             // Does nothing until the Localization panel saves a table or the
             // watcher reports one changed; then the game's text changes on
-            // the same frame's update.
+            // the same frame's update. The locale last, so the panel's menu
+            // hears of a locale the reload added on that update too.
             .add_systems(
                 Update,
                 (
                     localization_tables_changed_on_disk,
                     bsengine_rhi_wgpu::panels::reload_localization_tables,
+                    bsengine_rhi_wgpu::panels::sync_localization_locale,
                 )
                     .chain(),
             )
@@ -2604,6 +2606,33 @@ mod tests {
         app.world()
             .resource::<bsengine_core::Localization>()
             .tr("HI")
+    }
+
+    /// The Localization panel's locale menu reaches the game through the
+    /// plugin's own systems: the request on the handle the panel shares,
+    /// the game's locale switched, and published back for the menu.
+    #[test]
+    fn the_editors_locale_request_reaches_the_game() {
+        let (mut app, table) = app_with_table("locale", "assets/i18n/strings.csv", false);
+        let reload = app
+            .world()
+            .resource::<bsengine_rhi_wgpu::panels::LocalizationReload>()
+            .clone();
+        assert_eq!(
+            reload.game_locale().current,
+            "en",
+            "premise: published on the first update"
+        );
+        reload.request_locale("fr");
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<bsengine_core::Localization>()
+                .locale(),
+            "fr"
+        );
+        assert_eq!(reload.game_locale().current, "fr");
+        let _ = std::fs::remove_dir_all(table.ancestors().nth(3).unwrap());
     }
 
     /// A table changed on disk reaches the game with no editor and no click:

@@ -2743,6 +2743,11 @@ fn run_scripts(world: &mut World) {
                     ui.set_fill(&id, weight);
                 }
             }
+            ScriptCommand::SetUiFont { id, family } => {
+                if let Some(mut ui) = world.get_resource_mut::<UiState>() {
+                    ui.set_font(&id, &family);
+                }
+            }
             ScriptCommand::SetUiAutoTranslate { id, mode } => {
                 if let Some(mut ui) = world.get_resource_mut::<UiState>() {
                     ui.set_auto_translate(&id, mode);
@@ -6942,7 +6947,8 @@ mod tests {
 
     /// A script's layout and translation options reach `UiState`, through
     /// the command buffer and the plugin that applies it: a button put in a
-    /// container and switched off, as a menu built from a script does.
+    /// container and switched off, as a menu built from a script does --
+    /// and the menu in a font family, which the button then draws in.
     #[test]
     fn a_scripts_ui_options_reach_the_ui_state() {
         let script_path = std::env::temp_dir().join(format!(
@@ -6952,7 +6958,7 @@ mod tests {
         std::fs::write(
             &script_path,
             "function onUpdate(name) {\n\
-                 Bsengine.ui.setContainer(\"menu\", 0, 0, 100, 100, \"vertical\");\n\
+                 Bsengine.ui.setContainer(\"menu\", 0, 0, 100, 100, \"vertical\", { font: \"title\" });\n\
                  Bsengine.ui.setButton(\"lang\", \"English\", 0, 0, 80, 20, { parent: \"menu\", autoTranslate: false });\n\
              }",
         )
@@ -6983,6 +6989,11 @@ mod tests {
         );
         assert_eq!(ui.parents.get("lang").map(String::as_str), Some("menu"));
         assert!(!ui.translates("lang"), "switched off");
+        assert_eq!(
+            ui.font_of("lang"),
+            Some("title"),
+            "the menu's font, inherited"
+        );
         let _ = std::fs::remove_file(&script_path);
     }
 

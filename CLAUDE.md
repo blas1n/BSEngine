@@ -123,7 +123,7 @@ cargo run -p bsengine-catalog --bin catalog -- --check;      echo "CATALOG=$?"
 cargo clippy --all-targets;                                  echo "CLIPPY=$?"
 ```
 
-Current baselines: catalog **100 components / 308 ops**; clippy **0 warnings**
+Current baselines: catalog **100 components / 309 ops**; clippy **0 warnings**
 (`--all-targets`), so any warning is new.
 
 ### A green `cargo test` is not a green CI

@@ -947,6 +947,13 @@ pub enum ScriptCommand {
         /// Share of the leftover space; 0 keeps the widget's own size.
         weight: f32,
     },
+    /// Set a widget's font family, by its `[ui.font_families]` name.
+    SetUiFont {
+        /// Widget to set.
+        id: String,
+        /// The family's name; empty inherits again.
+        family: String,
+    },
     /// Set whether a widget's text is translated automatically.
     SetUiAutoTranslate {
         /// Widget to set.
@@ -5249,6 +5256,15 @@ pub fn bsengine_ui_set_auto_translate(#[string] id: String, mode: u32) {
     });
 }
 
+/// Sets a widget's font family, by its name in `project.toml`'s
+/// `[ui.font_families]` (`UiState::set_font`); an empty name inherits again.
+#[script_op(fast)]
+pub fn bsengine_ui_set_font(#[string] id: String, #[string] family: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetUiFont { id, family });
+    });
+}
+
 /// Queue setting an existing widget's anchor.
 ///
 /// Normalised 0..1, `(0,0)` top-left and `(1,1)` bottom-right — the same
@@ -5827,6 +5843,7 @@ macro_rules! with_every_op {
             bsengine_ui_set_parent,
             bsengine_ui_set_fill,
             bsengine_ui_set_auto_translate,
+            bsengine_ui_set_font,
             bsengine_ui_set_button,
             bsengine_ui_set_panel,
             bsengine_ui_set_text_input,
@@ -8500,15 +8517,15 @@ JSON.stringify(received)
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }
 
-    /// Every widget setter honours `opts.parent`, `opts.fill` and
-    /// `opts.autoTranslate`. Only the container and image setters used to, so
+    /// Every widget setter honours `opts.parent`, `opts.fill`,
+    /// `opts.autoTranslate` and `opts.font`. Only the container and image setters used to, so
     /// a label or a button could not be put in a container at all from a
     /// script -- `{ parent: "menu" }` was dropped without a word.
     #[test]
     fn every_setter_applies_the_layout_options() {
         let mut rt = ScriptRuntime::new_with_ops();
         rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        let o = r#"{ parent: "menu", fill: 2, autoTranslate: false }"#;
+        let o = r#"{ parent: "menu", fill: 2, autoTranslate: false, font: "title" }"#;
         for (id, call) in [
             (
                 "label",
@@ -8552,7 +8569,37 @@ JSON.stringify(received)
                 let switched_off = buf.iter().any(|cmd| {
                     matches!(cmd, super::ScriptCommand::SetUiAutoTranslate { id: i, mode } if i == id && *mode == bsengine_core::UiAutoTranslate::Disabled)
                 });
-                assert!(parented && filled && switched_off, "{id}: parent {parented}, fill {filled}, autoTranslate {switched_off}");
+                let font = buf.iter().any(|cmd| {
+                    matches!(cmd, super::ScriptCommand::SetUiFont { id: i, family } if i == id && family == "title")
+                });
+                assert!(parented && filled && switched_off && font, "{id}: parent {parented}, fill {filled}, autoTranslate {switched_off}, font {font}");
+            });
+        }
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    /// `font: null` and `font: ""` go back to inheriting -- the empty name
+    /// `UiState::set_font` takes for that -- not a family named "null".
+    #[test]
+    fn a_null_font_inherits_again() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        for value in ["null", r#""""#] {
+            super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+            rt.eval(&format!(
+                r#"Bsengine.ui.setLabel("l", "t", 0, 0, 20, {{ font: {value} }});"#
+            ))
+            .unwrap();
+            super::COMMAND_BUFFER.with(|c| {
+                let families: Vec<String> = c
+                    .borrow()
+                    .iter()
+                    .filter_map(|cmd| match cmd {
+                        super::ScriptCommand::SetUiFont { family, .. } => Some(family.clone()),
+                        _ => None,
+                    })
+                    .collect();
+                assert_eq!(families, [""], "font: {value}");
             });
         }
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());

@@ -686,9 +686,9 @@ var Bsengine = {
         ALIGN: { 'stretch': 0, 'start': 1, 'center': 2, 'end': 3 },
         // Godot's `auto_translate_mode` names, and the number each maps to.
         AUTO_TRANSLATE: { 'inherit': 0, 'always': 1, 'disabled': 2 },
-        // Applies `opts.parent`, `opts.fill` and `opts.autoTranslate` if
-        // present. Separate ops rather than more positional arguments, the
-        // same way `_applyAnchor` works and for the same reason.
+        // Applies `opts.parent`, `opts.fill`, `opts.autoTranslate` and
+        // `opts.font` if present. Separate ops rather than more positional
+        // arguments, the same way `_applyAnchor` works and for the same reason.
         //
         // Every setter calls this. Only `setContainer` and `setImage` used to,
         // so `{ parent: 'menu' }` on a label or a button was dropped without a
@@ -714,6 +714,13 @@ var Bsengine = {
                         ', true or false');
                 }
                 Deno.core.ops.bsengine_ui_set_auto_translate(id, mode);
+            }
+            // A family named in `[ui.font_families]`; on a container, its
+            // contents' too. `null` or `""` inherits again. A name the
+            // project lacks is drawn in the UI's fonts, with a warning --
+            // the families are the manifest's, not known here.
+            if (opts.font !== undefined) {
+                Deno.core.ops.bsengine_ui_set_font(id, opts.font === null ? '' : String(opts.font));
             }
         },
         // Direction names, and the number each maps to in the op.

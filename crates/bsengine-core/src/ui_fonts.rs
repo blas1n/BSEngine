@@ -4,8 +4,8 @@ use bevy_ecs::prelude::Resource;
 
 use crate::localization::{language_of, normalize_locale};
 
-/// The project's UI fonts, from `project.toml`'s `[ui] fonts` and
-/// `[ui.locale_fonts]`, read at start.
+/// The project's UI fonts, from `project.toml`'s `[ui] fonts`,
+/// `[ui.locale_fonts]` and `[ui.font_families]`, read at start.
 ///
 /// The renderer puts them ahead of egui's built-in fonts, in order: the
 /// first is the font text is drawn in, and a character it lacks is looked
@@ -24,6 +24,9 @@ pub struct UiFonts {
     /// (`ja`, `zh-CN`), which go in front of [`Self::fonts`] while it is the
     /// current one. See [`Self::for_locale`].
     pub by_locale: BTreeMap<String, Vec<UiFont>>,
+    /// `[ui.font_families]`: named fonts a widget picks with `opts.font`
+    /// (`UiState::font_of`), keyed by name. See [`Self::family`].
+    pub families: BTreeMap<String, Vec<UiFont>>,
 }
 
 /// One font file, by the path the manifest names it with.
@@ -41,7 +44,26 @@ impl UiFonts {
         Self {
             fonts,
             by_locale: BTreeMap::new(),
+            families: BTreeMap::new(),
         }
+    }
+
+    /// The fonts a widget in family `name` is drawn in while `locale` is
+    /// current, first first: the family's own, then everything
+    /// [`Self::for_locale`] gives -- so a title font that has only Latin
+    /// still draws a Korean title, in the Korean font behind it, rather than
+    /// boxes. TextMeshPro's font asset with its fallback list, Godot's font
+    /// with its fallbacks: the family's fonts lead, the project's follow.
+    /// `None` for a name `[ui.font_families]` does not have.
+    pub fn family(&self, name: &str, locale: &str) -> Option<Vec<&UiFont>> {
+        let own = self.families.get(name)?;
+        let mut chosen: Vec<&UiFont> = Vec::new();
+        for font in own.iter().chain(self.for_locale(locale)) {
+            if !chosen.iter().any(|f| f.path == font.path) {
+                chosen.push(font);
+            }
+        }
+        Some(chosen)
     }
 
     /// Which `[ui.locale_fonts]` entry `locale` uses: the locale exactly
@@ -106,7 +128,24 @@ mod tests {
                 ("zh".to_string(), vec![font("sc.otf")]),
                 ("zh-TW".to_string(), vec![font("tc.otf"), font("title.ttf")]),
             ]),
+            families: BTreeMap::from([("display".to_string(), vec![font("display.otf")])]),
         }
+    }
+
+    /// A family's own fonts lead, and the locale's and the shared ones follow
+    /// in their order, so a character the family lacks still has a font.
+    #[test]
+    fn a_family_leads_with_its_own_fonts_and_falls_back_to_the_rest() {
+        let f = fonts();
+        assert_eq!(
+            paths(&f.family("display", "ja").unwrap()),
+            ["display.otf", "jp.otf", "title.ttf", "kr.otf"]
+        );
+        assert_eq!(
+            paths(&f.family("display", "ko").unwrap()),
+            ["display.otf", "title.ttf", "kr.otf"]
+        );
+        assert!(f.family("nope", "ko").is_none());
     }
 
     /// A locale's own fonts come first, `[ui] fonts` after them in their own

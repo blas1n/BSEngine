@@ -51,6 +51,11 @@ pub struct ProjectManifest {
 /// [ui.locale_fonts]
 /// ja = ["assets/fonts/NotoSansJP-Regular.otf"]
 /// zh-CN = ["assets/fonts/NotoSansSC-Regular.otf"]
+///
+/// # Named fonts a widget picks: `setLabel(..., { font: "title" })`. A
+/// # character the family lacks comes from the fonts above.
+/// [ui.font_families]
+/// title = ["assets/fonts/Title.ttf"]
 /// ```
 #[derive(Deserialize, Default)]
 pub struct UiSection {
@@ -62,6 +67,10 @@ pub struct UiSection {
     /// locale's: the player picks the locale after the build is made.
     #[serde(default)]
     pub locale_fonts: std::collections::BTreeMap<String, Vec<String>>,
+    /// Named font families (`bsengine_core::UiFonts::family`), by the name a
+    /// widget's `opts.font` gives. Packaged like `fonts`, every family's.
+    #[serde(default)]
+    pub font_families: std::collections::BTreeMap<String, Vec<String>>,
 }
 
 /// `project.toml`'s `[localization]` table.
@@ -128,6 +137,7 @@ impl ProjectManifest {
         extras.extend(self.localization.tables.iter().cloned());
         extras.extend(self.ui.fonts.iter().cloned());
         extras.extend(self.ui.locale_fonts.values().flatten().cloned());
+        extras.extend(self.ui.font_families.values().flatten().cloned());
         extras
     }
 }

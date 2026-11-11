@@ -294,8 +294,21 @@ fn sync_ui_fonts(
     if !fonts.is_changed() && installed.as_ref() == Some(&key) {
         return;
     }
-    let paths = surface.0.set_ui_fonts(fonts.for_locale(locale));
-    tracing::info!("[ui] fonts for locale {locale:?}: {paths:?}");
+    // Each family behind its own fonts takes the locale's too (a Japanese
+    // title in a Latin title font falls back to the Japanese font), so the
+    // families are installed again with the rest -- on the same key, as the
+    // locale's entry is all their fallbacks depend on.
+    let families = fonts
+        .families
+        .keys()
+        .filter_map(|name| Some((name.as_str(), fonts.family(name, locale)?)));
+    let paths = surface
+        .0
+        .set_ui_fonts_and_families(fonts.for_locale(locale), families);
+    tracing::info!(
+        "[ui] fonts for locale {locale:?}: {paths:?}, families {:?}",
+        fonts.families.keys().collect::<Vec<_>>()
+    );
     *installed = Some(key);
 }
 
@@ -4141,6 +4154,63 @@ mod tests {
         assert!(
             has_hangul_in(&mut app, "ko-KR"),
             "a regional locale takes its language's fonts"
+        );
+    }
+
+    /// `[ui.font_families]` reach the renderer as families of their own, each
+    /// with the locale's fonts behind it: a family of no fonts has Hangul
+    /// only while Korean's font is in, and the UI's own fonts are untouched
+    /// by a family having it. Asked of egui's fonts; the drawing is
+    /// `pixels_ui.rs`'s.
+    #[test]
+    fn a_font_family_reaches_the_renderer_with_the_locales_fonts_behind_it() {
+        use bsengine_core::{HudTexts, Localization, UiFont, UiFonts};
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::offscreen(64, 64, false));
+        app.add_plugins(RenderPlugin);
+        let mut hud = HudTexts::default();
+        hud.0.insert("line".into(), "A".into());
+        app.insert_resource(hud);
+        app.insert_resource(
+            Localization::from_csv_tables([("t.csv", "keys,en,ko\nHI,Hi,안녕\n")], "en").unwrap(),
+        );
+        let hangul = UiFont {
+            path: "assets/fonts/test_glyphs.ttf".into(),
+            bytes: include_bytes!("../../bsengine-rhi-wgpu/tests/fonts/test_glyphs.ttf").to_vec(),
+        };
+        let mut fonts = UiFonts::default();
+        fonts.families.insert("title".into(), vec![hangul.clone()]);
+        fonts.families.insert("plain".into(), Vec::new());
+        fonts.by_locale.insert("ko".into(), vec![hangul]);
+        app.insert_resource(fonts);
+        let glyphs_in = |app: &mut bevy_app::App, locale: &str| {
+            app.world_mut()
+                .resource_mut::<Localization>()
+                .set_locale(locale);
+            for _ in 0..2 {
+                app.update();
+            }
+            let surface = &app
+                .world()
+                .resource::<bsengine_rhi_wgpu::WgpuSurfaceResource>()
+                .0;
+            (
+                surface.ui_family_has_glyph_for_testing("title", '한'),
+                surface.ui_family_has_glyph_for_testing("plain", '한'),
+                surface.ui_has_glyph_for_testing('한'),
+            )
+        };
+
+        assert_eq!(
+            glyphs_in(&mut app, "en"),
+            (Some(true), Some(false), false),
+            "the family has its font; an empty one and the UI's fonts do not"
+        );
+        assert_eq!(
+            glyphs_in(&mut app, "ko"),
+            (Some(true), Some(true), true),
+            "Korean's font is behind every family too"
         );
     }
 

@@ -2632,6 +2632,13 @@ mod tests {
             "fr"
         );
         assert_eq!(reload.game_locale().current, "fr");
+
+        // A locale a saved table adds is offered on the update that read it:
+        // the locale is published after the reload in the plugin's chain.
+        std::fs::write(&table, "keys,en,ko\nHI,Hi,안녕\n").unwrap();
+        reload.request();
+        app.update();
+        assert_eq!(reload.game_locale().available, ["en", "ko"]);
         let _ = std::fs::remove_dir_all(table.ancestors().nth(3).unwrap());
     }
 

@@ -569,6 +569,8 @@ pub(crate) fn insert_localization(
 /// `[ui.locale_fonts]` are read here too, every locale's and not only the
 /// starting one's: a font the archive lacks for a locale the player switches
 /// to later would otherwise be found then, mid-game, instead of at start.
+/// So are `[ui.font_families]`, for the same reason: a widget may pick one
+/// only on a screen reached late.
 pub(crate) fn insert_ui_fonts(
     app: &mut bevy_app::App,
     project_dir: &str,
@@ -601,6 +603,12 @@ pub(crate) fn insert_ui_fonts(
                     read(fonts),
                 )
             })
+            .collect(),
+        families: manifest
+            .ui
+            .font_families
+            .iter()
+            .map(|(name, fonts)| (name.clone(), read(fonts)))
             .collect(),
     };
     app.insert_resource(fonts);

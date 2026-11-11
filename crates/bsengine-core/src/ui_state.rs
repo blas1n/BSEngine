@@ -546,6 +546,10 @@ pub struct UiState {
     /// the mode inherits through `parents`: a container switched off
     /// switches off what is in it.
     pub translate_modes: HashMap<String, UiAutoTranslate>,
+    /// Each widget's font family (`[ui.font_families]`), keyed by id; absent
+    /// is the UI's own fonts. Inherited through `parents` as the translate
+    /// mode is: see [`Self::font_of`].
+    pub fonts: HashMap<String, String>,
 }
 
 impl UiState {
@@ -749,6 +753,36 @@ impl UiState {
         true
     }
 
+    /// Sets a widget's font family, by its name in `[ui.font_families]`; an
+    /// empty name goes back to inheriting. Stored whether or not the widget
+    /// exists yet, as `set_parent` is.
+    pub fn set_font(&mut self, id: &str, family: &str) {
+        if family.is_empty() {
+            self.fonts.remove(id);
+        } else {
+            self.fonts.insert(id.to_string(), family.to_string());
+        }
+    }
+
+    /// The font family `id`'s text is drawn in: its own, else the nearest
+    /// container's, else `None` -- the UI's fonts (`[ui] fonts`).
+    ///
+    /// Inherited as a Godot theme is down its tree: a container draws no
+    /// text, so a font set on one means its contents' -- a menu's font is
+    /// set once, on the menu. (Unity's and Unreal's fonts are per text
+    /// element only; their containers have no font to give.) Bounded, as
+    /// [`Self::translates`] is, so a parent cycle cannot hang a frame.
+    pub fn font_of(&self, id: &str) -> Option<&str> {
+        let mut current = id;
+        for _ in 0..64 {
+            if let Some(family) = self.fonts.get(current) {
+                return Some(family);
+            }
+            current = self.parents.get(current)?;
+        }
+        None
+    }
+
     /// Removes all widgets and clears click/text-input state.
     pub fn clear(&mut self) {
         self.widgets.clear();
@@ -758,6 +792,7 @@ impl UiState {
         self.fills.clear();
         self.scroll_offsets.clear();
         self.translate_modes.clear();
+        self.fonts.clear();
     }
 
     /// Resolves every widget to a screen rectangle.
@@ -2144,5 +2179,40 @@ mod auto_translate_tests {
         ui.set_auto_translate("x", UiAutoTranslate::Disabled);
         ui.clear();
         assert!(ui.translates("x"));
+    }
+}
+
+#[cfg(test)]
+mod font_tests {
+    use super::*;
+
+    /// A widget's own family, else the nearest container's, else none; an
+    /// empty name inherits again; a cycle ends the walk; `clear` forgets.
+    #[test]
+    fn the_family_is_the_widgets_own_or_the_nearest_containers() {
+        let mut ui = UiState::default();
+        ui.set_font("menu", "title");
+        ui.set_parent("item", "menu");
+        ui.set_parent("deep", "inner");
+        ui.set_parent("inner", "menu");
+        ui.set_font("inner", "body");
+        ui.set_font("own", "mono");
+        ui.set_parent("own", "menu");
+
+        assert_eq!(ui.font_of("root"), None, "a widget left alone has none");
+        assert_eq!(ui.font_of("menu"), Some("title"));
+        assert_eq!(ui.font_of("item"), Some("title"), "inherited");
+        assert_eq!(ui.font_of("deep"), Some("body"), "from the nearest");
+        assert_eq!(ui.font_of("own"), Some("mono"), "its own first");
+
+        ui.set_font("own", "");
+        assert_eq!(ui.font_of("own"), Some("title"), "empty inherits again");
+
+        ui.set_parent("a", "b");
+        ui.set_parent("b", "a");
+        assert_eq!(ui.font_of("a"), None, "a cycle ends the walk");
+
+        ui.clear();
+        assert_eq!(ui.font_of("menu"), None);
     }
 }

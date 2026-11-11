@@ -435,6 +435,197 @@ fn a_file_that_is_not_a_font_is_left_out_and_the_rest_go_in() {
     );
 }
 
+/// Renders `scene` until its frame has not changed for longer than egui's
+/// fade-in, and returns that frame. `render_settled` is enough to see that
+/// something was drawn, not to compare two drawings: an egui `Area` fades in
+/// over `animation_time` (0.2 s of wall-clock time) whenever it appears, so a
+/// frame two renders in is part-faded by however long they took, and two
+/// such frames of one scene differ. Nor is "two frames in a row the same"
+/// enough: a render here takes about a millisecond, and a fading glyph's
+/// 8-bit colour holds for several of them (one measured at 107 settles at
+/// 108). Unchanged for 0.3 s is past any fade.
+fn render_still(h: &mut Harness, scene: &Scene) -> common::Pixels {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let mut last = render_settled(h, scene);
+    let mut since = std::time::Instant::now();
+    loop {
+        let next = h.render(scene);
+        if next.differs_from(&last) {
+            since = std::time::Instant::now();
+        } else if since.elapsed() > std::time::Duration::from_millis(300) {
+            return next;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the frame never stopped changing"
+        );
+        last = next;
+    }
+}
+
+/// A label with text `text` at a fixed spot, in `family` when one is given.
+fn label_scene(text: &str, family: Option<&str>) -> Scene {
+    let mut ui = UiState::default();
+    ui.set_widget(UiWidget::Label {
+        id: "l".into(),
+        text: text.into(),
+        x: 20.0,
+        y: 20.0,
+        font_size: 24.0,
+        anchor: UiAnchor::TOP_LEFT,
+    });
+    if let Some(family) = family {
+        ui.set_font("l", family);
+    }
+    Scene {
+        ui,
+        ..Scene::default()
+    }
+}
+
+/// A widget in a font family is drawn in it, and only that widget: the
+/// family's 'A' (a block) replaces the built-in one for the label that
+/// names it, while a label that names none -- the hard side -- is the
+/// built-in drawing, pixel for pixel, with the family installed. A
+/// character the family lacks comes from the fonts behind it.
+#[test]
+fn a_widget_in_a_font_family_is_drawn_in_it_and_others_are_not() {
+    let mut h = Harness::new();
+    let blank = render_still(&mut h, &Scene::default());
+    let a_built_in = render_still(&mut h, &label_scene("A", None));
+    let b_built_in = render_still(&mut h, &label_scene("B", None));
+
+    let font = test_font();
+    h.surface_mut()
+        .set_ui_fonts_and_families(&[], [("display", vec![&font])]);
+    let a_plain = render_still(&mut h, &label_scene("A", None));
+    assert!(
+        same_drawing(&blank, &a_plain, &a_built_in),
+        "a label naming no family is untouched by one being installed"
+    );
+    let a_display = render_still(&mut h, &label_scene("A", Some("display")));
+    assert!(
+        !same_drawing(&blank, &a_display, &a_built_in),
+        "the label naming the family draws its 'A' in the family's font"
+    );
+    assert!(
+        same_drawing(
+            &blank,
+            &render_still(&mut h, &label_scene("B", Some("display"))),
+            &b_built_in
+        ),
+        "a character the family lacks is the built-in glyph"
+    );
+}
+
+/// The family reaches every widget kind that draws text -- a button's
+/// caption through the `Ui`'s style, a panel's title through its own
+/// rich text -- and a widget inside a container in a family draws in it.
+#[test]
+fn buttons_panels_and_a_containers_contents_draw_in_the_family() {
+    let mut h = Harness::new();
+    let font = test_font();
+    h.surface_mut()
+        .set_ui_fonts_and_families(&[], [("display", vec![&font])]);
+    let blank = render_still(&mut h, &Scene::default());
+    let with = |widget: UiWidget, font: Option<(&str, &str)>, parent: Option<&str>| {
+        let mut ui = UiState::default();
+        let id = widget.id().to_string();
+        ui.set_widget(widget);
+        if let Some(parent) = parent {
+            ui.set_widget(UiWidget::Container {
+                id: parent.into(),
+                x: 20.0,
+                y: 20.0,
+                width: 120.0,
+                height: 100.0,
+                anchor: UiAnchor::TOP_LEFT,
+                direction: UiDirection::Vertical,
+                spacing: 0.0,
+                padding: 0.0,
+                align: bsengine_core::UiAlign::Start,
+                scrollable: false,
+            });
+            ui.set_parent(&id, parent);
+        }
+        if let Some((on, family)) = font {
+            ui.set_font(on, family);
+        }
+        Scene {
+            ui,
+            ..Scene::default()
+        }
+    };
+    let mut ok = UiWidget::Button {
+        id: "b".into(),
+        label: "A".into(),
+        x: 20.0,
+        y: 20.0,
+        width: 60.0,
+        height: 40.0,
+        anchor: UiAnchor::TOP_LEFT,
+    };
+    let plain = render_still(&mut h, &with(ok.clone(), None, None));
+    let display = render_still(&mut h, &with(ok.clone(), Some(("b", "display")), None));
+    assert!(plain.differs_from(&blank), "premise: the button draws");
+    assert!(
+        display.differs_from(&plain),
+        "the button's caption is in the family"
+    );
+
+    let panel = UiWidget::Panel {
+        id: "p".into(),
+        title: "AAAA".into(),
+        x: 20.0,
+        y: 20.0,
+        width: 120.0,
+        height: 80.0,
+        anchor: UiAnchor::TOP_LEFT,
+    };
+    let plain = render_still(&mut h, &with(panel.clone(), None, None));
+    let display = render_still(&mut h, &with(panel, Some(("p", "display")), None));
+    assert!(
+        display.differs_from(&plain),
+        "the panel's title is in the family"
+    );
+
+    // In a container named in the family, the button inherits it: drawn as
+    // the button in the family is, wherever the container puts it.
+    if let UiWidget::Button { x, y, .. } = &mut ok {
+        (*x, *y) = (0.0, 0.0);
+    }
+    let own = render_still(
+        &mut h,
+        &with(ok.clone(), Some(("b", "display")), Some("menu")),
+    );
+    let inherited = render_still(
+        &mut h,
+        &with(ok.clone(), Some(("menu", "display")), Some("menu")),
+    );
+    let none = render_still(&mut h, &with(ok, None, Some("menu")));
+    assert!(
+        own.differs_from(&none),
+        "premise: the family shows in a container"
+    );
+    assert!(
+        !inherited.differs_from(&own),
+        "the container's family is its contents'"
+    );
+}
+
+/// A family the fonts lack -- a typo, or any family in the editor -- must
+/// not take the frame down (egui panics on an unknown `FontFamily::Name`):
+/// the widget is drawn in the UI's fonts, as if it named none.
+#[test]
+fn a_family_the_fonts_lack_draws_in_the_ui_fonts() {
+    let mut h = Harness::new();
+    let blank = render_still(&mut h, &Scene::default());
+    let plain = render_still(&mut h, &label_scene("A", None));
+    let unknown = render_still(&mut h, &label_scene("A", Some("nope")));
+    assert!(plain.differs_from(&blank), "premise: the label draws");
+    assert!(!unknown.differs_from(&plain));
+}
+
 /// An empty list is the built-in fonts alone: fonts set before do not linger.
 #[test]
 fn an_empty_font_list_is_the_built_in_fonts_again() {

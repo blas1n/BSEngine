@@ -4324,6 +4324,9 @@ pub struct WgpuSurface {
     /// against the very same layout object.
     sky_tex_bgl: std::sync::Arc<wgpu::BindGroupLayout>,
     egui_ctx: egui::Context,
+    /// Font family names a widget asked for that the UI's fonts lack, each
+    /// warned about once: said every frame it would bury the log.
+    warned_font_families: std::collections::BTreeSet<String>,
     egui_renderer: egui_wgpu::Renderer,
     /// egui's handle for each GPU texture a UI image has drawn, keyed by the
     /// registry id.
@@ -6908,6 +6911,7 @@ impl WgpuSurface {
             last_ui_texts: Vec::new(),
             sky_tex_bgl,
             egui_ctx,
+            warned_font_families: std::collections::BTreeSet::new(),
             egui_renderer,
             ui_texture_ids: std::collections::HashMap::new(),
             skybox: None,
@@ -10647,6 +10651,7 @@ impl WgpuSurface {
             };
 
             let mut new_text_values = ui_state.text_values.clone();
+            let mut missing_font_families = std::collections::BTreeSet::new();
             let mut full_output = self.egui_ctx.run_ui(raw_input, |root_ui| {
                 // Panels and the dock take the frame's root `Ui` now; what
                 // else draws (HUD, windows, areas) still goes through the
@@ -10697,11 +10702,38 @@ impl WgpuSurface {
                 // loading has no entry and draws nothing this frame, which is
                 // what it did every frame before.
                 let image_textures = &ui_image_textures;
+                // A widget's font family (`UiState::font_of`), when egui has
+                // it: egui panics on a `FontFamily::Name` it was never given,
+                // so a name `[ui.font_families]` lacks -- a typo, or any name
+                // in the editor, which keeps its own fonts -- draws in the
+                // UI's fonts instead, and is said once below. Asked of this
+                // pass's fonts, which are the ones the widgets draw with.
+                let families = ctx.fonts(|f| f.families());
+                let mut family_of = |id: &str| -> Option<egui::FontFamily> {
+                    let name = ui_state.font_of(id)?;
+                    let family = egui::FontFamily::Name(name.into());
+                    if families.contains(&family) {
+                        Some(family)
+                    } else {
+                        missing_font_families.insert(name.to_string());
+                        None
+                    }
+                };
+                // Every text style in the family, at its own size, so a
+                // button's or an input's text is drawn in it as a label's is.
+                let use_family = |ui: &mut egui::Ui, family: &Option<egui::FontFamily>| {
+                    if let Some(family) = family {
+                        for font_id in ui.style_mut().text_styles.values_mut() {
+                            font_id.family = family.clone();
+                        }
+                    }
+                };
                 for widget in &ui_state.widgets {
                     use bsengine_core::UiWidget;
                     let Some(placement) = ui_rects.placements.get(widget.id()) else {
                         continue;
                     };
+                    let family = family_of(widget.id());
                     let rect = placement.rect;
                     let (px, py, pw, ph) = (rect.x, rect.y, rect.width, rect.height);
                     // A widget inside a scroll container must not paint outside
@@ -10733,6 +10765,7 @@ impl WgpuSurface {
                                     if let Some(c) = clip_rect {
                                         ui.set_clip_rect(c);
                                     }
+                                    use_family(ui, &family);
                                     ui.label(egui::RichText::new(text.as_str()).size(*font_size));
                                 });
                         }
@@ -10743,6 +10776,7 @@ impl WgpuSurface {
                                     if let Some(c) = clip_rect {
                                         ui.set_clip_rect(c);
                                     }
+                                    use_family(ui, &family);
                                     if ui
                                         .add_sized(
                                             egui::vec2(pw, ph),
@@ -10755,7 +10789,15 @@ impl WgpuSurface {
                                 });
                         }
                         UiWidget::Panel { id, title, .. } => {
-                            egui::Window::new(title.as_str())
+                            egui::Window::new({
+                                // The title bar is the window's, drawn with
+                                // the context's style, not a `Ui` of ours.
+                                let title = egui::RichText::new(title.as_str());
+                                match &family {
+                                    Some(family) => title.family(family.clone()),
+                                    None => title,
+                                }
+                            })
                                 .id(egui::Id::new(id.as_str()))
                                 .fixed_pos(egui::pos2(px, py))
                                 .fixed_size(egui::vec2(pw, ph))
@@ -10773,6 +10815,7 @@ impl WgpuSurface {
                                     if let Some(c) = clip_rect {
                                         ui.set_clip_rect(c);
                                     }
+                                    use_family(ui, &family);
                                     ui.add(
                                         egui::TextEdit::singleline(text_val)
                                             .hint_text(hint.as_str())
@@ -10795,6 +10838,7 @@ impl WgpuSurface {
                                     if let Some(c) = clip_rect {
                                         ui.set_clip_rect(c);
                                     }
+                                    use_family(ui, &family);
                                     match tex {
                                         Some(tex_id) => {
                                             ui.add(
@@ -10824,6 +10868,7 @@ impl WgpuSurface {
                                     if let Some(c) = clip_rect {
                                         ui.set_clip_rect(c);
                                     }
+                                    use_family(ui, &family);
                                     ui.add_sized(
                                         egui::vec2(pw, ph),
                                         egui::ProgressBar::new(*fraction),
@@ -11195,6 +11240,15 @@ impl WgpuSurface {
                     }
                 }
             });
+            for family in missing_font_families {
+                if !self.warned_font_families.contains(&family) {
+                    tracing::warn!(
+                        "[ui] font family {family:?} is not in [ui.font_families] \
+                         (the editor has none); drawn in the UI's fonts"
+                    );
+                    self.warned_font_families.insert(family);
+                }
+            }
 
             self.last_ui_texts.clear();
             collect_texts(
@@ -11438,30 +11492,69 @@ impl WgpuSurface {
         &mut self,
         fonts: impl IntoIterator<Item = &'a bsengine_core::UiFont>,
     ) -> Vec<String> {
+        self.set_ui_fonts_and_families(fonts, Vec::<(&str, Vec<&bsengine_core::UiFont>)>::new())
+    }
+
+    /// [`Self::set_ui_fonts`], and named font families beside them
+    /// (`[ui.font_families]`, each already followed by its fallbacks --
+    /// `UiFonts::family`): egui's `FontFamily::Name`, each its own fonts
+    /// and then the built-in ones, which a widget whose `UiState::font_of`
+    /// names it is drawn in. A family whose fonts all fail to parse is
+    /// still installed, as the built-in fonts alone, so a widget naming it
+    /// draws rather than falling back silently to another family.
+    pub fn set_ui_fonts_and_families<'a, 'f>(
+        &mut self,
+        fonts: impl IntoIterator<Item = &'a bsengine_core::UiFont>,
+        families: impl IntoIterator<Item = (&'f str, Vec<&'a bsengine_core::UiFont>)>,
+    ) -> Vec<String> {
         let mut definitions = crate::theme::font_definitions();
-        let mut installed = Vec::new();
-        for font in fonts {
+        let built_in = definitions
+            .families
+            .get(&egui::FontFamily::Proportional)
+            .cloned()
+            .unwrap_or_default();
+        // Each file once in `font_data`, however many families list it; the
+        // name of a file that does not parse is `None`, and logged once.
+        let mut load = |font: &bsengine_core::UiFont| -> Option<String> {
+            // Prefixed so a project font named like a built-in one (a
+            // project shipping its own "Hack") replaces nothing.
+            let name = format!("project:{}", font.path);
+            if definitions.font_data.contains_key(&name) {
+                return Some(name);
+            }
             if let Err(e) = skrifa::FontRef::from_index(&font.bytes, 0) {
                 tracing::error!(
                     "[ui] {} is not a font egui can read ({e}); left out",
                     font.path
                 );
-                continue;
+                return None;
             }
-            // Prefixed so a project font named like a built-in one (a
-            // project shipping its own "Hack") replaces nothing.
-            let name = format!("project:{}", font.path);
             definitions.font_data.insert(
                 name.clone(),
                 std::sync::Arc::new(egui::FontData::from_owned(font.bytes.clone())),
             );
-            definitions
-                .families
-                .entry(egui::FontFamily::Proportional)
-                .or_default()
-                .insert(installed.len(), name);
-            installed.push(font.path.clone());
+            Some(name)
+        };
+        let mut installed = Vec::new();
+        let mut proportional = Vec::new();
+        for font in fonts {
+            if let Some(name) = load(font) {
+                proportional.push(name);
+                installed.push(font.path.clone());
+            }
         }
+        let mut named = Vec::new();
+        for (family, fonts) in families {
+            let mut list: Vec<String> = fonts.into_iter().filter_map(&mut load).collect();
+            list.extend(built_in.iter().cloned());
+            named.push((egui::FontFamily::Name(family.into()), list));
+        }
+        let mut list = proportional;
+        list.extend(built_in);
+        definitions
+            .families
+            .insert(egui::FontFamily::Proportional, list);
+        definitions.families.extend(named);
         self.egui_ctx.set_fonts(definitions);
         installed
     }
@@ -11480,6 +11573,20 @@ impl WgpuSurface {
     pub fn ui_has_glyph_for_testing(&self, c: char) -> bool {
         self.egui_ctx
             .fonts_mut(|f| f.has_glyph(&egui::FontId::proportional(16.0), c))
+    }
+
+    /// [`Self::ui_has_glyph_for_testing`] for the named font family a widget
+    /// picks (`[ui.font_families]`); `None` when egui has no such family,
+    /// which a widget naming it then does not draw in.
+    pub fn ui_family_has_glyph_for_testing(&self, family: &str, c: char) -> Option<bool> {
+        let family = egui::FontFamily::Name(family.into());
+        if !self.egui_ctx.fonts(|f| f.families()).contains(&family) {
+            return None;
+        }
+        Some(
+            self.egui_ctx
+                .fonts_mut(|f| f.has_glyph(&egui::FontId::new(16.0, family), c)),
+        )
     }
 
     /// Sets the geometry passes' sample count: anything above 1 asks for

@@ -15,7 +15,7 @@
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use bsengine_core::localization::{normalize_locale, parse_csv, parse_csv_table, write_csv};
 use bsengine_core::{EditorPanel, EditorPanelContext, Localization, ProjectDir};
@@ -242,13 +242,49 @@ impl StringTableDoc {
 /// on disk ([`Self::changed_on_disk`], called by `bsengine-render` from the
 /// asset watcher's `AssetFileChanged`), which the panel compares against the
 /// count it last saw to read its open table again.
+///
+/// And the game's locale, both ways: the panel's locale menu asks for one
+/// ([`Self::request_locale`], answered by [`sync_localization_locale`]), and
+/// the game's own -- whatever set it, the panel or a script's `setLocale` --
+/// comes back as [`Self::game_locale`] for the menu to show.
 #[derive(bevy_ecs::prelude::Resource, Clone, Default)]
 pub struct LocalizationReload {
     requested: Arc<AtomicBool>,
     disk_changes: Arc<AtomicU64>,
+    /// The locale the panel asked for, until the game takes it.
+    locale_request: Arc<Mutex<Option<String>>>,
+    /// The game's locale, as last published.
+    game_locale: Arc<Mutex<GameLocale>>,
+}
+
+/// The locale the running game shows and the locales its tables have, as
+/// [`sync_localization_locale`] last saw them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GameLocale {
+    /// [`Localization::locale`].
+    pub current: String,
+    /// [`Localization::locales`]: every locale some table has a column for.
+    pub available: Vec<String>,
 }
 
 impl LocalizationReload {
+    /// Asks the game to show `locale` from the next update on, as a script's
+    /// `setLocale` would.
+    pub fn request_locale(&self, locale: &str) {
+        if let Ok(mut request) = self.locale_request.lock() {
+            *request = Some(locale.to_string());
+        }
+    }
+
+    /// The game's locale and the locales it has; empty until
+    /// [`sync_localization_locale`] has run with a [`Localization`].
+    pub fn game_locale(&self) -> GameLocale {
+        self.game_locale
+            .lock()
+            .map(|g| g.clone())
+            .unwrap_or_default()
+    }
+
     /// Asks for the tables to be read again on the next update.
     pub fn request(&self) {
         self.requested.store(true, Ordering::Release);
@@ -315,6 +351,53 @@ pub fn reload_localization_tables(
         ),
         Err(e) => tracing::error!("localization: tables not reloaded: {e}"),
     }
+}
+
+/// Switches the game to the locale the Localization panel asked for, and
+/// tells the panel which locale the game shows and which it has.
+///
+/// The panel's locale menu is Unity's Game-view locale menu (Godot's editor
+/// has "Preview Translation" for the same job): a translator sees every
+/// string, the `[ui.locale_fonts]` and the plurals in the game's own UI,
+/// without a script to call `setLocale`. It *is* the game's locale -- the
+/// editor and the game are one process, as in Unity's Play mode -- so a
+/// script that sets its locale afterwards wins, as it would over Unity's
+/// menu.
+///
+/// Published only when `Localization` changed (a reload can add a locale; a
+/// script's `setLocale` changes the current one), and after
+/// [`reload_localization_tables`], so a locale a saved table added is in the
+/// menu on that update.
+pub fn sync_localization_locale(
+    reload: Option<bevy_ecs::prelude::Res<LocalizationReload>>,
+    localization: Option<bevy_ecs::prelude::ResMut<Localization>>,
+) {
+    use bevy_ecs::change_detection::DetectChanges;
+    let (Some(reload), Some(mut localization)) = (reload, localization) else {
+        return;
+    };
+    let request = reload
+        .locale_request
+        .lock()
+        .ok()
+        .and_then(|mut request| request.take());
+    if let Some(locale) = request {
+        localization.set_locale(&locale);
+        tracing::info!(
+            "localization: locale {:?} from the editor",
+            localization.locale()
+        );
+    }
+    if !localization.is_changed() {
+        return;
+    }
+    let shown = GameLocale {
+        current: localization.locale().to_string(),
+        available: localization.locales(),
+    };
+    if let Ok(mut published) = reload.game_locale.lock() {
+        *published = shown;
+    };
 }
 
 /// Edits the project's string tables.
@@ -503,6 +586,7 @@ impl LocalizationPanel {
             if dirty {
                 ui.label(egui::RichText::new("edited").italics().weak());
             }
+            self.locale_menu(ui);
         });
         ui.horizontal(|ui| {
             ui.add(
@@ -552,6 +636,40 @@ impl LocalizationPanel {
                 }
             }
         });
+    }
+
+    /// The text the locale menu shows for the game's locale `locale` --
+    /// prefixed, so it is told apart from the grid's column of that name.
+    pub fn locale_menu_text(locale: &str) -> String {
+        format!("{} {locale}", egui_phosphor::regular::GLOBE)
+    }
+
+    /// The game's locale, and a menu of the locales its tables have to
+    /// switch it to ([`sync_localization_locale`]). Shows what the game
+    /// shows, not what was last picked here: a script's `setLocale` moves
+    /// it too. Nothing before the game has published one.
+    fn locale_menu(&mut self, ui: &mut egui::Ui) {
+        let game = self.reload.game_locale();
+        if game.available.is_empty() {
+            return;
+        }
+        ui.separator();
+        let mut wanted = game.current.clone();
+        egui::ComboBox::from_id_salt("localization-game-locale")
+            .selected_text(Self::locale_menu_text(&game.current))
+            .show_ui(ui, |ui| {
+                for locale in &game.available {
+                    ui.selectable_value(&mut wanted, locale.clone(), locale);
+                }
+            })
+            .response
+            .on_hover_text(
+                "The locale the running game shows -- switch it to see every \
+                 translation in the game's own UI. A script's setLocale moves it too.",
+            );
+        if wanted != game.current {
+            self.reload.request_locale(&wanted);
+        }
     }
 
     fn grid(ui: &mut egui::Ui, doc: &mut StringTableDoc, filter: &str) {
@@ -828,6 +946,11 @@ mod tests {
             .unwrap_or_else(|| panic!("premise: {label:?} must be drawn"))
             .rect
             .center();
+        press(ctx, panel, pos);
+    }
+
+    /// A primary click at `pos`, on the panel's next frame.
+    fn press(ctx: &egui::Context, panel: &mut dyn EditorPanel, pos: egui::Pos2) {
         let button = |pressed| egui::Event::PointerButton {
             pos,
             button: egui::PointerButton::Primary,
@@ -1008,6 +1131,7 @@ mod tests {
     }
 
     fn app_over(dir: &std::path::Path, table: &str) -> bevy_app::App {
+        use bevy_ecs::prelude::IntoScheduleConfigs;
         std::fs::write(dir.join("strings.csv"), table).unwrap();
         let mut localization =
             Localization::from_csv_tables([("strings.csv", table)], "en").unwrap();
@@ -1017,7 +1141,10 @@ mod tests {
             .insert_resource(ProjectDir(dir.display().to_string()))
             .insert_resource(localization)
             .add_systems(bevy_app::Startup, register_localization_panel)
-            .add_systems(bevy_app::Update, reload_localization_tables);
+            .add_systems(
+                bevy_app::Update,
+                (reload_localization_tables, sync_localization_locale).chain(),
+            );
         app.update();
         app
     }
@@ -1287,5 +1414,112 @@ mod tests {
         );
         let text = shown(&ctx, panel);
         assert!(text.iter().any(|t| t == "나가기"), "{text:?}");
+    }
+
+    /// The panel `app_over` registered, run under `body` with a context of
+    /// its own.
+    fn with_panel(app: &bevy_app::App, body: impl FnOnce(&egui::Context, &mut dyn EditorPanel)) {
+        let registry = app
+            .world()
+            .resource::<bsengine_core::EditorPanelRegistry>()
+            .0
+            .clone();
+        let mut panels = registry.lock().unwrap();
+        let panel = panels.get_mut("localization").unwrap().as_mut();
+        body(&egui::Context::default(), panel);
+    }
+
+    /// End to end, through the menu as a user picks from it: open it, click
+    /// a locale in its popup, and the game shows that locale on the next
+    /// update -- the text, and the menu, which reads the game's locale back.
+    /// Picked once, not held: a script's `setLocale` afterwards wins.
+    #[test]
+    fn the_locale_menu_switches_the_games_locale() {
+        let dir = temp_project("menu");
+        let mut app = app_over(&dir, TABLE);
+        let tr = |app: &bevy_app::App| app.world().resource::<Localization>().tr("QUIT");
+        assert_eq!(tr(&app), "종료", "premise: the game starts in Korean");
+        let ko = LocalizationPanel::locale_menu_text("ko");
+        let en = LocalizationPanel::locale_menu_text("en");
+        let registry = app
+            .world()
+            .resource::<bsengine_core::EditorPanelRegistry>()
+            .0
+            .clone();
+        let mut panels = registry.lock().unwrap();
+        let panel = panels.get_mut("localization").unwrap().as_mut();
+        let ctx = egui::Context::default();
+        assert!(
+            shown(&ctx, panel).contains(&ko),
+            "the menu shows the game's locale"
+        );
+
+        click(&ctx, panel, &ko);
+        // The popup is drawn above the grid, so its `en` is the last one
+        // drawn; the grid's header has an `en` too.
+        let item = frame(&ctx, panel, Vec::new())
+            .into_iter()
+            .rfind(|d| d.text == "en")
+            .expect("premise: the open menu lists en")
+            .rect
+            .center();
+        press(&ctx, panel, item);
+        assert_eq!(tr(&app), "종료", "premise: the game switches on its update");
+        app.update();
+        assert_eq!(app.world().resource::<Localization>().locale(), "en");
+        assert_eq!(tr(&app), "Quit");
+        let text = shown(&ctx, panel);
+        assert!(text.contains(&en) && !text.contains(&ko), "{text:?}");
+
+        app.world_mut()
+            .resource_mut::<Localization>()
+            .set_locale("ko");
+        app.update();
+        assert_eq!(
+            app.world().resource::<Localization>().locale(),
+            "ko",
+            "the menu's pick was taken once, not held over the script's"
+        );
+    }
+
+    /// The menu shows the game's locale whatever set it -- here what a
+    /// script's `setLocale` does, with the panel out of it.
+    #[test]
+    fn the_menu_shows_a_locale_the_game_set_itself() {
+        let dir = temp_project("menu-follows");
+        let mut app = app_over(&dir, TABLE);
+        with_panel(&app, |ctx, panel| {
+            assert!(shown(ctx, panel).contains(&LocalizationPanel::locale_menu_text("ko")));
+        });
+        app.world_mut()
+            .resource_mut::<Localization>()
+            .set_locale("en");
+        app.update();
+        with_panel(&app, |ctx, panel| {
+            let text = shown(ctx, panel);
+            assert!(
+                text.contains(&LocalizationPanel::locale_menu_text("en")),
+                "{text:?}"
+            );
+        });
+    }
+
+    /// A locale a saved table added is in the menu on the update that read
+    /// the table -- the locale is published after the reload, not before.
+    #[test]
+    fn a_locale_a_reload_adds_is_offered_on_that_update() {
+        let dir = temp_project("menu-new-locale");
+        let mut app = app_over(&dir, TABLE);
+        let reload = app.world().resource::<LocalizationReload>().clone();
+        assert_eq!(reload.game_locale().available, ["en", "ko"]);
+        std::fs::write(
+            dir.join("strings.csv"),
+            "keys,en,ko,ja\nQUIT,Quit,종료,終了\n",
+        )
+        .unwrap();
+        reload.request();
+        app.update();
+        assert_eq!(reload.game_locale().available, ["en", "ja", "ko"]);
+        assert_eq!(reload.game_locale().current, "ko");
     }
 }

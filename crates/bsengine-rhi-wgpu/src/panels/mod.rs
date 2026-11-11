@@ -39,8 +39,8 @@ pub use dock::{
 pub use hierarchy::HierarchyPanel;
 pub use inspector::InspectorPanel;
 pub use localization::{
-    register_localization_panel, reload_localization_tables, LocalizationPanel, LocalizationReload,
-    StringTableDoc,
+    register_localization_panel, reload_localization_tables, sync_localization_locale, GameLocale,
+    LocalizationPanel, LocalizationReload, StringTableDoc,
 };
 pub use mixer::{register_mixer_panel, MixerPanel};
 pub use particles::ParticlePanel;

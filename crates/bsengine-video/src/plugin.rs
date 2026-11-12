@@ -239,6 +239,7 @@ fn drive_video_players(
     mut audio: Option<ResMut<AudioWorld>>,
     time: Option<Res<Time>>,
     project_dir: Option<Res<ProjectDir>>,
+    localization: Option<Res<bsengine_core::Localization>>,
 ) {
     let dt = time.map_or(0.0, |t| f64::from(t.delta_seconds));
     // A despawned player, or one whose component was removed, stops.
@@ -250,14 +251,20 @@ fn drive_video_players(
             playbacks.0.remove(&entity);
             continue;
         }
-        let restart = playbacks
-            .0
-            .get(&entity)
-            .is_none_or(|p| p.path != player.path);
+        // The file actually played: the current locale's replacement
+        // (`[localization.remaps]`) or the path as written. A playback is
+        // keyed by it, so a `setLocale` that changes it starts the new
+        // language's video from the beginning -- the dub and its subtitles
+        // burnt in -- as Unity's localized video clip does. The pictures stay
+        // under the original's texture name, so nothing showing them moves.
+        let source = bsengine_asset::localized_replacement(localization.as_deref(), &player.path)
+            .unwrap_or(&player.path)
+            .to_string();
+        let restart = playbacks.0.get(&entity).is_none_or(|p| p.path != source);
         if restart {
             playbacks.0.insert(
                 entity,
-                start(project_dir.as_deref(), &player.path, player.looping),
+                start(project_dir.as_deref(), &source, player.looping),
             );
             player.status = VideoStatus::Loading;
             player.time = 0.0;
@@ -564,6 +571,57 @@ mod tests {
             VideoStatus::Failed(why) => assert!(why.contains("no such file"), "{why}"),
             other => panic!("expected a failure, got {other:?}"),
         }
+    }
+
+    /// The current locale's replacement (`[localization.remaps]`) is what
+    /// plays, under the original's texture name, and a change of locale
+    /// starts the other file. Only the Korean file exists, so which file is
+    /// playing shows in the status: Korean plays, and after the switch to
+    /// English the original is tried -- and is not there.
+    #[test]
+    fn a_video_plays_its_locales_replacement_and_follows_a_change() {
+        let dir = std::env::temp_dir().join(format!("bsengine-video-l10n-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("assets")).unwrap();
+        std::fs::copy(asset(), dir.join("assets/intro_ko.mp4")).unwrap();
+        let mut localization =
+            bsengine_core::Localization::from_csv_tables([("t.csv", "keys,en,ko\nA,a,가\n")], "en")
+                .unwrap();
+        localization
+            .set_asset_remaps(
+                &[(
+                    "assets/intro.mp4".to_string(),
+                    [("ko".to_string(), "assets/intro_ko.mp4".to_string())].into(),
+                )]
+                .into(),
+            )
+            .unwrap();
+        localization.set_locale("ko");
+        let (mut app, e) = app_with(VideoPlayer {
+            path: "assets/intro.mp4".into(),
+            ..Default::default()
+        });
+        app.insert_resource(ProjectDir(dir.to_string_lossy().replace('\\', "/")));
+        app.insert_resource(localization);
+        play_to(&mut app, 0.5);
+        assert_eq!(
+            player(&app, e).status,
+            VideoStatus::Playing,
+            "the Korean file"
+        );
+        assert!(
+            is(top(&app, "assets/intro.mp4"), [255, 0, 0]),
+            "shown under the original's name"
+        );
+
+        app.world_mut()
+            .resource_mut::<bsengine_core::Localization>()
+            .set_locale("en");
+        play_to(&mut app, 0.3);
+        match player(&app, e).status {
+            VideoStatus::Failed(why) => assert!(why.contains("no such file"), "{why}"),
+            other => panic!("expected the original to be tried, got {other:?}"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Despawning a player stops its playback; changing its path starts the

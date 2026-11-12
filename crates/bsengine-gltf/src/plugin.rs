@@ -73,7 +73,13 @@ impl Plugin for GltfPlugin {
             .register_asset_loader(crate::asset_loader::GltfSourceLoader { root })
             .add_systems(
                 Update,
-                (load_gltf_assets, load_lod_assets, rebuild_modified_gltf).chain(),
+                (
+                    load_gltf_assets,
+                    load_lod_assets,
+                    rebuild_modified_gltf,
+                    switch_localized_gltf,
+                )
+                    .chain(),
             )
             // Before the skinning pass, whose flush dispatches what this
             // queues: weights written after it would reach the screen a frame
@@ -216,8 +222,11 @@ fn identity_skin(vertex_count: usize) -> Vec<bsengine_rhi_wgpu::GpuVertexSkin> {
 ///
 /// Internal to this system — `GltfAsset.path` stays a plain `String`, so scene
 /// RON, the scripting API and the MCP tools are unaffected.
+///
+/// The second field is the path the slot was requested by: the asset's own,
+/// or its replacement in the locale current then (`[localization.remaps]`).
 #[derive(Component)]
-struct PendingGltf(bsengine_asset::AssetSlot<LoadedGltf>);
+struct PendingGltf(bsengine_asset::AssetSlot<LoadedGltf>, String);
 
 /// What a resolved [`GltfAsset`] produced, kept on the entity so a later reload
 /// can rebuild it.
@@ -241,6 +250,15 @@ struct GltfLoaded {
     /// The images the materials use as data -- normal and ORM maps -- each
     /// uploaded linear under an id of its own.
     data_texture_ids: Vec<(DataImage, u64)>,
+    /// The `GltfAsset` path this came from, which the component no longer
+    /// holds once loaded: what a change of locale looks its replacement up
+    /// by.
+    path: String,
+    /// The path `handle` was loaded from: `path`, or its replacement.
+    source: String,
+    /// The load of another `source` after a change of locale, rebuilt under
+    /// the ids above once it lands ([`switch_localized_gltf`]).
+    switching: Option<(bsengine_asset::AssetSlot<LoadedGltf>, String)>,
 }
 
 /// An image a model's materials read as data rather than colour, built from
@@ -401,6 +419,7 @@ fn material_from_gltf(
     }
 }
 
+#[allow(clippy::too_many_arguments)] // Bevy system params
 fn load_gltf_assets(
     mut commands: Commands,
     mut query: Query<
@@ -418,21 +437,28 @@ fn load_gltf_assets(
     mut texture_cache: Option<ResMut<bsengine_render::texture_cache::TextureCache>>,
     mut gltf_assets: ResMut<bevy_asset::Assets<LoadedGltf>>,
     asset_server: Res<bevy_asset::AssetServer>,
+    localization: Option<Res<bsengine_core::Localization>>,
 ) {
     for (entity, asset, pending, existing_transform, existing_player) in query.iter_mut() {
         // Request exactly once, then retain the handle. See `PendingGltf`.
+        // From the current locale's replacement, if it has one.
         let Some(mut pending) = pending else {
+            let source =
+                bsengine_asset::localized_replacement(localization.as_deref(), &asset.path)
+                    .unwrap_or(&asset.path)
+                    .to_string();
             match bsengine_asset::load(
                 bsengine_asset::LoadMode::Async,
                 &asset_server,
                 &mut gltf_assets,
-                &asset.path,
+                &source,
                 GltfLoader::load_full,
             ) {
                 Ok(handle) => {
-                    commands
-                        .entity(entity)
-                        .insert(PendingGltf(bsengine_asset::AssetSlot::from_handle(handle)));
+                    commands.entity(entity).insert(PendingGltf(
+                        bsengine_asset::AssetSlot::from_handle(handle),
+                        source,
+                    ));
                 }
                 Err(e) => {
                     // Unreachable: `LoadMode::Async` is infallible. This arm
@@ -649,6 +675,9 @@ fn load_gltf_assets(
                 mesh_ids,
                 texture_ids: tex_ids.iter().flatten().copied().collect(),
                 data_texture_ids: data_ids,
+                path: asset.path.clone(),
+                source: pending.1.clone(),
+                switching: None,
             });
         }
     }
@@ -683,6 +712,7 @@ fn load_lod_assets(
     mut mesh_registry: Option<ResMut<GpuMeshRegistry>>,
     mut gltf_assets: ResMut<bevy_asset::Assets<LoadedGltf>>,
     asset_server: Res<bevy_asset::AssetServer>,
+    localization: Option<Res<bsengine_core::Localization>>,
 ) {
     for (entity, request, pending) in query.iter_mut() {
         // Request every path exactly once, then retain the handles. See
@@ -692,11 +722,17 @@ fn load_lod_assets(
                 .paths
                 .iter()
                 .map(|path| {
+                    // The current locale's replacement, as for the base
+                    // model -- at the request only: a LOD level is not
+                    // switched when the locale changes later.
+                    let source =
+                        bsengine_asset::localized_replacement(localization.as_deref(), path)
+                            .unwrap_or(path);
                     match bsengine_asset::load(
                         bsengine_asset::LoadMode::Async,
                         &asset_server,
                         &mut gltf_assets,
-                        path,
+                        source,
                         GltfLoader::load_full,
                     ) {
                         Ok(handle) => bsengine_asset::AssetSlot::from_handle(handle),
@@ -805,95 +841,221 @@ fn rebuild_modified_gltf(
             let Some(data) = gltf_assets.get(&loaded.handle) else {
                 continue;
             };
-            if let Some(reg) = mesh_registry.as_mut() {
-                if data.meshes.len() != loaded.mesh_ids.len() {
-                    warn!(
-                        "reloaded glTF now has {} mesh(es), was {} -- rebuilding \
-                         the overlap only; a structural change needs a restart",
-                        data.meshes.len(),
-                        loaded.mesh_ids.len()
-                    );
-                }
-                for (mesh_id, mesh_data) in loaded.mesh_ids.iter().zip(data.meshes.iter()) {
-                    // A skinned mesh is rebuilt as one, with the reloaded skin
-                    // and skeleton, so the next skin dispatch has the right
-                    // rest pose and palette size. A mesh that lost its skin on
-                    // reload is the structural change `refresh_skinning` warns
-                    // about; it keeps its skinning buffers and its old skin.
-                    let deltas = morph_deltas(mesh_data);
-                    let morph = bsengine_rhi_wgpu::MorphDeltas {
-                        deltas: &deltas,
-                        target_count: mesh_data.morph_targets.len() as u32,
-                    };
-                    let replaced = match (reg.is_skinned(*mesh_id), &mesh_data.skin) {
-                        (true, Some(skin)) if !data.skins.is_empty() => reg
-                            .replace_skinned_morphed(
-                                *mesh_id,
-                                &mesh_data.vertices,
-                                &gpu_skin(skin),
-                                &mesh_data.indices,
-                                data.skins[0].joint_node_indices.len() as u32,
-                                morph,
-                            ),
-                        (true, None) if !mesh_data.morph_targets.is_empty() => reg
-                            .replace_skinned_morphed(
-                                *mesh_id,
-                                &mesh_data.vertices,
-                                &identity_skin(mesh_data.vertices.len()),
-                                &mesh_data.indices,
-                                1,
-                                morph,
-                            ),
-                        _ => reg.replace(*mesh_id, &mesh_data.vertices, &mesh_data.indices),
-                    };
-                    if !replaced {
-                        warn!(
-                            "mesh id {mesh_id} recorded at load time is no longer \
-                             registered; whatever draws it keeps the pre-reload geometry"
-                        );
-                    }
-                }
-            }
-            if let Some(reg) = tex_registry.as_mut() {
-                if data.images.len() != loaded.texture_ids.len() {
-                    warn!(
-                        "reloaded glTF now has {} image(s), was {} -- rebuilding \
-                         the overlap only; a structural change needs a restart",
-                        data.images.len(),
-                        loaded.texture_ids.len()
-                    );
-                }
-                for (tex_id, img) in loaded.texture_ids.iter().zip(data.images.iter()) {
-                    if !reg.replace(*tex_id, img.width, img.height, &img.rgba) {
-                        warn!(
-                            "texture id {tex_id} recorded at load time is no longer \
-                             loaded; whatever samples it keeps the pre-reload pixels"
-                        );
-                    }
-                }
-                // The data images' linear copies, which the loop above does
-                // not reach: each is an id of its own, rebuilt from the
-                // reloaded images as at load.
-                for &(image, tex_id) in &loaded.data_texture_ids {
-                    let Some((w, h, rgba)) = data_image_pixels(image, &data.images) else {
-                        continue;
-                    };
-                    let settings = data_image_settings();
-                    if !reg.replace_with(tex_id, w, h, &rgba, settings) {
-                        warn!(
-                            "normal map id {tex_id} recorded at load time is no longer \
-                             loaded; whatever samples it keeps the pre-reload map"
-                        );
-                    }
-                }
-            }
-            // A rebuilt morphed mesh starts with its weights at zero; marking
-            // the component changed makes `sync_morph_weights` put them back.
-            if let Some(mut weights) = morph_weights {
-                weights.set_changed();
-            }
-            refresh_skinning(data, skinned, library, player);
+            rebuild_gltf(
+                loaded,
+                data,
+                skinned,
+                library,
+                player,
+                morph_weights,
+                mesh_registry.as_deref_mut(),
+                tex_registry.as_deref_mut(),
+            );
         }
+    }
+}
+
+/// Rebuilds what `loaded` made from `data`, under the ids it recorded: what
+/// [`rebuild_modified_gltf`] does for an edited file and
+/// [`switch_localized_gltf`] for another locale's -- one body, so the two
+/// cannot drift apart (a switch that skipped [`refresh_skinning`] would be
+/// stomped by the skinning pass the frame it landed).
+#[allow(clippy::too_many_arguments)]
+fn rebuild_gltf(
+    loaded: &GltfLoaded,
+    data: &LoadedGltf,
+    skinned: Option<bevy_ecs::prelude::Mut<SkinnedMesh>>,
+    library: Option<bevy_ecs::prelude::Mut<AnimationClipLibrary>>,
+    player: Option<bevy_ecs::prelude::Mut<AnimationPlayer>>,
+    morph_weights: Option<bevy_ecs::prelude::Mut<bsengine_core::MorphWeights>>,
+    mut mesh_registry: Option<&mut GpuMeshRegistry>,
+    mut tex_registry: Option<&mut GpuTextureRegistry>,
+) {
+    {
+        if let Some(reg) = mesh_registry.as_mut() {
+            if data.meshes.len() != loaded.mesh_ids.len() {
+                warn!(
+                    "reloaded glTF now has {} mesh(es), was {} -- rebuilding \
+                         the overlap only; a structural change needs a restart",
+                    data.meshes.len(),
+                    loaded.mesh_ids.len()
+                );
+            }
+            for (mesh_id, mesh_data) in loaded.mesh_ids.iter().zip(data.meshes.iter()) {
+                // A skinned mesh is rebuilt as one, with the reloaded skin
+                // and skeleton, so the next skin dispatch has the right
+                // rest pose and palette size. A mesh that lost its skin on
+                // reload is the structural change `refresh_skinning` warns
+                // about; it keeps its skinning buffers and its old skin.
+                let deltas = morph_deltas(mesh_data);
+                let morph = bsengine_rhi_wgpu::MorphDeltas {
+                    deltas: &deltas,
+                    target_count: mesh_data.morph_targets.len() as u32,
+                };
+                let replaced = match (reg.is_skinned(*mesh_id), &mesh_data.skin) {
+                    (true, Some(skin)) if !data.skins.is_empty() => reg.replace_skinned_morphed(
+                        *mesh_id,
+                        &mesh_data.vertices,
+                        &gpu_skin(skin),
+                        &mesh_data.indices,
+                        data.skins[0].joint_node_indices.len() as u32,
+                        morph,
+                    ),
+                    (true, None) if !mesh_data.morph_targets.is_empty() => reg
+                        .replace_skinned_morphed(
+                            *mesh_id,
+                            &mesh_data.vertices,
+                            &identity_skin(mesh_data.vertices.len()),
+                            &mesh_data.indices,
+                            1,
+                            morph,
+                        ),
+                    _ => reg.replace(*mesh_id, &mesh_data.vertices, &mesh_data.indices),
+                };
+                if !replaced {
+                    warn!(
+                        "mesh id {mesh_id} recorded at load time is no longer \
+                             registered; whatever draws it keeps the pre-reload geometry"
+                    );
+                }
+            }
+        }
+        if let Some(reg) = tex_registry.as_mut() {
+            if data.images.len() != loaded.texture_ids.len() {
+                warn!(
+                    "reloaded glTF now has {} image(s), was {} -- rebuilding \
+                         the overlap only; a structural change needs a restart",
+                    data.images.len(),
+                    loaded.texture_ids.len()
+                );
+            }
+            for (tex_id, img) in loaded.texture_ids.iter().zip(data.images.iter()) {
+                if !reg.replace(*tex_id, img.width, img.height, &img.rgba) {
+                    warn!(
+                        "texture id {tex_id} recorded at load time is no longer \
+                             loaded; whatever samples it keeps the pre-reload pixels"
+                    );
+                }
+            }
+            // The data images' linear copies, which the loop above does
+            // not reach: each is an id of its own, rebuilt from the
+            // reloaded images as at load.
+            for &(image, tex_id) in &loaded.data_texture_ids {
+                let Some((w, h, rgba)) = data_image_pixels(image, &data.images) else {
+                    continue;
+                };
+                let settings = data_image_settings();
+                if !reg.replace_with(tex_id, w, h, &rgba, settings) {
+                    warn!(
+                        "normal map id {tex_id} recorded at load time is no longer \
+                             loaded; whatever samples it keeps the pre-reload map"
+                    );
+                }
+            }
+        }
+        // A rebuilt morphed mesh starts with its weights at zero; marking
+        // the component changed makes `sync_morph_weights` put them back.
+        if let Some(mut weights) = morph_weights {
+            weights.set_changed();
+        }
+        refresh_skinning(data, skinned, library, player);
+    }
+}
+
+/// Follows a change of locale for every loaded glTF with a replacement in
+/// `[localization.remaps]`: the new locale's file is loaded beside the shown
+/// one and, once it lands, rebuilt **under the ids the first load recorded**
+/// ([`rebuild_gltf`], the hot-reload path) -- so the entity and the extra
+/// entities a multi-mesh file spawned keep drawing, with the new geometry and
+/// images, and nothing is spawned or despawned. A file whose structure
+/// differs (another mesh or image count, a skin gained or lost) is rebuilt
+/// where it overlaps, with the warning a hot reload gives. A replacement that
+/// fails to load leaves the model as it was.
+///
+/// Also run for a model that has just finished loading, not only when the
+/// locale changes: one requested before a `setLocale` arrives with the old
+/// locale's file, after the change was announced.
+#[allow(clippy::type_complexity)]
+fn switch_localized_gltf(
+    localization: Option<Res<bsengine_core::Localization>>,
+    mut query: Query<(
+        &mut GltfLoaded,
+        Option<&mut SkinnedMesh>,
+        Option<&mut AnimationClipLibrary>,
+        Option<&mut AnimationPlayer>,
+        Option<&mut bsengine_core::MorphWeights>,
+    )>,
+    mut gltf_assets: ResMut<bevy_asset::Assets<LoadedGltf>>,
+    asset_server: Res<bevy_asset::AssetServer>,
+    mut mesh_registry: Option<ResMut<GpuMeshRegistry>>,
+    mut tex_registry: Option<ResMut<GpuTextureRegistry>>,
+) {
+    let locale_changed = localization.as_ref().is_some_and(|l| l.is_changed());
+    for (mut loaded, skinned, library, player, morph_weights) in query.iter_mut() {
+        if locale_changed || loaded.is_added() {
+            let wanted =
+                bsengine_asset::localized_replacement(localization.as_deref(), &loaded.path)
+                    .unwrap_or(&loaded.path)
+                    .to_string();
+            if wanted == loaded.source {
+                if loaded.switching.is_some() {
+                    loaded.switching = None;
+                }
+            } else if loaded.switching.as_ref().map(|(_, s)| s) != Some(&wanted) {
+                let handle = match bsengine_asset::load(
+                    bsengine_asset::LoadMode::Async,
+                    &asset_server,
+                    &mut gltf_assets,
+                    &wanted,
+                    GltfLoader::load_full,
+                ) {
+                    Ok(handle) => handle,
+                    Err(_) => unreachable!("LoadMode::Async is infallible, see load_gltf_assets"),
+                };
+                loaded.switching = Some((bsengine_asset::AssetSlot::from_handle(handle), wanted));
+            }
+        }
+        if loaded.switching.is_none() {
+            continue;
+        }
+        let loaded = loaded.into_inner();
+        let Some((slot, source)) = loaded.switching.as_mut() else {
+            continue;
+        };
+        if let bsengine_asset::Polled::Failed(e) = slot.poll(&asset_server, &gltf_assets) {
+            warn!(
+                "glTF {} stays as it was: {source}, its replacement in this locale, \
+                 failed to load: {e}",
+                loaded.path
+            );
+        }
+        if slot.gave_up() {
+            loaded.switching = None;
+            continue;
+        }
+        if gltf_assets.get(slot.handle()).is_none() {
+            continue;
+        }
+        let Some((slot, source)) = loaded.switching.take() else {
+            continue;
+        };
+        // The old file's handle goes: its asset is freed, and hot reload
+        // follows the new one.
+        loaded.handle = slot.handle().clone();
+        loaded.source = source;
+        let Some(data) = gltf_assets.get(&loaded.handle) else {
+            continue;
+        };
+        rebuild_gltf(
+            loaded,
+            data,
+            skinned,
+            library,
+            player,
+            morph_weights,
+            mesh_registry.as_deref_mut(),
+            tex_registry.as_deref_mut(),
+        );
     }
 }
 
@@ -1463,6 +1625,254 @@ mod tests {
             "a normal map is uploaded linear: {settings:?}"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A one-triangle glTF whose corners are `(0,0,0)`, `(s,0,0)` and
+    /// `(0,s,0)`: two files that differ only in `s` have meshes the GPU
+    /// registry tells apart by their bounds.
+    fn triangle_gltf(s: f32) -> String {
+        let buffer: Vec<u8> = [0.0f32, 0.0, 0.0, s, 0.0, 0.0, 0.0, s, 0.0]
+            .iter()
+            .flat_map(|f| f.to_le_bytes())
+            .collect();
+        format!(
+            r#"{{
+  "asset": {{"version": "2.0"}},
+  "scenes": [{{"nodes": [0]}}],
+  "nodes": [{{"mesh": 0}}],
+  "meshes": [{{"primitives": [{{"attributes": {{"POSITION": 0}}}}]}}],
+  "buffers": [{{"byteLength": 36, "uri": "data:application/octet-stream;base64,{}"}}],
+  "bufferViews": [{{"buffer": 0, "byteOffset": 0, "byteLength": 36}}],
+  "accessors": [
+    {{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3", "min": [0, 0, 0], "max": [{s}, {s}, 0]}}
+  ]
+}}"#,
+            crate::loader::base64(&buffer)
+        )
+    }
+
+    /// A model is loaded from the current locale's replacement
+    /// (`[localization.remaps]`), and a change of locale rebuilds it from
+    /// the other file **under the mesh id the entity already draws** -- no
+    /// entity spawned or despawned. The replacement is the same triangle
+    /// four times larger, so which file is on the GPU shows in its bounds.
+    #[test]
+    fn a_model_is_loaded_from_its_locales_replacement_and_switched_in_place() {
+        let dir = std::env::temp_dir().join(format!("bsengine-gltf-l10n-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("assets")).unwrap();
+        std::fs::write(dir.join("assets/sign.gltf"), triangle_gltf(1.0)).unwrap();
+        std::fs::write(dir.join("assets/sign_ko.gltf"), triangle_gltf(4.0)).unwrap();
+        let project = dir.to_string_lossy().replace('\\', "/");
+        let mut localization =
+            bsengine_core::Localization::from_csv_tables([("t.csv", "keys,en,ko\nA,a,가\n")], "en")
+                .unwrap();
+        localization
+            .set_asset_remaps(
+                &[(
+                    "assets/sign.gltf".to_string(),
+                    [("ko".to_string(), "assets/sign_ko.gltf".to_string())].into(),
+                )]
+                .into(),
+            )
+            .unwrap();
+        localization.set_locale("ko");
+
+        let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir(project.clone()));
+        app.insert_resource(localization);
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
+        app.add_plugins(GltfPlugin);
+        app.init_resource::<bsengine_render::texture_cache::TextureCache>();
+        insert_headless_gpu_registries(&mut app);
+        let e = app
+            .world_mut()
+            .spawn(GltfAsset::new(format!("{project}/assets/sign.gltf")))
+            .id();
+        let radius = |app: &bevy_app::App| -> Option<f32> {
+            let mesh_id = app.world().get::<MeshRenderer>(e)?.mesh_id;
+            Some(
+                app.world()
+                    .resource::<GpuMeshRegistry>()
+                    .get_bounds(mesh_id)?
+                    .1,
+            )
+        };
+        let update_until = |app: &mut bevy_app::App, what: &str, done: &dyn Fn(f32) -> bool| {
+            for _ in 0..300 {
+                app.update();
+                if radius(app).is_some_and(done) {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            panic!("never: {what} (radius {:?})", radius(app));
+        };
+        // The 1-unit triangle's bounding radius is under 1; the 4-unit one's
+        // is over 2.
+        update_until(&mut app, "the Korean model", &|r| r > 2.0);
+        let mesh_id = app.world().get::<MeshRenderer>(e).unwrap().mesh_id;
+        let entities = app
+            .world_mut()
+            .query::<&MeshRenderer>()
+            .iter(app.world())
+            .count();
+
+        app.world_mut()
+            .resource_mut::<bsengine_core::Localization>()
+            .set_locale("en");
+        update_until(&mut app, "the original model", &|r| r < 1.0);
+        assert_eq!(
+            app.world().get::<MeshRenderer>(e).unwrap().mesh_id,
+            mesh_id,
+            "rebuilt under the same mesh id"
+        );
+        assert_eq!(
+            app.world_mut()
+                .query::<&MeshRenderer>()
+                .iter(app.world())
+                .count(),
+            entities,
+            "nothing spawned or despawned"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A `LodRequest`'s levels are loaded from the current locale's
+    /// replacements too: a sign's far, simplified mesh carries the same
+    /// lettering as its near one.
+    #[test]
+    fn lod_levels_are_loaded_from_their_locales_replacement() {
+        let dir =
+            std::env::temp_dir().join(format!("bsengine-gltf-l10n-lod-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("assets")).unwrap();
+        std::fs::write(dir.join("assets/sign.gltf"), triangle_gltf(1.0)).unwrap();
+        std::fs::write(dir.join("assets/sign_lod1.gltf"), triangle_gltf(1.0)).unwrap();
+        std::fs::write(dir.join("assets/sign_lod1_ko.gltf"), triangle_gltf(4.0)).unwrap();
+        let project = dir.to_string_lossy().replace('\\', "/");
+        let mut localization =
+            bsengine_core::Localization::from_csv_tables([("t.csv", "keys,en,ko\nA,a,가\n")], "en")
+                .unwrap();
+        localization
+            .set_asset_remaps(
+                &[(
+                    "assets/sign_lod1.gltf".to_string(),
+                    [("ko".to_string(), "assets/sign_lod1_ko.gltf".to_string())].into(),
+                )]
+                .into(),
+            )
+            .unwrap();
+        localization.set_locale("ko");
+
+        let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir(project.clone()));
+        app.insert_resource(localization);
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
+        app.add_plugins(GltfPlugin);
+        app.init_resource::<bsengine_render::texture_cache::TextureCache>();
+        insert_headless_gpu_registries(&mut app);
+        let e = app
+            .world_mut()
+            .spawn((
+                GltfAsset::new(format!("{project}/assets/sign.gltf")),
+                LodRequest {
+                    paths: vec![format!("{project}/assets/sign_lod1.gltf")],
+                    switch_distances: vec![10.0],
+                    hysteresis_band: 0.0,
+                },
+            ))
+            .id();
+        for _ in 0..300 {
+            app.update();
+            if app
+                .world()
+                .get::<bsengine_render::components::LodLevels>(e)
+                .is_some()
+            {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let lod = app
+            .world()
+            .get::<bsengine_render::components::LodLevels>(e)
+            .expect("the LOD level loaded");
+        let radius = app
+            .world()
+            .resource::<GpuMeshRegistry>()
+            .get_bounds(lod.mesh_ids[0])
+            .unwrap()
+            .1;
+        assert!(radius > 2.0, "the Korean level: radius {radius}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A locale change that comes while the model is still loading -- its
+    /// old-locale file requested, not yet arrived -- is followed once it
+    /// arrives: the change was announced before there was a model to switch.
+    #[test]
+    fn a_locale_change_during_the_load_is_followed_once_the_model_arrives() {
+        let dir =
+            std::env::temp_dir().join(format!("bsengine-gltf-l10n-late-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("assets")).unwrap();
+        std::fs::write(dir.join("assets/sign.gltf"), triangle_gltf(1.0)).unwrap();
+        std::fs::write(dir.join("assets/sign_ko.gltf"), triangle_gltf(4.0)).unwrap();
+        let project = dir.to_string_lossy().replace('\\', "/");
+        let mut localization =
+            bsengine_core::Localization::from_csv_tables([("t.csv", "keys,en,ko\nA,a,가\n")], "en")
+                .unwrap();
+        localization
+            .set_asset_remaps(
+                &[(
+                    "assets/sign.gltf".to_string(),
+                    [("ko".to_string(), "assets/sign_ko.gltf".to_string())].into(),
+                )]
+                .into(),
+            )
+            .unwrap();
+
+        let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir(project.clone()));
+        app.insert_resource(localization);
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
+        app.add_plugins(GltfPlugin);
+        app.init_resource::<bsengine_render::texture_cache::TextureCache>();
+        insert_headless_gpu_registries(&mut app);
+        let e = app
+            .world_mut()
+            .spawn(GltfAsset::new(format!("{project}/assets/sign.gltf")))
+            .id();
+        app.update();
+        assert!(
+            app.world().get::<GltfLoaded>(e).is_none(),
+            "premise: the English file is requested and has not arrived"
+        );
+        app.world_mut()
+            .resource_mut::<bsengine_core::Localization>()
+            .set_locale("ko");
+        let radius = |app: &bevy_app::App| -> Option<f32> {
+            let mesh_id = app.world().get::<MeshRenderer>(e)?.mesh_id;
+            Some(
+                app.world()
+                    .resource::<GpuMeshRegistry>()
+                    .get_bounds(mesh_id)?
+                    .1,
+            )
+        };
+        for _ in 0..300 {
+            app.update();
+            if radius(&app).is_some_and(|r| r > 2.0) {
+                let _ = std::fs::remove_dir_all(&dir);
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        panic!(
+            "never switched to the Korean model: radius {:?}",
+            radius(&app)
+        );
     }
 
     fn image(

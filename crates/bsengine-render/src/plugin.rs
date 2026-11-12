@@ -214,6 +214,10 @@ struct PendingShader {
     slot: bsengine_asset::AssetSlot<crate::shader_asset::ShaderSource>,
     /// What the compiler made of the source, if it has seen it.
     compile: CompileStatus,
+    /// The path `slot` was requested by: the shader's own, or its
+    /// replacement in the locale that was current then
+    /// (`[localization.remaps]`).
+    source: String,
 }
 
 /// Whether a loaded shader source has been compiled, and what came of it.
@@ -391,11 +395,29 @@ fn compile_pending_shaders(
     >,
     asset_server: bevy_ecs::prelude::Res<bevy_asset::AssetServer>,
     mut pending: ResMut<PendingShaders>,
+    localization: Option<Res<bsengine_core::Localization>>,
 ) {
     for cs in custom_shaders.iter() {
-        if surface
+        // What the path is loaded from in the current locale
+        // (`[localization.remaps]`). A load of anything else is stale: the
+        // locale changed since it was requested. It is requested again from
+        // the new source below and compiled under the same path, which
+        // replaces the pipeline only once the new source compiles -- until
+        // then, and for good if it does not, the old one draws.
+        let wanted = bsengine_asset::localized_replacement(localization.as_deref(), &cs.path)
+            .unwrap_or(&cs.path);
+        let stale = pending.0.get(&cs.path).is_some_and(|e| e.source != wanted);
+        // A path with a pipeline is done -- unless its entry is a new
+        // locale's source still waiting to be compiled over it.
+        if stale {
+            pending.0.remove(&cs.path);
+        } else if surface
             .as_ref()
             .is_some_and(|s| s.0.has_custom_shader(&cs.path))
+            && pending
+                .0
+                .get(&cs.path)
+                .is_none_or(|e| e.compile != CompileStatus::NotYet)
         {
             continue;
         }
@@ -409,7 +431,7 @@ fn compile_pending_shaders(
                 bsengine_asset::LoadMode::Async,
                 &asset_server,
                 &mut shader_assets,
-                &cs.path,
+                wanted,
                 crate::shader_asset::load_shader_source,
             ) {
                 Ok(handle) => bsengine_asset::AssetSlot::from_handle(handle),
@@ -428,6 +450,7 @@ fn compile_pending_shaders(
                 PendingShader {
                     slot,
                     compile: CompileStatus::NotYet,
+                    source: wanted.to_string(),
                 },
             );
         }
@@ -2023,6 +2046,92 @@ mod tests {
         );
     }
 
+    /// A custom shader is compiled from the current locale's replacement
+    /// (`[localization.remaps]`), under its own path, and a change of locale
+    /// compiles the other source -- even though the path already has a
+    /// pipeline, which is what made every compiled path skip the loader
+    /// before. Driven on an offscreen surface, so the compiles are real.
+    #[test]
+    fn a_custom_shader_is_compiled_from_its_locales_replacement() {
+        let dir = std::env::temp_dir().join(format!(
+            "bsengine-render-l10n-shader-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(dir.join("assets")).unwrap();
+        let glow = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../games/mini-arena/assets/shaders/glow.wgsl");
+        for name in ["glow.wgsl", "glow_ko.wgsl"] {
+            std::fs::copy(&glow, dir.join("assets").join(name)).unwrap();
+        }
+        let project = dir.to_string_lossy().replace('\\', "/");
+        let path = format!("{project}/assets/glow.wgsl");
+        let mut localization =
+            bsengine_core::Localization::from_csv_tables([("t.csv", "keys,en,ko\nA,a,가\n")], "en")
+                .unwrap();
+        localization
+            .set_asset_remaps(
+                &[(
+                    "assets/glow.wgsl".to_string(),
+                    [("ko".to_string(), "assets/glow_ko.wgsl".to_string())].into(),
+                )]
+                .into(),
+            )
+            .unwrap();
+        localization.set_locale("ko");
+
+        let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir(project.clone()));
+        app.insert_resource(localization);
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::offscreen(64, 64, false));
+        app.add_plugins(RenderPlugin);
+        app.world_mut()
+            .spawn(bsengine_core::CustomShader { path: path.clone() });
+        // The source the path's compiled pipeline came from, once it has one.
+        let compiled_from = |app: &bevy_app::App| -> Option<String> {
+            let state = app.world().resource::<PendingShaders>().0.get(&path)?;
+            (state.compile == CompileStatus::Ok).then_some(())?;
+            app.world()
+                .resource::<bevy_asset::AssetServer>()
+                .get_path(state.slot.handle().id())
+                .map(|p| p.to_string())
+        };
+        let update_until = |app: &mut bevy_app::App, source: &str| {
+            for _ in 0..300 {
+                app.update();
+                if compiled_from(app).as_deref() == Some(source) {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            panic!("never compiled from {source}: {:?}", compiled_from(app));
+        };
+        update_until(&mut app, "assets/glow_ko.wgsl");
+        // The device compiles off the frame and the pipeline lands later;
+        // waited for, so the switch below meets a path that already has one
+        // -- the one the loader used to skip for good.
+        let has_pipeline = |app: &bevy_app::App| {
+            app.world()
+                .resource::<bsengine_rhi_wgpu::WgpuSurfaceResource>()
+                .0
+                .has_custom_shader(&path)
+        };
+        for _ in 0..600 {
+            if has_pipeline(&app) {
+                break;
+            }
+            app.update();
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert!(has_pipeline(&app), "premise: the path has a pipeline");
+
+        app.world_mut()
+            .resource_mut::<bsengine_core::Localization>()
+            .set_locale("en");
+        update_until(&mut app, "assets/glow.wgsl");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     // A shader whose *source* loads but does not compile must not be
     // recompiled every frame: the file is broken, the next attempt fails
     // identically, and the only visible effect is one warning per frame. The
@@ -2170,6 +2279,7 @@ mod tests {
         let mut state = PendingShader {
             slot: bsengine_asset::AssetSlot::from_handle(handle.clone()),
             compile: super::compile_status(Ok(())),
+            source: String::new(),
         };
         assert_eq!(
             state.compile,
@@ -2224,6 +2334,7 @@ mod tests {
             let state = PendingShader {
                 slot: bsengine_asset::AssetSlot::Ready(handle.clone()),
                 compile,
+                source: String::new(),
             };
             assert!(
                 super::wants_rebuild(&state, id),
@@ -2237,11 +2348,13 @@ mod tests {
         let still_loading = PendingShader {
             slot: bsengine_asset::AssetSlot::Loading(handle.clone()),
             compile: CompileStatus::NotYet,
+            source: String::new(),
         };
         assert!(!super::wants_rebuild(&still_loading, id));
         let gave_up = PendingShader {
             slot: bsengine_asset::AssetSlot::GaveUp(handle.clone()),
             compile: CompileStatus::NotYet,
+            source: String::new(),
         };
         assert!(!super::wants_rebuild(&gave_up, id));
 
@@ -2253,6 +2366,7 @@ mod tests {
         let ready = PendingShader {
             slot: bsengine_asset::AssetSlot::Ready(handle),
             compile: CompileStatus::Ok,
+            source: String::new(),
         };
         assert!(!super::wants_rebuild(&ready, other.id()));
     }

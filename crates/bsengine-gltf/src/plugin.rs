@@ -1709,8 +1709,15 @@ mod tests {
             panic!("never: {what} (radius {:?})", radius(app));
         };
         // The 1-unit triangle's bounding radius is under 1; the 4-unit one's
-        // is over 2.
-        update_until(&mut app, "the Korean model", &|r| r > 2.0);
+        // is over 2. Read the first frame the model is drawn at all: it must
+        // already be the Korean one -- the original never loaded and then
+        // switched away from.
+        update_until(&mut app, "the model", &|_| true);
+        assert!(
+            radius(&app).is_some_and(|r| r > 2.0),
+            "the first model drawn is the Korean one: radius {:?}",
+            radius(&app)
+        );
         let mesh_id = app.world().get::<MeshRenderer>(e).unwrap().mesh_id;
         let entities = app
             .world_mut()
@@ -1809,8 +1816,14 @@ mod tests {
     }
 
     /// A locale change that comes while the model is still loading -- its
-    /// old-locale file requested, not yet arrived -- is followed once it
-    /// arrives: the change was announced before there was a model to switch.
+    /// old-locale file requested, not yet built -- is followed once it is
+    /// built: the change was announced before there was a model to switch.
+    ///
+    /// Made deterministic by holding the GPU registries back: the file
+    /// arrives but cannot be built into a model, the change is seen on the
+    /// frames that follow, and only then may the model be made. (Left to the
+    /// file's timing, the model was built on the very frame the change was
+    /// seen, and the test passed without the arrival case.)
     #[test]
     fn a_locale_change_during_the_load_is_followed_once_the_model_arrives() {
         let dir =
@@ -1839,19 +1852,38 @@ mod tests {
         app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(GltfPlugin);
         app.init_resource::<bsengine_render::texture_cache::TextureCache>();
-        insert_headless_gpu_registries(&mut app);
         let e = app
             .world_mut()
             .spawn(GltfAsset::new(format!("{project}/assets/sign.gltf")))
             .id();
-        app.update();
+        for _ in 0..300 {
+            app.update();
+            if app
+                .world()
+                .get::<PendingGltf>(e)
+                .is_some_and(|p| p.0.is_ready())
+            {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
         assert!(
-            app.world().get::<GltfLoaded>(e).is_none(),
-            "premise: the English file is requested and has not arrived"
+            app.world()
+                .get::<PendingGltf>(e)
+                .is_some_and(|p| p.0.is_ready() && p.1.ends_with("assets/sign.gltf")),
+            "premise: the English file arrived, with no GPU to build it on"
         );
         app.world_mut()
             .resource_mut::<bsengine_core::Localization>()
             .set_locale("ko");
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(
+            app.world().get::<GltfLoaded>(e).is_none(),
+            "premise: the change was seen before there was a model"
+        );
+        insert_headless_gpu_registries(&mut app);
         let radius = |app: &bevy_app::App| -> Option<f32> {
             let mesh_id = app.world().get::<MeshRenderer>(e)?.mesh_id;
             Some(

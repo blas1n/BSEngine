@@ -518,7 +518,9 @@ pub(crate) fn insert_input_actions(app: &mut bevy_app::App, manifest: &ProjectMa
 /// the closest locale the tables have, and the default locale when none is
 /// close. A table that cannot be read or parsed stops the game at start, as
 /// a bad `[input]` binding does: shipping it would show every string as its
-/// key. `package` includes the tables, so a packaged build has them.
+/// key. `package` includes the tables, so a packaged build has them. The
+/// same goes for `[localization.remaps]`: a replacement that is not a project
+/// path, or not there, stops the game at start.
 pub(crate) fn insert_localization(
     app: &mut bevy_app::App,
     project_dir: &str,
@@ -550,6 +552,32 @@ pub(crate) fn insert_localization(
         localization.set_locale(&locale);
     }
     localization.set_auto_translate(section.auto_translate);
+    localization
+        .set_asset_remaps(&section.remaps)
+        .unwrap_or_else(|e| panic!("Cannot use project.toml's [localization.remaps]: {e}"));
+    // Every locale's replacements, not only the starting one's: a file the
+    // archive lacks for a locale the player switches to later would
+    // otherwise be found then, mid-game, as the old image staying on screen
+    // and a warning nobody reads. Checked, not read.
+    for replacement in section
+        .remaps
+        .values()
+        .flat_map(|by_locale| by_locale.values())
+    {
+        let path = format!("{project_dir}/{replacement}");
+        if !bsengine_asset::pak_source::exists_in(pak, project_dir, &path) {
+            panic!(
+                "Cannot find {replacement}, a replacement in project.toml's \
+                 [localization.remaps]"
+            );
+        }
+    }
+    if !section.remaps.is_empty() {
+        tracing::info!(
+            "localization: {} asset(s) replaced by locale",
+            section.remaps.len()
+        );
+    }
     tracing::info!(
         "localization: locale {} (default {}), locales {:?}",
         localization.locale(),

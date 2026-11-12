@@ -81,6 +81,9 @@ pub struct UiSection {
 /// default_locale = "en"   # what a missing translation falls back to
 /// locale = "auto"         # the system's, matched to the tables; or e.g. "ko"
 /// auto_translate = true    # UI text that is a key is drawn translated
+///
+/// [localization.remaps]     # assets loaded in place of others, by locale
+/// "assets/ui/logo.png" = { ko = "assets/ui/logo_ko.png" }
 /// ```
 #[derive(Deserialize)]
 pub struct LocalizationSection {
@@ -99,6 +102,13 @@ pub struct LocalizationSection {
     /// default, as Godot's `auto_translate` is.
     #[serde(default = "default_auto_translate")]
     pub auto_translate: bool,
+    /// Assets replaced in some locales (`bsengine_core::Localization::
+    /// set_asset_remaps`): each original's project path, and by locale the
+    /// project path loaded in its place. Packaged like `tables`, every
+    /// locale's replacements: the player picks the locale after the build is
+    /// made.
+    #[serde(default)]
+    pub remaps: std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
 }
 
 fn default_auto_translate() -> bool {
@@ -122,6 +132,7 @@ impl Default for LocalizationSection {
             default_locale: default_default_locale(),
             locale: default_start_locale(),
             auto_translate: default_auto_translate(),
+            remaps: Default::default(),
         }
     }
 }
@@ -131,10 +142,18 @@ impl ProjectManifest {
     /// `[package] extra_assets`, the localization tables, which no scene
     /// references and a build without would show every string as its key,
     /// and the UI fonts, every locale's, without which it would stop at
-    /// start.
+    /// start. So are the localized replacements, every locale's: no scene
+    /// names them -- scenes name the originals.
     pub fn packaged_extras(&self) -> Vec<String> {
         let mut extras = self.package.extra_assets.clone();
         extras.extend(self.localization.tables.iter().cloned());
+        extras.extend(
+            self.localization
+                .remaps
+                .values()
+                .flat_map(|by_locale| by_locale.values())
+                .cloned(),
+        );
         extras.extend(self.ui.fonts.iter().cloned());
         extras.extend(self.ui.locale_fonts.values().flatten().cloned());
         extras.extend(self.ui.font_families.values().flatten().cloned());
@@ -1506,12 +1525,28 @@ mod localization_section_tests {
     /// The localization the game starts with, from `project.toml` text and a
     /// one-key table, through the runtime's own `insert_localization`.
     fn start(tag: &str, localization_table: &str) -> bsengine_core::Localization {
+        start_with(tag, localization_table, &[])
+    }
+
+    /// [`start`], with `files` written into the project first.
+    fn start_with(
+        tag: &str,
+        localization_table: &str,
+        files: &[&str],
+    ) -> bsengine_core::Localization {
         let dir = std::env::temp_dir().join(format!(
             "bsengine_l10n_section_{tag}_{}",
             std::process::id()
         ));
+        // Fresh: a test that panics never reaches the removal below.
+        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("ui.csv"), "keys,en\nPLAY,Play\n").unwrap();
+        for file in files {
+            let path = dir.join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "not read").unwrap();
+        }
         let manifest: ProjectManifest = toml::from_str(&format!(
             "[project]\nname = \"t\"\nentry_scene = \"s.ron\"\n\
              [localization]\ntables = [\"ui.csv\"]\nlocale = \"en\"\n{localization_table}"
@@ -1546,6 +1581,51 @@ mod localization_section_tests {
             "Play",
             "while scripts' own tr still translates"
         );
+    }
+
+    const REMAPS: &str = "[localization.remaps]\n\
+                          \"assets/logo.png\" = { ko = \"assets/ko/logo.png\", ja = \"assets/ja/logo.png\" }\n";
+
+    /// `[localization.remaps]` reaches the resource the texture cache and
+    /// `playSound` read, every locale's, and is packaged, every locale's.
+    #[test]
+    fn remaps_reach_the_localization_and_the_package() {
+        let mut l = start_with(
+            "remaps",
+            REMAPS,
+            &["assets/ko/logo.png", "assets/ja/logo.png"],
+        );
+        l.set_locale("ko");
+        assert_eq!(
+            l.localized_asset("assets/logo.png"),
+            Some("assets/ko/logo.png")
+        );
+        l.set_locale("ja-JP");
+        assert_eq!(
+            l.localized_asset("assets/logo.png"),
+            Some("assets/ja/logo.png")
+        );
+
+        let manifest: ProjectManifest = toml::from_str(&format!(
+            "[project]\nname = \"t\"\nentry_scene = \"s.ron\"\n{REMAPS}"
+        ))
+        .unwrap();
+        let extras = manifest.packaged_extras();
+        for replacement in ["assets/ko/logo.png", "assets/ja/logo.png"] {
+            assert!(
+                extras.iter().any(|e| e == replacement),
+                "{replacement} is packaged: {extras:?}"
+            );
+        }
+    }
+
+    /// A replacement the project lacks stops the game at start -- for a
+    /// locale the game does not start in, too: it would otherwise be found
+    /// only when a player switched to it.
+    #[test]
+    #[should_panic(expected = "Cannot find assets/ja/logo.png")]
+    fn a_missing_replacement_stops_the_game_at_start() {
+        start_with("remaps_missing", REMAPS, &["assets/ko/logo.png"]);
     }
 }
 

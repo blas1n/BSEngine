@@ -106,7 +106,6 @@ pub fn build_test_app_sized(
     let pak = crate::open_pak(project_dir);
     let manifest: ProjectManifest = crate::read_manifest(project_dir, pak.as_deref());
     let relative_scene = scene_override.unwrap_or(&manifest.project.entry_scene);
-    let scene_path = format!("{project_dir}/{relative_scene}");
 
     let mut app = bsengine_app::new_app();
     // Not the game's real save folder: a replay must play the same way every
@@ -273,8 +272,15 @@ pub fn build_test_app_sized(
         // Mirrors the windowed runtime (main.rs's run_windowed): a `Cloth` in a
         // headless E2E replay has to simulate too, or a recording made in the
         // editor replays against a sheet that never moves.
-        .add_plugins(ClothPlugin)
-        .add_plugins(ScenePlugin::from_file(&scene_path))
+        .add_plugins(ClothPlugin);
+    // The starting locale's replacement, as the windowed runtime reads it
+    // (main.rs's `build_windowed_app`).
+    let scene_path = crate::scene_systems::localized_entry_scene(
+        app.world().get_resource::<bsengine_core::Localization>(),
+        project_dir,
+        relative_scene,
+    );
+    app.add_plugins(ScenePlugin::from_file(&scene_path))
         .add_plugins(ScriptingPlugin {
             project_dir: project_dir.to_string(),
         });
@@ -982,6 +988,93 @@ mod tests {
             stream_out(&mut app, &dir, "b.ron");
             assert!(!names(&mut app).contains(&"SceneB".to_string()));
         }
+    }
+
+    /// [`write_two_scene_project`] with a Korean replacement for each scene
+    /// (`a_ko.ron` holds `SceneA_ko`, `b_ko.ron` holds `SceneB_ko`) in
+    /// `[localization.remaps]`, starting in `locale`.
+    fn write_localized_scene_project(locale: &str) -> tempfile::TempDir {
+        let dir = write_two_scene_project();
+        let root = dir.path();
+        std::fs::write(
+            root.join("project.toml"),
+            format!(
+                "[project]\nname = \"Test\"\nentry_scene = \"assets/scenes/a.ron\"\n\n\
+                 [localization]\nlocale = \"{locale}\"\n\n\
+                 [localization.remaps]\n\
+                 \"assets/scenes/a.ron\" = {{ ko = \"assets/scenes/a_ko.ron\" }}\n\
+                 \"assets/scenes/b.ron\" = {{ ko = \"assets/scenes/b_ko.ron\" }}\n"
+            ),
+        )
+        .unwrap();
+        for scene in ["A", "B"] {
+            std::fs::write(
+                root.join(format!("assets/scenes/{}_ko.ron", scene.to_lowercase())),
+                format!("SceneDescriptor(entities: [EntityDescriptor(name: \"Scene{scene}_ko\")])"),
+            )
+            .unwrap();
+        }
+        dir
+    }
+
+    /// The entry scene is read from the starting locale's replacement, and
+    /// the editor tooling's scene path is that file -- a save writes back to
+    /// the scene on screen, not over the original. In English the original
+    /// is read: the replacement is the locale's, not the project's.
+    #[test]
+    fn the_entry_scene_is_read_from_the_starting_locales_replacement() {
+        let dir = write_localized_scene_project("ko");
+        let mut app = build_simulation_app(dir.path().to_str().unwrap(), None, false);
+        app.update();
+        assert_eq!(names(&mut app), vec!["SceneA_ko".to_string()]);
+        let saved_to = app
+            .world()
+            .resource::<InspectorState>()
+            .current_scene_path
+            .clone()
+            .unwrap();
+        assert!(saved_to.ends_with("assets/scenes/a_ko.ron"), "{saved_to}");
+
+        let dir = write_localized_scene_project("en");
+        let mut app = build_simulation_app(dir.path().to_str().unwrap(), None, false);
+        app.update();
+        assert_eq!(names(&mut app), vec!["SceneA".to_string()]);
+    }
+
+    /// A streamed scene is read from the replacement and is still known by
+    /// the original: unloading the original's path takes the Korean scene's
+    /// entities away, which only holds if `LoadedScenes` recorded them under
+    /// it.
+    #[test]
+    fn a_streamed_scene_is_read_from_its_replacement_and_unloaded_by_its_own_path() {
+        let dir = write_localized_scene_project("ko");
+        let mut app = build_simulation_app(dir.path().to_str().unwrap(), None, false);
+        app.update();
+        stream_in(&mut app, &dir, "b.ron");
+        assert_eq!(
+            names(&mut app),
+            vec!["SceneA_ko".to_string(), "SceneB_ko".to_string()]
+        );
+        stream_out(&mut app, &dir, "b.ron");
+        assert_eq!(names(&mut app), vec!["SceneA_ko".to_string()]);
+    }
+
+    /// `loadScene` of the original reads the current locale's replacement --
+    /// the locale now, not the one the game started in.
+    #[test]
+    fn load_scene_reads_the_current_locales_replacement() {
+        let dir = write_localized_scene_project("en");
+        let mut app = build_simulation_app(dir.path().to_str().unwrap(), None, false);
+        app.update();
+        assert_eq!(names(&mut app), vec!["SceneA".to_string()], "premise");
+        app.world_mut()
+            .resource_mut::<bsengine_core::Localization>()
+            .set_locale("ko");
+        let path = format!("{}/assets/scenes/b.ron", dir.path().to_str().unwrap());
+        app.world_mut()
+            .insert_resource(bsengine_scene::PendingSceneLoad { path });
+        app.update();
+        assert_eq!(names(&mut app), vec!["SceneB_ko".to_string()]);
     }
 
     /// Queues several streaming requests and applies them in one frame.

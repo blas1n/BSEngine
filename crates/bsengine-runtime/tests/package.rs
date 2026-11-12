@@ -351,7 +351,8 @@ fn packaging_refuses_a_bad_input_binding_and_names_it() {
 /// start like the rest. And `[ui.font_families]`' font, which only a widget
 /// that names its family draws in -- read at start all the same. And
 /// `[localization.remaps]`' Japanese logo: no scene names it, and the runtime
-/// checks at start that every locale's replacement is there.
+/// checks at start that every locale's replacement is there. And the Korean
+/// entry scene the build starts in, with the script only it names.
 #[test]
 fn a_pak_build_carries_its_string_tables_and_translates_from_them() {
     let project = Output::new();
@@ -366,7 +367,22 @@ fn a_pak_build_carries_its_string_tables_and_translates_from_them() {
          [ui]\nfonts = [\"assets/fonts/hangul.ttf\"]\n\n\
          [ui.locale_fonts]\nja = [\"assets/fonts/kana.ttf\"]\n\n\
          [ui.font_families]\ntitle = [\"assets/fonts/title.ttf\"]\n\n\
-         [localization.remaps]\n\"assets/ui/logo.png\" = { ja = \"assets/ui/logo_ja.png\" }\n",
+         [localization.remaps]\n\"assets/ui/logo.png\" = { ja = \"assets/ui/logo_ja.png\" }\n\
+         \"assets/scenes/main.ron\" = { ko = \"assets/scenes/main_ko.ron\" }\n",
+    )
+    .unwrap();
+    // The Korean entry scene, and the script only it names: the build starts
+    // in Korean, so this is the scene it plays, and its script is packaged
+    // only because the cook walks the replacement's references.
+    std::fs::write(
+        project.0.join("assets/scenes/main_ko.ron"),
+        r#"SceneDescriptor(entities: [EntityDescriptor(name: "Menu", script: Some("assets/scripts/menu_ko.js"))])"#,
+    )
+    .unwrap();
+    std::fs::create_dir_all(project.0.join("assets/scripts")).unwrap();
+    std::fs::write(
+        project.0.join("assets/scripts/menu_ko.js"),
+        "function onUpdate(name) { Bsengine.setHudText(\"greeting\", Bsengine.tr(\"GREETING\") + \" (ko scene)\"); }\n",
     )
     .unwrap();
     std::fs::create_dir_all(project.0.join("assets/ui")).unwrap();
@@ -447,8 +463,9 @@ fn a_pak_build_carries_its_string_tables_and_translates_from_them() {
         .expect("wait for the packaged build");
     let stdout = String::from_utf8_lossy(&run.stdout);
     assert!(
-        stdout.contains("안녕하세요"),
-        "the packaged build translated GREETING into Korean from its archive:\n\
+        stdout.contains("안녕하세요 (ko scene)"),
+        "the packaged build played its Korean entry scene and translated GREETING \
+         into Korean, both from its archive:\n\
          stdout: {stdout}\nstderr: {}",
         String::from_utf8_lossy(&run.stderr)
     );

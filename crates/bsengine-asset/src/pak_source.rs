@@ -133,6 +133,14 @@ pub fn read_bytes_from(pak: Option<&Pak>, project_dir: &str, path: &str) -> io::
     std::fs::read(path)
 }
 
+/// Whether [`read_bytes_from`] would find `path` -- in `pak`, else on disk --
+/// without reading it: a localized voice line is checked at start, not
+/// loaded.
+pub fn exists_in(pak: Option<&Pak>, project_dir: &str, path: &str) -> bool {
+    pak.is_some_and(|pak| pak.get(&archive_key(path, project_dir)).is_some())
+        || std::path::Path::new(path).is_file()
+}
+
 /// [`read_from`] for a binary file: the archive's entry if it has one, else
 /// the disk's.
 ///

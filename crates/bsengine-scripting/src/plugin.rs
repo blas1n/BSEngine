@@ -2364,6 +2364,7 @@ fn run_scripts(world: &mut World) {
                 let Some(full_path) = script_project_path(world, "playSound", &path) else {
                     continue;
                 };
+                let full_path = localized_sound_path(world, full_path);
                 // What `SoundLoads` already knows decides everything below, so
                 // it is consulted *before* anything is requested. Re-calling
                 // `load()` for a path whose load has since failed resets it to
@@ -3517,6 +3518,28 @@ fn script_project_path(world: &World, what: &str, path: &str) -> Option<String> 
             tracing::warn!("[scripting] {what}: refused {path:?}: {e}");
             None
         }
+    }
+}
+
+/// `full_path`, a sound a script asked for, or -- when the current locale
+/// replaces it (`project.toml`'s `[localization.remaps]`,
+/// `Localization::localized_asset`) -- the replacement, resolved the same
+/// way. Decided at each play, as Godot applies its remaps at each load: a
+/// `setLocale` is heard from the next `playSound` on, and a sound already
+/// playing finishes in the language it started in. `SoundLoads` is keyed by
+/// what this returns, so each locale's file is decoded once and kept.
+fn localized_sound_path(world: &World, full_path: String) -> String {
+    let Some(localization) = world.get_resource::<bsengine_core::Localization>() else {
+        return full_path;
+    };
+    let replacement = bsengine_asset::asset_key(&full_path)
+        .ok()
+        .and_then(|key| localization.localized_asset(&key));
+    match replacement {
+        Some(replacement) => {
+            script_project_path(world, "playSound", replacement).unwrap_or(full_path)
+        }
+        None => full_path,
     }
 }
 
@@ -5827,6 +5850,91 @@ mod tests {
              is a fresh disk read several frames late"
         );
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A script plays the original's path and hears the current locale's
+    /// replacement (`[localization.remaps]`): the replacement is what was
+    /// loaded, and the original never was. After a `setLocale` with no
+    /// replacement, the next play loads the original.
+    #[test]
+    fn a_sound_plays_its_replacement_in_the_current_locale() {
+        let dir = std::env::temp_dir().join(format!(
+            "bsengine_test_localized_sound_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["blip.flac", "blip_ko.flac"] {
+            std::fs::write(dir.join(name), MINIMAL_FLAC_SILENCE).unwrap();
+        }
+        std::fs::write(
+            dir.join("speaker.js"),
+            "var f = 0;\n\
+             function onUpdate(name) {\n\
+               f += 1;\n\
+               if (f === 1 || f === 40) { Bsengine.playSound(\"blip.flac\", {}); }\n\
+             }",
+        )
+        .unwrap();
+        let project = dir.to_string_lossy().replace('\\', "/");
+        let mut localization =
+            bsengine_core::Localization::from_csv_tables([("t.csv", "keys,en,ko\nA,a,가\n")], "en")
+                .unwrap();
+        localization
+            .set_asset_remaps(
+                &[(
+                    "blip.flac".to_string(),
+                    [("ko".to_string(), "blip_ko.flac".to_string())].into(),
+                )]
+                .into(),
+            )
+            .unwrap();
+        localization.set_locale("ko");
+
+        let mut app = new_app();
+        app.insert_resource(localization);
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: project.clone(),
+        });
+        app.world_mut().spawn((
+            Name("Speaker".to_string()),
+            ScriptPath("speaker.js".to_string()),
+        ));
+        let loaded = |app: &bevy_app::App| {
+            let mut keys: Vec<String> = app
+                .world()
+                .resource::<SoundLoads>()
+                .0
+                .keys()
+                .cloned()
+                .collect();
+            keys.sort();
+            keys
+        };
+        for _ in 0..10 {
+            app.update();
+        }
+        assert_eq!(
+            loaded(&app),
+            [format!("{project}/blip_ko.flac")],
+            "the Korean file, and only it"
+        );
+
+        app.world_mut()
+            .resource_mut::<bsengine_core::Localization>()
+            .set_locale("en");
+        for _ in 0..40 {
+            app.update();
+        }
+        assert_eq!(
+            loaded(&app),
+            [
+                format!("{project}/blip.flac"),
+                format!("{project}/blip_ko.flac")
+            ],
+            "the next play after the change loads the original"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

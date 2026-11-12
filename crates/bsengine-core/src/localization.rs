@@ -1,7 +1,7 @@
 //! Localization: translated strings by key, from CSV string tables, with a
 //! current locale and a fallback.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
 use bevy_ecs::prelude::Resource;
@@ -41,6 +41,9 @@ pub struct Localization {
     /// Whether UI text that is a key is shown translated; see
     /// [`Self::translate_ui`].
     auto_translate: bool,
+    /// Assets replaced in some locales: project path -> locale -> the project
+    /// path loaded in its place. See [`Self::localized_asset`].
+    asset_remaps: Arc<HashMap<String, HashMap<String, String>>>,
 }
 
 impl Localization {
@@ -62,6 +65,7 @@ impl Localization {
             locale: default_locale.clone(),
             default_locale,
             auto_translate: true,
+            asset_remaps: Arc::default(),
         })
     }
 
@@ -187,6 +191,69 @@ impl Localization {
     /// [`Self::lookup`], or the key itself when nothing has it.
     pub fn tr(&self, key: &str) -> String {
         self.lookup(key).unwrap_or(key).to_string()
+    }
+
+    /// Sets the assets that are replaced in some locales: each original's
+    /// project path (`assets/ui/logo.png`), and by locale the project path
+    /// loaded in its place (`ko` -> `assets/ui/logo_ko.png`) -- what
+    /// `project.toml`'s `[localization.remaps]` holds. Paths are normalized
+    /// as project paths and locales as [`normalize_locale`] spells them.
+    ///
+    /// Godot's model, the project's localization *remaps*, which Unreal's
+    /// per-culture `L10N` folders share: the scene, the components and the
+    /// scripts keep naming the original, and the engine loads the
+    /// replacement where an asset becomes a load. (Unity's Asset Tables name
+    /// an asset by key instead, which a scene-authored path cannot use.)
+    ///
+    /// # Errors
+    ///
+    /// A path that is not a project path (`..` out of the project, a root, a
+    /// drive), naming it; the remaps are then left as they were.
+    pub fn set_asset_remaps(
+        &mut self,
+        remaps: &BTreeMap<String, BTreeMap<String, String>>,
+    ) -> Result<(), String> {
+        let path = |p: &str| crate::project_path(p).map_err(|e| format!("{p:?}: {e}"));
+        let mut out = HashMap::new();
+        for (original, by_locale) in remaps {
+            let replacements = by_locale
+                .iter()
+                .map(|(locale, replacement)| Ok((normalize_locale(locale), path(replacement)?)))
+                .collect::<Result<HashMap<_, _>, String>>()?;
+            out.insert(path(original)?, replacements);
+        }
+        self.asset_remaps = Arc::new(out);
+        Ok(())
+    }
+
+    /// What is loaded in place of the asset at project path `path` in the
+    /// current locale: the replacement for the locale exactly (`pt-BR`), else
+    /// for its language (`pt`) -- `None` when neither has one, and the
+    /// original is loaded.
+    ///
+    /// The default locale is not in the chain, as it is for text: the
+    /// original *is* the default locale's asset, so a replacement for it
+    /// would only ever stand in for itself. Godot's remaps fall back the same
+    /// way, to the original.
+    pub fn localized_asset(&self, path: &str) -> Option<&str> {
+        let by_locale = self.asset_remaps.get(path)?;
+        [self.locale.as_str(), language_of(&self.locale)]
+            .into_iter()
+            .find_map(|locale| by_locale.get(locale))
+            .map(String::as_str)
+    }
+
+    /// Every [`Self::localized_asset`] the current locale has: original ->
+    /// replacement, by project path. What a cache of loaded assets compares
+    /// against when the locale changes, to find what it must load again.
+    pub fn localized_assets(&self) -> HashMap<String, String> {
+        self.asset_remaps
+            .keys()
+            .filter_map(|original| {
+                self.localized_asset(original)
+                    .map(|replacement| (original.clone(), replacement.to_string()))
+            })
+            .collect()
     }
 
     /// [`Self::tr`] with its placeholders filled from `args` -- `{name}`,
@@ -1009,6 +1076,104 @@ mod tests {
             !Localization::default().auto_translate(),
             "an app with no tables has nothing to translate"
         );
+    }
+
+    fn remaps(entries: &[(&str, &[(&str, &str)])]) -> BTreeMap<String, BTreeMap<String, String>> {
+        entries
+            .iter()
+            .map(|(original, by_locale)| {
+                (
+                    original.to_string(),
+                    by_locale
+                        .iter()
+                        .map(|(l, p)| (l.to_string(), p.to_string()))
+                        .collect(),
+                )
+            })
+            .collect()
+    }
+
+    /// A replacement for the locale exactly, then for its language, then
+    /// none -- the original -- and never one for the default locale or for
+    /// a path nobody remapped. Paths and locales come in as `project.toml`
+    /// spells them and are looked up as the engine spells them.
+    #[test]
+    fn an_asset_is_replaced_by_its_locales_then_its_languages_remap() {
+        let mut l = loc("en");
+        l.set_asset_remaps(&remaps(&[
+            (
+                "./assets/ui/logo.png",
+                &[
+                    ("ko", "assets/ui/logo_ko.png"),
+                    ("pt_BR", "assets\\ui\\logo_br.png"),
+                    ("pt", "assets/ui/logo_pt.png"),
+                    ("en", "assets/ui/logo_en.png"),
+                ],
+            ),
+            ("assets/vo/intro.ogg", &[("ko", "assets/vo/intro_ko.ogg")]),
+        ]))
+        .unwrap();
+        let logo = "assets/ui/logo.png";
+        for (locale, expected) in [
+            ("ko", Some("assets/ui/logo_ko.png")),
+            ("ko-KR", Some("assets/ui/logo_ko.png")),
+            ("pt-BR", Some("assets/ui/logo_br.png")),
+            ("pt-PT", Some("assets/ui/logo_pt.png")),
+            ("fr", None),
+        ] {
+            l.set_locale(locale);
+            assert_eq!(l.localized_asset(logo), expected, "{locale}");
+        }
+        l.set_locale("fr");
+        assert_eq!(
+            l.default_locale(),
+            "en",
+            "premise: en is the default, and has a remap of its own"
+        );
+        assert_eq!(
+            l.localized_asset(logo),
+            None,
+            "the default locale's remap is not a fallback: the original is"
+        );
+        assert_eq!(l.localized_asset("assets/ui/other.png"), None);
+
+        l.set_locale("ko");
+        let expected: HashMap<String, String> = [
+            ("assets/ui/logo.png", "assets/ui/logo_ko.png"),
+            ("assets/vo/intro.ogg", "assets/vo/intro_ko.ogg"),
+        ]
+        .into_iter()
+        .map(|(a, b)| (a.to_string(), b.to_string()))
+        .collect();
+        assert_eq!(l.localized_assets(), expected);
+        l.set_locale("pt");
+        assert_eq!(
+            l.localized_assets().keys().collect::<Vec<_>>(),
+            ["assets/ui/logo.png"],
+            "only what the locale replaces"
+        );
+
+        l.reload_tables([("t.csv", "keys,en\nA,a\n")]).unwrap();
+        assert_eq!(
+            l.localized_asset(logo),
+            Some("assets/ui/logo_pt.png"),
+            "a table reload keeps the remaps"
+        );
+    }
+
+    #[test]
+    fn a_remap_out_of_the_project_is_refused_and_changes_nothing() {
+        let mut l = loc("ko");
+        l.set_asset_remaps(&remaps(&[("assets/a.png", &[("ko", "assets/a_ko.png")])]))
+            .unwrap();
+        for bad in [
+            remaps(&[("assets/a.png", &[("ko", "../secret.png")])]),
+            remaps(&[("/abs/a.png", &[("ko", "assets/a_ko.png")])]),
+        ] {
+            let err = l.set_asset_remaps(&bad).unwrap_err();
+            assert!(err.contains(".png"), "the path is named: {err}");
+            assert_eq!(l.localized_asset("assets/a.png"), Some("assets/a_ko.png"));
+        }
     }
 
     /// The rules come from the language the text was *found* in. A Russian

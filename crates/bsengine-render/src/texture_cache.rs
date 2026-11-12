@@ -39,6 +39,46 @@ struct CachedTexture {
     /// the asset it found had already released its pixels (see
     /// [`poll_and_upload`]). Asked once, not every frame.
     reloading: bool,
+    /// The path `slot` was requested by: the path this entry is keyed by,
+    /// or its replacement in the locale that was current then
+    /// ([`TextureCache::set_localized_assets`]).
+    source: String,
+    /// The load of another `source`, once the locale changed under an image
+    /// already on the GPU: shown, under the same id, when it lands.
+    switching: Option<Switch>,
+}
+
+impl CachedTexture {
+    fn requesting(asset_server: &bevy_asset::AssetServer, source: String) -> Self {
+        Self {
+            slot: bsengine_asset::AssetSlot::requesting(asset_server, &source),
+            id: None,
+            reloading: false,
+            source,
+            switching: None,
+        }
+    }
+}
+
+/// A [`CachedTexture`]'s next source, loading.
+struct Switch {
+    slot: bsengine_asset::AssetSlot<TextureAsset>,
+    source: String,
+    /// As [`CachedTexture::reloading`].
+    reloading: bool,
+}
+
+/// What `path` is loaded from while `localized` (original -> replacement, by
+/// project path) is the locale's: the replacement, else `path` as it is.
+fn localized_source(localized: &HashMap<String, String>, path: &str) -> String {
+    if localized.is_empty() {
+        return path.to_string();
+    }
+    bsengine_asset::asset_key(path)
+        .ok()
+        .and_then(|key| localized.get(&key))
+        .cloned()
+        .unwrap_or_else(|| path.to_string())
 }
 
 /// One entry per texture path.
@@ -53,6 +93,9 @@ pub struct TextureCache {
     /// Textures whose pixels are pushed in each frame rather than loaded
     /// from a file -- a video's frames ([`Self::set_frame`]) -- by name.
     dynamic: HashMap<String, u64>,
+    /// The current locale's replacements, original -> replacement, by
+    /// project path ([`Self::set_localized_assets`]).
+    localized: HashMap<String, String>,
 }
 
 impl TextureCache {
@@ -163,15 +206,12 @@ impl TextureCache {
         }
         // Requested here, the first time anyone asks for this path, so
         // "request exactly once" is a property of the map rather than of any
-        // caller's control flow.
-        let entry = self
-            .by_path
-            .entry(path.to_string())
-            .or_insert_with(|| CachedTexture {
-                slot: bsengine_asset::AssetSlot::requesting(asset_server, path),
-                id: None,
-                reloading: false,
-            });
+        // caller's control flow. From the locale's replacement, if it has
+        // one: the original is then never read.
+        let localized = &self.localized;
+        let entry = self.by_path.entry(path.to_string()).or_insert_with(|| {
+            CachedTexture::requesting(asset_server, localized_source(localized, path))
+        });
         let (id, uploaded) = poll_and_upload(entry, path, false, asset_server, textures, registry);
         if uploaded {
             self.release_once_all_uploaded(path, textures);
@@ -195,13 +235,12 @@ impl TextureCache {
         if let Some(&id) = self.dynamic.get(path) {
             return Some(id);
         }
+        let localized = &self.localized;
         let entry = self
             .by_path_data
             .entry(path.to_string())
-            .or_insert_with(|| CachedTexture {
-                slot: bsengine_asset::AssetSlot::requesting(asset_server, path),
-                id: None,
-                reloading: false,
+            .or_insert_with(|| {
+                CachedTexture::requesting(asset_server, localized_source(localized, path))
             });
         let (id, uploaded) = poll_and_upload(entry, path, true, asset_server, textures, registry);
         if uploaded {
@@ -233,6 +272,157 @@ impl TextureCache {
             release_if_asked(textures, entry.slot.handle(), path);
         }
     }
+
+    /// Follows a change of locale: `localized` is the new locale's
+    /// replacements, original -> replacement, by project path
+    /// (`bsengine_core::Localization::localized_assets`).
+    ///
+    /// A path whose source changes and that is already on the GPU loads its
+    /// new source beside the old and, once it lands, is written over **under
+    /// the id it already had** ([`Self::poll_switches`]) -- the way a hot
+    /// reload is -- so every material, UI image, decal and cookie naming the
+    /// original shows the new locale's image without being asked again;
+    /// materials, in particular, never ask again once they have an id. Until
+    /// then the old image stays, rather than a frame without one. A path not
+    /// on the GPU yet is simply requested from the new source. The
+    /// replacements also decide what any path asked for later is loaded
+    /// from ([`Self::upload`]).
+    pub fn set_localized_assets(
+        &mut self,
+        localized: HashMap<String, String>,
+        asset_server: &bevy_asset::AssetServer,
+    ) {
+        if localized == self.localized {
+            return;
+        }
+        self.localized = localized;
+        let Self {
+            by_path,
+            by_path_data,
+            localized,
+            ..
+        } = self;
+        for (path, entry) in by_path.iter_mut().chain(by_path_data.iter_mut()) {
+            let wanted = localized_source(localized, path);
+            if entry.id.is_none() {
+                if wanted != entry.source {
+                    *entry = CachedTexture::requesting(asset_server, wanted);
+                }
+            } else if wanted == entry.source {
+                // Back to what is on the GPU before the switch landed.
+                entry.switching = None;
+            } else if entry.switching.as_ref().map(|s| &s.source) != Some(&wanted) {
+                entry.switching = Some(Switch {
+                    slot: bsengine_asset::AssetSlot::requesting(asset_server, &wanted),
+                    source: wanted,
+                    reloading: false,
+                });
+            }
+        }
+    }
+
+    /// Shows each [`Self::set_localized_assets`] switch whose new source has
+    /// arrived, under its entry's id. A source that fails to load leaves the
+    /// image as it was, with a warning naming both paths -- a frame of the
+    /// wrong language's logo is better than no logo -- and is not retried
+    /// until the locale changes again.
+    fn poll_switches(
+        &mut self,
+        asset_server: &bevy_asset::AssetServer,
+        textures: &mut bevy_asset::Assets<TextureAsset>,
+        registry: &mut GpuTextureRegistry,
+    ) {
+        let mut switched = Vec::new();
+        let colour = self.by_path.iter_mut().map(|(p, e)| (p, e, false));
+        let data = self.by_path_data.iter_mut().map(|(p, e)| (p, e, true));
+        for (path, entry, as_data) in colour.chain(data) {
+            if poll_switch(entry, path, as_data, asset_server, textures, registry) {
+                switched.push(path.clone());
+            }
+        }
+        for path in switched {
+            self.release_once_all_uploaded(&path, textures);
+        }
+    }
+}
+
+/// One entry's part of [`TextureCache::poll_switches`]; whether it switched.
+fn poll_switch(
+    entry: &mut CachedTexture,
+    path: &str,
+    data: bool,
+    asset_server: &bevy_asset::AssetServer,
+    textures: &mut bevy_asset::Assets<TextureAsset>,
+    registry: &mut GpuTextureRegistry,
+) -> bool {
+    let (Some(id), Some(switch)) = (entry.id, entry.switching.as_mut()) else {
+        return false;
+    };
+    if let bsengine_asset::Polled::Failed(e) = switch.slot.poll(asset_server, textures) {
+        tracing::warn!(
+            "[texture] '{path}' stays as it was: '{}', its replacement in this locale, \
+             failed to load: {e}",
+            switch.source
+        );
+    }
+    if switch.slot.gave_up() {
+        entry.switching = None;
+        return false;
+    }
+    let Some(tex) = textures.get(switch.slot.handle()) else {
+        return false;
+    };
+    if tex.pixels_released {
+        // Another path uses the replacement too and released it once its
+        // own copy was up: read it again, as `poll_and_upload` does.
+        if !switch.reloading {
+            match asset_server.get_path(switch.slot.handle().id()) {
+                Some(loaded_as) => asset_server.reload(loaded_as.into_owned()),
+                None => asset_server.reload(bsengine_asset::asset_key_or_raw(&switch.source)),
+            }
+            switch.reloading = true;
+        }
+        return false;
+    }
+    if !registry.replace_with(
+        id,
+        tex.width,
+        tex.height,
+        &tex.data,
+        for_use(tex.settings, data),
+    ) {
+        tracing::warn!(
+            "[texture] '{path}' switched locale but its GPU texture {id} is no longer \
+             registered; whatever samples it keeps the old image"
+        );
+    }
+    let Some(switch) = entry.switching.take() else {
+        return false;
+    };
+    // The old source's handle goes with the old slot: its asset is freed
+    // unless something else holds it, and hot reload follows the new file.
+    entry.slot = switch.slot;
+    entry.source = switch.source;
+    entry.reloading = false;
+    true
+}
+
+/// Gives the [`TextureCache`] the current locale's asset replacements
+/// whenever the `Localization` changes -- a script's `setLocale`, the
+/// editor's locale menu, the starting locale -- so the textures that have a
+/// replacement switch to it ([`TextureCache::set_localized_assets`]). Runs
+/// before [`resolve_texture_paths`], so on the first frame the starting
+/// locale's replacements are what is requested, and the original is never
+/// read.
+pub fn sync_localized_textures(
+    localization: Option<Res<bsengine_core::Localization>>,
+    mut cache: ResMut<TextureCache>,
+    asset_server: Res<bevy_asset::AssetServer>,
+) {
+    let Some(localization) = localization.filter(|l| l.is_changed()) else {
+        return;
+    };
+    cache.set_localized_assets(localization.localized_assets(), &asset_server);
 }
 
 /// `settings` as uploaded for a use: linear for data.
@@ -287,7 +477,9 @@ fn poll_and_upload(
                     // were never read again.
                     match asset_server.get_path(entry.slot.handle().id()) {
                         Some(loaded_as) => asset_server.reload(loaded_as.into_owned()),
-                        None => asset_server.reload(bsengine_asset::asset_key_or_raw(path)),
+                        None => {
+                            asset_server.reload(bsengine_asset::asset_key_or_raw(&entry.source))
+                        }
                     }
                     entry.reloading = true;
                 }
@@ -686,6 +878,10 @@ pub fn resolve_texture_paths(
     for path in &colour_maps {
         cache.upload(path, &asset_server, &mut textures, &mut registry);
     }
+    // Images already on the GPU whose locale changed: nobody asks for them
+    // again (a material with an id is skipped above), so the switch is
+    // polled here, for every path.
+    cache.poll_switches(&asset_server, &mut textures, &mut registry);
 }
 
 #[cfg(test)]
@@ -1313,6 +1509,297 @@ mod tests {
             Some(data_settings),
             "and the modified import settings"
         );
+    }
+
+    /// A project in a fresh temp directory holding `assets/logo.png` (4x4)
+    /// and `assets/logo_ko.png` (8x8) -- sizes the GPU copy reports, so which
+    /// file is on the GPU can be read back -- with a `Localization` that
+    /// replaces the first with the second in Korean, starting in `locale`.
+    /// Returns the directory, as `ProjectDir` spells it.
+    ///
+    /// With `plugin`, the systems are `RenderPlugin`'s, as every runtime and
+    /// the editor have them; otherwise this module's, registered here.
+    fn localized_project(tag: &str, locale: &str, plugin: bool) -> (bevy_app::App, String) {
+        let dir = std::env::temp_dir().join(format!(
+            "bse_render_l10n_{tag}_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join("assets")).unwrap();
+        for (name, size) in [("logo.png", 4), ("logo_ko.png", 8)] {
+            image::RgbaImage::from_pixel(size, size, image::Rgba([200, 30, 30, 255]))
+                .save(dir.join("assets").join(name))
+                .unwrap();
+        }
+        let dir = dir.to_string_lossy().replace('\\', "/");
+        let mut localization =
+            bsengine_core::Localization::from_csv_tables([("t.csv", "keys,en,ko\nA,a,가\n")], "en")
+                .unwrap();
+        let remaps = [(
+            "assets/logo.png".to_string(),
+            [("ko".to_string(), "assets/logo_ko.png".to_string())].into(),
+        )]
+        .into();
+        localization.set_asset_remaps(&remaps).unwrap();
+        localization.set_locale(locale);
+
+        let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir(dir.clone()));
+        app.insert_resource(localization);
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        if plugin {
+            app.add_plugins(crate::RenderPlugin);
+            with_gpu(&mut app);
+            return (app, dir);
+        }
+        with_gpu(&mut app);
+        app.init_resource::<TextureCache>();
+        app.add_systems(
+            bevy_app::Update,
+            (
+                sync_localized_textures.before(resolve_texture_paths),
+                resolve_texture_paths,
+                reupload_modified_textures,
+            ),
+        );
+        (app, dir)
+    }
+
+    /// The switch is wired into `RenderPlugin`: from the starting locale, and
+    /// on a change.
+    #[test]
+    fn render_plugin_follows_the_locale_with_a_textures_replacement() {
+        let (mut app, dir) = localized_project("plugin", "ko", true);
+        let entity = app
+            .world_mut()
+            .spawn((
+                Material::default(),
+                TexturePath(format!("{dir}/assets/logo.png")),
+            ))
+            .id();
+        update_until(&mut app, "the Korean image", |app| {
+            app.world()
+                .get::<Material>(entity)
+                .unwrap()
+                .texture_id
+                .is_some_and(|id| {
+                    app.world().resource::<GpuTextureRegistry>().get_size(id) == Some((8, 8))
+                })
+        });
+        app.world_mut()
+            .resource_mut::<bsengine_core::Localization>()
+            .set_locale("en");
+        update_until(&mut app, "the original", |app| {
+            let id = app
+                .world()
+                .get::<Material>(entity)
+                .unwrap()
+                .texture_id
+                .unwrap();
+            app.world().resource::<GpuTextureRegistry>().get_size(id) == Some((4, 4))
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Updates `app` until `done` holds, failing after a few hundred frames:
+    /// loads land on other threads, so how many frames one takes is not
+    /// fixed.
+    fn update_until(app: &mut bevy_app::App, what: &str, done: impl Fn(&bevy_app::App) -> bool) {
+        for _ in 0..400 {
+            if done(app) {
+                return;
+            }
+            app.update();
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        panic!("never happened: {what}");
+    }
+
+    /// The GPU size of what the material holds, once it holds something.
+    fn material_size(app: &mut bevy_app::App, entity: Entity) -> Option<(u32, u32)> {
+        let id = app.world().get::<Material>(entity)?.texture_id?;
+        app.world().resource::<GpuTextureRegistry>().get_size(id)
+    }
+
+    /// The game starts in Korean: the material is given the Korean image,
+    /// and the original file is never loaded -- what the cache requested is
+    /// the replacement's path.
+    #[test]
+    fn a_texture_starts_as_its_replacement_in_the_starting_locale() {
+        let (mut app, dir) = localized_project("start", "ko", false);
+        let logo = format!("{dir}/assets/logo.png");
+        let entity = app
+            .world_mut()
+            .spawn((Material::default(), TexturePath(logo.clone())))
+            .id();
+        update_until(&mut app, "the logo uploaded", |app| {
+            app.world()
+                .get::<Material>(entity)
+                .unwrap()
+                .texture_id
+                .is_some()
+        });
+        assert_eq!(
+            material_size(&mut app, entity),
+            Some((8, 8)),
+            "the Korean image"
+        );
+        let cache = app.world().resource::<TextureCache>();
+        let handle = cache.asset_handle(&logo).expect("requested");
+        assert_eq!(
+            app.world()
+                .resource::<bevy_asset::AssetServer>()
+                .get_path(handle.id())
+                .map(|p| p.to_string()),
+            Some("assets/logo_ko.png".to_string()),
+            "loaded from the replacement, not the original"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The locale changes under a texture already on the GPU, both ways: the
+    /// new locale's image replaces it **under the id the material already
+    /// holds** -- materials never ask again once they have one -- and no
+    /// second GPU texture is made.
+    #[test]
+    fn a_locale_change_swaps_the_image_under_the_same_id() {
+        let (mut app, dir) = localized_project("swap", "en", false);
+        let logo = format!("{dir}/assets/logo.png");
+        let entity = app
+            .world_mut()
+            .spawn((Material::default(), TexturePath(logo)))
+            .id();
+        update_until(&mut app, "the logo uploaded", |app| {
+            app.world()
+                .get::<Material>(entity)
+                .unwrap()
+                .texture_id
+                .is_some()
+        });
+        let id = app.world().get::<Material>(entity).unwrap().texture_id;
+        assert_eq!(
+            material_size(&mut app, entity),
+            Some((4, 4)),
+            "premise: the original"
+        );
+
+        app.world_mut()
+            .resource_mut::<bsengine_core::Localization>()
+            .set_locale("ko");
+        update_until(&mut app, "the Korean image arrived", |app| {
+            let id = app
+                .world()
+                .get::<Material>(entity)
+                .unwrap()
+                .texture_id
+                .unwrap();
+            app.world().resource::<GpuTextureRegistry>().get_size(id) == Some((8, 8))
+        });
+        assert_eq!(
+            app.world().get::<Material>(entity).unwrap().texture_id,
+            id,
+            "the same id"
+        );
+        assert_eq!(app.world().resource::<TextureCache>().uploaded_count(), 1);
+
+        app.world_mut()
+            .resource_mut::<bsengine_core::Localization>()
+            .set_locale("en-US");
+        update_until(&mut app, "the original came back", |app| {
+            let id = app
+                .world()
+                .get::<Material>(entity)
+                .unwrap()
+                .texture_id
+                .unwrap();
+            app.world().resource::<GpuTextureRegistry>().get_size(id) == Some((4, 4))
+        });
+        assert_eq!(app.world().get::<Material>(entity).unwrap().texture_id, id);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A path not on the GPU when the locale changes is requested again from
+    /// the new source rather than left to its old load. Made deterministic
+    /// by an original that is missing, so its load has given up -- no id,
+    /// for good -- before the change; the replacement then uploads.
+    #[test]
+    fn a_texture_not_on_the_gpu_yet_is_requested_from_the_new_locales_source() {
+        let (mut app, dir) = localized_project("pending", "en", false);
+        std::fs::remove_file(format!("{dir}/assets/logo.png")).unwrap();
+        let logo = format!("{dir}/assets/logo.png");
+        let entity = app
+            .world_mut()
+            .spawn((Material::default(), TexturePath(logo.clone())))
+            .id();
+        update_until(&mut app, "the original's load gave up", |app| {
+            app.world().resource::<TextureCache>().gave_up(&logo)
+        });
+        assert_eq!(
+            app.world().get::<Material>(entity).unwrap().texture_id,
+            None,
+            "premise: nothing on the GPU"
+        );
+        app.world_mut()
+            .resource_mut::<bsengine_core::Localization>()
+            .set_locale("ko");
+        update_until(&mut app, "the Korean image uploaded", |app| {
+            app.world()
+                .get::<Material>(entity)
+                .unwrap()
+                .texture_id
+                .is_some()
+        });
+        assert_eq!(material_size(&mut app, entity), Some((8, 8)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A replacement that cannot be loaded leaves the image as it was -- not
+    /// a blank, and not a retry every frame -- and the next change of locale
+    /// is followed as usual.
+    #[test]
+    fn a_replacement_that_fails_to_load_leaves_the_image_as_it_was() {
+        let (mut app, dir) = localized_project("missing", "en", false);
+        std::fs::remove_file(format!("{dir}/assets/logo_ko.png")).unwrap();
+        let logo = format!("{dir}/assets/logo.png");
+        let entity = app
+            .world_mut()
+            .spawn((Material::default(), TexturePath(logo.clone())))
+            .id();
+        update_until(&mut app, "the logo uploaded", |app| {
+            app.world()
+                .get::<Material>(entity)
+                .unwrap()
+                .texture_id
+                .is_some()
+        });
+        app.world_mut()
+            .resource_mut::<bsengine_core::Localization>()
+            .set_locale("ko");
+        app.update();
+        assert!(
+            app.world().resource::<TextureCache>().by_path[&logo]
+                .switching
+                .is_some(),
+            "premise: the change started a switch"
+        );
+        update_until(&mut app, "the switch gave up", |app| {
+            app.world().resource::<TextureCache>().by_path[&logo]
+                .switching
+                .is_none()
+        });
+        assert_eq!(
+            material_size(&mut app, entity),
+            Some((4, 4)),
+            "the original stays on screen"
+        );
+        assert!(
+            !app.world().resource::<TextureCache>().gave_up(&logo),
+            "and the path itself is still fine"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The progressive loader is wired into `RenderPlugin`, which is what

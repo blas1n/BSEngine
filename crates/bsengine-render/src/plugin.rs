@@ -1677,6 +1677,10 @@ impl Plugin for RenderPlugin {
                     // video's texture finds it rather than asking the asset
                     // server for a file of that name.
                     upload_video_frames.before(crate::texture_cache::resolve_texture_paths),
+                    // Before, so the starting locale's replacements are what
+                    // the first request reads.
+                    crate::texture_cache::sync_localized_textures
+                        .before(crate::texture_cache::resolve_texture_paths),
                     crate::texture_cache::resolve_texture_paths,
                     crate::texture_cache::reupload_modified_textures,
                     crate::texture_cache::stream_textures,

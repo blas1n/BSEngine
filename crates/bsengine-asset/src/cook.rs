@@ -250,6 +250,22 @@ pub fn cook_project(project_dir: impl AsRef<Path>) -> io::Result<CookedProject> 
             );
         }
     }
+    // `[localization.remaps]` (original -> locale -> replacement): every
+    // locale's replacement. No scene names one -- scenes name the original.
+    if let Some(remaps) = manifest
+        .get("localization")
+        .and_then(|l| l.get("remaps"))
+        .and_then(toml::Value::as_table)
+    {
+        extra_assets.extend(
+            remaps
+                .values()
+                .filter_map(toml::Value::as_table)
+                .flat_map(|by_locale| by_locale.values())
+                .filter_map(toml::Value::as_str)
+                .map(str::to_string),
+        );
+    }
     cook(project_dir, entry_scene, &extra_assets)
 }
 
@@ -1551,6 +1567,25 @@ mod tests {
             "a family's font is walked from [ui.font_families]; got {:?}",
             cooked.edges
         );
+
+        // And every locale's replacement of a remapped asset.
+        probe.write(
+            "project.toml",
+            "[project]\nname = \"P\"\nentry_scene = \"assets/scenes/start.ron\"\n\n\
+             [localization.remaps]\n\"assets/logo.png\" = { ko = \"assets/ko/logo.png\", ja = \"assets/ja/logo.png\" }\n",
+        );
+        probe.write("assets/ko/logo.png", "not read here");
+        probe.write("assets/ja/logo.png", "not read here");
+        let cooked = cook_project(&probe.0).expect("cook with remaps");
+        for replacement in ["assets/ko/logo.png", "assets/ja/logo.png"] {
+            assert!(
+                cooked
+                    .edges
+                    .contains(&(MANIFEST.to_string(), replacement.to_string())),
+                "{replacement} is walked from [localization.remaps]; got {:?}",
+                cooked.edges
+            );
+        }
 
         probe.write("project.toml", "[project]\nname = \"P\"\n");
         let err = cook_project(&probe.0).expect_err("no entry scene");

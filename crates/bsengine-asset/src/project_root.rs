@@ -117,6 +117,25 @@ pub fn asset_key_or_raw(path: &str) -> String {
     })
 }
 
+/// The project path loaded in place of `path` -- the engine form a component
+/// holds or a project path -- in the current locale of `localization`
+/// (`project.toml`'s `[localization.remaps]`,
+/// `bsengine_core::Localization::localized_asset`); `None` with no
+/// localization, for a path no remap names, or when the locale keeps the
+/// original. The replacement is a project path, which every load accepts as
+/// it is.
+///
+/// One function because the remaps are keyed by project path and the loaders
+/// hold the engine form: each loader converting on its own is how one of them
+/// would compare the wrong spelling and never find its replacement.
+pub fn localized_replacement<'a>(
+    localization: Option<&'a bsengine_core::Localization>,
+    path: &str,
+) -> Option<&'a str> {
+    let localization = localization?;
+    localization.localized_asset(&asset_key(path).ok()?)
+}
+
 /// The directory the default asset source reads from.
 ///
 /// Shared between the [`ProjectAssetReader`] that `bevy_asset` owns and the

@@ -94,7 +94,8 @@ pub use identity::{AssetGuid, AssetIdentityPlugin, AssetIndex};
 pub use load_mode::{load, load_async, LoadMode};
 pub use plugin::{AssetPlugin, PakAssetPlugin};
 pub use project_root::{
-    asset_key, asset_key_or_raw, register_project, ProjectAssetReader, ProjectRoot,
+    asset_key, asset_key_or_raw, localized_replacement, register_project, ProjectAssetReader,
+    ProjectRoot,
 };
 pub use slot::{AssetSlot, Polled};
 pub use status::{AssetStatus, AssetStatusPlugin, AssetStatuses};

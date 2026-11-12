@@ -3529,13 +3529,8 @@ fn script_project_path(world: &World, what: &str, path: &str) -> Option<String> 
 /// playing finishes in the language it started in. `SoundLoads` is keyed by
 /// what this returns, so each locale's file is decoded once and kept.
 fn localized_sound_path(world: &World, full_path: String) -> String {
-    let Some(localization) = world.get_resource::<bsengine_core::Localization>() else {
-        return full_path;
-    };
-    let replacement = bsengine_asset::asset_key(&full_path)
-        .ok()
-        .and_then(|key| localization.localized_asset(&key));
-    match replacement {
+    let localization = world.get_resource::<bsengine_core::Localization>();
+    match bsengine_asset::localized_replacement(localization, &full_path) {
         Some(replacement) => {
             script_project_path(world, "playSound", replacement).unwrap_or(full_path)
         }

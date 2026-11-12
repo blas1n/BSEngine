@@ -175,6 +175,7 @@ pub(crate) fn drive_web_players(
     mut players: Query<(Entity, &mut VideoPlayer)>,
     mut frames: ResMut<VideoFrames>,
     project_dir: Option<Res<ProjectDir>>,
+    localization: Option<Res<bsengine_core::Localization>>,
 ) {
     let alive: Vec<Entity> = players.iter().map(|(e, _)| e).collect();
     PLAYBACKS.with(|p| p.borrow_mut().retain(|e, _| alive.contains(e)));
@@ -184,13 +185,18 @@ pub(crate) fn drive_web_players(
             PLAYBACKS.with(|p| p.borrow_mut().remove(&entity));
             continue;
         }
+        // The current locale's replacement, as the native player picks it
+        // (see `drive_video_players`).
+        let source = bsengine_asset::localized_replacement(localization.as_deref(), &player.path)
+            .unwrap_or(&player.path)
+            .to_string();
         let restart = PLAYBACKS.with(|p| {
             p.borrow()
                 .get(&entity)
-                .is_none_or(|playback| playback.path != player.path)
+                .is_none_or(|playback| playback.path != source)
         });
         if restart {
-            match start(project_dir.as_deref(), &player.path) {
+            match start(project_dir.as_deref(), &source) {
                 Ok(playback) => {
                     PLAYBACKS.with(|p| p.borrow_mut().insert(entity, playback));
                     player.status = VideoStatus::Loading;

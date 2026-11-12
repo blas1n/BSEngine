@@ -1044,16 +1044,34 @@ mod tests {
     /// A streamed scene is read from the replacement and is still known by
     /// the original: unloading the original's path takes the Korean scene's
     /// entities away, which only holds if `LoadedScenes` recorded them under
-    /// it.
+    /// it. Its lightmaps are the replacement's own bake (`b_ko.lightmaps`,
+    /// beside it): a replacement is a scene of its own.
     #[test]
     fn a_streamed_scene_is_read_from_its_replacement_and_unloaded_by_its_own_path() {
         let dir = write_localized_scene_project("ko");
+        std::fs::write(
+            dir.path().join("assets/scenes/b_ko.lightmaps"),
+            "(scene_fingerprint: \"stale\", entries: [(entity: \"SceneB_ko\", \
+             texture: \"assets/lightmaps/b_ko.png\", scale_offset: (1.0, 1.0, 0.0, 0.0))])",
+        )
+        .unwrap();
         let mut app = build_simulation_app(dir.path().to_str().unwrap(), None, false);
         app.update();
         stream_in(&mut app, &dir, "b.ron");
         assert_eq!(
             names(&mut app),
             vec!["SceneA_ko".to_string(), "SceneB_ko".to_string()]
+        );
+        let lightmap = app
+            .world_mut()
+            .query::<(&bsengine_scene::Name, &bsengine_core::Lightmap)>()
+            .iter(app.world())
+            .find(|(n, _)| n.0 == "SceneB_ko")
+            .map(|(_, l)| l.texture_path.clone());
+        assert_eq!(
+            lightmap.as_deref(),
+            Some("assets/lightmaps/b_ko.png"),
+            "the replacement's own bake"
         );
         stream_out(&mut app, &dir, "b.ron");
         assert_eq!(names(&mut app), vec!["SceneA_ko".to_string()]);

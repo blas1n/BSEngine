@@ -673,24 +673,75 @@ pub fn resolve_physics_bodies(
     }
 }
 
+/// The file a scene named `path` (the engine form, `<ProjectDir>/assets/..`)
+/// is read from: the current locale's replacement in `[localization.remaps]`,
+/// joined onto the project directory as `path` is, or `path` itself.
+///
+/// Godot remaps a scene the way it remaps any resource, at the load: a level
+/// whose signs are separate meshes per language, or a cutscene laid out
+/// differently for a right-to-left script, is one scene per locale. The scene
+/// is still *known* by the original -- `LoadedScenes`, a `StreamedScene`
+/// anchor and a script's `unloadScene` name the original -- and only the file
+/// read changes. A scene already in the world is not read again when the
+/// locale changes; reloading it is the game's call, as in Godot.
+pub(crate) fn localized_scene_file(
+    localization: Option<&bsengine_core::Localization>,
+    project_dir: Option<&bsengine_core::ProjectDir>,
+    path: &str,
+) -> String {
+    match bsengine_asset::localized_replacement(localization, path) {
+        Some(replacement) => bsengine_core::resolve_project_path(project_dir, replacement),
+        None => path.to_owned(),
+    }
+}
+
+/// The entry scene's file -- `<project_dir>/<relative>`, or the starting
+/// locale's replacement for it -- for the app being built.
+///
+/// Looked up by `relative`, the manifest's project path, not by the joined
+/// engine form [`localized_scene_file`] takes: while the app is being built
+/// no system has registered the project yet (`bsengine_asset::
+/// register_project`), so an engine form under a temp or absolute project
+/// directory has no key, and the entry scene alone stayed in the original
+/// language.
+pub(crate) fn localized_entry_scene(
+    localization: Option<&bsengine_core::Localization>,
+    project_dir: &str,
+    relative: &str,
+) -> String {
+    let file = bsengine_asset::localized_replacement(localization, relative).unwrap_or(relative);
+    format!("{project_dir}/{file}")
+}
+
+/// [`localized_scene_file`] with the world's localization and project.
+fn world_scene_file(world: &World, path: &str) -> String {
+    localized_scene_file(
+        world.get_resource::<bsengine_core::Localization>(),
+        world.get_resource::<bsengine_core::ProjectDir>(),
+        path,
+    )
+}
+
 /// Reads a scene file and parses it, through the archive in a packaged build
-/// and from disk otherwise.
+/// and from disk otherwise -- the current locale's replacement for `path` if
+/// it has one ([`localized_scene_file`]).
 ///
 /// Shared by the three paths that load one so that a streamed scene reaches the
 /// same reader as the entry scene -- a second level of a packaged game arrives
 /// here and nowhere else.
-fn read_scene(path: &str) -> Option<SceneDescriptor> {
-    let content = match bsengine_asset::pak_source::read_to_string(path) {
+fn read_scene(world: &World, path: &str) -> Option<SceneDescriptor> {
+    let file = world_scene_file(world, path);
+    let content = match bsengine_asset::pak_source::read_to_string(&file) {
         Ok(c) => c,
         Err(e) => {
-            tracing::error!("[scene] failed to read {path}: {e}");
+            tracing::error!("[scene] failed to read {file}: {e}");
             return None;
         }
     };
-    match bsengine_scene::parse_descriptor(path, &content) {
+    match bsengine_scene::parse_descriptor(&file, &content) {
         Ok(s) => Some(s),
         Err(e) => {
-            tracing::error!("[scene] failed to parse {path}: {e}");
+            tracing::error!("[scene] failed to parse {file}: {e}");
             None
         }
     }
@@ -716,9 +767,12 @@ fn spawn_and_record(world: &mut World, path: &str, scene: &SceneDescriptor) {
     // A changed-to or streamed-in scene gets its baked lightmaps exactly as the
     // entry scene does (`ScenePlugin`). The text again rather than threading it
     // through: the data's fingerprint is of the file, and reading it twice
-    // costs one small read per scene load.
-    if let Ok(text) = bsengine_asset::pak_source::read_to_string(path) {
-        bsengine_scene::lightmaps::apply(world, path, &text);
+    // costs one small read per scene load. The file the scene was read from
+    // ([`read_scene`]): a locale's replacement is a scene of its own, with
+    // its own bake.
+    let file = world_scene_file(world, path);
+    if let Ok(text) = bsengine_asset::pak_source::read_to_string(&file) {
+        bsengine_scene::lightmaps::apply(world, &file, &text);
     }
     let added: Vec<Entity> = world
         .query_filtered::<Entity, bevy_ecs::query::Without<bevy_ecs::resource::IsResource>>()
@@ -817,7 +871,7 @@ pub fn handle_scene_stream(world: &mut World) {
     for op in pending.ops {
         match op {
             SceneStreamOp::Load(path) => {
-                let Some(scene) = read_scene(&path) else {
+                let Some(scene) = read_scene(world, &path) else {
                     continue;
                 };
                 spawn_and_record(world, &path, &scene);
@@ -856,7 +910,7 @@ pub fn handle_scene_load(world: &mut World) {
     let pending = world.remove_resource::<PendingSceneLoad>();
     let Some(pending) = pending else { return };
 
-    let Some(scene) = read_scene(&pending.path) else {
+    let Some(scene) = read_scene(world, &pending.path) else {
         return;
     };
 
@@ -1646,8 +1700,9 @@ mod unknown_key_tests {
         )
         .unwrap();
         let path = path.to_string_lossy().into_owned();
-        let (scene, logs) =
-            bsengine_asset::test_support::capture_warnings(|| super::read_scene(&path));
+        let (scene, logs) = bsengine_asset::test_support::capture_warnings(|| {
+            super::read_scene(&bevy_ecs::world::World::new(), &path)
+        });
         assert!(scene.is_some(), "premise: the scene still loads");
         assert!(
             logs.contains("spot_light.?.outer_angle"),

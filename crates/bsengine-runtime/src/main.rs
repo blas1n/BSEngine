@@ -761,7 +761,6 @@ pub(crate) fn build_player_app(
     #[cfg(not(target_arch = "wasm32"))]
     let user_paths = bsengine_core::crash::init_for_project(&manifest.project.name);
 
-    let scene_path = format!("{}/{}", project_dir, manifest.project.entry_scene);
     let title = manifest
         .window
         .title
@@ -924,8 +923,18 @@ pub(crate) fn build_player_app(
         // comment above records the hard way: a component whose plugin is
         // missing from the runtime is a feature that passes its own tests and
         // does nothing in a real game.
-        .add_plugins(ClothPlugin)
-        .add_plugins(ScenePlugin::from_file(&scene_path))
+        .add_plugins(ClothPlugin);
+    // The starting locale's replacement for the entry scene, if
+    // `[localization.remaps]` has one (`localized_scene_file`). It is also
+    // the path the editor tooling saves, reloads and bakes below: the scene
+    // on screen is that file's, and saving it over the original would write
+    // one language's level into another's.
+    let scene_path = scene_systems::localized_entry_scene(
+        app.world().get_resource::<bsengine_core::Localization>(),
+        project_dir,
+        &manifest.project.entry_scene,
+    );
+    app.add_plugins(ScenePlugin::from_file(&scene_path))
         .add_plugins(ScriptingPlugin {
             project_dir: project_dir.to_string(),
         });

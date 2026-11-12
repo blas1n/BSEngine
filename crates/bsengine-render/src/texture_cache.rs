@@ -1721,6 +1721,41 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A path not on the GPU when the locale changes is requested again from
+    /// the new source rather than left to its old load. Made deterministic
+    /// by an original that is missing, so its load has given up -- no id,
+    /// for good -- before the change; the replacement then uploads.
+    #[test]
+    fn a_texture_not_on_the_gpu_yet_is_requested_from_the_new_locales_source() {
+        let (mut app, dir) = localized_project("pending", "en", false);
+        std::fs::remove_file(format!("{dir}/assets/logo.png")).unwrap();
+        let logo = format!("{dir}/assets/logo.png");
+        let entity = app
+            .world_mut()
+            .spawn((Material::default(), TexturePath(logo.clone())))
+            .id();
+        update_until(&mut app, "the original's load gave up", |app| {
+            app.world().resource::<TextureCache>().gave_up(&logo)
+        });
+        assert_eq!(
+            app.world().get::<Material>(entity).unwrap().texture_id,
+            None,
+            "premise: nothing on the GPU"
+        );
+        app.world_mut()
+            .resource_mut::<bsengine_core::Localization>()
+            .set_locale("ko");
+        update_until(&mut app, "the Korean image uploaded", |app| {
+            app.world()
+                .get::<Material>(entity)
+                .unwrap()
+                .texture_id
+                .is_some()
+        });
+        assert_eq!(material_size(&mut app, entity), Some((8, 8)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// A replacement that cannot be loaded leaves the image as it was -- not
     /// a blank, and not a retry every frame -- and the next change of locale
     /// is followed as usual.

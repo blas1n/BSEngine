@@ -9,14 +9,15 @@
 #[cfg(target_arch = "wasm32")]
 pub use browser::{ScriptRuntime, ENGINE};
 
-/// How a browser build's ops read their arguments: the conversions
-/// `deno_core` applies, so a script passing the same values gets the same
-/// result in both builds. `#[script_op]`'s generated registrations call
-/// these; public only for the browser runtime's tests.
+/// How a browser build's ops read their arguments: as `deno_core`'s `op2`
+/// reads them in V8 (see `v8_u32` for where these rules come from), so a
+/// script passing the same values gets the same result in both builds.
+/// `#[script_op]`'s generated registrations call these; public only for the
+/// browser runtime's tests.
 #[cfg(target_arch = "wasm32")]
 #[doc(hidden)]
 pub mod op_args {
-    use wasm_bindgen::JsValue;
+    use wasm_bindgen::{JsCast, JsValue};
 
     /// Argument `index`, `undefined` past the end -- as a V8 op sees a
     /// missing argument.
@@ -24,26 +25,45 @@ pub mod op_args {
         js_sys::Reflect::get_u32(args, index).unwrap_or(JsValue::UNDEFINED)
     }
 
-    /// ToNumber (JavaScript's unary `+`), as V8's `number_value`: `"2"` is
-    /// 2, `null` 0, `undefined` NaN.
-    pub fn number(v: &JsValue) -> f64 {
-        v.unchecked_into_f64()
-    }
-
-    /// ToUint32: ToNumber, truncated, wrapped modulo 2^32; NaN and the
-    /// infinities are 0. So -1 is 4294967295, as a V8 `u32` op reads it.
-    pub fn uint32(v: &JsValue) -> u32 {
-        let n = number(v);
-        if n.is_finite() {
-            (n.trunc() as i128).rem_euclid(1i128 << 32) as u32
-        } else {
-            0
+    /// A BigInt's value wrapped to 64 bits, as V8's `i64_value`; `None` for
+    /// anything that is not a BigInt.
+    fn big_int(v: &JsValue) -> Option<i64> {
+        if !v.is_bigint() {
+            return None;
         }
+        let wrapped = js_sys::BigInt::as_int_n(64.0, v.unchecked_ref());
+        i64::try_from(JsValue::from(wrapped)).ok()
     }
 
-    /// ToBoolean: JavaScript truthiness.
+    fn expected(ty: &str) -> JsValue {
+        js_sys::TypeError::new(&format!("expected {ty}")).into()
+    }
+
+    /// A number argument: a Number as it is, a BigInt by its 64-bit value;
+    /// anything else -- `"2"`, `null`, `undefined`, `true`, an object with
+    /// a `valueOf` -- throws `TypeError: expected <ty>`. Not ToNumber,
+    /// which this function applied until the engine-parity tests measured
+    /// V8 (#2067).
+    pub fn number(v: &JsValue, ty: &str) -> Result<f64, JsValue> {
+        if let Some(n) = v.as_f64() {
+            return Ok(n);
+        }
+        big_int(v).map(|n| n as f64).ok_or_else(|| expected(ty))
+    }
+
+    /// A `u32` argument: a Number by `v8_u32`, a BigInt by its low 32 bits;
+    /// anything else throws `TypeError: expected u32`.
+    pub fn uint32(v: &JsValue) -> Result<u32, JsValue> {
+        if let Some(n) = v.as_f64() {
+            return Ok(super::v8_u32(n));
+        }
+        big_int(v).map(|n| n as u32).ok_or_else(|| expected("u32"))
+    }
+
+    /// A `bool` argument: `true` and nothing else -- V8's `is_true()`, so
+    /// `1` and `"yes"` are false, and nothing throws. Not truthiness.
     pub fn boolean(v: &JsValue) -> bool {
-        v.is_truthy()
+        v.as_bool() == Some(true)
     }
 
     /// A `#[string]` argument: the string, or `""` for anything that is not
@@ -53,6 +73,28 @@ pub mod op_args {
         v.as_string().unwrap_or_default()
     }
 }
+
+/// `deno_core`'s `to_u32_option` on a Number (0.404, `runtime/ops.rs`),
+/// shared by the two backends that are not V8. V8 asks the *value* whether
+/// it is a uint32 or an int32 -- QuickJS may hold `-2` as a float, so this
+/// cannot ask the representation -- and wraps those (so -1 is 4294967295);
+/// any other number goes through `trunc() as u64`, which saturates (so -2.9
+/// is 0, NaN 0, Infinity u64::MAX), keeping the low 32 bits (so 4294967297
+/// is 1).
+///
+/// This rule and the number/bool ones beside it were measured against V8,
+/// not taken from documentation: they are not JavaScript's
+/// ToNumber/ToUint32/ToBoolean, which both backends once assumed and the
+/// engine-parity tests (`parity_cases.rs`) caught.
+#[cfg(any(target_arch = "wasm32", bsengine_quickjs))]
+fn v8_u32(n: f64) -> u32 {
+    if n.fract() == 0.0 && n >= f64::from(i32::MIN) && n <= f64::from(u32::MAX) {
+        n as i64 as u32
+    } else {
+        n.trunc() as u64 as u32
+    }
+}
+
 /// How a QuickJS build's ops read their arguments and return `#[serde]`
 /// values: the conversions `deno_core` applies, as `op_args` gives them in a
 /// browser. `#[script_op]`'s generated registrations call these.
@@ -74,12 +116,7 @@ pub mod qjs_args {
             .unwrap_or_else(|| Value::new_undefined(ctx.clone()))
     }
 
-    // What follows is `deno_core`'s `op2` (0.404, `runtime/ops.rs`
-    // `to_f32_option`/`to_u32_option`, `is_true()` for `bool`) -- measured
-    // against V8, not taken from its documentation: it is not JavaScript's
-    // ToNumber/ToUint32/ToBoolean, which is what this file once assumed and
-    // the engine-parity tests in `ops.rs` caught. A string, `null`,
-    // `undefined` or an object where a number goes is a `TypeError`.
+    // The rules are `deno_core`'s, measured against V8; see `super::v8_u32`.
 
     /// A number argument: a Number as it is, a BigInt by its 64-bit value;
     /// anything else throws `TypeError: expected <ty>`.
@@ -96,26 +133,12 @@ pub mod qjs_args {
     /// A `u32` argument: a Number or BigInt, as `deno_core` reads one.
     pub fn uint32<'js>(ctx: &Ctx<'js>, v: Value<'js>) -> rquickjs::Result<u32> {
         if let Some(n) = v.as_number() {
-            return Ok(v8_u32(n));
+            return Ok(super::v8_u32(n));
         }
         if let Some(big) = v.into_big_int() {
             return Ok(big.to_i64()? as u32);
         }
         Err(Exception::throw_type(ctx, "expected u32"))
-    }
-
-    /// `to_u32_option` on a Number. V8 asks the *value* whether it is a
-    /// uint32 or an int32 -- QuickJS may hold `-2` as a float, so this
-    /// cannot ask the representation -- and wraps those (so -1 is
-    /// 4294967295); any other number goes through `trunc() as u64`, which
-    /// saturates (so -2.9 is 0, NaN 0, Infinity u64::MAX), keeping the low
-    /// 32 bits (so 4294967297 is 1).
-    pub fn v8_u32(n: f64) -> u32 {
-        if n.fract() == 0.0 && n >= f64::from(i32::MIN) && n <= f64::from(u32::MAX) {
-            n as i64 as u32
-        } else {
-            n.trunc() as u64 as u32
-        }
     }
 
     /// A `bool` argument: `true` and nothing else -- V8's `is_true()`, so

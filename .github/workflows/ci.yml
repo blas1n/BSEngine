@@ -522,3 +522,62 @@ jobs:
           done
           echo "packaged ${#projects[@]} project(s) in 3 mode(s)"
           exit $status
+
+      # The script engine Android and iOS run: QuickJS, in place of V8, which
+      # rusty_v8 ships no library for there. Built on these desktops with
+      # `--features quickjs` so it is exercised on every push, not only once a
+      # mobile build exists. Its suite runs on all three runners -- QuickJS is
+      # C, built by each platform's own compiler (MSVC, clang, gcc), and the
+      # mobile toolchains are clang -- and holds the engine-parity tests in
+      # `ops.rs`, which run in the V8 build above with the same expectations.
+      # Last in the job: the feature changes `bsengine-scripting`, so the
+      # steps after it would otherwise rebuild the V8 runtime they replay.
+      - name: Script engine tests (QuickJS)
+        env:
+          RUST_MIN_STACK: 16777216
+        run: cargo test -p bsengine-scripting --features quickjs
+
+      # The Clippy step above compiles none of the QuickJS backend: it is all
+      # behind `cfg(bsengine_quickjs)`. Ubuntu only -- lints do not vary by
+      # platform.
+      - name: Clippy (QuickJS)
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo clippy -p bsengine-scripting -p bsengine-runtime --all-targets --features bsengine-scripting/quickjs
+
+      # Every recording again, its scripts in QuickJS: a game whose scripts
+      # lean on something V8 does and QuickJS does not -- or that the op glue
+      # converts differently -- passes the replays above and fails here.
+      # Ubuntu only, like the shuffled replays: an engine difference is the
+      # same on every platform, and Windows is already the slowest job.
+      - name: E2E replays (QuickJS)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        env:
+          RUST_MIN_STACK: 16777216
+        run: |
+          cargo build -p bsengine-runtime --features quickjs
+          bin="$CARGO_TARGET_DIR/debug/bsengine-runtime"
+          status=0
+          count=0
+          for log in games/*/assets/tests/*.testlog.json; do
+            project="$(dirname "$(dirname "$(dirname "$log")")")"
+            count=$((count + 1))
+            # The startup log names the engine; without this line a build
+            # that quietly kept V8 would pass as a QuickJS run.
+            if "$bin" --test "$project" --replay "$log" --frame-divisor 8 > /tmp/quickjs.log 2>&1 \
+              && grep -q "Scripts: QuickJS" /tmp/quickjs.log; then
+              echo "PASS $log"
+            else
+              echo "::group::FAIL $log"
+              cat /tmp/quickjs.log
+              echo "::endgroup::"
+              echo "reproduce: cargo run -p bsengine-runtime --features quickjs -- --test $project --replay $log --frame-divisor 8"
+              status=1
+            fi
+          done
+          if [ "$count" -eq 0 ]; then
+            echo "no recordings matched games/*/assets/tests/*.testlog.json -- the glob is wrong"
+            exit 1
+          fi
+          echo "replayed $count recording(s) on QuickJS"
+          exit $status

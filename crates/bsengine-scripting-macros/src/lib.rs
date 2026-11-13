@@ -19,6 +19,18 @@
 //!   default would be `undefined`). A `#[serde]` argument that does not fit
 //!   its type throws a `TypeError`, as `deno_core`'s does.
 //!
+//! - **QuickJS** (`cfg(bsengine_quickjs)`: Android, iOS, and a desktop build
+//!   with `bsengine-scripting`'s `quickjs` feature): the plain function as for
+//!   wasm32, and a module whose `register(ctx, ops)` puts an `rquickjs`
+//!   function on `ops.<name>`. It reads its arguments as `deno_core` really
+//!   does (`crate::runtime::qjs_args`, measured against V8 by the
+//!   engine-parity tests): a number is a Number or a BigInt and anything else
+//!   a `TypeError`, a `bool` is `true` only for `true`. That is narrower than
+//!   the ToNumber/ToBoolean the wasm32 arm applies, which predates the
+//!   measurement. A `#[serde]` value crosses as JSON -- `JSON.stringify` into
+//!   `serde_json`, `serde_json` into `JSON.parse` -- so `None` is `null` here
+//!   too, but a NaN or an infinity inside one arrives as `null`.
+//!
 //! The module shares the op's name without clashing: a module lives in the
 //! type namespace and a function in the value namespace. `ops.rs` lists every
 //! op once and makes both the native `deno_core` extension and the browser's
@@ -64,6 +76,12 @@ pub fn script_op(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut plain = func.clone();
     strip_op_attrs(&mut plain.attrs);
     plain.vis = syn::parse_quote!(pub(crate));
+    // An op's arity is its JavaScript signature's, which `op2` accepts at any
+    // length; as a plain function the longest (11 arguments) trips clippy in
+    // every build that is not V8's.
+    plain
+        .attrs
+        .push(syn::parse_quote!(#[allow(clippy::too_many_arguments)]));
     for input in plain.sig.inputs.iter_mut() {
         if let FnArg::Typed(pt) = input {
             strip_op_attrs(&mut pt.attrs);
@@ -74,6 +92,7 @@ pub fn script_op(attr: TokenStream, item: TokenStream) -> TokenStream {
     let js_name = name.to_string();
 
     let mut converts = Vec::new();
+    let mut qjs_converts = Vec::new();
     let mut call_args = Vec::new();
     for (i, input) in func.sig.inputs.iter().enumerate() {
         let FnArg::Typed(pt) = input else {
@@ -88,6 +107,32 @@ pub fn script_op(attr: TokenStream, item: TokenStream) -> TokenStream {
         let ty = &pt.ty;
         let index = i as u32;
         let raw = quote! { crate::runtime::op_args::arg(&__bsengine_args, #index) };
+        let qjs_raw = quote! { crate::runtime::qjs_args::arg(&__bsengine_ctx, &__bsengine_args, #index as usize) };
+        let qjs_convert = if has_attr(&pt.attrs, "serde") {
+            quote! {
+                let #arg: #ty = crate::runtime::qjs_args::serde(&__bsengine_ctx, #qjs_raw)?;
+            }
+        } else if has_attr(&pt.attrs, "string") {
+            quote! { let #arg: ::std::string::String = crate::runtime::qjs_args::string(&#qjs_raw); }
+        } else {
+            match type_name(ty).as_str() {
+                "f32" => {
+                    quote! { let #arg: f32 = crate::runtime::qjs_args::number(&__bsengine_ctx, #qjs_raw, "f32")? as f32; }
+                }
+                "f64" => {
+                    quote! { let #arg: f64 = crate::runtime::qjs_args::number(&__bsengine_ctx, #qjs_raw, "f64")?; }
+                }
+                "u32" => {
+                    quote! { let #arg: u32 = crate::runtime::qjs_args::uint32(&__bsengine_ctx, #qjs_raw)?; }
+                }
+                "bool" => {
+                    quote! { let #arg: bool = crate::runtime::qjs_args::boolean(&__bsengine_ctx, #qjs_raw)?; }
+                }
+                // Every other type is refused by the wasm32 arm below.
+                _ => quote! {},
+            }
+        };
+        qjs_converts.push(qjs_convert);
         let convert = if has_attr(&pt.attrs, "serde") {
             quote! {
                 let #arg: #ty = ::serde_wasm_bindgen::from_value(#raw).map_err(|e| {
@@ -132,18 +177,56 @@ pub fn script_op(attr: TokenStream, item: TokenStream) -> TokenStream {
         ReturnType::Type(..) => quote! { ::wasm_bindgen::JsValue::from(value) },
     };
 
+    let qjs_to_js = match &func.sig.output {
+        ReturnType::Default => quote! { ::rquickjs::Value::new_undefined(__bsengine_ctx.clone()) },
+        ReturnType::Type(..) if has_attr(&func.attrs, "serde") => quote! {
+            crate::runtime::qjs_args::to_serde(&__bsengine_ctx, &value)?
+        },
+        ReturnType::Type(..) => quote! {
+            ::rquickjs::IntoJs::into_js(value, &__bsengine_ctx)?
+        },
+    };
+
     let op2 = if op2_args.is_empty() {
         quote! { #[::deno_core::op2] }
     } else {
         quote! { #[::deno_core::op2(#op2_args)] }
     };
     let expanded = quote! {
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(any(target_arch = "wasm32", bsengine_quickjs)))]
         #op2
         #func
 
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(any(target_arch = "wasm32", bsengine_quickjs))]
         #plain
+
+        #[cfg(bsengine_quickjs)]
+        #[doc(hidden)]
+        #[allow(non_snake_case, clippy::all)]
+        pub(crate) mod #name {
+            #[allow(unused_imports)]
+            use super::*;
+
+            /// Puts this op on `ops` under its JavaScript name. The function
+            /// takes its arguments as one rest parameter, so a script may
+            /// pass fewer or more than the op names, as with V8.
+            pub(crate) fn register<'js>(
+                ctx: &::rquickjs::Ctx<'js>,
+                ops: &::rquickjs::Object<'js>,
+            ) -> ::rquickjs::Result<()> {
+                let body = ::rquickjs::Function::new(
+                    ctx.clone(),
+                    |__bsengine_ctx: ::rquickjs::Ctx<'js>,
+                     __bsengine_args: ::rquickjs::function::Rest<::rquickjs::Value<'js>>|
+                     -> ::rquickjs::Result<::rquickjs::Value<'js>> {
+                        #(#qjs_converts)*
+                        let value = super::#name(#(#call_args),*);
+                        ::core::result::Result::Ok(#qjs_to_js)
+                    },
+                )?;
+                ops.set(#js_name, body)
+            }
+        }
 
         #[cfg(target_arch = "wasm32")]
         #[doc(hidden)]

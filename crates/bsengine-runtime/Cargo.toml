@@ -76,3 +76,7 @@ bsengine-mcp    = { workspace = true }
 # `gstreamer` feature): needs GStreamer's development libraries to build and
 # its plugins (gst-libav for H.264/AAC) to play.
 video-gstreamer = ["bsengine-video/gstreamer"]
+# Scripts in QuickJS rather than V8 (`bsengine-scripting`'s `quickjs`
+# feature): what Android and iOS always run, built on a desktop so CI can
+# replay every game's recording through that engine.
+quickjs = ["bsengine-scripting/quickjs"]

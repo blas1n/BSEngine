@@ -60,6 +60,9 @@ deno_core         = "0.404.0"
 wasm-bindgen      = "0.2.100"
 js-sys            = "0.3.77"
 serde-wasm-bindgen = "0.6"
+# The mobile builds' script engine (see bsengine-scripting-macros): rusty_v8
+# ships no Android or iOS library, and iOS forbids an app's own JIT.
+rquickjs          = "0.14.0"
 serde_json        = "1.0"
 sys-locale        = "0.3"
 ron               = "0.8"

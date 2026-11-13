@@ -321,6 +321,11 @@ impl Plugin for ScriptingPlugin {
         app.init_resource::<bsengine_core::Localization>();
         app.init_resource::<SoundLoads>();
         app.insert_non_send(ScriptRuntimeResource(ScriptRuntime::new_with_ops()));
+        // Which engine, beside the startup log's `GPU:` line: a desktop build
+        // runs V8 or, with the `quickjs` feature, the engine Android and iOS
+        // run, and a script that behaves differently in the two is otherwise
+        // reported against the wrong one.
+        tracing::info!("Scripts: {}", crate::runtime::ENGINE);
         // Wall clock by default. `bsengine-runtime --test` overwrites this
         // with `ScriptTimingState::fixed` so replays are reproducible.
         app.insert_resource(ScriptTimingState::wall_clock());

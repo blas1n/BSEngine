@@ -1,6 +1,6 @@
 [package]
 name = "bsengine-scripting"
-description = "JavaScript scripting runtime via Deno Core (V8) with ECS op bindings"
+description = "JavaScript scripting runtime (V8 via Deno Core; QuickJS on mobile) with ECS op bindings"
 version.workspace = true
 edition.workspace = true
 
@@ -26,12 +26,24 @@ serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 
+# QuickJS in place of V8: on Android and iOS always (build.rs), on a desktop
+# with this feature -- which is how the mobile engine is tested on the
+# machines CI has. See `bsengine_quickjs` in build.rs.
+rquickjs = { workspace = true, optional = true }
+
+[features]
+quickjs = ["dep:rquickjs"]
+
 # Natively, scripts run in V8 through deno_core. A browser build has no V8
 # (deno_core does not target wasm): scripts run in the page's own engine and
-# reach the ops through wasm-bindgen exports. `#[script_op]` binds each op to
-# whichever this build has.
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# reach the ops through wasm-bindgen exports. A mobile build has no V8 either
+# (rusty_v8 ships no Android or iOS library): scripts run in QuickJS.
+# `#[script_op]` binds each op to whichever this build has.
+[target.'cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))'.dependencies]
 deno_core.workspace = true
+
+[target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
+rquickjs.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen.workspace = true

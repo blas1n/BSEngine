@@ -1,0 +1,263 @@
+use alloc::string::String;
+use core::mem::{self, MaybeUninit};
+use core::{error::Error as ErrorTrait, ffi::CStr, fmt};
+
+use crate::{atom::PredefinedAtom, convert::Coerced, qjs, Ctx, Error, Object, Result, Value};
+
+/// A JavaScript instance of Error
+///
+/// Will turn into a error when converted to JavaScript but won't automatically be thrown.
+#[repr(transparent)]
+#[derive(Clone, Eq, PartialEq, Hash)]
+pub struct Exception<'js>(pub(crate) Object<'js>);
+
+impl<'js> ErrorTrait for Exception<'js> {}
+
+impl fmt::Debug for Exception<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Exception")
+            .field("message", &self.message())
+            .field("stack", &self.stack())
+            .finish()
+    }
+}
+
+pub(crate) static ERROR_FORMAT_STR: &CStr =
+    unsafe { CStr::from_bytes_with_nul_unchecked("%s\0".as_bytes()) };
+
+/// Writes as many characters of `str` as will fit into `buf`, followed by a nul byte.
+///
+/// QuickJS implementation doesn't allow error strings longer than 256 anyway so
+/// truncating here is fine.
+fn truncate_cstr_into(buf: &mut [MaybeUninit<u8>; 256], mut str: &str) {
+    let mut max = buf.len() - 1;
+    if str.len() > max {
+        // while the byte at len is a continue byte shorten the byte.
+        // TODO: use floor_char_boundary when MSRV is at least 1.91
+        while (str.as_bytes()[max] & 0b1100_0000) == 0b1000_0000 {
+            max -= 1;
+        }
+        str = &str[..max];
+    }
+    unsafe {
+        // SAFETY: these slice types have the same layout
+        buf[..str.len()]
+            .copy_from_slice(mem::transmute::<&[u8], &[MaybeUninit<u8>]>(str.as_bytes()));
+    }
+    buf[str.len()].write(0u8);
+}
+
+impl<'js> Exception<'js> {
+    /// Turns the exception into the underlying object.
+    pub fn into_object(self) -> Object<'js> {
+        self.0
+    }
+
+    /// Returns a reference to the underlying object.
+    pub fn as_object(&self) -> &Object<'js> {
+        &self.0
+    }
+
+    /// Creates an exception from an object if it is an instance of error.
+    pub fn from_object(obj: Object<'js>) -> Option<Self> {
+        if obj.is_error() {
+            Some(Self(obj))
+        } else {
+            None
+        }
+    }
+
+    /// Creates a new exception with a given message.
+    pub fn from_message(ctx: Ctx<'js>, message: &str) -> Result<Self> {
+        let obj = unsafe {
+            let value = ctx.handle_exception(qjs::JS_NewError(ctx.as_ptr()))?;
+            Value::from_js_value(ctx, value)
+                .into_object()
+                .expect("`JS_NewError` did not return an object")
+        };
+        obj.set(PredefinedAtom::Message, message)?;
+        Ok(Exception(obj))
+    }
+
+    /// Returns the message of the error.
+    ///
+    /// Same as retrieving `error.message` in JavaScript.
+    pub fn message(&self) -> Option<String> {
+        self.get::<_, Option<Coerced<String>>>(PredefinedAtom::Message)
+            .ok()
+            .and_then(|x| x)
+            .map(|x| x.0)
+    }
+
+    /// Returns the error stack.
+    ///
+    /// Same as retrieving `error.stack` in JavaScript.
+    pub fn stack(&self) -> Option<String> {
+        self.get::<_, Option<Coerced<String>>>(PredefinedAtom::Stack)
+            .ok()
+            .and_then(|x| x)
+            .map(|x| x.0)
+    }
+
+    /// Throws a new generic error.
+    ///
+    /// Equivalent to:
+    /// ```rust
+    /// # use rquickjs::{Runtime,Context,Exception};
+    /// # let rt = Runtime::new().unwrap();
+    /// # let ctx = Context::full(&rt).unwrap();
+    /// # ctx.with(|ctx|{
+    /// # let _ = {
+    /// # let message = "";
+    /// let (Ok(e) | Err(e)) = Exception::from_message(ctx, message).map(|x| x.throw());
+    /// e
+    /// # };
+    /// # })
+    /// ```
+    pub fn throw_message(ctx: &Ctx<'js>, message: &str) -> Error {
+        let (Ok(e) | Err(e)) = Self::from_message(ctx.clone(), message).map(|x| x.throw());
+        e
+    }
+
+    /// Throws a new syntax error.
+    pub fn throw_syntax(ctx: &Ctx<'js>, message: &str) -> Error {
+        let mut buffer = [MaybeUninit::uninit(); 256];
+        truncate_cstr_into(&mut buffer, message);
+        unsafe {
+            let res = qjs::JS_ThrowSyntaxError(
+                ctx.as_ptr(),
+                ERROR_FORMAT_STR.as_ptr(),
+                buffer.as_mut_ptr(),
+            );
+            debug_assert_eq!(qjs::JS_VALUE_GET_NORM_TAG(res), qjs::JS_TAG_EXCEPTION);
+        }
+        Error::Exception
+    }
+
+    /// Throws a new type error.
+    pub fn throw_type(ctx: &Ctx<'js>, message: &str) -> Error {
+        let mut buffer = [MaybeUninit::uninit(); 256];
+        truncate_cstr_into(&mut buffer, message);
+        unsafe {
+            let res = qjs::JS_ThrowTypeError(
+                ctx.as_ptr(),
+                ERROR_FORMAT_STR.as_ptr(),
+                buffer.as_mut_ptr(),
+            );
+            debug_assert_eq!(qjs::JS_VALUE_GET_NORM_TAG(res), qjs::JS_TAG_EXCEPTION);
+        }
+        Error::Exception
+    }
+
+    /// Throws a new reference error.
+    pub fn throw_reference(ctx: &Ctx<'js>, message: &str) -> Error {
+        let mut buffer = [MaybeUninit::uninit(); 256];
+        truncate_cstr_into(&mut buffer, message);
+        unsafe {
+            let res = qjs::JS_ThrowReferenceError(
+                ctx.as_ptr(),
+                ERROR_FORMAT_STR.as_ptr(),
+                buffer.as_mut_ptr(),
+            );
+            debug_assert_eq!(qjs::JS_VALUE_GET_NORM_TAG(res), qjs::JS_TAG_EXCEPTION);
+        }
+        Error::Exception
+    }
+
+    /// Throws a new range error.
+    pub fn throw_range(ctx: &Ctx<'js>, message: &str) -> Error {
+        let mut buffer = [MaybeUninit::uninit(); 256];
+        truncate_cstr_into(&mut buffer, message);
+        unsafe {
+            let res = qjs::JS_ThrowRangeError(
+                ctx.as_ptr(),
+                ERROR_FORMAT_STR.as_ptr(),
+                buffer.as_mut_ptr(),
+            );
+            debug_assert_eq!(qjs::JS_VALUE_GET_NORM_TAG(res), qjs::JS_TAG_EXCEPTION);
+        }
+        Error::Exception
+    }
+
+    /// Throws a new internal error.
+    pub fn throw_internal(ctx: &Ctx<'js>, message: &str) -> Error {
+        let mut buffer = [MaybeUninit::uninit(); 256];
+        truncate_cstr_into(&mut buffer, message);
+        unsafe {
+            let res = qjs::JS_ThrowInternalError(
+                ctx.as_ptr(),
+                ERROR_FORMAT_STR.as_ptr(),
+                buffer.as_mut_ptr(),
+            );
+            debug_assert_eq!(qjs::JS_VALUE_GET_NORM_TAG(res), qjs::JS_TAG_EXCEPTION);
+        }
+        Error::Exception
+    }
+
+    /// Throws a new DOMException.
+    pub fn throw_dom(ctx: &Ctx<'js>, name: &str, message: &str) -> Error {
+        let mut name_buffer = [MaybeUninit::uninit(); 256];
+        truncate_cstr_into(&mut name_buffer, name);
+        let mut message_buffer = [MaybeUninit::uninit(); 256];
+        truncate_cstr_into(&mut message_buffer, message);
+        unsafe {
+            let res = qjs::JS_ThrowDOMException(
+                ctx.as_ptr(),
+                name_buffer.as_ptr().cast(),
+                ERROR_FORMAT_STR.as_ptr(),
+                message_buffer.as_mut_ptr(),
+            );
+            debug_assert_eq!(qjs::JS_VALUE_GET_NORM_TAG(res), qjs::JS_TAG_EXCEPTION);
+        }
+        Error::Exception
+    }
+
+    /// Sets the exception as the current error and returns `Error::Exception`
+    pub fn throw(self) -> Error {
+        let ctx = self.ctx().clone();
+        ctx.throw(self.0.into_value())
+    }
+}
+
+impl fmt::Display for Exception<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        "Error:".fmt(f)?;
+        if let Some(message) = self.message() {
+            ' '.fmt(f)?;
+            message.fmt(f)?;
+        }
+        if let Some(stack) = self.stack() {
+            '\n'.fmt(f)?;
+            stack.fmt(f)?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{
+        atom::PredefinedAtom, context::intrinsic, Context, Error, Exception, Object, Runtime,
+    };
+
+    #[test]
+    fn test_throw_dom() {
+        let rt = Runtime::new().unwrap();
+        let ctx = Context::custom::<intrinsic::DOMException>(&rt).unwrap();
+        ctx.with(|ctx| {
+            let e = Exception::throw_dom(&ctx, "SyntaxError", "oh no");
+            assert!(matches!(e, Error::Exception), "{e}");
+            let exception = ctx.catch().into_object().unwrap();
+            assert!(exception.is_instance_of(
+                ctx.globals()
+                    .get::<_, Object>(PredefinedAtom::DOMException)
+                    .unwrap()
+            ));
+            assert_eq!(
+                exception.get::<_, i32>("code").unwrap(),
+                // SyntaxError's legacy code
+                12
+            );
+        });
+    }
+}

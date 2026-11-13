@@ -1,0 +1,414 @@
+name: CI
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+# Only run on the latest ref
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  RUSTFLAGS: -D warnings
+  CARGO_BUILD_WARNINGS: warn
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          toolchain: stable
+          components: rustfmt
+      - name: Format
+        run: cargo fmt --all -- --check
+
+  doc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          toolchain: nightly
+          components: rust-docs
+      - name: Documentation
+        env:
+          DOCS_RS: 1
+        run: cargo doc --no-deps --features full-async,parallel,doc-cfg,bindgen
+      - name: Upload docs
+        uses: actions/upload-artifact@v7
+        with:
+          name: docs
+          path: |
+            target/doc/rquickjs
+            target/doc/rquickjs-sys
+            target/doc/rquickjs-macro
+
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      checks: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          toolchain: nightly
+          components: clippy
+      - name: Cargo clippy
+        run: cargo clippy --all --all-targets --features full-async,bindgen
+
+  msrv:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        msrv: [1.87.0]
+    name: ubuntu / ${{ matrix.msrv }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - name: Install ${{ matrix.msrv }}
+        uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          toolchain: ${{ matrix.msrv }}
+      - name: cargo +${{ matrix.msrv }} check
+        run: cargo +${{ matrix.msrv }} check --features full-async,bindgen
+
+  coverage:
+    runs-on: ubuntu-latest
+    name: ubuntu / stable / coverage
+    if: github.actor != 'dependabot[bot]'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - name: Install stable
+        uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          components: llvm-tools-preview
+      - name: cargo install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - name: cargo generate-lockfile
+        if: hashFiles('Cargo.lock') == ''
+        run: cargo generate-lockfile
+      - name: cargo llvm-cov
+        run: cargo llvm-cov --locked --no-default-features --features full-async,compile-tests,bindgen --workspace --lcov --output-path lcov.info
+      - name: Record Rust version
+        run: echo "RUST=$(rustc --version)" >> "$GITHUB_ENV"
+      - name: Upload to codecov.io
+        uses: codecov/codecov-action@v7
+        with:
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+          env_vars: OS,RUST
+
+  sanitizer:
+    runs-on: ubuntu-latest
+    name: ubuntu / nightly / sanitizer
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - name: Install stable
+        uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          toolchain: nightly
+          components: rust-src
+      - name: cargo generate-lockfile
+        if: hashFiles('Cargo.lock') == ''
+        run: cargo generate-lockfile
+      - name: Run tests with address sanitizer
+        run: CC=clang RUSTFLAGS=-Zsanitizer=address cargo test --tests --workspace -Zbuild-std --target x86_64-unknown-linux-gnu --locked --no-default-features --features full-async,bindgen
+      - name: Run tests with thread sanitizer
+        run: CC=clang RUSTFLAGS=-Zsanitizer=thread cargo test --tests --workspace -Zbuild-std --target x86_64-unknown-linux-gnu --locked --no-default-features --features full-async,bindgen
+      - name: Run tests with memory sanitizer
+        run: CC=clang RUSTFLAGS=-Zsanitizer=memory cargo test --tests --workspace -Zbuild-std --target x86_64-unknown-linux-gnu --locked --no-default-features --features full-async,bindgen
+
+  examples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          toolchain: stable
+      - name: Run examples
+        working-directory: examples
+        run: make run
+
+  # wasm32-unknown-unknown is not part of the `test` matrix: it has no test
+  # runner, so `wasm-test` is driven through deno instead.
+  wasm-unknown:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          toolchain: stable
+          target: wasm32-unknown-unknown
+      - name: Setup deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Verify vendored wasi-libc is up to date
+        run: |
+          sh scripts/vendor-wasm-libc.sh
+          git diff --exit-code -- sys/vendor/wasi-libc
+      - name: Build wasm-test
+        run: cargo build --manifest-path wasm-test/Cargo.toml --release --target wasm32-unknown-unknown
+      - name: Test
+        run: deno run --allow-read wasm-test/runner.ts
+
+  test:
+    needs:
+      - format
+      - doc
+      - check
+      - msrv
+      - coverage
+    strategy:
+      fail-fast: ${{ startsWith(github.ref, 'refs/tags/') }}
+      matrix:
+        include:
+          # Cross-compiled Linux targets via cargo-zigbuild + QEMU.
+          - { task: test, os: ubuntu-latest, rust: stable,  target: i686-unknown-linux-gnu,         features: full-async, builder: zigbuild }
+          - { task: test, os: ubuntu-latest, rust: stable,  target: x86_64-unknown-linux-musl,      features: full-async, builder: zigbuild }
+          - { task: test, os: ubuntu-latest, rust: stable,  target: aarch64-unknown-linux-gnu,      features: full-async, builder: zigbuild, qemu: aarch64 }
+          - { task: test, os: ubuntu-latest, rust: stable,  target: aarch64-unknown-linux-musl,     features: full-async, builder: zigbuild, qemu: aarch64 }
+          - { task: test, os: ubuntu-latest, rust: stable,  target: armv7-unknown-linux-gnueabihf,  features: full-async, builder: zigbuild, qemu: arm }
+          - { task: test, os: ubuntu-24.04,  rust: stable,  target: riscv64gc-unknown-linux-gnu,    features: full-async, builder: zigbuild, qemu: riscv64 }
+          # NOTE: powerpc64-unknown-linux-gnu is not tested in CI because zig's
+          # bundled lld does not support PPC64 ELFv1 (the ABI Rust's
+          # precompiled std for that target uses), so linking the test
+          # executables fails. Bindings are still regenerated for it via
+          # `.github/workflows/bindings.yml` (sys builds as a static rlib,
+          # which does not trigger lld).
+          - { task: test, os: ubuntu-24.04,  rust: nightly, target: loongarch64-unknown-linux-gnu,  features: full-async, builder: native }
+          - { task: test, os: ubuntu-24.04,  rust: nightly, target: loongarch64-unknown-linux-musl, features: full-async, builder: native }
+
+          # Native targets.
+          - { task: test, os: ubuntu-latest, rust: stable,  target: x86_64-unknown-linux-gnu,  features: full-async, builder: native }
+
+          - { task: test, os: macos-latest,  rust: stable,  target: x86_64-apple-darwin,  features: full-async, builder: native }
+          - { task: test, os: macos-latest,  rust: stable,  target: aarch64-apple-darwin, features: full-async, builder: native, no-test: true }
+
+          - { task: test, os: windows-latest, rust: stable, target: x86_64-pc-windows-gnu,   features: full-async, builder: msys2 }
+          - { task: test, os: windows-latest, rust: stable, target: x86_64-pc-windows-msvc,  features: full-async, builder: native, optimization: true }
+          - { task: test, os: windows-11-arm, rust: stable, target: aarch64-pc-windows-msvc, features: full-async, builder: native }
+
+          # WebAssembly targets (wasmtime runner).
+          - { task: test, os: ubuntu-latest, rust: stable,  target: wasm32-wasip1, features: full-async-wasi, builder: native, wasi: true }
+          - { task: test, os: ubuntu-latest, rust: nightly, target: wasm32-wasip2, features: full-async-wasi, builder: native, wasi: true }
+
+          # Feature matrix (native x86_64 Linux).
+          - { task: features, os: ubuntu-latest, rust: stable, target: x86_64-unknown-linux-gnu, features: rust-alloc,          builder: native }
+          - { task: features, os: ubuntu-latest, rust: stable, target: x86_64-unknown-linux-gnu, features: loader,              builder: native }
+          - { task: features, os: ubuntu-latest, rust: stable, target: x86_64-unknown-linux-gnu, features: futures,             builder: native }
+          - { task: features, os: ubuntu-latest, rust: stable, target: x86_64-unknown-linux-gnu, features: parallel,            builder: native }
+          - { task: features, os: ubuntu-latest, rust: stable, target: x86_64-unknown-linux-gnu, features: disable-assertions, builder: native }
+          - { task: features, os: ubuntu-latest, rust: stable, target: x86_64-unknown-linux-gnu, features: half,                builder: native }
+
+          # Channel matrix (native x86_64 Linux).
+          - { task: channels, os: ubuntu-latest, rust: stable,  target: x86_64-unknown-linux-gnu, features: full-async, builder: native }
+          - { task: channels, os: ubuntu-latest, rust: beta,    target: x86_64-unknown-linux-gnu, features: full-async, builder: native }
+          - { task: channels, os: ubuntu-latest, rust: nightly, target: x86_64-unknown-linux-gnu, features: full-async, builder: native }
+    runs-on: ${{ matrix.os }}
+    # Unset: a non-empty RUSTFLAGS replaces (not merges with) the
+    # target.<triple>.rustflags set via ~/.cargo/config.toml for loongarch64.
+    env:
+      RUSTFLAGS: ""
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Set up zig
+        if: matrix.builder == 'zigbuild'
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.16.0
+
+      - name: Install cargo-zigbuild
+        if: matrix.builder == 'zigbuild'
+        uses: taiki-e/install-action@7be9fd86bd1707236395105d6e9329dd1511a7e1 # v2.79.0
+        with:
+          # 0.23.0+ fixes zig cc rejecting -Wl,--fix-cortex-a53-843419 on aarch64
+          # (rust-cross/cargo-zigbuild#452); install-action's default resolves to
+          # an older cached version, so pin explicitly.
+          tool: cargo-zigbuild@0.23.4
+
+      - name: Install QEMU user emulation
+        if: matrix.qemu
+        shell: bash
+        run: |
+          # Cross-compiled glibc binaries need both the dynamic linker and the
+          # matching sysroot at runtime. zigbuild produces dynamic binaries for
+          # *-linux-gnu targets, so install the cross libc and point qemu's
+          # -L prefix at it. *-linux-musl binaries are statically linked and
+          # need neither.
+          case "${{ matrix.target }}" in
+            aarch64-unknown-linux-gnu)
+              LIBC_PKG=libc6-arm64-cross
+              PREFIX=/usr/aarch64-linux-gnu
+              ;;
+            armv7-unknown-linux-gnueabihf)
+              LIBC_PKG=libc6-armhf-cross
+              PREFIX=/usr/arm-linux-gnueabihf
+              ;;
+            riscv64gc-unknown-linux-gnu)
+              LIBC_PKG=libc6-riscv64-cross
+              PREFIX=/usr/riscv64-linux-gnu
+              ;;
+            *)
+              LIBC_PKG=''
+              PREFIX=''
+              ;;
+          esac
+
+          sudo apt-get update -y
+          sudo apt-get install -y qemu-user $LIBC_PKG
+
+          QEMU_TARGET=$(printf "${{ matrix.target }}" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
+          if [ -n "$PREFIX" ]; then
+            echo "CARGO_TARGET_${QEMU_TARGET}_RUNNER=qemu-${{ matrix.qemu }} -L $PREFIX" >> "$GITHUB_ENV"
+          else
+            echo "CARGO_TARGET_${QEMU_TARGET}_RUNNER=qemu-${{ matrix.qemu }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Setup cross loongarch64
+        # zig cc rejects nightly rustc's -Wl,--no-rosegment as an unsupported
+        # linker arg (unlike the aarch64 cortex-a53 case, this isn't fixed in
+        # any cargo-zigbuild release), so loongarch64 is built natively here
+        # instead of through zigbuild.
+        if: startsWith(matrix.target, 'loongarch64') && contains(matrix.target, '-linux-')
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            libc6-dev-loong64-cross \
+            gcc-14-loongarch64-linux-gnu \
+            g++-14-loongarch64-linux-gnu \
+            lld \
+            qemu-user \
+            qemu-user-static
+
+          curl -L --retry 5 https://github.com/musl-cross/musl-cross/releases/latest/download/loongarch64-unknown-linux-musl.tar.xz | tar xJf -
+          sudo mv loongarch64-unknown-linux-musl /musl
+
+          echo "CC_loongarch64_unknown_linux_musl=loongarch64-unknown-linux-musl-gcc" >> $GITHUB_ENV
+          echo "CXX_loongarch64_unknown_linux_musl=loongarch64-unknown-linux-musl-g++" >> $GITHUB_ENV
+          echo "AR_loongarch64_unknown_linux_musl=loongarch64-unknown-linux-musl-ar" >> $GITHUB_ENV
+          echo "CARGO_TARGET_LOONGARCH64_UNKNOWN_LINUX_MUSL_LINKER=loongarch64-unknown-linux-musl-gcc" >> $GITHUB_ENV
+          echo "CARGO_TARGET_LOONGARCH64_UNKNOWN_LINUX_MUSL_RUNNER=qemu-loongarch64 -L /musl/loongarch64-unknown-linux-musl/sysroot" >> $GITHUB_ENV
+
+          echo "CC_loongarch64_unknown_linux_gnu=loongarch64-linux-gnu-gcc-14" >> $GITHUB_ENV
+          echo "CXX_loongarch64_unknown_linux_gnu=loongarch64-linux-gnu-g++-14" >> $GITHUB_ENV
+          echo "AR_loongarch64_unknown_linux_gnu=loongarch64-linux-gnu-ar" >> $GITHUB_ENV
+
+          # Nightly's -Wl,--no-rosegment isn't supported by ubuntu-24.04's cross ld;
+          # force lld via a linker wrapper (a rustflags link-arg gets clobbered by the
+          # job-wide RUSTFLAGS from setup-rust-toolchain).
+          cat > /usr/local/bin/loongarch64-linux-gnu-gcc-lld <<'WRAP'
+          #!/bin/sh
+          exec loongarch64-linux-gnu-gcc-14 -fuse-ld=lld "$@"
+          WRAP
+          chmod +x /usr/local/bin/loongarch64-linux-gnu-gcc-lld
+
+          echo "CARGO_TARGET_LOONGARCH64_UNKNOWN_LINUX_GNU_LINKER=loongarch64-linux-gnu-gcc-lld" >> $GITHUB_ENV
+          echo "CARGO_TARGET_LOONGARCH64_UNKNOWN_LINUX_GNU_RUNNER=qemu-loongarch64 -L /usr/loongarch64-linux-gnu" >> $GITHUB_ENV
+
+          mkdir -p ~/.cargo/
+          echo "[target.loongarch64-unknown-linux-musl]" >> ~/.cargo/config.toml
+          echo 'rustflags = ["-C", "target-feature=+crt-static", "-C", "link-self-contained=yes", "-C", "linker=loongarch64-unknown-linux-musl-gcc"]' >> ~/.cargo/config.toml
+          echo "[target.loongarch64-unknown-linux-gnu]" >> ~/.cargo/config.toml
+          echo 'rustflags = ["-C", "linker=loongarch64-linux-gnu-gcc-lld"]' >> ~/.cargo/config.toml
+
+          echo "/musl/bin" >> $GITHUB_PATH
+
+      - name: Set up wasmtime
+        if: matrix.wasi
+        uses: bytecodealliance/actions/wasmtime/setup@v1
+
+      - name: Configure wasmtime runner
+        if: matrix.wasi
+        shell: bash
+        run: |
+          WASI_TARGET=$(printf "${{ matrix.target }}" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
+          echo "CARGO_TARGET_${WASI_TARGET}_RUNNER=wasmtime" >> "$GITHUB_ENV"
+
+      - name: Set up msys2
+        if: matrix.builder == 'msys2'
+        uses: msys2/setup-msys2@e9898307ac31d1a803454791be09ab9973336e1c # v2.31.1
+        with:
+          release: false
+
+      - name: Prepare msys2 env
+        if: matrix.builder == 'msys2'
+        shell: pwsh
+        run: |
+          New-Item -Path "C:\Program Files\LLVM\x86_64-w64-mingw32" -ItemType SymbolicLink -Value "C:\msys64\mingw64\x86_64-w64-mingw32"
+          New-Item -Path "C:\Program Files\LLVM\i686-w64-mingw32" -ItemType SymbolicLink -Value "C:\msys64\mingw64\i686-w64-mingw32"
+          echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo "C:\msys64\mingw32\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo "CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-gcc" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+          echo "CC_i686_pc_windows_gnu=i686-w64-mingw32-gcc"     | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          toolchain: ${{ matrix.rust }}
+          target: ${{ matrix.target }}
+          components: rustfmt rust-src
+
+      - name: Update deps
+        run: cargo update
+
+      - name: Build
+        shell: bash
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          if [ "${{ matrix.builder }}" = "zigbuild" ]; then
+            cargo zigbuild ${{ matrix.optimization && '--release' || '' }} --target ${{ matrix.target }} --no-default-features --features ${{ matrix.features }}
+          else
+            cargo build ${{ matrix.optimization && '--release' || '' }} --target ${{ matrix.target }} --no-default-features --features ${{ matrix.features }}
+          fi
+
+      - name: Test
+        if: ${{ !matrix.no-test }}
+        timeout-minutes: 12
+        shell: bash
+        env:
+          RUST_BACKTRACE: full
+        run: |
+          # Limit test threads on QEMU-emulated targets to work around an intermittent
+          # QEMU user-mode emulation bug: "QEMU internal SIGSEGV {code=MAPERR, addr=0x20}"
+          case "${{ matrix.target }}" in
+            loongarch64-*) export RUST_TEST_THREADS=1 ;;
+          esac
+          if [ -n "${{ matrix.qemu }}" ]; then
+            export RUST_TEST_THREADS=1
+          fi
+          if [ "${{ matrix.builder }}" = "zigbuild" ]; then
+            cargo-zigbuild test ${{ matrix.optimization && '--release' || '' }} --all --target ${{ matrix.target }} --no-default-features --features ${{ matrix.features }}
+          elif [ "${{ matrix.wasi }}" = "true" ]; then
+            cargo test ${{ matrix.optimization && '--release' || '' }} --all --exclude module-loader --target ${{ matrix.target }} --no-default-features --features ${{ matrix.features }}
+          else
+            cargo test ${{ matrix.optimization && '--release' || '' }} --all --target ${{ matrix.target }} --no-default-features --features ${{ matrix.features }}
+          fi

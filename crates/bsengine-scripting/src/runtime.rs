@@ -1,11 +1,13 @@
 //! The JavaScript engine scripts run in: V8 through `deno_core` natively,
-//! and the page's own engine in a browser build (`deno_core` has no wasm
-//! target). Both expose the same `ScriptRuntime` -- evaluate, execute, call a
-//! named function -- which is all the plugin uses, and both give scripts the
-//! ops as `Deno.core.ops`.
+//! the page's own engine in a browser build (`deno_core` has no wasm
+//! target), and QuickJS on Android and iOS (rusty_v8 ships no library for
+//! either, and iOS forbids an app's own JIT) -- or on a desktop built with the
+//! `quickjs` feature, which is how that engine is tested. All three expose the
+//! same `ScriptRuntime` -- evaluate, execute, call a named function -- which
+//! is all the plugin uses, and all give scripts the ops as `Deno.core.ops`.
 
 #[cfg(target_arch = "wasm32")]
-pub use browser::ScriptRuntime;
+pub use browser::{ScriptRuntime, ENGINE};
 
 /// How a browser build's ops read their arguments: the conversions
 /// `deno_core` applies, so a script passing the same values gets the same
@@ -51,13 +53,124 @@ pub mod op_args {
         v.as_string().unwrap_or_default()
     }
 }
-#[cfg(not(target_arch = "wasm32"))]
-pub use native::ScriptRuntime;
+/// How a QuickJS build's ops read their arguments and return `#[serde]`
+/// values: the conversions `deno_core` applies, as `op_args` gives them in a
+/// browser. `#[script_op]`'s generated registrations call these.
+#[cfg(bsengine_quickjs)]
+#[doc(hidden)]
+pub mod qjs_args {
+    use rquickjs::{Ctx, Exception, Value};
 
-#[cfg(not(target_arch = "wasm32"))]
+    /// Argument `index`, `undefined` past the end -- as a V8 op sees a
+    /// missing argument.
+    pub fn arg<'js>(
+        ctx: &Ctx<'js>,
+        args: &rquickjs::function::Rest<Value<'js>>,
+        index: usize,
+    ) -> Value<'js> {
+        args.0
+            .get(index)
+            .cloned()
+            .unwrap_or_else(|| Value::new_undefined(ctx.clone()))
+    }
+
+    // What follows is `deno_core`'s `op2` (0.404, `runtime/ops.rs`
+    // `to_f32_option`/`to_u32_option`, `is_true()` for `bool`) -- measured
+    // against V8, not taken from its documentation: it is not JavaScript's
+    // ToNumber/ToUint32/ToBoolean, which is what this file once assumed and
+    // the engine-parity tests in `ops.rs` caught. A string, `null`,
+    // `undefined` or an object where a number goes is a `TypeError`.
+
+    /// A number argument: a Number as it is, a BigInt by its 64-bit value;
+    /// anything else throws `TypeError: expected <ty>`.
+    pub fn number<'js>(ctx: &Ctx<'js>, v: Value<'js>, ty: &str) -> rquickjs::Result<f64> {
+        if let Some(n) = v.as_number() {
+            return Ok(n);
+        }
+        if let Some(big) = v.into_big_int() {
+            return Ok(big.to_i64()? as f64);
+        }
+        Err(Exception::throw_type(ctx, &format!("expected {ty}")))
+    }
+
+    /// A `u32` argument: a Number or BigInt, as `deno_core` reads one.
+    pub fn uint32<'js>(ctx: &Ctx<'js>, v: Value<'js>) -> rquickjs::Result<u32> {
+        if let Some(n) = v.as_number() {
+            return Ok(v8_u32(n));
+        }
+        if let Some(big) = v.into_big_int() {
+            return Ok(big.to_i64()? as u32);
+        }
+        Err(Exception::throw_type(ctx, "expected u32"))
+    }
+
+    /// `to_u32_option` on a Number. V8 asks the *value* whether it is a
+    /// uint32 or an int32 -- QuickJS may hold `-2` as a float, so this
+    /// cannot ask the representation -- and wraps those (so -1 is
+    /// 4294967295); any other number goes through `trunc() as u64`, which
+    /// saturates (so -2.9 is 0, NaN 0, Infinity u64::MAX), keeping the low
+    /// 32 bits (so 4294967297 is 1).
+    pub fn v8_u32(n: f64) -> u32 {
+        if n.fract() == 0.0 && n >= f64::from(i32::MIN) && n <= f64::from(u32::MAX) {
+            n as i64 as u32
+        } else {
+            n.trunc() as u64 as u32
+        }
+    }
+
+    /// A `bool` argument: `true` and nothing else -- V8's `is_true()`, so
+    /// `1` and `"yes"` are false, and nothing throws.
+    pub fn boolean<'js>(_ctx: &Ctx<'js>, v: Value<'js>) -> rquickjs::Result<bool> {
+        Ok(v.as_bool() == Some(true))
+    }
+
+    /// A `#[string]` argument: the string, or `""` for anything that is not
+    /// one -- what `deno_core` gives.
+    pub fn string(v: &Value<'_>) -> String {
+        v.as_string()
+            .and_then(|s| s.to_string().ok())
+            .unwrap_or_default()
+    }
+
+    /// A `#[serde]` argument, through `JSON.stringify`. A value that does not
+    /// fit its type throws a `TypeError`, as `deno_core`'s does; `undefined`
+    /// reads as `null`, which is what `serde_v8` makes of it for an `Option`.
+    pub fn serde<'js, T: serde::de::DeserializeOwned>(
+        ctx: &Ctx<'js>,
+        v: Value<'js>,
+    ) -> rquickjs::Result<T> {
+        let json = match ctx.json_stringify(v)? {
+            Some(s) => s.to_string()?,
+            None => "null".to_string(),
+        };
+        serde_json::from_str(&json).map_err(|e| Exception::throw_type(ctx, &e.to_string()))
+    }
+
+    /// A `#[serde]` return value, through `JSON.parse`: `None` is `null`, as
+    /// `serde_v8` gives it.
+    pub fn to_serde<'js, T: serde::Serialize>(
+        ctx: &Ctx<'js>,
+        value: &T,
+    ) -> rquickjs::Result<Value<'js>> {
+        let json =
+            serde_json::to_string(value).map_err(|e| Exception::throw_type(ctx, &e.to_string()))?;
+        ctx.json_parse(json)
+    }
+}
+
+#[cfg(not(any(target_arch = "wasm32", bsengine_quickjs)))]
+pub use native::{ScriptRuntime, ENGINE};
+
+#[cfg(bsengine_quickjs)]
+pub use quickjs::{ScriptRuntime, ENGINE};
+
+#[cfg(not(any(target_arch = "wasm32", bsengine_quickjs)))]
 mod native {
     use deno_core::{JsRuntime, RuntimeOptions};
     use std::sync::Once;
+
+    /// The engine scripts run in, as the startup log names it.
+    pub const ENGINE: &str = "V8";
 
     // V8 auto-detects its internal JS-stack limit from the current thread's OS
     // stack at isolate-creation time, but on Windows this detection can fall back
@@ -139,9 +252,134 @@ mod native {
     }
 }
 
+#[cfg(bsengine_quickjs)]
+mod quickjs {
+    use rquickjs::context::EvalOptions;
+    use rquickjs::convert::Coerced;
+    use rquickjs::{Context, Ctx, FromJs, Object, Runtime, Value};
+
+    /// The engine scripts run in, as the startup log names it.
+    pub const ENGINE: &str = "QuickJS";
+
+    /// How deep a script may recurse before QuickJS throws a `RangeError`
+    /// instead of overflowing the thread. QuickJS measures from the stack
+    /// address where the runtime was made, so this must stay under the stack
+    /// that thread really has: 4 MiB is inside libtest's (RUST_MIN_STACK,
+    /// 16 MiB) and the desktop main thread's 64 MiB, and still deeper than
+    /// any script here recurses. V8 is given 16 MiB for the same purpose.
+    const MAX_STACK_BYTES: usize = 4 * 1024 * 1024;
+
+    /// One QuickJS runtime and context: every script in it shares one
+    /// global scope, as in one V8 isolate.
+    pub struct ScriptRuntime {
+        context: Context,
+        // Dropped after the context, which it outlives in QuickJS.
+        _runtime: Runtime,
+    }
+
+    /// `deno_core`'s `execute_script` runs a classic script in sloppy mode;
+    /// `rquickjs`'s default is strict, under which a script assigning an
+    /// undeclared global throws here and not in V8.
+    fn options(name: &str) -> EvalOptions {
+        let mut options = EvalOptions::default();
+        options.strict = false;
+        options.filename = Some(name.to_string());
+        options
+    }
+
+    /// An exception as `deno_core` reports one: the thrown value as
+    /// `String()` gives it ("TypeError: ..."), with the stack after it when
+    /// it is an `Error`.
+    fn describe(ctx: &Ctx<'_>, error: rquickjs::Error) -> String {
+        if !matches!(error, rquickjs::Error::Exception) {
+            return error.to_string();
+        }
+        let thrown = ctx.catch();
+        let text = Coerced::<String>::from_js(ctx, thrown.clone())
+            .map(|s| s.0)
+            .unwrap_or_else(|_| format!("{thrown:?}"));
+        let stack = thrown
+            .as_object()
+            .and_then(|o| o.get::<_, Option<String>>("stack").ok().flatten())
+            .filter(|s| !s.is_empty());
+        match stack {
+            Some(stack) => format!("{text}\n{stack}"),
+            None => text,
+        }
+    }
+
+    impl ScriptRuntime {
+        /// A runtime with no ops installed.
+        pub fn new() -> Self {
+            let runtime = Runtime::new().expect("creating a QuickJS runtime");
+            runtime.set_max_stack_size(MAX_STACK_BYTES);
+            let context = Context::full(&runtime).expect("creating a QuickJS context");
+            Self {
+                context,
+                _runtime: runtime,
+            }
+        }
+
+        /// A runtime whose scripts see every `#[script_op]` as
+        /// `Deno.core.ops.<name>`, under the names the V8 build registers
+        /// them by (`crate::ops::register_ops`).
+        pub fn new_with_ops() -> Self {
+            let this = Self::new();
+            this.context
+                .with(|ctx| -> rquickjs::Result<()> {
+                    let ops = Object::new(ctx.clone())?;
+                    crate::ops::register_ops(&ctx, &ops)?;
+                    let core = Object::new(ctx.clone())?;
+                    core.set("ops", ops)?;
+                    let deno = Object::new(ctx.clone())?;
+                    deno.set("core", core)?;
+                    ctx.globals().set("Deno", deno)
+                })
+                .expect("registering the script ops");
+            this
+        }
+
+        /// Evaluates a JS expression and returns its result stringified, as
+        /// `String(value)` would -- what V8's `to_rust_string_lossy` gives.
+        pub fn eval(&mut self, src: &str) -> Result<String, String> {
+            self.context.with(|ctx| {
+                let value: Value = ctx
+                    .eval_with_options(src, options("<eval>"))
+                    .map_err(|e| describe(&ctx, e))?;
+                Coerced::<String>::from_js(&ctx, value)
+                    .map(|s| s.0)
+                    .map_err(|e| describe(&ctx, e))
+            })
+        }
+
+        /// Executes a script without capturing its return value.
+        pub fn exec_source(&mut self, src: &str, name: &str) -> Result<(), String> {
+            self.context.with(|ctx| {
+                ctx.eval_with_options::<(), _>(src, options(name))
+                    .map_err(|e| describe(&ctx, e))
+            })
+        }
+
+        /// Calls a named JS function if it exists, ignoring its return value.
+        pub fn call_fn(&mut self, fn_name: &str) -> Result<(), String> {
+            let src = format!("if (typeof {fn_name} === 'function') {{ {fn_name}(); }}");
+            self.exec_source(&src, "<call_fn>")
+        }
+    }
+
+    impl Default for ScriptRuntime {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 mod browser {
     use wasm_bindgen::{JsCast, JsValue};
+
+    /// The engine scripts run in, as the startup log names it.
+    pub const ENGINE: &str = "the browser's";
 
     /// The page's JavaScript engine, which every script in a browser build
     /// shares -- there is one global scope, as there is one V8 isolate

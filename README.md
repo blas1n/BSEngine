@@ -25,7 +25,7 @@ bsengine-gltf         — GLTF/GLB import
 bsengine-plugin       — runtime plugin loader
 bsengine-mcp          — MCP (Model Context Protocol) server runtime
 bsengine-editor       — editor backend with 700+ MCP tools
-bsengine-scripting    — JavaScript scripting via Deno/V8
+bsengine-scripting    — JavaScript scripting via Deno/V8 (QuickJS on mobile)
 ```
 
 **Dependency flow:**

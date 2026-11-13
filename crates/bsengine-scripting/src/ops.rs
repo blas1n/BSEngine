@@ -5924,14 +5924,32 @@ macro_rules! with_every_op {
     };
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", bsengine_quickjs)))]
 macro_rules! declare_extension {
     ($($op:ident),* $(,)?) => {
         deno_core::extension!(bsengine_ops, ops = [$($op),*]);
     };
 }
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", bsengine_quickjs)))]
 with_every_op!(declare_extension);
+
+#[cfg(bsengine_quickjs)]
+macro_rules! declare_quickjs_registry {
+    ($($op:ident),* $(,)?) => {
+        /// Puts every op on `ops` as `ops.<name>`: the QuickJS build's
+        /// counterpart of the native `deno_core` extension, which the
+        /// QuickJS `ScriptRuntime` hands to scripts as `Deno.core.ops`.
+        pub fn register_ops<'js>(
+            ctx: &rquickjs::Ctx<'js>,
+            ops: &rquickjs::Object<'js>,
+        ) -> rquickjs::Result<()> {
+            $( $op::register(ctx, ops)?; )*
+            Ok(())
+        }
+    };
+}
+#[cfg(bsengine_quickjs)]
+with_every_op!(declare_quickjs_registry);
 
 #[cfg(target_arch = "wasm32")]
 macro_rules! declare_registry {
@@ -5958,6 +5976,385 @@ pub const BOOTSTRAP_JS: &str = include_str!("js/prelude.js");
 #[cfg(test)]
 mod tests {
     use crate::runtime::ScriptRuntime;
+
+    /// What a script sees of the engine it runs in, asserted identically in
+    /// the V8 build and the QuickJS one (`--features quickjs`; Android and
+    /// iOS). Every expectation here was V8's before it was QuickJS's, so a
+    /// difference between the two engines fails one of the two runs.
+    mod engine_parity {
+        use crate::ops::{ScriptCommand, BOOTSTRAP_JS, COMMAND_BUFFER, TRANSFORM_SNAPSHOT};
+        use crate::runtime::ScriptRuntime;
+        use glam::{Quat, Vec3};
+
+        fn take_commands() -> Vec<ScriptCommand> {
+            COMMAND_BUFFER.with(|c| std::mem::take(&mut *c.borrow_mut()))
+        }
+
+        /// Runs `call` and returns the one command it queued.
+        fn queued(rt: &mut ScriptRuntime, call: &str) -> ScriptCommand {
+            take_commands();
+            rt.exec_source(call, "<parity>")
+                .unwrap_or_else(|e| panic!("{call}: {e}"));
+            let mut commands = take_commands();
+            assert_eq!(commands.len(), 1, "{call} queued {commands:?}");
+            commands.remove(0)
+        }
+
+        /// The premise of every test below: the build under test runs the
+        /// engine it was asked for. Without it, a `--features quickjs` run
+        /// that silently kept V8 would pass everything here.
+        #[test]
+        fn the_build_runs_the_engine_it_was_built_for() {
+            // Asked of the feature and the target, not of `bsengine_quickjs`:
+            // a build.rs that stopped setting that cfg would otherwise move
+            // the expectation along with the engine.
+            let wants_quickjs = cfg!(any(
+                feature = "quickjs",
+                target_os = "android",
+                target_os = "ios"
+            ));
+            let expected = if wants_quickjs { "QuickJS" } else { "V8" };
+            assert_eq!(crate::runtime::ENGINE, expected);
+            let runtime = std::any::type_name::<ScriptRuntime>();
+            assert_eq!(
+                runtime.contains("::quickjs::"),
+                wants_quickjs,
+                "and `ScriptRuntime` is that engine's: {runtime}"
+            );
+        }
+
+        /// Runs `call`, returning the command it queued or the first line of
+        /// what it threw.
+        fn outcome(rt: &mut ScriptRuntime, call: &str) -> Result<ScriptCommand, String> {
+            take_commands();
+            let result = rt.exec_source(call, "<parity>");
+            let mut commands = take_commands();
+            match result {
+                Ok(()) => {
+                    assert_eq!(commands.len(), 1, "{call} queued {commands:?}");
+                    Ok(commands.remove(0))
+                }
+                Err(e) => {
+                    assert!(commands.is_empty(), "{call} threw and queued {commands:?}");
+                    Err(e.lines().next().unwrap_or_default().to_string())
+                }
+            }
+        }
+
+        /// What a number argument may be: a Number or a BigInt. Anything else
+        /// -- a numeric string, `null`, `undefined`, a boolean, an object
+        /// with a `valueOf`, a missing argument -- is a `TypeError`. This is
+        /// `deno_core`'s rule, not JavaScript's ToNumber.
+        #[test]
+        fn a_float_argument_is_a_number_or_a_type_error() {
+            let mut rt = ScriptRuntime::new_with_ops();
+            let mut radius = |value: &str| {
+                outcome(
+                    &mut rt,
+                    &format!("Deno.core.ops.bsengine_set_ao_radius('cam', {value});"),
+                )
+                .map(|c| match c {
+                    ScriptCommand::SetAoRadius { radius, .. } => radius,
+                    other => panic!("{other:?}"),
+                })
+            };
+            for (value, expected) in [
+                ("1.5", 1.5),
+                ("-2.9", -2.9),
+                ("4294967297", 4_294_967_297.0_f32),
+                ("Infinity", f32::INFINITY),
+                ("10n", 10.0),
+            ] {
+                assert_eq!(radius(value), Ok(expected), "{value}");
+            }
+            assert!(radius("NaN").unwrap().is_nan());
+            for value in [
+                "'2.5'",
+                "''",
+                "null",
+                "undefined",
+                "true",
+                "{}",
+                "[]",
+                "{ valueOf() { return 4; } }",
+                "",
+            ] {
+                let err = radius(value).expect_err(value);
+                assert!(err.contains("TypeError: expected f32"), "{value}: {err}");
+            }
+        }
+
+        /// A `u32` argument: an integer in the int32 or uint32 range wraps
+        /// (-1 is 4294967295), whatever its representation; any other number
+        /// is truncated and saturated through u64 (-2.9 is 0, Infinity
+        /// 4294967295, 4294967297 is 1). Non-numbers throw.
+        #[test]
+        fn a_u32_argument_is_read_as_deno_core_reads_it() {
+            let mut rt = ScriptRuntime::new_with_ops();
+            let mut count = |value: &str| {
+                outcome(
+                    &mut rt,
+                    &format!("Deno.core.ops.bsengine_set_ao_sample_count('cam', {value});"),
+                )
+                .map(|c| match c {
+                    ScriptCommand::SetAoSampleCount { count, .. } => count,
+                    other => panic!("{other:?}"),
+                })
+            };
+            for (value, expected) in [
+                ("7", 7),
+                ("1.5", 1),
+                ("2.9", 2),
+                ("-1", u32::MAX),
+                ("-2", u32::MAX - 1),
+                // -2 again, computed: QuickJS holds this one as a float, and
+                // V8 still reads it as the int32 it equals.
+                ("1.5 - 3.5", u32::MAX - 1),
+                ("-2.9", 0),
+                ("-0.5", 0),
+                ("-3e9", 0),
+                ("4294967295", u32::MAX),
+                ("4294967297", 1),
+                ("NaN", 0),
+                ("Infinity", u32::MAX),
+                ("10n", 10),
+            ] {
+                assert_eq!(count(value), Ok(expected), "{value}");
+            }
+            for value in ["'7'", "null", "undefined", "false", "{}", ""] {
+                let err = count(value).expect_err(value);
+                assert!(err.contains("TypeError: expected u32"), "{value}: {err}");
+            }
+        }
+
+        /// A `bool` argument is `true` only for `true` -- not truthiness --
+        /// and never throws; a `#[string]` argument that is not a string is
+        /// `""`, not its `String()`.
+        #[test]
+        fn bool_and_string_arguments_are_read_as_deno_core_reads_them() {
+            let mut rt = ScriptRuntime::new_with_ops();
+            let mut enabled = |name: &str, value: &str| match outcome(
+                &mut rt,
+                &format!("Deno.core.ops.bsengine_set_ao_enabled({name}, {value});"),
+            ) {
+                Ok(ScriptCommand::SetAoEnabled { name, enabled }) => (name, enabled),
+                other => panic!("{other:?}"),
+            };
+            assert_eq!(enabled("'cam'", "true"), ("cam".into(), true));
+            for value in [
+                "false",
+                "1",
+                "'0'",
+                "'yes'",
+                "{}",
+                "[]",
+                "null",
+                "undefined",
+                "10n",
+                "",
+            ] {
+                assert_eq!(enabled("'cam'", value), ("cam".into(), false), "{value}");
+            }
+            for name in ["42", "undefined", "null", "true", "{}"] {
+                assert_eq!(enabled(name, "true"), (String::new(), true), "{name}");
+            }
+        }
+
+        /// A `#[serde]` argument arrives with its fields, absent ones taking
+        /// their defaults; one that does not fit its type throws a
+        /// `TypeError` the script can catch, and scripts run on afterwards.
+        #[test]
+        fn a_structured_argument_arrives_and_a_bad_one_throws_a_type_error() {
+            let mut rt = ScriptRuntime::new_with_ops();
+            match queued(
+                &mut rt,
+                "Deno.core.ops.bsengine_navmesh_bake({ agentRadius: 0.5, floorY: -2 });",
+            ) {
+                ScriptCommand::NavmeshBake(p) => {
+                    assert_eq!(p.agent_radius, Some(0.5));
+                    assert_eq!(p.floor_y, Some(-2.0));
+                    assert_eq!(p.agent_height, None, "absent is None");
+                }
+                other => panic!("{other:?}"),
+            }
+            match queued(
+                &mut rt,
+                "Deno.core.ops.bsengine_navmesh_bake({ agentRadius: null });",
+            ) {
+                ScriptCommand::NavmeshBake(p) => assert_eq!(p.agent_radius, None, "null is None"),
+                other => panic!("{other:?}"),
+            }
+
+            for value in ["undefined", "null", "42", "", "{ agentRadius: '0.5' }"] {
+                let err = outcome(
+                    &mut rt,
+                    &format!("Deno.core.ops.bsengine_navmesh_bake({value});"),
+                )
+                .expect_err(value);
+                assert!(err.contains("TypeError"), "{value}: {err}");
+            }
+            match queued(
+                &mut rt,
+                "Deno.core.ops.bsengine_navmesh_bake({ agentRadius: 1, bogus: 2 });",
+            ) {
+                ScriptCommand::NavmeshBake(p) => {
+                    assert_eq!(p.agent_radius, Some(1.0), "an unknown field is ignored")
+                }
+                other => panic!("{other:?}"),
+            }
+
+            take_commands();
+            let caught = rt
+                .eval(
+                    "(() => { try { Deno.core.ops.bsengine_navmesh_bake(42); return 'no throw'; } \
+                     catch (e) { return e instanceof TypeError ? 'TypeError' : String(e); } })()",
+                )
+                .unwrap();
+            assert_eq!(caught, "TypeError");
+            assert!(take_commands().is_empty(), "nothing was queued");
+            assert_eq!(rt.eval("1 + 1").unwrap(), "2", "scripts run on");
+        }
+
+        /// A `#[serde]` result comes back as an object with its fields, and a
+        /// `None` as `null` -- not `undefined`, which a script checking
+        /// `=== null` would read as a value.
+        #[test]
+        fn a_structured_result_is_an_object_and_none_is_null() {
+            let mut rt = ScriptRuntime::new_with_ops();
+            TRANSFORM_SNAPSHOT.with(|s| {
+                s.borrow_mut().insert(
+                    "parity_box".into(),
+                    (Vec3::new(1.0, 2.5, -3.0), Quat::IDENTITY, Vec3::splat(2.0)),
+                )
+            });
+            let got = rt
+                .eval(
+                    "const t = Deno.core.ops.bsengine_get_transform('parity_box'); \
+                     [t.x, t.y, t.z, t.rw, t.sx].join(',')",
+                )
+                .unwrap();
+            TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().remove("parity_box"));
+            assert_eq!(got, "1,2.5,-3,1,2");
+            assert_eq!(
+                rt.eval("String(Deno.core.ops.bsengine_get_transform('nobody') === null)")
+                    .unwrap(),
+                "true"
+            );
+        }
+
+        /// Plain results keep their JavaScript types.
+        #[test]
+        fn plain_results_keep_their_types() {
+            let mut rt = ScriptRuntime::new_with_ops();
+            assert_eq!(
+                rt.eval("typeof Deno.core.ops.bsengine_version()").unwrap(),
+                "string"
+            );
+            assert_eq!(
+                rt.eval("Deno.core.ops.bsengine_version()").unwrap(),
+                "0.1.0"
+            );
+            assert_eq!(
+                rt.eval("typeof Deno.core.ops.bsengine_get_ao_sample_count('nobody')")
+                    .unwrap(),
+                "number"
+            );
+            assert_eq!(
+                rt.eval("typeof Deno.core.ops.bsengine_is_ao_enabled('nobody')")
+                    .unwrap(),
+                "boolean"
+            );
+        }
+
+        /// Scripts run as V8 runs a classic script: in sloppy mode, where an
+        /// assignment to an undeclared name makes a global, and a top-level
+        /// `var` is a property of the global object.
+        #[test]
+        fn scripts_are_sloppy_and_share_one_global_scope() {
+            let mut rt = ScriptRuntime::new();
+            rt.exec_source("parityUndeclared = 6; var parityVar = 7;", "<a>")
+                .expect("an undeclared assignment is not an error");
+            assert_eq!(
+                rt.eval("globalThis.parityUndeclared * globalThis.parityVar")
+                    .unwrap(),
+                "42"
+            );
+            rt.exec_source("let parityLet = 1;", "<b>").unwrap();
+            assert_eq!(
+                rt.eval("parityLet + 1").unwrap(),
+                "2",
+                "a later script sees an earlier `let`"
+            );
+        }
+
+        /// An exception's text reaches the caller, and the runtime is usable
+        /// after it.
+        #[test]
+        fn an_exception_is_reported_by_its_text() {
+            let mut rt = ScriptRuntime::new();
+            let err = rt
+                .exec_source("throw new RangeError('out of the arena');", "<test>")
+                .expect_err("the script throws");
+            assert!(err.contains("RangeError: out of the arena"), "{err:?}");
+            assert!(rt
+                .eval("this is not valid JS !!!")
+                .unwrap_err()
+                .contains("SyntaxError"));
+            assert_eq!(rt.eval("2 * 21").unwrap(), "42");
+        }
+
+        /// Every op the prelude calls is registered, and the prelude runs.
+        #[test]
+        fn every_op_the_prelude_calls_is_registered() {
+            let mut rt = ScriptRuntime::new_with_ops();
+            rt.exec_source(BOOTSTRAP_JS, "prelude")
+                .expect("the prelude runs");
+            assert_eq!(rt.eval("typeof Bsengine").unwrap(), "object");
+            let mut names: Vec<&str> = BOOTSTRAP_JS
+                .split("Deno.core.ops.")
+                .skip(1)
+                .map(|rest| {
+                    let end = rest
+                        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                        .unwrap_or(rest.len());
+                    &rest[..end]
+                })
+                .collect();
+            names.sort_unstable();
+            names.dedup();
+            assert!(
+                names.len() > 200,
+                "premise: the prelude calls many ops: {}",
+                names.len()
+            );
+            for name in names {
+                assert_eq!(
+                    rt.eval(&format!("typeof Deno.core.ops.{name}")).unwrap(),
+                    "function",
+                    "{name}"
+                );
+            }
+        }
+
+        /// Runaway recursion is a `RangeError` the script can catch, not an
+        /// overflow of the thread. QuickJS only: it measures its stack
+        /// limit itself (`MAX_STACK_BYTES`), which must be under the thread's
+        /// real stack -- this is the test that it is.
+        #[cfg(bsengine_quickjs)]
+        #[test]
+        fn runaway_recursion_is_a_range_error() {
+            let mut rt = ScriptRuntime::new();
+            let got = rt
+                .eval(
+                    "function down(n) { return down(n + 1) + 1; } \
+                     (() => { try { down(0); return 'returned'; } \
+                     catch (e) { return e instanceof RangeError ? 'RangeError' : String(e); } })()",
+                )
+                .unwrap();
+            assert_eq!(got, "RangeError");
+            assert_eq!(rt.eval("1 + 1").unwrap(), "2");
+        }
+    }
 
     mod remote_input {
         use crate::ops::{

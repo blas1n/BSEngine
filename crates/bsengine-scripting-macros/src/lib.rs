@@ -12,9 +12,10 @@
 //! - **wasm32:** those attributes are stripped, the function is kept as plain
 //!   Rust, and a module of the same name is generated beside it whose
 //!   `register(ops)` puts a JavaScript function on `ops.<name>`. That function
-//!   converts its arguments the way `deno_core` does -- `ToNumber` for floats,
-//!   `ToUint32` for `u32`, `ToBoolean` for `bool`, `""` for a `#[string]` that
-//!   is not a string -- and returns `#[serde]` values through
+//!   converts its arguments the way `deno_core` does, as measured against V8
+//!   (`crate::runtime::op_args`): a number is a Number or a BigInt and
+//!   anything else a `TypeError`, a `bool` is `true` only for `true`, a
+//!   `#[string]` that is not a string is `""` -- and returns `#[serde]` values through
 //!   `serde-wasm-bindgen` with `None` as `null` (as `serde_v8` gives it; the
 //!   default would be `undefined`). A `#[serde]` argument that does not fit
 //!   its type throws a `TypeError`, as `deno_core`'s does.
@@ -24,10 +25,7 @@
 //!   wasm32, and a module whose `register(ctx, ops)` puts an `rquickjs`
 //!   function on `ops.<name>`. It reads its arguments as `deno_core` really
 //!   does (`crate::runtime::qjs_args`, measured against V8 by the
-//!   engine-parity tests): a number is a Number or a BigInt and anything else
-//!   a `TypeError`, a `bool` is `true` only for `true`. That is narrower than
-//!   the ToNumber/ToBoolean the wasm32 arm applies, which predates the
-//!   measurement. A `#[serde]` value crosses as JSON -- `JSON.stringify` into
+//!   engine-parity tests), the same rules as wasm32. A `#[serde]` value crosses as JSON -- `JSON.stringify` into
 //!   `serde_json`, `serde_json` into `JSON.parse` -- so `None` is `null` here
 //!   too, but a NaN or an infinity inside one arrives as `null`.
 //!
@@ -144,10 +142,13 @@ pub fn script_op(attr: TokenStream, item: TokenStream) -> TokenStream {
         } else {
             match type_name(ty).as_str() {
                 // The conversions are `crate::runtime::op_args`'s, where
-                // the browser runtime's tests pin them down.
-                "f32" => quote! { let #arg: f32 = crate::runtime::op_args::number(&#raw) as f32; },
-                "f64" => quote! { let #arg: f64 = crate::runtime::op_args::number(&#raw); },
-                "u32" => quote! { let #arg: u32 = crate::runtime::op_args::uint32(&#raw); },
+                // the browser runtime's tests pin them down against the
+                // table the V8 build is held to (`parity_cases.rs`).
+                "f32" => {
+                    quote! { let #arg: f32 = crate::runtime::op_args::number(&#raw, "f32")? as f32; }
+                }
+                "f64" => quote! { let #arg: f64 = crate::runtime::op_args::number(&#raw, "f64")?; },
+                "u32" => quote! { let #arg: u32 = crate::runtime::op_args::uint32(&#raw)?; },
                 "bool" => quote! { let #arg: bool = crate::runtime::op_args::boolean(&#raw); },
                 other => {
                     return syn::Error::new_spanned(

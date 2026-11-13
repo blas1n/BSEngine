@@ -16,7 +16,7 @@
 
 use bsengine_scripting::ops::BOOTSTRAP_JS;
 use bsengine_scripting::runtime::{op_args, ScriptRuntime};
-use wasm_bindgen::JsValue;
+use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_test::wasm_bindgen_test;
 
 /// Every op is reachable as `Deno.core.ops.<name>`, under the name the
@@ -137,34 +137,88 @@ fn every_op_the_prelude_calls_is_registered() {
     }
 }
 
-/// Numbers are read as V8 reads them: ToNumber for floats, ToUint32 for
-/// `u32` (so -1 is 4294967295, not 0), ToBoolean for `bool`.
+include!("../src/parity_cases.rs");
+
+/// The JavaScript value an expression from the shared table evaluates to.
+/// Parenthesised, so `{}` is an object and not a block.
+fn value_of(expression: &str) -> JsValue {
+    js_sys::eval(&format!("({expression})")).expect(expression)
+}
+
+/// The browser build reads every case of the table the V8 build is held to
+/// (`src/parity_cases.rs`) as V8 does: Number and BigInt only for numbers,
+/// `true` only for `bool`, `""` for a non-string name. Until #2067 measured
+/// V8 this applied ToNumber and ToBoolean, so `"2.5"` was 2.5 here and a
+/// `TypeError` natively.
 #[wasm_bindgen_test]
-fn arguments_are_coerced_as_v8_coerces_them() {
-    assert_eq!(op_args::number(&JsValue::from_str("2.5")), 2.5);
-    assert_eq!(op_args::number(&JsValue::NULL), 0.0);
-    assert!(op_args::number(&JsValue::UNDEFINED).is_nan());
-    assert_eq!(op_args::number(&JsValue::TRUE), 1.0);
-
-    assert_eq!(op_args::uint32(&JsValue::from_f64(-1.0)), u32::MAX);
-    assert_eq!(op_args::uint32(&JsValue::from_f64(4_294_967_297.0)), 1);
-    assert_eq!(op_args::uint32(&JsValue::from_f64(2.9)), 2);
-    assert_eq!(op_args::uint32(&JsValue::from_f64(-2.9)), u32::MAX - 1);
-    assert_eq!(op_args::uint32(&JsValue::from_f64(f64::NAN)), 0);
-    assert_eq!(op_args::uint32(&JsValue::from_str("7")), 7);
-
-    assert!(!op_args::boolean(&JsValue::from_str("")));
-    assert!(op_args::boolean(&JsValue::from_str("0")));
-    assert!(!op_args::boolean(&JsValue::from_f64(0.0)));
-    assert!(op_args::boolean(&js_sys::Object::new().into()));
-
-    assert_eq!(op_args::string(&JsValue::from_f64(42.0)), "");
-    assert_eq!(op_args::string(&JsValue::from_str("x")), "x");
+fn arguments_are_read_as_v8_reads_them() {
+    for &(expression, expected) in F32_CASES {
+        let got = op_args::number(&value_of(expression), "f32").map(|n| n as f32);
+        match expected {
+            Some(expected) => assert_eq!(got.ok(), Some(expected), "{expression}"),
+            None => {
+                let err = got.expect_err(expression);
+                let err: &js_sys::Error = err.unchecked_ref();
+                assert_eq!(
+                    String::from(err.to_string()),
+                    "TypeError: expected f32",
+                    "{expression}"
+                );
+            }
+        }
+    }
+    assert!(op_args::number(&value_of("NaN"), "f32").unwrap().is_nan());
+    for &(expression, expected) in U32_CASES {
+        assert_eq!(
+            op_args::uint32(&value_of(expression)).ok(),
+            expected,
+            "{expression}"
+        );
+    }
+    for &(expression, expected) in BOOL_CASES {
+        assert_eq!(
+            op_args::boolean(&value_of(expression)),
+            expected,
+            "{expression}"
+        );
+    }
+    for &(expression, expected) in STRING_CASES {
+        assert_eq!(
+            op_args::string(&value_of(expression)),
+            expected,
+            "{expression}"
+        );
+    }
 
     let args = js_sys::Array::of1(&JsValue::from_f64(3.0));
     assert_eq!(op_args::arg(&args, 0).as_f64(), Some(3.0));
     assert!(
         op_args::arg(&args, 1).is_undefined(),
         "past the end is undefined"
+    );
+}
+
+/// And through a real op: a string where a number goes throws the
+/// `TypeError` V8 throws, which the script can catch, and nothing runs on
+/// with a made-up number.
+#[wasm_bindgen_test]
+fn an_op_given_a_string_for_a_number_throws_a_type_error() {
+    let mut rt = ScriptRuntime::new_with_ops();
+    assert_eq!(
+        rt.eval(
+            "(() => { try { Deno.core.ops.bsengine_set_ao_radius('cam', '2.5'); return 'no throw'; } \
+             catch (e) { return String(e); } })()"
+        )
+        .unwrap(),
+        "TypeError: expected f32"
+    );
+    assert_eq!(
+        rt.eval(
+            "(() => { try { Deno.core.ops.bsengine_set_ao_sample_count('cam'); return 'no throw'; } \
+             catch (e) { return String(e); } })()"
+        )
+        .unwrap(),
+        "TypeError: expected u32",
+        "a missing argument is undefined, which is not a number"
     );
 }

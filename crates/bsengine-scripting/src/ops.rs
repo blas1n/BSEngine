@@ -6041,10 +6041,10 @@ mod tests {
             }
         }
 
-        /// What a number argument may be: a Number or a BigInt. Anything else
-        /// -- a numeric string, `null`, `undefined`, a boolean, an object
-        /// with a `valueOf`, a missing argument -- is a `TypeError`. This is
-        /// `deno_core`'s rule, not JavaScript's ToNumber.
+        include!("parity_cases.rs");
+
+        /// Every float case of the shared table, through a real op; and a
+        /// missing argument, which is `undefined` and so throws too.
         #[test]
         fn a_float_argument_is_a_number_or_a_type_error() {
             let mut rt = ScriptRuntime::new_with_ops();
@@ -6058,36 +6058,21 @@ mod tests {
                     other => panic!("{other:?}"),
                 })
             };
-            for (value, expected) in [
-                ("1.5", 1.5),
-                ("-2.9", -2.9),
-                ("4294967297", 4_294_967_297.0_f32),
-                ("Infinity", f32::INFINITY),
-                ("10n", 10.0),
-            ] {
-                assert_eq!(radius(value), Ok(expected), "{value}");
+            for &(value, expected) in F32_CASES {
+                match expected {
+                    Some(expected) => assert_eq!(radius(value), Ok(expected), "{value}"),
+                    None => {
+                        let err = radius(value).expect_err(value);
+                        assert!(err.contains("TypeError: expected f32"), "{value}: {err}");
+                    }
+                }
             }
             assert!(radius("NaN").unwrap().is_nan());
-            for value in [
-                "'2.5'",
-                "''",
-                "null",
-                "undefined",
-                "true",
-                "{}",
-                "[]",
-                "{ valueOf() { return 4; } }",
-                "",
-            ] {
-                let err = radius(value).expect_err(value);
-                assert!(err.contains("TypeError: expected f32"), "{value}: {err}");
-            }
+            let err = radius("").expect_err("a missing argument");
+            assert!(err.contains("TypeError: expected f32"), "{err}");
         }
 
-        /// A `u32` argument: an integer in the int32 or uint32 range wraps
-        /// (-1 is 4294967295), whatever its representation; any other number
-        /// is truncated and saturated through u64 (-2.9 is 0, Infinity
-        /// 4294967295, 4294967297 is 1). Non-numbers throw.
+        /// Every `u32` case of the shared table, through a real op.
         #[test]
         fn a_u32_argument_is_read_as_deno_core_reads_it() {
             let mut rt = ScriptRuntime::new_with_ops();
@@ -6101,35 +6086,20 @@ mod tests {
                     other => panic!("{other:?}"),
                 })
             };
-            for (value, expected) in [
-                ("7", 7),
-                ("1.5", 1),
-                ("2.9", 2),
-                ("-1", u32::MAX),
-                ("-2", u32::MAX - 1),
-                // -2 again, computed: QuickJS holds this one as a float, and
-                // V8 still reads it as the int32 it equals.
-                ("1.5 - 3.5", u32::MAX - 1),
-                ("-2.9", 0),
-                ("-0.5", 0),
-                ("-3e9", 0),
-                ("4294967295", u32::MAX),
-                ("4294967297", 1),
-                ("NaN", 0),
-                ("Infinity", u32::MAX),
-                ("10n", 10),
-            ] {
-                assert_eq!(count(value), Ok(expected), "{value}");
+            for &(value, expected) in U32_CASES {
+                match expected {
+                    Some(expected) => assert_eq!(count(value), Ok(expected), "{value}"),
+                    None => {
+                        let err = count(value).expect_err(value);
+                        assert!(err.contains("TypeError: expected u32"), "{value}: {err}");
+                    }
+                }
             }
-            for value in ["'7'", "null", "undefined", "false", "{}", ""] {
-                let err = count(value).expect_err(value);
-                assert!(err.contains("TypeError: expected u32"), "{value}: {err}");
-            }
+            assert!(count("").is_err(), "a missing argument throws");
         }
 
-        /// A `bool` argument is `true` only for `true` -- not truthiness --
-        /// and never throws; a `#[string]` argument that is not a string is
-        /// `""`, not its `String()`.
+        /// Every `bool` and `#[string]` case of the shared table, through a
+        /// real op.
         #[test]
         fn bool_and_string_arguments_are_read_as_deno_core_reads_them() {
             let mut rt = ScriptRuntime::new_with_ops();
@@ -6140,23 +6110,20 @@ mod tests {
                 Ok(ScriptCommand::SetAoEnabled { name, enabled }) => (name, enabled),
                 other => panic!("{other:?}"),
             };
-            assert_eq!(enabled("'cam'", "true"), ("cam".into(), true));
-            for value in [
-                "false",
-                "1",
-                "'0'",
-                "'yes'",
-                "{}",
-                "[]",
-                "null",
-                "undefined",
-                "10n",
-                "",
-            ] {
-                assert_eq!(enabled("'cam'", value), ("cam".into(), false), "{value}");
+            for &(value, expected) in BOOL_CASES {
+                assert_eq!(enabled("'cam'", value), ("cam".into(), expected), "{value}");
             }
-            for name in ["42", "undefined", "null", "true", "{}"] {
-                assert_eq!(enabled(name, "true"), (String::new(), true), "{name}");
+            assert_eq!(
+                enabled("'cam'", ""),
+                ("cam".into(), false),
+                "a missing argument"
+            );
+            for &(name, expected) in STRING_CASES {
+                assert_eq!(
+                    enabled(name, "true"),
+                    (expected.to_string(), true),
+                    "{name}"
+                );
             }
         }
 

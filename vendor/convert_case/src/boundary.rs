@@ -2,16 +2,101 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use alloc::vec::Vec;
 
+/// Per-grapheme classification flags used to accelerate built-in boundary checks.
+/// Each grapheme is classified once; then all 9 built-in boundaries check
+/// these flags instead of calling `grapheme_is_uppercase` etc. every time.
+const UPPER: u8 = 0b00_0001;
+const LOWER: u8 = 0b00_0010;
+const DIGIT: u8 = 0b00_0100;
+const UNDER: u8 = 0b00_1000;
+const HYPH: u8 = 0b01_0000;
+const SPACE: u8 = 0b10_0000;
+
+#[derive(Clone, Copy, Default)]
+struct GraphemeFlags(u8);
+
+impl GraphemeFlags {
+    fn classify(grapheme: &str) -> Self {
+        if let [b] = grapheme.as_bytes() {
+            let mut f = 0u8;
+            if b.is_ascii_uppercase() {
+                f |= UPPER;
+            }
+            if b.is_ascii_lowercase() {
+                f |= LOWER;
+            }
+            if b.is_ascii_digit() {
+                f |= DIGIT;
+            }
+            if *b == b'_' {
+                f |= UNDER;
+            }
+            if *b == b'-' {
+                f |= HYPH;
+            }
+            if *b == b' ' {
+                f |= SPACE;
+            }
+            Self(f)
+        } else {
+            // Multi-byte unicode grapheme: classify by the first codepoint.
+            let mut f = 0u8;
+            if let Some(ch) = grapheme.chars().next() {
+                if ch.is_uppercase() {
+                    f |= UPPER;
+                }
+                if ch.is_lowercase() {
+                    f |= LOWER;
+                }
+                // Digits in non-ASCII scripts still count as letters for boundary
+                // purposes, not digits — we only split on ASCII digits.
+            }
+            Self(f)
+        }
+    }
+
+    fn is_upper(self) -> bool {
+        self.0 & UPPER != 0
+    }
+    fn is_lower(self) -> bool {
+        self.0 & LOWER != 0
+    }
+    fn is_digit(self) -> bool {
+        self.0 & DIGIT != 0
+    }
+    fn is_under(self) -> bool {
+        self.0 & UNDER != 0
+    }
+    fn is_hyph(self) -> bool {
+        self.0 & HYPH != 0
+    }
+    fn is_space(self) -> bool {
+        self.0 & SPACE != 0
+    }
+}
+
 fn grapheme_is_digit(c: &&str) -> bool {
     c.chars().all(|c| c.is_ascii_digit())
 }
 
 fn grapheme_is_uppercase(c: &&str) -> bool {
-    c.to_uppercase() != c.to_lowercase() && *c == c.to_uppercase()
+    // Fast path for single-byte (ASCII) graphemes — O(1), no allocation.
+    if let [b] = c.as_bytes() {
+        return b.is_ascii_uppercase();
+    }
+    // Multi-byte grapheme: the first codepoint determines case.
+    // Combining marks have no case, so they can't change the base's classification.
+    c.chars().next().is_some_and(|ch| ch.is_uppercase())
 }
 
 fn grapheme_is_lowercase(c: &&str) -> bool {
-    c.to_uppercase() != c.to_lowercase() && *c == c.to_lowercase()
+    // Fast path for single-byte (ASCII) graphemes — O(1), no allocation.
+    if let [b] = c.as_bytes() {
+        return b.is_ascii_lowercase();
+    }
+    // Multi-byte grapheme: the first codepoint determines case.
+    // Combining marks have no case, so they can't change the base's classification.
+    c.chars().next().is_some_and(|ch| ch.is_lowercase())
 }
 
 /// Conditions for splitting an identifier into words.
@@ -23,7 +108,7 @@ fn grapheme_is_lowercase(c: &&str) -> bool {
 /// contains the [`defaults_from`](Boundary::defaults_from) method which will generate a subset
 /// of default boundaries based on the boundaries present in a string.
 ///
-/// You can also create custom delimiter boundaries using the [`delim_boundary`](crate::delim_boundary)
+/// You can also create custom delimiter boundaries using the [`separator`](crate::separator)
 /// macro or directly instantiate `Boundary` for complex boundary conditions.
 /// ```
 /// use convert_case::{Boundary, Case, Casing, Converter};
@@ -39,7 +124,7 @@ fn grapheme_is_lowercase(c: &&str) -> bool {
 /// let conv = Converter::new()
 ///     .set_boundaries(&Boundary::defaults_from("aA "))
 ///     .to_case(Case::Title);
-/// assert_eq!("7empest By Tool", conv.convert("7empest byTool"));
+/// assert_eq!(conv.convert("myVariable Name"), "My Variable Name");
 /// ```
 ///
 /// ## Example
@@ -65,7 +150,7 @@ fn grapheme_is_lowercase(c: &&str) -> bool {
 /// )
 /// ```
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub enum Boundary {
     Custom {
         /// A function that determines if this boundary is present at the start
@@ -112,9 +197,7 @@ pub enum Boundary {
     /// and is **not** included in the [defaults](Boundary::defaults).
     /// ```
     /// # use convert_case::Boundary;
-    /// assert!(
-    ///     Boundary::defaults_from("Aa").len() == 0
-    /// );
+    /// assert!(Boundary::defaults_from("Aa").is_empty());
     UpperLower,
 
     /// Splits where a lowercase letter is followed by an uppercase letter.
@@ -229,6 +312,11 @@ impl Boundary {
             | Acronym => 0,
             Custom { len, .. } => len,
         }
+    }
+
+    /// Returns true if this boundary consumes no graphemes when splitting.
+    pub fn is_empty(self) -> bool {
+        self.len() == 0
     }
 
     /// The index of the character to split at.
@@ -367,6 +455,38 @@ impl Boundary {
     }
 }
 
+impl PartialEq for Boundary {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Hyphen, Self::Hyphen) => true,
+            (Self::Underscore, Self::Underscore) => true,
+            (Self::Space, Self::Space) => true,
+            (Self::UpperLower, Self::UpperLower) => true,
+            (Self::LowerUpper, Self::LowerUpper) => true,
+            (Self::DigitUpper, Self::DigitUpper) => true,
+            (Self::UpperDigit, Self::UpperDigit) => true,
+            (Self::DigitLower, Self::DigitLower) => true,
+            (Self::LowerDigit, Self::LowerDigit) => true,
+            (Self::Acronym, Self::Acronym) => true,
+            // Custom boundaries are never equal because they contain function pointers,
+            // which cannot be reliably compared.
+            (Self::Custom { .. }, Self::Custom { .. }) => false,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Boundary {}
+
+impl core::hash::Hash for Boundary {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        // Hash only the discriminant. Custom variants can't be meaningfully
+        // compared or hashed by their function pointer, so all Custom variants
+        // hash to the same value (their discriminant).
+        core::mem::discriminant(self).hash(state);
+    }
+}
+
 /// Split an identifier into a list of words using the list of boundaries.
 ///
 /// This is used internally for splitting an identifier before mutating by
@@ -391,22 +511,80 @@ where
     let mut words = Vec::new();
     let mut last_boundary_end = 0;
 
+    // Fast path: when every boundary is a single-byte delimiter
+    // (underscore, hyphen, space) iterate bytes directly.
+    // These are all ASCII single bytes that never appear inside a multi-byte
+    // UTF-8 sequence, so byte-level iteration is correct and avoids allocating
+    // grapheme/indices Vecs.
+    let all_simple_delimiters = boundaries
+        .iter()
+        .all(|b| matches!(b, Boundary::Underscore | Boundary::Hyphen | Boundary::Space));
+
+    if all_simple_delimiters {
+        for (i, byte) in s.bytes().enumerate() {
+            let matched = match byte {
+                b'_' => boundaries.contains(&Boundary::Underscore),
+                b'-' => boundaries.contains(&Boundary::Hyphen),
+                b' ' => boundaries.contains(&Boundary::Space),
+                _ => false,
+            };
+
+            if matched {
+                words.push(&s[last_boundary_end..i]);
+                last_boundary_end = i + 1;
+            }
+        }
+        words.push(&s[last_boundary_end..]);
+        return words;
+    }
+
+    // General path: need grapheme clusters for case transitions, acronyms,
+    // custom boundaries, etc.
     let (indices, graphemes): (Vec<_>, Vec<_>) = s.grapheme_indices(true).unzip();
-    let grapheme_length = indices[graphemes.len() - 1] + graphemes[graphemes.len() - 1].len();
+    let grapheme_length =
+        indices.last().copied().unwrap_or(0) + graphemes.last().map(|g| g.len()).unwrap_or(0);
 
-    // TODO:
-    // swapping the order of these would be faster
-    // end the loop sooner if any boundary condition is met
-    // could also hit a bitvector and do the splitting at the end?  May or may not be faster
-    for i in 0..graphemes.len() {
+    // Precompute grapheme flags once, then check all boundaries (built-in and
+    // custom) against the cache.
+    let flags: Vec<GraphemeFlags> = graphemes
+        .iter()
+        .map(|g| GraphemeFlags::classify(g))
+        .collect();
+
+    for (i, _grapheme) in graphemes.iter().enumerate() {
         for boundary in boundaries {
-            //let byte_index = indices[i];
+            let matched = match boundary {
+                Boundary::Underscore => flags[i].is_under(),
+                Boundary::Hyphen => flags[i].is_hyph(),
+                Boundary::Space => flags[i].is_space(),
+                Boundary::LowerUpper => {
+                    i + 1 < graphemes.len() && flags[i].is_lower() && flags[i + 1].is_upper()
+                }
+                Boundary::UpperLower => {
+                    i + 1 < graphemes.len() && flags[i].is_upper() && flags[i + 1].is_lower()
+                }
+                Boundary::LowerDigit => {
+                    i + 1 < graphemes.len() && flags[i].is_lower() && flags[i + 1].is_digit()
+                }
+                Boundary::UpperDigit => {
+                    i + 1 < graphemes.len() && flags[i].is_upper() && flags[i + 1].is_digit()
+                }
+                Boundary::DigitLower => {
+                    i + 1 < graphemes.len() && flags[i].is_digit() && flags[i + 1].is_lower()
+                }
+                Boundary::DigitUpper => {
+                    i + 1 < graphemes.len() && flags[i].is_digit() && flags[i + 1].is_upper()
+                }
+                Boundary::Acronym => {
+                    i + 2 < graphemes.len()
+                        && flags[i].is_upper()
+                        && flags[i + 1].is_upper()
+                        && flags[i + 2].is_lower()
+                }
+                Boundary::Custom { condition, .. } => condition(&graphemes[i..]),
+            };
 
-            if boundary.matches(&graphemes[i..]) {
-                // What if we find a condition at the end of the array?
-                // Maybe we can stop early based on length
-                // To do this, need to switch the loops
-                // TODO
+            if matched {
                 let boundary_byte_start: usize = *indices
                     .get(i + boundary.start())
                     .unwrap_or(&grapheme_length);
@@ -414,7 +592,6 @@ where
                     .get(i + boundary.start() + boundary.len())
                     .unwrap_or(&grapheme_length);
 
-                // todo clean this up a bit
                 words.push(&s[last_boundary_end..boundary_byte_start]);
                 last_boundary_end = boundary_byte_end;
                 break;
@@ -422,15 +599,17 @@ where
         }
     }
     words.push(&s[last_boundary_end..]);
-    //words.into_iter().filter(|s| !s.is_empty()).collect()
-    words.into_iter().collect()
+    words
 }
 
-/// Create a new boundary based on a delimiter.
+/// Create a new boundary based on a string.
+///
+/// This is shorthand for creating a boundary that splits on a specific string, and
+/// omits that string from the list of words.  For more information, see [`Boundary`].
 /// ```
-/// # use convert_case::{Case, Converter, delim_boundary};
+/// # use convert_case::{Case, Converter, separator};
 /// let conv = Converter::new()
-///     .set_boundaries(&[delim_boundary!("::")])
+///     .set_boundaries(&[separator!("::")])
 ///     .to_case(Case::Camel);
 ///
 /// assert_eq!(
@@ -439,10 +618,22 @@ where
 /// )
 /// ```
 #[macro_export]
-macro_rules! delim_boundary {
+macro_rules! separator {
     ($delim:expr) => {
         convert_case::Boundary::Custom {
-            condition: |s| s.join("").starts_with($delim),
+            condition: |s: &[&str]| {
+                let delim: &str = $delim;
+                // Fast path for a single-grapheme delimiter: direct &str comparison
+                if delim.len() == 1 {
+                    return s.first().map(|g| *g == delim).unwrap_or(false);
+                }
+                // Multi-grapheme: join only the first N graphemes (delimiter byte length)
+                // which is correct for ASCII delimiters — the common case.
+                if s.len() < delim.len() {
+                    return false;
+                }
+                s[..delim.len()].join("") == delim
+            },
             start: 0,
             len: $delim.len(),
         }
@@ -452,9 +643,12 @@ macro_rules! delim_boundary {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
+    use rstest::rstest;
 
     #[test]
-    fn boundary_equality() {
+    fn custom_boundary_inequality() {
+        // Custom boundaries are never equal because they contain function pointers
         let a = Boundary::Custom {
             condition: |_| true,
             start: 0,
@@ -462,32 +656,37 @@ mod tests {
         };
         let b = a;
 
-        assert_eq!(a, b)
+        assert_ne!(a, b)
     }
 
     #[test]
-    fn hyphen() {
-        let s = "a-b-c";
-        let v = split(&s, &[Boundary::Hyphen]);
-        assert_eq!(v, vec!["a", "b", "c"]);
+    fn default_boundary_equality() {
+        assert_eq!(Boundary::Hyphen, Boundary::Hyphen);
+        assert_eq!(Boundary::Space, Boundary::Space);
+        assert_ne!(Boundary::Hyphen, Boundary::Space);
+    }
+
+    #[rstest]
+    #[case(Boundary::Hyphen, "a-b-c", vec!["a", "b", "c"])]
+    #[case(Boundary::Underscore, "a_b_c", vec!["a", "b", "c"])]
+    #[case(Boundary::Space, "a b c", vec!["a", "b", "c"])]
+    #[case(Boundary::LowerUpper, "lowerUpperUpper", vec!["lower", "Upper", "Upper"])]
+    #[case(Boundary::UpperLower, "ABc", vec!["AB", "c"])]
+    #[case(Boundary::Acronym, "XMLRequest", vec!["XML", "Request"])]
+    #[case(Boundary::LowerDigit, "abc123", vec!["abc", "123"])]
+    #[case(Boundary::UpperDigit, "ABC123", vec!["ABC", "123"])]
+    #[case(Boundary::DigitLower, "123abc", vec!["123", "abc"])]
+    #[case(Boundary::DigitUpper, "123ABC", vec!["123", "ABC"])]
+    fn split_on_boundary(
+        #[case] boundary: Boundary,
+        #[case] input: &str,
+        #[case] expected: Vec<&str>,
+    ) {
+        assert_eq!(split(&input, &[boundary]), expected);
     }
 
     #[test]
-    fn underscore() {
-        let s = "a_b_c";
-        let v = split(&s, &[Boundary::Underscore]);
-        assert_eq!(v, vec!["a", "b", "c"]);
-    }
-
-    #[test]
-    fn space() {
-        let s = "a b c";
-        let v = split(&s, &[Boundary::Space]);
-        assert_eq!(v, vec!["a", "b", "c"]);
-    }
-
-    #[test]
-    fn delimiters() {
+    fn split_on_multiple_delimiters() {
         let s = "aaa-bbb_ccc ddd ddd-eee";
         let v = split(
             &s,
@@ -497,46 +696,25 @@ mod tests {
     }
 
     #[test]
-    fn lower_upper() {
-        let s = "lowerUpperUpper";
-        let v = split(&s, &[Boundary::LowerUpper]);
-        assert_eq!(v, vec!["lower", "Upper", "Upper"]);
-    }
-
-    #[test]
-    fn acronym() {
-        let s = "XMLRequest";
-        let v = split(&s, &[Boundary::Acronym]);
-        assert_eq!(v, vec!["XML", "Request"]);
-    }
-
-    // TODO: add tests for other boundaries
-
-    #[test]
     fn boundaries_found_in_string() {
-        // upper lower is not longer a default
-        assert_eq!(Vec::<Boundary>::new(), Boundary::defaults_from(".Aaaa"));
+        // upper lower is no longer a default
+        assert_eq!(Boundary::defaults_from(".Aaaa"), Vec::<Boundary>::new());
         assert_eq!(
-            vec![Boundary::LowerUpper, Boundary::LowerDigit],
-            Boundary::defaults_from("a8.Aa.aA")
+            Boundary::defaults_from("a8.Aa.aA"),
+            vec![Boundary::LowerUpper, Boundary::LowerDigit]
         );
         assert_eq!(
-            Boundary::digits().to_vec(),
-            Boundary::defaults_from("b1B1b")
+            Boundary::defaults_from("b1B1b"),
+            Boundary::digits().to_vec()
         );
         assert_eq!(
+            Boundary::defaults_from("AAa -_"),
             vec![
                 Boundary::Underscore,
                 Boundary::Hyphen,
                 Boundary::Space,
                 Boundary::Acronym,
-            ],
-            Boundary::defaults_from("AAa -_")
+            ]
         );
-    }
-
-    #[test]
-    fn boundary_consts_same() {
-        assert_eq!(Boundary::Space, Boundary::Space);
     }
 }

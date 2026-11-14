@@ -5,6 +5,9 @@
 //! `WindowDescriptor` configures initial size/title.
 #![warn(missing_docs)]
 
+/// The Android activity the event loop runs in.
+#[cfg(target_os = "android")]
+pub mod android;
 /// The Bevy plugin that owns window creation and lifecycle.
 pub mod plugin;
 /// The `winit` event loop runner that drives the ECS app per frame.

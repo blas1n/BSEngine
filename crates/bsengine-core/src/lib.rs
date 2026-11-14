@@ -90,7 +90,7 @@ pub mod motion_blur;
 pub mod msaa_config;
 /// Native crashes (signals, structured exceptions): a minidump and a report,
 /// written by a monitor process.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
 pub mod native_crash;
 /// Baked navigation mesh resource used for pathfinding.
 pub mod nav_mesh;

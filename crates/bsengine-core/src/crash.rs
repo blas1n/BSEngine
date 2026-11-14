@@ -140,7 +140,7 @@ pub fn init_for_project(project_name: &str) -> UserPaths {
     // Native crashes: a monitor process writes a minidump and a report into
     // the same directory. Without it the game still runs, with panic reports
     // only -- crash capture is never why a game does not start.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
     match crate::native_crash::attach(&paths.crashes, log.as_deref(), &context) {
         Ok(monitor) => {
             tracing::info!("native crash capture on (minidumps; monitor process {monitor})")

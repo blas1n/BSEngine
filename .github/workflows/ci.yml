@@ -581,3 +581,33 @@ jobs:
           fi
           echo "replayed $count recording(s) on QuickJS"
           exit $status
+
+      # The Android build: the runtime as a shared library for arm64 phones,
+      # in a NativeActivity APK (scripts/build_android.sh). The runner has the
+      # SDK, the NDK (ANDROID_NDK_LATEST_HOME), a JDK and libclang, which
+      # QuickJS's bindings are generated with. No device here, so this checks
+      # what can be checked without one: the APK is made, it carries the
+      # library and the game's archive, the library exports the two symbols
+      # the activity calls (ANativeActivity_onCreate, android_main), and its
+      # segments are 16 KB-aligned (Android 15+ pages; Play requires it).
+      # Last, Ubuntu only: one compile for a target nothing else here builds.
+      - name: Android build (arm64-v8a APK)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          rustup target add aarch64-linux-android
+          out="$RUNNER_TEMP/android"
+          bash scripts/build_android.sh games/cube-evader "$out" --debug
+          apk="$out/cube_evader.apk"
+          unzip -l "$apk" | grep -q 'lib/arm64-v8a/libbsengine_runtime.so'
+          unzip -l "$apk" | grep -q 'assets/game.pak'
+          tc="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          so="$CARGO_TARGET_DIR/aarch64-linux-android/debug/libbsengine_runtime.so"
+          symbols=$("$tc/llvm-nm" -D --defined-only "$so")
+          for s in ANativeActivity_onCreate android_main; do
+            echo "$symbols" | grep -qw "$s" || { echo "the library does not export $s"; exit 1; }
+          done
+          if "$tc/llvm-readelf" -l "$so" | awk '$1 == "LOAD" { print $NF }' | grep -vqx 0x4000; then
+            echo "a LOAD segment is not 16 KB-aligned:"; "$tc/llvm-readelf" -l "$so" | grep LOAD; exit 1
+          fi
+          echo "android build: $(du -h "$apk" | cut -f1) APK, entry points exported, 16 KB-aligned"

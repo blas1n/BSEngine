@@ -495,6 +495,12 @@ pub enum PackageMode {
     /// `scripts/build_web.sh` makes all three. It is the shape Godot's and
     /// Unity's web exports have: a page, the engine, the game's data.
     Web,
+    /// The Android build's data: one [`PAK_FILE_NAME`] archive with the
+    /// manifest inside it as [`MANIFEST_ENTRY`], as a web build's is -- an
+    /// app reads it from the APK's `assets/`, where nothing sits beside it.
+    /// No executable and no page: the engine is a shared library in the APK,
+    /// and `scripts/build_android.sh` puts the two together.
+    Android,
 }
 
 /// The page a web build is opened through.
@@ -613,9 +619,13 @@ pub fn package_with_precook(
     let exe_name = runtime_exe.file_name().ok_or_else(|| {
         io::Error::new(io::ErrorKind::InvalidInput, "the runtime has no file name")
     })?;
-    // A single-file or web build carries its manifest inside the archive; the
-    // other two ship it loose, as the bootstrap the runtime reads first.
-    if !matches!(mode, PackageMode::Single | PackageMode::Web) {
+    // A single-file, web or Android build carries its manifest inside the
+    // archive; the other two ship it loose, as the bootstrap the runtime
+    // reads first.
+    if !matches!(
+        mode,
+        PackageMode::Single | PackageMode::Web | PackageMode::Android
+    ) {
         copy(&project_dir.join(MANIFEST), &out_dir.join(MANIFEST))?;
     }
 
@@ -683,6 +693,15 @@ pub fn package_with_precook(
             ));
             crate::pak::write_pak(out_dir.join(PAK_FILE_NAME), &entries)?;
             std::fs::write(out_dir.join(WEB_PAGE_FILE_NAME), WEB_PAGE)?;
+        }
+        PackageMode::Android => {
+            let mut entries = archive_entries(project_dir, &cooked)?;
+            entries.extend(precooked);
+            entries.push((
+                MANIFEST_ENTRY.to_string(),
+                std::fs::read(project_dir.join(MANIFEST))?,
+            ));
+            crate::pak::write_pak(out_dir.join(PAK_FILE_NAME), &entries)?;
         }
     }
 
@@ -1707,6 +1726,7 @@ mod tests {
             PackageMode::Pak,
             PackageMode::Single,
             PackageMode::Web,
+            PackageMode::Android,
         ] {
             let probe = Probe::create();
             probe.write(
@@ -1762,7 +1782,7 @@ mod tests {
             assert_eq!(cooked.precooked_mips, vec![shipped.clone()], "{mode:?}");
             let bytes = match mode {
                 PackageMode::Loose => std::fs::read(out.join(&shipped)).ok(),
-                PackageMode::Pak | PackageMode::Web => {
+                PackageMode::Pak | PackageMode::Web | PackageMode::Android => {
                     crate::pak::Pak::open(out.join(PAK_FILE_NAME))
                         .expect("open the archive")
                         .get(&shipped)
@@ -1823,6 +1843,42 @@ mod tests {
             page.contains("from './pkg/bsengine-runtime.js'"),
             "the page loads the engine from pkg/:\n{page}"
         );
+    }
+
+    /// An Android build is the archive alone, with the manifest inside it:
+    /// no executable, no page and no loose manifest -- the app reads only
+    /// `assets/game.pak` from its APK. Without the manifest inside, the app
+    /// stopped at "Cannot read game/project.toml" on its first run.
+    #[test]
+    fn an_android_build_is_one_archive_carrying_its_manifest() {
+        let probe = Probe::create();
+        let manifest = "[project]
+name = \"P\"
+entry_scene = \"assets/scenes/main.ron\"
+";
+        probe.write("project.toml", manifest);
+        probe.write("assets/scenes/main.ron", "(entities: [])");
+        let exe = probe.fake_runtime();
+        let out = probe.0.join("dist");
+        let cooked = package(
+            &probe.0,
+            "assets/scenes/main.ron",
+            &[],
+            PackageMode::Android,
+            &exe,
+            &out,
+        )
+        .expect("package");
+        assert!(cooked.is_ok(), "{:?}", cooked.missing);
+
+        let files: Vec<String> = std::fs::read_dir(&out)
+            .expect("read the output")
+            .map(|e| e.expect("entry").file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(files, vec![PAK_FILE_NAME.to_string()], "only the archive");
+        let pak = crate::pak::Pak::open(out.join(PAK_FILE_NAME)).expect("open the archive");
+        assert_eq!(pak.get(MANIFEST_ENTRY), Some(manifest.as_bytes()));
+        assert!(pak.get("assets/scenes/main.ron").is_some(), "and the scene");
     }
 
     /// The archive holds exactly the collected set — the same set loose mode

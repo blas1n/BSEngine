@@ -26,11 +26,13 @@
         name = "convert-case";
         buildInputs = with pkgs; [
           just
+          perf
+          prek
           watchexec
           rustup
           rust-analyzer
+          typos
         ];
-        shellHook = ''just --list'';
       };
     };
 }

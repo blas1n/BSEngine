@@ -12,5 +12,10 @@ bevy_app.workspace = true
 bevy_ecs.workspace = true
 winit.workspace = true
 
+# An Android app's event loop is the activity's: winit's NativeActivity glue
+# (no Java of our own), handed the `AndroidApp` the entry point receives.
+[target.'cfg(target_os = "android")'.dependencies]
+winit = { workspace = true, features = ["android-native-activity"] }
+
 [dev-dependencies]
 bsengine-app.workspace = true

@@ -4547,6 +4547,15 @@ pub fn new_instance() -> wgpu::Instance {
     wgpu::Instance::new(descriptor)
 }
 
+/// [`new_instance`] limited to `backends` (and to `WGPU_BACKEND`'s, if set:
+/// an instance with neither has no adapter, which is the honest answer).
+#[cfg(target_os = "android")]
+fn new_instance_for(backends: wgpu::Backends) -> wgpu::Instance {
+    let mut descriptor = bsengine_bake::shader_compiler::instance_descriptor();
+    descriptor.backends &= backends;
+    wgpu::Instance::new(descriptor)
+}
+
 /// The adapter the renderer draws on: the one `WGPU_ADAPTER_NAME` names (by
 /// part of its name, any case, as wgpu's examples read it), else what wgpu
 /// prefers -- with a surface, one that can present on it. "Microsoft Basic
@@ -4626,14 +4635,21 @@ impl WgpuSurface {
         window: Arc<winit::window::Window>,
         hdr: bsengine_core::HdrOutputSettings,
     ) -> Result<Self, String> {
-        let instance = new_instance();
-
-        let surface = instance
-            .create_surface(window.clone())
-            .map_err(|e| e.to_string())?;
-
+        // `_instance` is kept to the end of this function, as the instance
+        // was before the Android path: the device holds what it needs of it.
+        #[cfg(not(target_os = "android"))]
+        let (_instance, surface, parts) = {
+            let instance = new_instance();
+            let surface = instance
+                .create_surface(window.clone())
+                .map_err(|e| e.to_string())?;
+            let parts = Self::request_device(&instance, Some(&surface)).await?;
+            (instance, surface, parts)
+        };
+        #[cfg(target_os = "android")]
+        let (_instance, surface, parts) = Self::android_device(&window).await?;
         let (adapter, device, queue, timestamp_supported, instancing_supported, msaa_supported) =
-            Self::request_device(&instance, Some(&surface)).await?;
+            parts;
 
         let size = window.inner_size();
         let caps = surface.get_capabilities(&adapter);
@@ -4651,10 +4667,27 @@ impl WgpuSurface {
             // As before wgpu had the choice: sRGB for an SDR format.
             (sdr, wgpu::SurfaceColorSpace::Auto)
         });
-        let view_formats = if hdr_swapchain.is_some() {
-            Vec::new()
-        } else {
-            srgb_view_of(format).into_iter().collect()
+        // A view in another format than the surface's is a downlevel feature:
+        // a WebGPU canvas has it, Android's GLES surfaces do not -- and they
+        // offer no sRGB format either, so there the frame is drawn as it is
+        // (darker than it should be: no sRGB encode) rather than not at all.
+        // Surface::configure with a view format the device lacks is a fatal
+        // validation error.
+        let views_allowed = adapter
+            .get_downlevel_capabilities()
+            .flags
+            .contains(wgpu::DownlevelFlags::SURFACE_VIEW_FORMATS);
+        let view_formats = match srgb_view_of(format) {
+            _ if hdr_swapchain.is_some() => Vec::new(),
+            Some(view) if views_allowed => vec![view],
+            Some(view) => {
+                tracing::warn!(
+                    "the surface has no sRGB format and cannot be viewed as {view:?}: \
+                     colours will be drawn without the sRGB encode (too dark)"
+                );
+                Vec::new()
+            }
+            None => Vec::new(),
         };
 
         let config = wgpu::SurfaceConfiguration {
@@ -5258,6 +5291,62 @@ impl WgpuSurface {
     /// only when it does -- some adapters (notably CI's software/WARP
     /// adapters) do not support it, and requesting an unsupported feature
     /// fails the whole device request rather than being ignored.
+    /// An Android window's instance, surface and device, one graphics API at
+    /// a time: Vulkan, else OpenGL ES.
+    ///
+    /// An Android window takes one producer API at a time, and wgpu makes a
+    /// surface for every backend the instance has. With both, the emulator's
+    /// Vulkan surface connected the window first, the adapter chosen was its
+    /// GLES one, and EGL could not connect ("native_window_api_connect ...
+    /// already connected to another API", `EGL_BAD_ALLOC`) -- the frame was
+    /// never drawn. So each API gets an instance of its own, and is dropped,
+    /// window disconnected, before the next is tried; Bevy and Unity's
+    /// Android players likewise pick one graphics API.
+    #[cfg(target_os = "android")]
+    #[allow(clippy::type_complexity)]
+    async fn android_device(
+        window: &Arc<winit::window::Window>,
+    ) -> Result<
+        (
+            wgpu::Instance,
+            wgpu::Surface<'static>,
+            (
+                wgpu::Adapter,
+                Arc<wgpu::Device>,
+                Arc<wgpu::Queue>,
+                bool,
+                bool,
+                bool,
+            ),
+        ),
+        String,
+    > {
+        let mut failures = Vec::new();
+        for backends in [wgpu::Backends::VULKAN, wgpu::Backends::GL] {
+            let instance = new_instance_for(backends);
+            let surface = match instance.create_surface(window.clone()) {
+                Ok(surface) => surface,
+                Err(e) => {
+                    failures.push(format!("{backends:?}: {e}"));
+                    continue;
+                }
+            };
+            match Self::request_device(&instance, Some(&surface)).await {
+                Ok(parts) => {
+                    if !failures.is_empty() {
+                        // Which API was passed over, and why: a device that
+                        // draws with GLES where it has Vulkan is otherwise
+                        // indistinguishable from one that has only GLES.
+                        tracing::warn!("passed over: {}", failures.join("; "));
+                    }
+                    return Ok((instance, surface, parts));
+                }
+                Err(e) => failures.push(format!("{backends:?}: {e}")),
+            }
+        }
+        Err(failures.join("; "))
+    }
+
     async fn request_device(
         instance: &wgpu::Instance,
         compatible_surface: Option<&wgpu::Surface<'static>>,
@@ -5316,10 +5405,16 @@ impl WgpuSurface {
                 // and every mesh pipeline failed validation. Every WebGPU
                 // adapter guarantees eight; only WebGL2 has fewer, and this
                 // engine has no WebGL target.
+                //
+                // And the texture size the adapter has, not the baseline's
+                // 2048: a phone held upright is 2280 or more pixels tall, and
+                // its window surface is a texture of that size (wgpu's
+                // `using_resolution`, as its examples ask for it).
                 required_limits: wgpu::Limits {
                     max_color_attachments: 8,
                     ..wgpu::Limits::downlevel_defaults()
-                },
+                }
+                .using_resolution(adapter.limits()),
                 memory_hints: wgpu::MemoryHints::default(),
                 experimental_features: wgpu::ExperimentalFeatures::disabled(),
                 trace: wgpu::Trace::Off,

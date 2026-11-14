@@ -248,7 +248,18 @@ impl ApplicationHandler for BsWinitApp {
 /// Bevy `App` runner that drives a `winit` event loop, translating window and
 /// device events into ECS events and calling `app.update()` on each redraw.
 pub fn winit_runner(app: App) -> AppExit {
+    #[cfg(not(target_os = "android"))]
     let event_loop = EventLoop::new().expect("Failed to create event loop");
+    // On Android the loop belongs to the activity, which winit reaches
+    // through the `AndroidApp` its entry point was given.
+    #[cfg(target_os = "android")]
+    let event_loop = {
+        use winit::platform::android::EventLoopBuilderExtAndroid;
+        EventLoop::builder()
+            .with_android_app(crate::android::app())
+            .build()
+            .expect("Failed to create event loop")
+    };
     event_loop.set_control_flow(ControlFlow::Poll);
 
     let winit_app = BsWinitApp {

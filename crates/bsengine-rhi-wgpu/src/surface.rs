@@ -5394,6 +5394,20 @@ impl WgpuSurface {
             required_features |= wgpu::Features::TEXTURE_COMPRESSION_BC;
         }
 
+        let mut required_limits = wgpu::Limits {
+            max_color_attachments: 8,
+            ..wgpu::Limits::downlevel_defaults()
+        };
+        // A window's surface is a texture the window's size, and a phone held
+        // upright is 2280 or more pixels tall -- past the baseline's 2048. So
+        // a device for a window takes the texture size its adapter has
+        // (wgpu's `using_resolution`, as its examples ask for it). Only for a
+        // window: an offscreen device is sized by its caller, and keeps the
+        // limits every test of this engine has always run under.
+        if compatible_surface.is_some() {
+            required_limits = required_limits.using_resolution(adapter.limits());
+        }
+
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("BSEngine surface device"),
@@ -5405,16 +5419,7 @@ impl WgpuSurface {
                 // and every mesh pipeline failed validation. Every WebGPU
                 // adapter guarantees eight; only WebGL2 has fewer, and this
                 // engine has no WebGL target.
-                //
-                // And the texture size the adapter has, not the baseline's
-                // 2048: a phone held upright is 2280 or more pixels tall, and
-                // its window surface is a texture of that size (wgpu's
-                // `using_resolution`, as its examples ask for it).
-                required_limits: wgpu::Limits {
-                    max_color_attachments: 8,
-                    ..wgpu::Limits::downlevel_defaults()
-                }
-                .using_resolution(adapter.limits()),
+                required_limits,
                 memory_hints: wgpu::MemoryHints::default(),
                 experimental_features: wgpu::ExperimentalFeatures::disabled(),
                 trace: wgpu::Trace::Off,

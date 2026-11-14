@@ -1,4 +1,5 @@
 test *FILTER:
+    cargo fmt
     cargo build
     cargo test -q {{FILTER}}
 
@@ -22,6 +23,9 @@ watch-doc:
 
 tree:
     tree -I target
+
+lint:
+    prek
 
 verify-nostd:
     cargo build --target thumbv6m-none-eabi

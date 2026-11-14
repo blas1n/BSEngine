@@ -1,0 +1,1040 @@
+// The runtime is a library behind a one-line executable (`main.rs`) so that an
+// Android build can be one: the activity loads a shared library and calls its
+// `android_main` (see `android.rs`), and a binary crate cannot export that.
+// `scripts/build_android.sh` builds this crate as a `cdylib`; every other build
+// links it into the executable as before.
+//
+// A browser build runs the game and nothing else: the page fetches the archive
+// and starts it (see `web.rs`). Everything here that only a desktop build does
+// -- `--package`, `--fixup`, `--test`, a single-file executable's embedded
+// archive, the editor overlay -- is not compiled into it; the rest is shared.
+#![cfg_attr(target_arch = "wasm32", allow(dead_code, unused_imports))]
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::env;
+
+use bsengine_app::{
+    new_app, AnimationPlugin, AnimationStateMachinePlugin, ClothPlugin, LifetimePlugin,
+    NavMeshPlugin, ParticlePlugin, TerrainBrushPlugin, TerrainPlugin, TimePlugin,
+};
+#[cfg(not(target_arch = "wasm32"))]
+use bsengine_asset::AssetWatcherPlugin;
+use bsengine_asset::{AssetIdentityPlugin, AssetPlugin, AssetStatusPlugin};
+use bsengine_audio::AudioPlugin;
+use bsengine_core::{EditorPlayState, InspectorState};
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+use bsengine_editor::EditorPlugin;
+use bsengine_gltf::{GltfPlugin, SkinnedMeshPlugin};
+use bsengine_input::InputPlugin;
+use bsengine_network::NetworkPlugin;
+use bsengine_physics::PhysicsPlugin;
+use bsengine_render::RenderPlugin;
+use bsengine_rhi_wgpu::WgpuRHIPlugin;
+use bsengine_scene::ScenePlugin;
+use bsengine_scripting::ScriptingPlugin;
+use bsengine_window::{WindowDescriptor, WindowPlugin};
+
+mod audio_occlusion;
+#[cfg(not(target_arch = "wasm32"))]
+mod bake;
+mod scene_systems;
+#[cfg(not(target_arch = "wasm32"))]
+mod test_mode;
+#[cfg(not(target_arch = "wasm32"))]
+mod test_protocol;
+mod test_query;
+
+use scene_systems::{register_scene_systems, ProjectManifest};
+
+#[cfg(target_arch = "wasm32")]
+mod web;
+#[cfg(target_arch = "wasm32")]
+mod web_saves;
+
+#[cfg(target_os = "android")]
+mod android;
+
+/// The browser build's entry: the page has started the module.
+#[cfg(target_arch = "wasm32")]
+pub fn run() {
+    web::start();
+}
+
+/// The executable's entry (`src/main.rs`): the command line picks a mode --
+/// play a project, `--test`, `--package`, `--fixup`, `--bake`, or serve as
+/// the native crash monitor. An Android build never comes here; its entry is
+/// `android_main` (`src/android.rs`), which the activity calls.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn run() {
+    // First, before anything else runs: the game starts a second copy of
+    // this executable as its native crash monitor, and that copy is this
+    // process when the argument says so (`bsengine_core::native_crash`).
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if bsengine_core::native_crash::run_monitor_if_asked() {
+        return;
+    }
+    let mut args = env::args().skip(1);
+    let first_arg = args.next().unwrap_or_else(|| ".".to_string());
+
+    if first_arg == "--fixup" {
+        let project_dir = args.next().unwrap_or_else(|| ".".to_string());
+        let as_json = match args.next().as_deref() {
+            Some("--json") => true,
+            Some(other) => panic!("unknown argument after project dir: {other}"),
+            None => false,
+        };
+        std::process::exit(run_fixup(&project_dir, as_json));
+    }
+
+    // `--bake <project> [--scene <path>] [--backend gpu|cpu|auto] [--samples N]
+    // [--bounces N] [--texels-per-unit F]`: bakes the scene's lightmaps
+    // (see `bake`). Exits non-zero, with the reason, when it cannot.
+    if first_arg == "--bake" {
+        let project_dir = args.next().unwrap_or_else(|| ".".to_string());
+        let mut as_json = false;
+        let mut bake_args = bake::BakeArgs {
+            project_dir,
+            scene: None,
+            backend: "auto".into(),
+            samples: None,
+            bounces: None,
+            texels_per_unit: None,
+        };
+        while let Some(flag) = args.next() {
+            let mut value = || {
+                args.next()
+                    .unwrap_or_else(|| panic!("{flag} requires a value"))
+            };
+            match flag.as_str() {
+                // The report on stdout as JSON, for `bsengine-mcp`'s bake tool
+                // -- the shape `--fixup --json` already gives it.
+                "--json" => as_json = true,
+                "--scene" => bake_args.scene = Some(value()),
+                "--backend" => bake_args.backend = value(),
+                "--samples" => {
+                    bake_args.samples =
+                        Some(value().parse().expect("--samples expects a whole number"))
+                }
+                "--bounces" => {
+                    bake_args.bounces =
+                        Some(value().parse().expect("--bounces expects a whole number"))
+                }
+                "--texels-per-unit" => {
+                    bake_args.texels_per_unit =
+                        Some(value().parse().expect("--texels-per-unit expects a number"))
+                }
+                other => panic!("unknown --bake argument: {other}"),
+            }
+        }
+        bsengine_core::init_logging();
+        match bake::run_bake(&bake_args) {
+            Ok(report) if as_json => {
+                println!(
+                    "{}",
+                    serde_json::to_string(&report).expect("a bake report serialises")
+                );
+                std::process::exit(0);
+            }
+            Err(e) if as_json => {
+                println!("{}", serde_json::json!({ "error": e }));
+                std::process::exit(1);
+            }
+            Ok(report) => {
+                println!(
+                    "baked {} renderers into {} layer(s) at {:.1} texels/unit on the {} -> {}",
+                    report.renderers,
+                    report.layers,
+                    report.texels_per_unit,
+                    report.backend.to_uppercase(),
+                    report.data_path
+                );
+                std::process::exit(0);
+            }
+            Err(e) => {
+                eprintln!("bake failed: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    if first_arg == "--package" {
+        let project_dir = args.next().unwrap_or_else(|| ".".to_string());
+        let mut out_dir = None;
+        let mut mode = None;
+        while let Some(flag) = args.next() {
+            match flag.as_str() {
+                "--out" => {
+                    out_dir = Some(
+                        args.next()
+                            .unwrap_or_else(|| panic!("--out requires a directory")),
+                    );
+                }
+                "--mode" => {
+                    let value = args.next().unwrap_or_else(|| {
+                        panic!("--mode requires loose, pak, single, web or android")
+                    });
+                    mode = Some(match value.as_str() {
+                        "loose" => bsengine_asset::cook::PackageMode::Loose,
+                        "pak" => bsengine_asset::cook::PackageMode::Pak,
+                        "single" => bsengine_asset::cook::PackageMode::Single,
+                        "web" => bsengine_asset::cook::PackageMode::Web,
+                        "android" => bsengine_asset::cook::PackageMode::Android,
+                        other => panic!(
+                            "unknown --mode {other}; expected loose, pak, single, web or android"
+                        ),
+                    });
+                }
+                other => panic!("unknown argument after project dir: {other}"),
+            }
+        }
+        let out_dir = out_dir.unwrap_or_else(|| format!("{project_dir}/dist"));
+        std::process::exit(run_package(&project_dir, &out_dir, mode));
+    }
+
+    if first_arg == "--test" {
+        let project_dir = args.next().unwrap_or_else(|| ".".to_string());
+        match args.next().as_deref() {
+            Some("--replay") => {
+                let log_path = args
+                    .next()
+                    .unwrap_or_else(|| panic!("--replay requires a log file path"));
+                // `--frame-divisor N` renders the manifest's window divided by
+                // N. A recording asserts on the simulation, never on a frame,
+                // so CI replays at a fraction of the pixels; see
+                // `test_mode::SIMULATION_FRAME_DIVISOR` for what that saves.
+                let mut frame_divisor = 1;
+                // `--shuffle-seed N` runs every schedule's unordered systems
+                // in an order shuffled by N (Bevy's `shuffle_seed`): a
+                // recording that passes only in the default order is relying
+                // on an ordering nothing declares. See
+                // `test_mode::run_replay_mode`.
+                let mut shuffle_seed = None;
+                while let Some(flag) = args.next() {
+                    match flag.as_str() {
+                        "--frame-divisor" => {
+                            frame_divisor = args
+                                .next()
+                                .and_then(|n| n.parse::<u32>().ok())
+                                .filter(|&n| n >= 1)
+                                .unwrap_or_else(|| {
+                                    panic!("--frame-divisor requires a whole number of at least 1")
+                                });
+                        }
+                        "--shuffle-seed" => {
+                            shuffle_seed = Some(
+                                args.next()
+                                    .and_then(|n| n.parse::<u64>().ok())
+                                    .unwrap_or_else(|| {
+                                        panic!("--shuffle-seed requires a whole number")
+                                    }),
+                            );
+                        }
+                        other => panic!("unknown argument after the replay log: {other}"),
+                    }
+                }
+                let passed = test_mode::run_replay_mode(
+                    &project_dir,
+                    &log_path,
+                    frame_divisor,
+                    shuffle_seed,
+                );
+                std::process::exit(if passed { 0 } else { 1 });
+            }
+            Some(other) => panic!("unknown argument after project dir: {other}"),
+            None => test_mode::run_test_mode(&project_dir),
+        }
+        return;
+    }
+
+    let mut frame_limit = None;
+    let mut force_crash = false;
+    while let Some(flag) = args.next() {
+        match flag.as_str() {
+            // Crash natively once the game has started, to check a build
+            // leaves a minidump (see `bsengine_core::native_crash`).
+            "--force-crash" => force_crash = true,
+            "--frames" => {
+                let value = args
+                    .next()
+                    .unwrap_or_else(|| panic!("--frames requires a count"));
+                frame_limit = Some(
+                    value
+                        .parse::<u32>()
+                        .unwrap_or_else(|_| panic!("--frames expects a number, got {value}")),
+                );
+            }
+            other => panic!("unknown argument after project dir: {other}"),
+        }
+    }
+
+    run_windowed(&first_arg, frame_limit, force_crash);
+}
+
+/// `--fixup <dir> [--json]`: settles every reference in a project that only
+/// resolves because the engine remembers where an asset used to be, then forgets
+/// the memories nothing needs any more.
+///
+/// # Why this is a mode of the runtime rather than a tool of its own
+///
+/// It is the counterpart of the warnings `--test` and the windowed app already
+/// print. `bsengine-scene` and `bsengine_asset::load_async` both warn, every
+/// time, that a reference resolved somewhere other than what it spells and that
+/// the file should be re-saved; this is the command that does the re-saving.
+/// Putting it beside `--test` is what makes it findable from the same place the
+/// warning is read, and it costs nothing at run time — the branch is taken
+/// before any `App` is built.
+///
+/// # It builds no engine
+///
+/// No window, no renderer, no scripting VM, not even a Bevy `App`. `fixup` is a
+/// directory walk and a text edit, so this runs against a project that has never
+/// been launched and finishes in milliseconds. That is deliberate: a repair tool
+/// that needed the game to boot could not repair a project the game cannot boot.
+///
+/// # Output, and the exit code
+///
+/// The report goes to **stdout** — as text for a human, or as JSON with
+/// `--json`, which is what `bsengine-mcp`'s `game_fixup` reads. Everything the
+/// scan itself has to say goes to **stderr** through the ordinary logging setup,
+/// so one stream is the answer and the other is the commentary and a caller can
+/// parse the first without filtering the second.
+///
+/// Exits `1` when the project could not be scanned at all, and when the report
+/// carries a problem — a scene that could not be written, one that will not
+/// parse, a reference too ambiguous to touch. Each of those is work `fixup` was
+/// asked to do and did not, so a script that runs this must not read it as
+/// success. A stale path in JavaScript is *not* a problem in that sense: it is
+/// reported for a human to act on, and exiting non-zero for it would mean a
+/// project could never be clean.
+fn run_fixup(project_dir: &str, as_json: bool) -> i32 {
+    bsengine_core::init_logging();
+
+    let report = match bsengine_asset::identity::fixup(project_dir) {
+        Ok(report) => report,
+        Err(e) => {
+            eprintln!("fixup: cannot scan {project_dir}/assets ({e})");
+            return 1;
+        }
+    };
+
+    if as_json {
+        match serde_json::to_string_pretty(&report) {
+            Ok(json) => println!("{json}"),
+            Err(e) => {
+                eprintln!("fixup: cannot encode the report ({e})");
+                return 1;
+            }
+        }
+    } else {
+        print!("{report}");
+    }
+
+    i32::from(!report.problems.is_empty())
+}
+
+/// `--package <dir> [--out <dir>]`: collects exactly the assets the project
+/// reaches and writes a build that runs without the editor.
+///
+/// # Why this is a mode of the runtime rather than a tool of its own
+///
+/// Two reasons, and the second is the load-bearing one. It is the binary that
+/// already knows how to read a project, so a separate tool would be a second
+/// thing to keep in step with the manifest format. And the executable a build
+/// needs *is this process* — `bsengine-runtime` is the shipping runtime, so
+/// `current_exe()` is exactly the binary to copy, with nothing to locate and
+/// nothing to get wrong.
+///
+/// # Output, and the exit code
+///
+/// Exits `1` when a reference resolves to nothing, when the output directory is
+/// occupied, or when the build could not be written. Each of those is work
+/// `--package` was asked to do and did not.
+///
+/// A path spelled only in a *script* that resolves to nothing is printed as a
+/// warning and does **not** fail the run, for the reason
+/// [`bsengine_asset::cook::ScriptMention`] records: it is a guess that a quoted
+/// string was a path, and it can as easily be dead code.
+fn run_package(
+    project_dir: &str,
+    out_dir: &str,
+    mode_override: Option<bsengine_asset::cook::PackageMode>,
+) -> i32 {
+    bsengine_core::init_logging();
+
+    let manifest_path = format!("{project_dir}/project.toml");
+    let manifest_str = match std::fs::read_to_string(&manifest_path) {
+        Ok(text) => text,
+        Err(e) => {
+            eprintln!("package: cannot read {manifest_path} ({e})");
+            return 1;
+        }
+    };
+    let manifest: ProjectManifest = match toml::from_str(&manifest_str) {
+        Ok(manifest) => manifest,
+        Err(e) => {
+            eprintln!("package: cannot parse {manifest_path} ({e})");
+            return 1;
+        }
+    };
+    // The runtime refuses to start on a bad `[input]` binding; a package
+    // that cannot start is worse than a package that was never made.
+    if let Err(e) = manifest.input.actions() {
+        eprintln!("package: {manifest_path} [input]:\n{e}");
+        return 1;
+    }
+
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(e) => {
+            eprintln!("package: cannot locate this executable ({e})");
+            return 1;
+        }
+    };
+
+    // The flag wins over the manifest, the ordinary precedence for a build
+    // option: the setting says what this project normally produces, the flag
+    // says what this one invocation should.
+    let mode = mode_override.unwrap_or(manifest.package.mode);
+
+    // With each block-compressed texture's mip cache made here, so no
+    // player's machine encodes one (see `install_shipped_mips`).
+    let cooked = match bsengine_asset::cook::package_with_precook(
+        project_dir,
+        &manifest.project.entry_scene,
+        &manifest.packaged_extras(),
+        mode,
+        &exe,
+        std::path::Path::new(out_dir),
+        Some(&bsengine_rhi_wgpu::precook_mip_cache),
+    ) {
+        Ok(cooked) => cooked,
+        Err(e) => {
+            eprintln!("package: {e}");
+            return 1;
+        }
+    };
+
+    for mention in &cooked.script_mentions {
+        println!(
+            "warning: {} names {}, which resolves to nothing",
+            mention.script, mention.path
+        );
+    }
+
+    if !cooked.is_ok() {
+        for missing in &cooked.missing {
+            eprintln!(
+                "error: {} names {}, which resolves to nothing",
+                missing.referrer, missing.path
+            );
+        }
+        for problem in &cooked.problems {
+            eprintln!("error: {problem}");
+        }
+        eprintln!(
+            "package: {} unresolved reference(s) and {} unreadable file(s); \
+             nothing was written",
+            cooked.missing.len(),
+            cooked.problems.len()
+        );
+        return 1;
+    }
+
+    println!(
+        "packaged {} asset(s) into {out_dir}, with {} precooked compressed texture(s)",
+        cooked.assets.len(),
+        cooked.precooked_mips.len()
+    );
+    0
+}
+
+/// Opens the archive this run plays from, when it is a packaged build, and
+/// installs it for scene reads: the one embedded in this executable by
+/// `--mode single`, or else `<project_dir>/game.pak` from `--mode pak`.
+///
+/// Returns the archive so the caller can also hand it to
+/// [`bsengine_asset::PakAssetPlugin`], which must be added **before**
+/// `AssetPlugin` — `bevy_asset` builds its sources during that plugin's
+/// `build`, so a source registered afterwards is silently ignored.
+///
+/// The embedded archive is looked for first, and a build that has one never
+/// looks beside itself: a single-file build is complete by definition, and a
+/// `game.pak` lying next to it belongs to something else.
+///
+/// A missing archive is the ordinary unpackaged case and means loose files. One
+/// that is present but unreadable is not: it would leave the game reading
+/// whatever files happen to be lying around instead of the build it shipped
+/// with, so it stops here rather than degrading into a half-working game.
+fn open_pak(project_dir: &str) -> Option<std::sync::Arc<bsengine_asset::pak::Pak>> {
+    let pak = match embedded_pak() {
+        Some(pak) => pak,
+        None => {
+            let path = std::path::Path::new(project_dir).join(bsengine_asset::cook::PAK_FILE_NAME);
+            if !path.is_file() {
+                return None;
+            }
+            bsengine_asset::pak::Pak::open(&path)
+                .unwrap_or_else(|e| panic!("Cannot read {}: {e}", path.display()))
+        }
+    };
+    let pak = std::sync::Arc::new(pak);
+    bsengine_asset::pak_source::install(pak.clone(), project_dir);
+    Some(pak)
+}
+
+/// The archive embedded in this executable, if this is a single-file build.
+///
+/// A damaged trailer is a panic, for the reason `open_pak` gives for an
+/// unreadable `game.pak`: the player launched *this* build, and starting a
+/// different game out of whatever files surround it is worse than stopping.
+fn embedded_pak() -> Option<bsengine_asset::pak::Pak> {
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(e) => {
+            tracing::warn!("cannot locate this executable ({e}); assuming it embeds no archive");
+            return None;
+        }
+    };
+    match bsengine_asset::embed::read_embedded(&exe) {
+        Ok(Some(bytes)) => Some(
+            bsengine_asset::pak::Pak::from_bytes(bytes).unwrap_or_else(|e| {
+                panic!("Cannot read the archive embedded in {}: {e}", exe.display())
+            }),
+        ),
+        Ok(None) => None,
+        Err(e) => panic!("Cannot read {}: {e}", exe.display()),
+    }
+}
+
+/// The project manifest: out of the archive when the build carries it there
+/// (`--mode single` stores it as [`bsengine_asset::cook::MANIFEST_ENTRY`]),
+/// and from `<project_dir>/project.toml` otherwise.
+///
+/// Takes the archive [`open_pak`] returned rather than looking it up, so the
+/// order -- archive first, then the manifest that may live inside it -- is
+/// visible at the call site instead of hidden in a global.
+/// `project.toml`'s `[input]` actions, inserted before `InputPlugin` so its
+/// `init_resource` leaves them alone. A bad binding stops the game at start,
+/// as a manifest that does not parse does: an action bound to a typo would
+/// otherwise ship as a button that silently does nothing. `package` checks
+/// the same thing, so a packaged build never reaches this panic.
+pub(crate) fn insert_input_actions(app: &mut bevy_app::App, manifest: &ProjectManifest) {
+    match manifest.input.actions() {
+        Ok(actions) => {
+            app.insert_resource(actions);
+        }
+        Err(e) => panic!("Cannot use project.toml's [input] table:\n{e}"),
+    }
+}
+
+/// `project.toml`'s `[localization]` tables, read (out of the archive in a
+/// packaged build) and inserted before the plugins, so `ScriptingPlugin`'s
+/// `init_resource` leaves them alone. The starting locale is the one the
+/// manifest names, or -- for `"auto"` -- the operating system's, matched to
+/// the closest locale the tables have, and the default locale when none is
+/// close. A table that cannot be read or parsed stops the game at start, as
+/// a bad `[input]` binding does: shipping it would show every string as its
+/// key. `package` includes the tables, so a packaged build has them. The
+/// same goes for `[localization.remaps]`: a replacement that is not a project
+/// path, or not there, stops the game at start.
+pub(crate) fn insert_localization(
+    app: &mut bevy_app::App,
+    project_dir: &str,
+    pak: Option<&bsengine_asset::pak::Pak>,
+    manifest: &ProjectManifest,
+) {
+    let section = &manifest.localization;
+    let texts: Vec<(String, String)> = section
+        .tables
+        .iter()
+        .map(|table| {
+            let path = format!("{project_dir}/{table}");
+            let text = bsengine_asset::pak_source::read_from(pak, project_dir, &path)
+                .unwrap_or_else(|e| panic!("Cannot read the localization table {table}: {e}"));
+            (table.clone(), text)
+        })
+        .collect();
+    let mut localization = bsengine_core::Localization::from_csv_tables(
+        texts.iter().map(|(s, t)| (s.as_str(), t.as_str())),
+        &section.default_locale,
+    )
+    .unwrap_or_else(|e| panic!("Cannot use project.toml's [localization] tables: {e}"));
+    let start = if section.locale.eq_ignore_ascii_case("auto") {
+        bsengine_core::localization::system_locale().and_then(|l| localization.best_match(&l))
+    } else {
+        Some(section.locale.clone())
+    };
+    if let Some(locale) = start {
+        localization.set_locale(&locale);
+    }
+    localization.set_auto_translate(section.auto_translate);
+    localization
+        .set_asset_remaps(&section.remaps)
+        .unwrap_or_else(|e| panic!("Cannot use project.toml's [localization.remaps]: {e}"));
+    // Every locale's replacements, not only the starting one's: a file the
+    // archive lacks for a locale the player switches to later would
+    // otherwise be found then, mid-game, as the old image staying on screen
+    // and a warning nobody reads. Checked, not read.
+    for replacement in section
+        .remaps
+        .values()
+        .flat_map(|by_locale| by_locale.values())
+    {
+        let path = format!("{project_dir}/{replacement}");
+        if !bsengine_asset::pak_source::exists_in(pak, project_dir, &path) {
+            panic!(
+                "Cannot find {replacement}, a replacement in project.toml's \
+                 [localization.remaps]"
+            );
+        }
+    }
+    if !section.remaps.is_empty() {
+        tracing::info!(
+            "localization: {} asset(s) replaced by locale",
+            section.remaps.len()
+        );
+    }
+    tracing::info!(
+        "localization: locale {} (default {}), locales {:?}",
+        localization.locale(),
+        localization.default_locale(),
+        localization.locales()
+    );
+    app.insert_resource(localization);
+}
+
+/// `project.toml`'s `[ui] fonts`, read (out of the archive in a packaged
+/// build) and inserted for the renderer, which puts them ahead of its
+/// built-in fonts. A font that cannot be read stops the game at start, as a
+/// localization table does: the build would otherwise ship drawing its
+/// translations as boxes. One that reads but is not a font is the
+/// renderer's to refuse, with an error, at the cost of its glyphs only.
+///
+/// `[ui.locale_fonts]` are read here too, every locale's and not only the
+/// starting one's: a font the archive lacks for a locale the player switches
+/// to later would otherwise be found then, mid-game, instead of at start.
+/// So are `[ui.font_families]`, for the same reason: a widget may pick one
+/// only on a screen reached late.
+pub(crate) fn insert_ui_fonts(
+    app: &mut bevy_app::App,
+    project_dir: &str,
+    pak: Option<&bsengine_asset::pak::Pak>,
+    manifest: &ProjectManifest,
+) {
+    let read = |fonts: &[String]| -> Vec<bsengine_core::UiFont> {
+        fonts
+            .iter()
+            .map(|font| {
+                let path = format!("{project_dir}/{font}");
+                let bytes = bsengine_asset::pak_source::read_bytes_from(pak, project_dir, &path)
+                    .unwrap_or_else(|e| panic!("Cannot read the UI font {font}: {e}"));
+                bsengine_core::UiFont {
+                    path: font.clone(),
+                    bytes,
+                }
+            })
+            .collect()
+    };
+    let fonts = bsengine_core::UiFonts {
+        fonts: read(&manifest.ui.fonts),
+        by_locale: manifest
+            .ui
+            .locale_fonts
+            .iter()
+            .map(|(locale, fonts)| {
+                (
+                    bsengine_core::localization::normalize_locale(locale),
+                    read(fonts),
+                )
+            })
+            .collect(),
+        families: manifest
+            .ui
+            .font_families
+            .iter()
+            .map(|(name, fonts)| (name.clone(), read(fonts)))
+            .collect(),
+    };
+    app.insert_resource(fonts);
+}
+
+fn read_manifest(project_dir: &str, pak: Option<&bsengine_asset::pak::Pak>) -> ProjectManifest {
+    let manifest_path = format!("{project_dir}/project.toml");
+    let (text, source) = match pak.and_then(|pak| pak.get(bsengine_asset::cook::MANIFEST_ENTRY)) {
+        Some(bytes) => (
+            String::from_utf8(bytes.to_vec())
+                .unwrap_or_else(|e| panic!("The manifest in the archive is not UTF-8: {e}")),
+            "the manifest in the archive".to_string(),
+        ),
+        None => (
+            std::fs::read_to_string(&manifest_path)
+                .unwrap_or_else(|e| panic!("Cannot read {manifest_path}: {e}")),
+            manifest_path,
+        ),
+    };
+    toml::from_str(&text).unwrap_or_else(|e| panic!("Cannot parse {source}: {e}"))
+}
+
+/// Opens the game's window and runs it until it is closed -- or, with
+/// `--frames`, until it has drawn that many frames.
+///
+/// Thin on purpose: everything the player's app needs is assembled by
+/// [`build_windowed_app`], and the only thing added here is the optional frame
+/// limit. `window_smoke.rs` reaches this through the real executable, so what it
+/// certifies is the arrangement a player gets rather than a second one
+/// assembled for the test.
+#[cfg(not(target_arch = "wasm32"))]
+fn run_windowed(project_dir: &str, frame_limit: Option<u32>, force_crash: bool) {
+    let mut app = build_windowed_app(project_dir);
+    // `--force-crash`: after the crash handlers are in (`build_windowed_app`
+    // installs them) and before a window opens, so checking that a build
+    // leaves a minidump needs no display.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if force_crash {
+        bsengine_core::native_crash::force_crash();
+    }
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    let _ = force_crash;
+    if let Some(frames) = frame_limit {
+        quit_after_frames(&mut app, frames);
+    }
+    // The runner hands back how the game ended; a failure -- no GPU surface
+    // for the window -- is the process's status too, not a 0 a launcher or a
+    // test would read as "it ran".
+    if let bevy_app::AppExit::Error(code) = app.run() {
+        std::process::exit(i32::from(code.get()));
+    }
+}
+
+/// Makes the game quit on its own after `frames` frames, reporting what it drew
+/// on the way out -- what `--frames` does, and the whole of it.
+///
+/// ⚠️ Exists because the windowed path cannot be tested in-process. winit
+/// refuses to build an event loop off the main thread, and libtest runs every
+/// test on a worker thread, so a `#[test]` that called
+/// [`winit_runner`](bsengine_window::winit_runner) would panic before opening
+/// anything. `window_smoke.rs` therefore runs this binary as a subprocess --
+/// which is the better test anyway, since it covers `main`'s own argument
+/// handling and the executable a player actually launches.
+///
+/// ⚠️ Reports draw calls, not just a frame count. A window that opens and
+/// presents nothing -- a surface that failed to configure, a renderer that
+/// found no camera -- still ticks `Update` happily, and a frame count alone
+/// would call that a success.
+fn quit_after_frames(app: &mut bevy_app::App, frames: u32) {
+    app.add_message::<bevy_app::AppExit>();
+
+    let mut seen = 0u32;
+    let mut drawn = 0u32;
+    app.add_systems(
+        bevy_app::Last,
+        move |surface: Option<bevy_ecs::prelude::Res<bsengine_rhi_wgpu::WgpuSurfaceResource>>,
+              mut exit: bevy_ecs::prelude::MessageWriter<bevy_app::AppExit>| {
+            seen += 1;
+            if let Some(stats) = surface.and_then(|s| s.0.latest_frame_stats()) {
+                drawn = drawn.max(stats.draw_calls);
+            }
+            if seen >= frames {
+                // The line `window_smoke.rs` parses. Printed once, on the way
+                // out, so a truncated run cannot look like a complete one.
+                println!("frames={seen} draw_calls={drawn}");
+                exit.write(bevy_app::AppExit::Success);
+            }
+        },
+    );
+}
+
+/// Builds the app a player runs: every plugin, the project's manifest, its
+/// entry scene, and `Playing` already set.
+///
+/// Stops short of `run()` so [`run_windowed`] can add the `--frames` limit
+/// before the event loop takes the app.
+#[cfg(not(target_arch = "wasm32"))]
+fn build_windowed_app(project_dir: &str) -> bevy_app::App {
+    // The archive before the manifest: a single-file build keeps its manifest
+    // inside the archive, so there is nothing to read until that is open.
+    let pak = open_pak(project_dir);
+    build_player_app(project_dir, pak)
+}
+
+/// The app a player runs, on whichever host: every plugin, the project's
+/// manifest, its entry scene, and `Playing` already set. `pak` is the
+/// project's archive if it has one -- opened from disk or the executable on a
+/// desktop, fetched by the page in a browser.
+///
+/// One function for both hosts on purpose: a plugin present in one host's
+/// list and missing from the other's is a feature that works where it was
+/// tested and does nothing where it ships (see `TerrainPlugin` below). The
+/// browser build leaves out exactly what it cannot have -- the editor
+/// overlay, the file watcher, the crash report files -- and nothing else.
+pub(crate) fn build_player_app(
+    project_dir: &str,
+    pak: Option<std::sync::Arc<bsengine_asset::pak::Pak>>,
+) -> bevy_app::App {
+    let manifest = read_manifest(project_dir, pak.as_deref());
+    // The log file and the crash handler, before `new_app()` below sets up
+    // stderr-only logging (the first set-up wins) and before anything else
+    // can panic -- a bad `[input]` binding, a scene that will not load --
+    // so those land in a report too. Named for the project, which is why it
+    // cannot come any earlier than the manifest.
+    #[cfg(not(target_arch = "wasm32"))]
+    let user_paths = bsengine_core::crash::init_for_project(&manifest.project.name);
+
+    let title = manifest
+        .window
+        .title
+        .clone()
+        .unwrap_or_else(|| manifest.project.name.clone());
+
+    let mut app = new_app();
+    // `Bsengine.save` / `load` paths, beside the log in the per-user
+    // directory. None in a browser, which has no file system to put them in:
+    // the page gives the app a `SaveStore` backed by IndexedDB instead
+    // (`web_saves`), once it has read the saves back.
+    #[cfg(not(target_arch = "wasm32"))]
+    app.insert_resource(bsengine_core::SaveDir::in_user_dir(&user_paths.dir));
+    app.insert_resource(bsengine_core::OcclusionCullingEnabled(
+        manifest.render.occlusion_culling,
+    ));
+    app.insert_resource(bsengine_core::MsaaSettings {
+        samples: manifest.render.msaa,
+    });
+    app.insert_resource(bsengine_core::GiSettings {
+        rays_per_frame: manifest.render.gi_rays_per_frame,
+    });
+    // Before the renderer's `Startup`, which reads it when it makes the
+    // swapchain: the output format is chosen once, there.
+    app.insert_resource(bsengine_core::HdrOutputSettings {
+        enabled: manifest.render.hdr_output,
+        format: manifest.render.hdr_output_format,
+        paper_white_nits: manifest.render.hdr_paper_white_nits,
+        max_nits: manifest.render.hdr_max_nits,
+    });
+    app.insert_resource(bsengine_core::ShadowSettings {
+        distance: manifest.render.shadow_distance,
+        cascades: manifest.render.shadow_cascades,
+        blend: manifest.render.shadow_cascade_blend,
+        soft: manifest.render.soft_shadows,
+    });
+    app.insert_resource(bsengine_core::TextureStreamingSettings::from_manifest(
+        manifest.render.texture_streaming_budget_mb,
+        manifest.render.texture_mip_bias,
+    ));
+    // Before the archive moves into `PakAssetPlugin` below: the tables are
+    // read out of it.
+    insert_localization(&mut app, project_dir, pak.as_deref(), &manifest);
+    insert_ui_fonts(&mut app, project_dir, pak.as_deref(), &manifest);
+    // Before `AssetPlugin`, and that ordering is the whole reason this is a
+    // separate plugin: `bevy_asset` builds its sources during that plugin's
+    // `build`, so a source registered afterwards is silently ignored -- and a
+    // silently ignored pak source means a packaged build quietly reading loose
+    // files instead of its own archive.
+    if let Some(pak) = pak {
+        crate::install_shipped_mips(&mut app, &pak);
+        app.add_plugins(bsengine_asset::PakAssetPlugin {
+            pak,
+            project_dir: project_dir.to_string(),
+        });
+    }
+    insert_input_actions(&mut app, &manifest);
+    // From `project.toml`'s `[network]` table. Inserted before the plugins so
+    // `NetworkPlugin`'s `init_resource` finds it already present and leaves it
+    // alone -- registering it afterwards would overwrite the project's settings
+    // with defaults, and silently, since every default is a working value.
+    app.insert_resource(bsengine_network::NetworkConfig {
+        aoi_radius: manifest.network.aoi_radius,
+        interpolation_delay_ticks: manifest.network.interpolation_delay_ticks,
+        simulated_latency_frames: manifest.network.simulated_latency_frames,
+        simulated_loss: manifest.network.simulated_loss,
+        simulator_seed: manifest.network.simulator_seed,
+        rpc_resend_frames: manifest.network.rpc_resend_frames,
+    });
+    app.add_plugins(TimePlugin).add_plugins(AssetPlugin);
+    #[cfg(not(target_arch = "wasm32"))]
+    app
+        // Windowed only, deliberately. `--test` builds its own app
+        // (test_mode::build_test_app) with its own plugin list, so leaving
+        // this out of that list is the whole of the decision: a replay has
+        // nobody editing files, so a watcher there would buy nothing and
+        // cost a background thread plus a source of frame-to-frame variation
+        // in the one mode that pins its clocks precisely to stay
+        // reproducible. Needs AssetPlugin (for AssetServer) and a ProjectDir,
+        // which ScriptingPlugin inserts below at build time — i.e. before any
+        // Startup system, including this plugin's, ever runs.
+        .add_plugins(AssetWatcherPlugin);
+    app // Unlike the watcher above, this one is in `--test`'s plugin list
+        // too (test_mode::build_test_app) — see there for why. Without it
+        // registered *somewhere* the whole status API is inert: the resource
+        // never exists, so `AssetStatuses::get` and `Bsengine.getAssetStatus`
+        // answer `unknown` for every path forever, including the ones that
+        // just failed to load.
+        .add_plugins(AssetStatusPlugin)
+        // Walks `<ProjectDir>/assets` once at Startup so `ScenePlugin` below
+        // can resolve a scene's asset references by identity instead of by
+        // path — the point of roadmap item 30. Registered in all three hosts
+        // (here, `--test`'s app, and the editor) for the same reason the
+        // status plugin is: a reader with nothing to read is not a smaller
+        // feature, it is no feature, and this one fails without a symptom —
+        // a spawn that finds no index falls back to the stored path and loads
+        // exactly as it did before, silently.
+        //
+        // Order is not left to this list. `ScenePlugin::build` declares
+        // `.after(build_asset_index)`; see `AssetIdentityPlugin`'s docs for
+        // why being in the same `Startup` schedule is not enough on its own.
+        // `ProjectDir` comes from `ScriptingPlugin` at the bottom of this
+        // list, inserted at build time and so already present before any
+        // Startup system runs — the same arrangement `AssetWatcherPlugin`
+        // relies on above.
+        .add_plugins(AssetIdentityPlugin)
+        .add_plugins(WgpuRHIPlugin::windowed())
+        .add_plugins(WindowPlugin {
+            descriptor: WindowDescriptor {
+                title,
+                width: manifest.window.width,
+                height: manifest.window.height,
+                resizable: manifest.window.resizable,
+            },
+        })
+        .add_plugins(InputPlugin)
+        .add_plugins(AudioPlugin)
+        .add_plugins(bsengine_video::VideoPlugin)
+        .add_plugins(PhysicsPlugin)
+        .add_plugins(NetworkPlugin);
+    // The editor overlay a desktop run carries for development. A browser or
+    // mobile build has none, and no `InspectorState` either: with one, the
+    // renderer draws the inspector over the game -- an Android build drew
+    // the whole dock over a phone's screen -- and without one scripts simply
+    // run (they are held only by an editor that is stopped).
+    #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+    app.add_plugins(EditorPlugin);
+    app.add_plugins(RenderPlugin)
+        .add_plugins(GltfPlugin)
+        .add_plugins(SkinnedMeshPlugin)
+        .add_plugins(AnimationPlugin)
+        .add_plugins(bsengine_app::TimelinePlugin)
+        .add_plugins(AnimationStateMachinePlugin)
+        .add_plugins(NavMeshPlugin)
+        .add_plugins(bsengine_app::BehaviorTreePlugin)
+        // Both of these count something down each frame, and neither was
+        // installed anywhere until now. `Bsengine.setLifetime()` has existed as
+        // a scripting API the whole time with nothing to tick it, so it has
+        // never despawned anything in a running game.
+        .add_plugins(LifetimePlugin)
+        .add_plugins(ParticlePlugin)
+        // Loads each scene-authored `Terrain`'s heightmap and spawns its chunk
+        // entities (render mesh + Rapier heightfield collider). Was missing
+        // from this list entirely until roadmap item 44's demo project needed
+        // it -- `Terrain`/`TerrainPlugin` existed and were unit-tested
+        // (`bsengine-app`'s own test suite, and `bsengine-editor`'s
+        // `terrain_write`/"Create Terrain" spawn paths), but nothing had ever
+        // added `TerrainPlugin` to the actual windowed runtime's plugin list,
+        // so a `Terrain` entity in a real game would sit in the scene file
+        // and never grow chunks -- the whole system was inert in production.
+        .add_plugins(TerrainPlugin)
+        // Picks the terrain surface point under the cursor while the
+        // editor's terrain brush tool is active. Registered here, not just
+        // in bsengine-app's own test suite -- see TerrainPlugin's comment
+        // above for the exact gap (a plugin present in one host and absent
+        // in the other is a feature that works when you look at it and not
+        // when you test it) this follows the same precedent to avoid.
+        .add_plugins(TerrainBrushPlugin)
+        // Generates each scene-authored `Cloth`'s sheet mesh and steps it every
+        // frame. In both hosts from the start, for the reason `TerrainPlugin`'s
+        // comment above records the hard way: a component whose plugin is
+        // missing from the runtime is a feature that passes its own tests and
+        // does nothing in a real game.
+        .add_plugins(ClothPlugin);
+    // The starting locale's replacement for the entry scene, if
+    // `[localization.remaps]` has one (`localized_scene_file`). It is also
+    // the path the editor tooling saves, reloads and bakes below: the scene
+    // on screen is that file's, and saving it over the original would write
+    // one language's level into another's.
+    let scene_path = scene_systems::localized_entry_scene(
+        app.world().get_resource::<bsengine_core::Localization>(),
+        project_dir,
+        &manifest.project.entry_scene,
+    );
+    app.add_plugins(ScenePlugin::from_file(&scene_path))
+        .add_plugins(ScriptingPlugin {
+            project_dir: project_dir.to_string(),
+        });
+    register_scene_systems(&mut app);
+
+    // bsengine-runtime's job is to run a game, not edit one — EditorPlugin
+    // is still included (for now, this is the only windowed entry point,
+    // and its inspector/hierarchy tooling is useful during development),
+    // but it defaults to InspectorState::editor()'s Stopped play state,
+    // which silently gates scripts (WASD, onUpdate, ...) off until the
+    // user finds and clicks the toolbar's Play button. Force Playing here
+    // so `cargo run -p bsengine-runtime -- <game>` actually plays the game
+    // immediately, matching what running a game is supposed to do.
+    {
+        // Absent in a browser build, which has no editor (see above).
+        if let Some(mut inspector) = app.world_mut().get_resource_mut::<InspectorState>() {
+            inspector.play_state = EditorPlayState::Playing;
+            // Populated on manual Ctrl+S saves otherwise; without this, a
+            // freshly-launched game (never saved) has no path for the Play
+            // button's "reload the scene" behavior to reload from.
+            inspector.current_scene_path = Some(scene_path.clone());
+        }
+    }
+
+    app
+}
+
+/// Gives the texture registry the archive's precooked mip cache files --
+/// what `--package` made for each block-compressed texture
+/// (`bsengine_rhi_wgpu::precook_mip_cache`) -- so a pak or single-file build
+/// encodes nothing on the player's machine. A loose package needs no help:
+/// the registry reads its `SHIPPED_MIP_DIR` directory by itself.
+fn install_shipped_mips(app: &mut bevy_app::App, pak: &std::sync::Arc<bsengine_asset::pak::Pak>) {
+    let pak = std::sync::Arc::clone(pak);
+    app.insert_resource(bsengine_rhi_wgpu::ShippedMipCacheResource(
+        std::sync::Arc::new(move |name: &str| {
+            pak.get(&format!("{}/{name}", bsengine_rhi_wgpu::SHIPPED_MIP_DIR))
+                .map(<[u8]>::to_vec)
+        }),
+    ));
+}
+
+#[cfg(test)]
+mod tests {
+    /// The packager writes precooked files where the runtime reads them.
+    /// The two crates cannot share the constant (the asset crate must not
+    /// depend on the GPU crate), so this pins them together: a rename on
+    /// one side alone would ship every file where no runtime looks.
+    #[test]
+    fn the_packager_ships_mips_where_the_runtime_looks_for_them() {
+        assert_eq!(
+            bsengine_asset::cook::PRECOOKED_MIP_DIR,
+            bsengine_rhi_wgpu::SHIPPED_MIP_DIR
+        );
+    }
+
+    /// The archive lookup `install_shipped_mips` gives the registry finds a
+    /// precooked file by its bare name -- the name the registry asks for --
+    /// and nothing that is not there.
+    #[test]
+    fn the_archive_lookup_finds_a_shipped_file_by_its_name() {
+        let path = std::env::temp_dir().join(format!("bse-shipped-{}.pak", std::process::id()));
+        bsengine_asset::pak::write_pak(
+            &path,
+            &[(
+                format!("{}/abc.mips", bsengine_rhi_wgpu::SHIPPED_MIP_DIR),
+                b"blocks".to_vec(),
+            )],
+        )
+        .unwrap();
+        let pak = std::sync::Arc::new(bsengine_asset::pak::Pak::open(&path).unwrap());
+        let mut app = bevy_app::App::new();
+        super::install_shipped_mips(&mut app, &pak);
+        let lookup = app
+            .world()
+            .resource::<bsengine_rhi_wgpu::ShippedMipCacheResource>()
+            .0
+            .clone();
+        assert_eq!(lookup("abc.mips").as_deref(), Some(&b"blocks"[..]));
+        assert_eq!(lookup("other.mips"), None);
+        let _ = std::fs::remove_file(&path);
+    }
+}

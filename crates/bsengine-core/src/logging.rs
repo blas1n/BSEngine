@@ -11,7 +11,19 @@ pub fn init_logging() {
         // A browser build has no stderr: its log is the page's console.
         #[cfg(target_arch = "wasm32")]
         tracing_wasm::set_as_global_default();
-        #[cfg(not(target_arch = "wasm32"))]
+        // Nor does an Android app: its stderr goes nowhere, and its log is
+        // logcat (`adb logcat -s bsengine`).
+        #[cfg(target_os = "android")]
+        {
+            use tracing_subscriber::{fmt, EnvFilter};
+            fmt()
+                .with_env_filter(EnvFilter::new("bsengine=debug,warn"))
+                .with_ansi(false)
+                .without_time()
+                .with_writer(logcat::Writer::default)
+                .init();
+        }
+        #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
         {
             use tracing_subscriber::{fmt, EnvFilter};
             fmt()
@@ -83,6 +95,54 @@ pub fn rotate_log(path: &std::path::Path) -> std::io::Result<()> {
         None => path.with_file_name(format!("{stem}-prev")),
     };
     std::fs::rename(path, prev)
+}
+
+/// Lines to logcat, tagged `bsengine`, through `liblog` -- which every
+/// Android process has, so no crate is needed for one function.
+#[cfg(target_os = "android")]
+mod logcat {
+    use std::ffi::CString;
+    use std::os::raw::{c_char, c_int};
+
+    #[link(name = "log")]
+    extern "C" {
+        fn __android_log_write(prio: c_int, tag: *const c_char, text: *const c_char) -> c_int;
+    }
+
+    /// `ANDROID_LOG_INFO`: the level is already in the formatted line, so
+    /// every line goes at one priority that logcat shows by default.
+    const INFO: c_int = 4;
+
+    /// One `tracing` event's text, written to logcat when it ends: the
+    /// formatter writes an event in pieces, and each logcat write is an entry.
+    #[derive(Default)]
+    pub(super) struct Writer(Vec<u8>);
+
+    impl std::io::Write for Writer {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl Drop for Writer {
+        fn drop(&mut self) {
+            let text = String::from_utf8_lossy(&self.0);
+            let text = text.trim_end();
+            if text.is_empty() {
+                return;
+            }
+            // An interior NUL would end the entry early; none is expected.
+            let text = CString::new(text.replace('\0', " ")).unwrap_or_default();
+            // SAFETY: both pointers are NUL-terminated strings that outlive
+            // the call.
+            unsafe { __android_log_write(INFO, c"bsengine".as_ptr(), text.as_ptr()) };
+        }
+    }
 }
 
 #[cfg(test)]

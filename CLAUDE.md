@@ -87,7 +87,18 @@ cargo run -p bsengine-runtime -- --package games/mini-arena --mode loose|pak|sin
 # script checks). Serve the folder; file:// cannot fetch the module.
 scripts/build_web.sh games/mini-arena [out-dir] [--debug]
 node scripts/web_smoke.mjs games/mini-arena/dist-web  # headless Chrome/Edge; WEBGPU_ADAPTER=swiftshader with no GPU
+
+# On Android: a NativeActivity APK in <project>/dist-android. Needs the Rust
+# target, ANDROID_HOME (build-tools, a platform), the NDK and libclang
+# (LIBCLANG_PATH) -- scripts are QuickJS there, its bindings generated per target.
+scripts/build_android.sh games/mini-arena [out-dir] [--debug] [--abi arm64-v8a|x86_64|x86]
+adb logcat -s bsengine                                 # the game's log
 ```
+
+An emulator needs an image whose Vulkan wgpu accepts: android-35
+`google_apis;x86_64` with `-gpu host` draws; android-30 x86 has no Vulkan
+adapter and GLES 3.1 lacks downlevel features the renderer needs, and the
+android-37 16 KB preview image crash-loops its system server.
 
 The browser build's errors are in the page's console, not a terminal, and
 Chrome reports WebGPU's — a shader it rejects included — as *warnings* while
@@ -157,9 +168,9 @@ These all produced a green run while being wrong. They are worth memorising.
   `"a\|b"` matches no test at all; and a renamed test silently stops running
   under an old filter. **Read the `passed` count, not the word `ok`** — and if
   it is smaller than you expected, that is the failure.
-  (`cargo test -p bsengine-runtime --lib` is *not* an instance of this: it
-  exits 101 with "no library targets", because the crate is a binary. Loud, so
-  it costs you nothing.)
+  (`bsengine-runtime` is a library behind a one-line executable since the
+  Android build, so `cargo test -p bsengine-runtime --lib` now runs its unit
+  tests; it used to exit 101 with "no library targets".)
 - **A falling test count is the only sign you measured the wrong tree.** Running
   in the wrong worktree still prints `ok`; it just runs a different branch's
   tests. Print `pwd` with every measurement, and treat "same as baseline" as

@@ -12,7 +12,7 @@
 [package]
 edition = "2021"
 name = "convert_case"
-version = "0.10.0"
+version = "0.12.0"
 authors = ["rutrum <dave@rutrum.net>"]
 build = false
 autolib = false
@@ -30,11 +30,6 @@ keywords = [
 categories = ["text-processing"]
 license = "MIT"
 repository = "https://github.com/rutrum/convert-case"
-
-[profile.release]
-lto = true
-codegen-units = 1
-panic = "abort"
 
 [lib]
 name = "convert_case"
@@ -58,3 +53,11 @@ version = "1.9.0"
 
 [dev-dependencies.criterion]
 version = "0.5"
+
+[dev-dependencies.rstest]
+version = "0.24"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"

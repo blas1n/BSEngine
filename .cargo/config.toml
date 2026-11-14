@@ -29,6 +29,16 @@ rustflags = ["-C", "link-args=/STACK:67108864"]
 # wasm32 dependencies in crates/bsengine-core/Cargo.toml.
 rustflags = ["--cfg", 'getrandom_backend="wasm_js"']
 
+# Android 15+ devices can use 16 KB memory pages, and a library whose segments
+# are aligned to 4 KB does not load on them (Google Play requires 16 KB
+# alignment of every native library). The NDK's linker still defaults to 4 KB
+# for a Rust target, so say it: scripts/build_android.sh builds these.
+[target.aarch64-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
+
+[target.x86_64-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
+
 [env]
 # The /STACK: link arg above only sizes the *main* thread. libtest runs every
 # #[test] on a spawned thread instead, and Rust passes its own default stack

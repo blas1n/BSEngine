@@ -67,7 +67,7 @@ case $(uname -s) in
   *) host=linux-x86_64; exe=; cmd=; bat= ;;
 esac
 tc=$ndk/toolchains/llvm/prebuilt/$host
-clang_include=$(ls -d "$tc"/lib/clang/*/include | tail -1)
+clang_resources=$(ls -d "$tc"/lib/clang/* | tail -1)
 
 # The cross-compile environment, per target so a host build in the same cargo
 # invocation (build scripts, proc macros) keeps the host's compiler. CC is
@@ -82,9 +82,12 @@ export "CFLAGS_${t}=--target=${triple}${api}"
 export "CXXFLAGS_${t}=--target=${triple}${api}"
 export "AR_${t}=$tc/bin/llvm-ar${exe}"
 # bindgen (QuickJS's header) parses with the NDK's sysroot and the NDK clang's
-# own builtin headers (stdbool.h and the like), which a libclang from
-# elsewhere does not find for a foreign target.
-export "BINDGEN_EXTRA_CLANG_ARGS_${t}=--sysroot=$tc/sysroot -isystem $clang_include --target=${triple}${api}"
+# builtin headers (stdbool.h, stdint.h), as its resource directory --
+# replacing libclang's own, not added to it. LLVM's libclang.dll on Windows
+# resolves its resource directory to a path that does not exist ("stdbool.h
+# not found"); Linux's finds its own, and with the NDK's added beside it as
+# -isystem, the two stdint.h chains crossed and `uint32_t` was undeclared.
+export "BINDGEN_EXTRA_CLANG_ARGS_${t}=--sysroot=$tc/sysroot -resource-dir $clang_resources --target=${triple}${api}"
 
 flag=--release
 [[ $profile == debug ]] && flag=

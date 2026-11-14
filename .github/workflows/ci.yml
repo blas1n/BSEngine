@@ -32,11 +32,24 @@ env:
 jobs:
   test:
     name: Test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
+        # `os` is the label: the job's name (which branch protection requires
+        # by name) and every `matrix.os == 'ubuntu-latest'` below. `runner` is
+        # the machine. Ubuntu is pinned to 24.04: on 2026-11-14 ubuntu-latest
+        # became 26.04, whose lavapipe (Mesa 26.0.8) kills the GPU test
+        # processes with SIGSEGV -- yesterday's passing master did the same
+        # when re-run there -- while 24.04's (Mesa 25.2.8) runs them all.
         os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            runner: ubuntu-24.04
+          - os: windows-latest
+            runner: windows-latest
+          - os: macos-latest
+            runner: macos-latest
 
     steps:
       - uses: actions/checkout@v4

@@ -22,14 +22,45 @@ const CHECKPOINT_PATH = "checkpoint.json";
 let attackKeyWasDown = false;
 let enterKeyWasDown = false;
 
+// Touch: drag anywhere to walk -- a floating stick, measured from where the
+// finger went down, so it works on any screen size and in either hand -- and
+// tap to attack (or, dead, to reload the checkpoint). A finger is a drag once
+// it has strayed this many pixels from where it went down; one that lifts
+// before that is a tap.
+const STICK_DEAD_ZONE = 24;
+const dragged = {}; // touch id -> it strayed past the dead zone
+
+function readTouches() {
+    let moveX = 0.0;
+    let moveZ = 0.0;
+    let tapped = false;
+    for (const t of Bsengine.getTouches()) {
+        const ox = t.x - t.startX;
+        const oy = t.y - t.startY;
+        if (Math.sqrt(ox * ox + oy * oy) > STICK_DEAD_ZONE) dragged[t.id] = true;
+        if (t.phase === "ended" || t.phase === "canceled") {
+            // A cancelled touch (the system took it) is no tap.
+            if (t.phase === "ended" && !dragged[t.id]) tapped = true;
+            delete dragged[t.id];
+        } else if (dragged[t.id]) {
+            // Screen right is world +x and screen down is world +z, as D and
+            // S are.
+            moveX += ox;
+            moveZ += oy;
+        }
+    }
+    return { moveX, moveZ, tapped };
+}
+
 function onUpdate(self) {
     if (Bsengine.isPaused()) return;
 
+    const touch = readTouches();
     const enterDown = Bsengine.isKeyDown("Enter");
     const dead = Bsengine.getShield(self) <= 0.0;
     if (dead) {
-        Bsengine.setHudText("status", "You died. Press Enter to reload checkpoint.");
-        if (enterDown && !enterKeyWasDown) {
+        Bsengine.setHudText("status", "You died. Press Enter (or tap) to reload checkpoint.");
+        if ((enterDown && !enterKeyWasDown) || touch.tapped) {
             Bsengine.load(CHECKPOINT_PATH);
             const restoredScore = Bsengine.getSaveField(self, "score");
             Bsengine.sendMessage("Hud", "scoreLoaded", { value: parseInt(restoredScore || "0", 10) });
@@ -51,6 +82,11 @@ function onUpdate(self) {
     if (Bsengine.isKeyPressed("S")) dz += 1.0;
     if (Bsengine.isKeyPressed("A")) dx -= 1.0;
     if (Bsengine.isKeyPressed("D")) dx += 1.0;
+    const stick = Math.sqrt(touch.moveX * touch.moveX + touch.moveZ * touch.moveZ);
+    if (stick > 0.0) {
+        dx += touch.moveX / stick;
+        dz += touch.moveZ / stick;
+    }
 
     const running = Bsengine.isKeyPressed("Left") || Bsengine.isKeyPressed("Right");
     const len = Math.sqrt(dx * dx + dz * dz);
@@ -81,7 +117,7 @@ function onUpdate(self) {
     Bsengine.asmSetFloat(self, "speed", speed);
 
     const attackDown = Bsengine.isKeyDown("Space");
-    if (attackDown && !attackKeyWasDown) {
+    if ((attackDown && !attackKeyWasDown) || touch.tapped) {
         const pos = Bsengine.getPosition(self);
         const fwd = Bsengine.getForwardVector(self);
         if (pos && fwd) {

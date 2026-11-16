@@ -5,6 +5,7 @@ use bsengine_ecs::IntoScheduleConfigs;
 use crate::{
     actions::{update_action_state, ActionState, InputActions},
     state::Input,
+    touch::{update_touch_state, TouchInput, TouchSettings, Touches},
     types::{
         CursorMoved, ElementState, GamepadButton, GamepadSticks, KeyCode, KeyInput, MouseButton,
         MouseInput, MouseMotion, MouseWheel,
@@ -47,6 +48,7 @@ impl Plugin for InputPlugin {
             .add_message::<CursorMoved>()
             .add_message::<MouseMotion>()
             .add_message::<MouseWheel>()
+            .add_message::<TouchInput>()
             .insert_resource(Input::<KeyCode>::default())
             .insert_resource(Input::<MouseButton>::default())
             .insert_resource(Input::<GamepadButton>::default())
@@ -58,6 +60,10 @@ impl Plugin for InputPlugin {
             // with no actions still runs.
             .init_resource::<InputActions>()
             .init_resource::<ActionState>()
+            .init_resource::<Touches>()
+            // `init_resource` for the same reason as the actions: the
+            // runtime inserts `[input] emulate_mouse_from_touch` first.
+            .init_resource::<TouchSettings>()
             .add_systems(
                 PreUpdate,
                 (
@@ -66,6 +72,9 @@ impl Plugin for InputPlugin {
                     update_mouse_button_state,
                     update_mouse_position_state,
                     update_scroll_state,
+                    // Last: an emulated cursor position must not be
+                    // overwritten by a stale `CursorMoved` read after it.
+                    update_touch_state,
                 )
                     .chain()
                     .in_set(InputSystems),

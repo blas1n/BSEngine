@@ -4000,6 +4000,11 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
     MOUSE_JUST_RELEASED_SNAPSHOT.with(|s| *s.borrow_mut() = mb_just_released);
     MOUSE_POS_SNAPSHOT.with(|s| *s.borrow_mut() = mouse_pos);
     MOUSE_DELTA_SNAPSHOT.with(|s| *s.borrow_mut() = mouse_delta);
+    let touches: Vec<crate::ops::TouchJson> = world
+        .get_resource::<bsengine_input::Touches>()
+        .map(|t| t.iter().map(Into::into).collect())
+        .unwrap_or_default();
+    crate::ops::TOUCH_SNAPSHOT.with(|s| *s.borrow_mut() = touches);
     let ui_clicked: Vec<String> = world
         .get_resource::<UiState>()
         .map(|ui| ui.clicked.iter().cloned().collect())
@@ -8388,6 +8393,92 @@ function onUpdate(name) {
         app.update();
         let _ = std::fs::remove_file(&script_path);
         assert_eq!(x(&app), 1.0, "J is");
+    }
+
+    /// A touch written as the window layer writes it reaches a script's
+    /// `Bsengine.getTouches()` with every field, frame by frame, through the
+    /// real `InputPlugin`: began, moved (with this frame's delta and where it
+    /// started), ended for one frame, then gone. The script copies what it
+    /// sees into a HUD slot, so the assertion reads exactly the script's view.
+    #[test]
+    fn a_touch_reaches_a_script_with_its_phase_and_movement() {
+        use bsengine_input::{InputPlugin, TouchEvent, TouchInput};
+        let script_path =
+            std::env::temp_dir().join(format!("bsengine_test_touch_{}.js", std::process::id()));
+        std::fs::write(
+            &script_path,
+            "function onUpdate(name) {\n\
+                 Bsengine.setHudText(\"touches\", JSON.stringify(Bsengine.getTouches()));\n\
+                 Bsengine.setPosition(name, 0, 1, 0);\n\
+             }",
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(InputPlugin);
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
+        });
+        let entity = app
+            .world_mut()
+            .spawn((
+                Name("Finger".to_string()),
+                ScriptPath(
+                    script_path
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
+                Transform::default(),
+            ))
+            .id();
+        let mut frames = 0;
+        while app.world().get::<Transform>(entity).unwrap().position.y != 1.0 {
+            app.update();
+            frames += 1;
+            assert!(frames < 300, "the script never ran");
+        }
+        let touch = |app: &mut bevy_app::App, event, x, y| {
+            app.world_mut()
+                .resource_mut::<bevy_ecs::message::Messages<TouchInput>>()
+                .write(TouchInput { id: 4, event, x, y });
+        };
+        let seen = |app: &mut bevy_app::App| -> serde_json::Value {
+            app.update();
+            let text = app.world().resource::<HudTexts>().0.get("touches").cloned();
+            serde_json::from_str(&text.expect("the script wrote the slot")).unwrap()
+        };
+
+        assert_eq!(seen(&mut app), serde_json::json!([]), "no finger yet");
+
+        touch(&mut app, TouchEvent::Started, 100.0, 200.0);
+        assert_eq!(
+            seen(&mut app),
+            // Integers: `JSON.stringify` writes 4.0 as 4, and serde_json's
+            // 4 and 4.0 are not equal.
+            serde_json::json!([{"id": 4, "x": 100, "y": 200, "dx": 0, "dy": 0,
+                                "startX": 100, "startY": 200, "phase": "began"}])
+        );
+
+        touch(&mut app, TouchEvent::Moved, 130.0, 190.0);
+        assert_eq!(
+            seen(&mut app),
+            serde_json::json!([{"id": 4, "x": 130, "y": 190, "dx": 30, "dy": -10,
+                                "startX": 100, "startY": 200, "phase": "moved"}])
+        );
+
+        assert_eq!(seen(&mut app)[0]["phase"], "stationary");
+
+        touch(&mut app, TouchEvent::Ended, 130.0, 190.0);
+        assert_eq!(seen(&mut app)[0]["phase"], "ended");
+        let _ = std::fs::remove_file(&script_path);
+        assert_eq!(
+            seen(&mut app),
+            serde_json::json!([]),
+            "gone the frame after"
+        );
     }
 
     /// `enableInputContext` from a script reaches the engine's

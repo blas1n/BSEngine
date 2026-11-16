@@ -167,6 +167,7 @@ impl ProjectManifest {
 /// ```toml
 /// [input]
 /// deadzone = 0.2
+/// emulate_mouse_from_touch = false    # default true: first finger = mouse
 ///
 /// [input.actions]                     # the "default" context
 /// jump = ["Space", "Gamepad:South"]
@@ -194,6 +195,10 @@ pub struct InputSection {
     /// Context name -> its table.
     #[serde(default)]
     pub contexts: std::collections::BTreeMap<String, ContextSpec>,
+    /// Whether the first finger on a touch screen is also the mouse; see
+    /// [`bsengine_input::TouchSettings`].
+    #[serde(default = "enabled_by_default")]
+    pub emulate_mouse_from_touch: bool,
 }
 
 /// An action's mapping as written: a list of bindings, or a table when it
@@ -253,6 +258,7 @@ impl Default for InputSection {
             deadzone: default_input_deadzone(),
             actions: Default::default(),
             contexts: Default::default(),
+            emulate_mouse_from_touch: enabled_by_default(),
         }
     }
 }
@@ -1362,6 +1368,31 @@ mod tests {
             none.context_names().collect::<Vec<_>>(),
             empty.context_names().collect::<Vec<_>>(),
             "an absent [input] and an empty one agree"
+        );
+    }
+
+    /// `emulate_mouse_from_touch` reaches the input plugin's `TouchSettings`
+    /// -- inserted before the plugin, whose `init_resource` must leave it --
+    /// and is on when the project says nothing, as in Unity and Godot.
+    #[test]
+    fn emulate_mouse_from_touch_reaches_the_input_plugin() {
+        let settle = |toml_text: &str| {
+            let manifest: super::ProjectManifest = toml::from_str(&format!(
+                "[project]\nname = \"t\"\nentry_scene = \"s.ron\"\n{toml_text}"
+            ))
+            .unwrap();
+            let mut app = bsengine_app::new_app();
+            crate::insert_input_actions(&mut app, &manifest);
+            app.add_plugins(bsengine_input::InputPlugin);
+            app.world()
+                .resource::<bsengine_input::TouchSettings>()
+                .emulate_mouse
+        };
+        assert!(!settle("[input]\nemulate_mouse_from_touch = false\n"));
+        assert!(settle(""), "absent: on");
+        assert!(
+            settle("[input]\n"),
+            "an empty [input] agrees with an absent one"
         );
     }
 

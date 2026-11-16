@@ -14,7 +14,9 @@ use bsengine_app::{
 use bsengine_asset::{AssetIdentityPlugin, AssetPlugin, AssetStatusPlugin};
 use bsengine_audio::AudioPlugin;
 use bsengine_core::{EditorPlayState, InspectorState};
-use bsengine_input::{ElementState, InputPlugin, KeyCode, KeyInput, MouseButton, MouseInput};
+use bsengine_input::{
+    ElementState, InputPlugin, KeyCode, KeyInput, MouseButton, MouseInput, TouchEvent, TouchInput,
+};
 use bsengine_physics::PhysicsPlugin;
 use bsengine_scene::ScenePlugin;
 use bsengine_scripting::{ScriptingPlugin, KEY_MAPPINGS};
@@ -479,6 +481,27 @@ pub fn execute_command(
                 false,
             ),
         },
+        Command::Touch { id, event, x, y } => {
+            let event = match event.as_str() {
+                "started" => TouchEvent::Started,
+                "moved" => TouchEvent::Moved,
+                "ended" => TouchEvent::Ended,
+                "cancelled" => TouchEvent::Cancelled,
+                other => {
+                    return (
+                        CommandResponse::err(format!(
+                            "unknown touch event: {other} (expected started, moved, ended, \
+                             cancelled)"
+                        )),
+                        false,
+                    )
+                }
+            };
+            app.world_mut()
+                .resource_mut::<Messages<TouchInput>>()
+                .write(TouchInput { id, event, x, y });
+            (CommandResponse::ok(json!({})), false)
+        }
         Command::Query { tool, args } => match run_query(app.world_mut(), &tool, &args) {
             Ok(result) => (CommandResponse::ok(result), false),
             Err(e) => (CommandResponse::err(e), false),

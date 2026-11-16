@@ -513,6 +513,25 @@ fn passthrough_specs() -> Vec<PassthroughSpec> {
             }),
         },
         PassthroughSpec {
+            tool_name: "test_touch",
+            child_cmd: "touch",
+            description: "Injects one finger's touch event, as a phone reports it: `event` is \
+                started, moved, ended or cancelled; `x`/`y` are window pixels; `id` names the \
+                finger from its start to its end. The first finger down also acts as the left \
+                mouse button unless the project sets [input] emulate_mouse_from_touch = false.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "session_id": { "type": "string" },
+                    "id": { "type": "integer", "minimum": 0 },
+                    "event": { "type": "string", "enum": ["started", "moved", "ended", "cancelled"] },
+                    "x": { "type": "number" },
+                    "y": { "type": "number" },
+                },
+                "required": ["session_id", "id", "event", "x", "y"],
+            }),
+        },
+        PassthroughSpec {
             tool_name: "test_query_state",
             child_cmd: "query",
             description: "Reads live world state. `tool` is one of get_transform, get_visible, \

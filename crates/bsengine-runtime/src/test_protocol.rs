@@ -23,6 +23,16 @@ pub enum Command {
     ReleaseMouse {
         button: u8,
     },
+    /// One finger's event, as a phone's window layer reports it: `event` is
+    /// `"started"`, `"moved"`, `"ended"` or `"cancelled"`, `x`/`y` window
+    /// pixels. Written as a `TouchInput` message, so it takes the path a real
+    /// touch does -- including the first finger standing in for the mouse.
+    Touch {
+        id: u64,
+        event: String,
+        x: f64,
+        y: f64,
+    },
     Query {
         tool: String,
         args: Value,
@@ -108,6 +118,19 @@ mod tests {
         match cmd {
             Command::PressKey { key } => assert_eq!(key, "W"),
             other => panic!("expected PressKey, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_touch_command() {
+        let cmd: Command =
+            serde_json::from_str(r#"{"cmd":"touch","id":2,"event":"moved","x":10.5,"y":20}"#)
+                .unwrap();
+        match cmd {
+            Command::Touch { id, event, x, y } => {
+                assert_eq!((id, event.as_str(), x, y), (2, "moved", 10.5, 20.0))
+            }
+            other => panic!("expected Touch, got {other:?}"),
         }
     }
 

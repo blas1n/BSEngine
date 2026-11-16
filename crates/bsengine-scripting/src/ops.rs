@@ -1556,6 +1556,8 @@ thread_local! {
     pub(crate) static MOUSE_JUST_RELEASED_SNAPSHOT: RefCell<u8> = const { RefCell::new(0) };
     pub(crate) static MOUSE_POS_SNAPSHOT: RefCell<(f64, f64)> = const { RefCell::new((0.0, 0.0)) };
     pub(crate) static MOUSE_DELTA_SNAPSHOT: RefCell<(f64, f64)> = const { RefCell::new((0.0, 0.0)) };
+    // This frame's touches, as `Bsengine.getTouches()` returns them.
+    pub(crate) static TOUCH_SNAPSHOT: RefCell<Vec<TouchJson>> = const { RefCell::new(Vec::new()) };
 
     // UI widget click state — button IDs clicked this frame
     pub(crate) static UI_CLICKED_SNAPSHOT: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
@@ -1819,6 +1821,44 @@ struct RaycastHitJson {
     point: [f32; 3],
     normal: [f32; 3],
     distance: f32,
+}
+
+/// One finger, as `Bsengine.getTouches()` returns it: Unity's `Touch` --
+/// `fingerId`, `position`, `deltaPosition`, `phase` -- plus where it went
+/// down, which a virtual stick measures from.
+///
+/// `id` is an `f64`, not the platform's `u64`, so that every backend (V8,
+/// QuickJS through JSON, the browser) hands a script the same plain number
+/// to compare with `===`. Every platform's ids are small (Android's pointer
+/// id, a browser's `pointerId`, Windows' touch id), far inside a double's
+/// exact range.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TouchJson {
+    pub(crate) id: f64,
+    pub(crate) x: f64,
+    pub(crate) y: f64,
+    pub(crate) dx: f64,
+    pub(crate) dy: f64,
+    pub(crate) start_x: f64,
+    pub(crate) start_y: f64,
+    /// `"began"`, `"moved"`, `"stationary"`, `"ended"` or `"canceled"`.
+    pub(crate) phase: &'static str,
+}
+
+impl From<&bsengine_input::Touch> for TouchJson {
+    fn from(t: &bsengine_input::Touch) -> Self {
+        TouchJson {
+            id: t.id as f64,
+            x: t.position.0,
+            y: t.position.1,
+            dx: t.delta.0,
+            dy: t.delta.1,
+            start_x: t.start.0,
+            start_y: t.start.1,
+            phase: t.phase.name(),
+        }
+    }
 }
 
 /// Write a message to the engine log at info level, tagged as coming from a script.
@@ -5503,6 +5543,19 @@ pub fn bsengine_get_mouse_delta() -> Vec<f64> {
     })
 }
 
+/// Get every finger on the screen this frame, in the order they went down,
+/// as `[{id, x, y, dx, dy, startX, startY, phase}]` -- window pixels, top-left
+/// origin, `dx`/`dy` this frame's movement. A finger that lifted this frame
+/// is still listed, with phase `"ended"` (or `"canceled"`), and gone from the
+/// next. One that went down and lifted within a frame is listed once, as
+/// `"ended"`. The first finger also drives the mouse unless the project sets
+/// `[input] emulate_mouse_from_touch = false`.
+#[script_op]
+#[serde]
+pub fn bsengine_get_touches() -> Vec<TouchJson> {
+    TOUCH_SNAPSHOT.with(|s| s.borrow().clone())
+}
+
 // --- Raycast op ---
 
 /// Cast a ray into the world and return the closest hit, if any, as JSON.
@@ -5862,6 +5915,7 @@ macro_rules! with_every_op {
             bsengine_is_mouse_up,
             bsengine_get_mouse_pos,
             bsengine_get_mouse_delta,
+            bsengine_get_touches,
             bsengine_raycast,
             bsengine_is_gamepad_button,
             bsengine_is_gamepad_button_down,

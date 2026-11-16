@@ -121,6 +121,7 @@ declare namespace Bsengine {
     function getTimerFraction(name: string): number;
     function getToneMapExposure(name: string): number;
     function getToneMapMode(name: string): number;
+    function getTouches(): unknown;
     function getTransform(name: string): unknown;
     function getTweenDuration(name: string): number;
     function getTweenEasing(name: string): number;

@@ -181,6 +181,17 @@ impl ApplicationHandler for BsWinitApp {
                     cp.y = position.y as f32;
                 }
             }
+            WindowEvent::Touch(touch) => {
+                use bsengine_input::convert::convert_touch;
+                use bsengine_input::TouchInput;
+                if let Some(mut events) = self
+                    .ecs_app
+                    .world_mut()
+                    .get_resource_mut::<Messages<TouchInput>>()
+                {
+                    events.write(convert_touch(&touch));
+                }
+            }
             WindowEvent::MouseWheel { delta, .. } => {
                 use bevy_ecs::message::Messages;
                 use bsengine_input::MouseWheel;

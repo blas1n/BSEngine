@@ -1,0 +1,84 @@
+{
+  "game": "mini-arena",
+  "scene": "assets/scenes/main.ron",
+  "actions": [
+    { "cmd": "step", "frames": 5 },
+    { "cmd": "touch", "id": 1, "event": "started", "x": 640, "y": 360 },
+    { "cmd": "step", "frames": 1 },
+    { "cmd": "touch", "id": 1, "event": "moved", "x": 700, "y": 420 },
+    {
+      "cmd": "wait_until",
+      "query": { "tool": "get_transform", "args": { "name": "Player" } },
+      "path": "z",
+      "op": ">=",
+      "value": 2.4,
+      "max_frames": 6000,
+      "label": "Player walked diagonally (finger dragged down-right, the S+D of basic-playthrough) into Enemy engagement range at z>=2.4"
+    },
+    { "cmd": "touch", "id": 1, "event": "ended", "x": 700, "y": 420 },
+    {
+      "cmd": "assert",
+      "query": { "tool": "get_transform", "args": { "name": "Player" } },
+      "path": "x",
+      "op": "<",
+      "value": 2.55,
+      "label": "Player stopped when the finger lifted, inside the Pickup's x-band (a drag that kept walking after the lift would overshoot here)"
+    },
+    { "cmd": "step", "frames": 2 },
+    { "cmd": "touch", "id": 2, "event": "started", "x": 900, "y": 300 },
+    { "cmd": "step", "frames": 2 },
+    { "cmd": "touch", "id": 2, "event": "ended", "x": 902, "y": 301 },
+    { "cmd": "step", "frames": 5 },
+    {
+      "cmd": "assert",
+      "query": { "tool": "get_transform", "args": { "name": "Enemy" } },
+      "path": "x",
+      "op": "exists",
+      "value": null,
+      "label": "Enemy survives the first tap: one hit of two. Had lifting the drag above counted as a tap, that would have been a hit too, and this tap the lethal second"
+    },
+    { "cmd": "touch", "id": 3, "event": "started", "x": 900, "y": 300 },
+    { "cmd": "step", "frames": 2 },
+    { "cmd": "touch", "id": 3, "event": "ended", "x": 900, "y": 300 },
+    { "cmd": "step", "frames": 5 },
+    {
+      "cmd": "assert",
+      "query": { "tool": "get_transform", "args": { "name": "Enemy" } },
+      "path": "x",
+      "op": "==",
+      "value": null,
+      "label": "Enemy destroyed after two taps, each a raycast melee hit (30 max shield, 15 dmg each)"
+    },
+    {
+      "cmd": "assert",
+      "query": { "tool": "get_transform", "args": { "name": "Pickup" } },
+      "path": "x",
+      "op": "exists",
+      "value": null,
+      "label": "Pickup exists before the walk (guards the wait below from passing vacuously)"
+    },
+    { "cmd": "touch", "id": 4, "event": "started", "x": 640, "y": 500 },
+    { "cmd": "step", "frames": 1 },
+    { "cmd": "touch", "id": 4, "event": "moved", "x": 640, "y": 420 },
+    {
+      "cmd": "wait_until",
+      "query": { "tool": "get_transform", "args": { "name": "Pickup" } },
+      "path": "x",
+      "op": "==",
+      "value": null,
+      "max_frames": 8000,
+      "label": "Player walked north (finger dragged up, the W of basic-playthrough) far enough to collect the Pickup"
+    },
+    { "cmd": "touch", "id": 4, "event": "ended", "x": 640, "y": 420 },
+    { "cmd": "step", "frames": 2 },
+    {
+      "cmd": "assert",
+      "query": { "tool": "get_transform", "args": { "name": "Player" } },
+      "path": "z",
+      "op": "<",
+      "value": -1.0,
+      "label": "Player ended north of the origin, having walked from (0,0) through the Enemy engagement to the Pickup's z-band"
+    },
+    { "cmd": "shutdown" }
+  ]
+}

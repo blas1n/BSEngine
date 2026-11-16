@@ -876,6 +876,10 @@ var Bsengine = {
     getMousePos:    ()     => { const v = Deno.core.ops.bsengine_get_mouse_pos(); return { x: v[0], y: v[1] }; },
     getMouseDelta:  ()     => { const v = Deno.core.ops.bsengine_get_mouse_delta(); return { x: v[0], y: v[1] }; },
 
+    // Touch: [{id, x, y, dx, dy, startX, startY, phase}], phase "began" |
+    // "moved" | "stationary" | "ended" | "canceled"
+    getTouches:     ()     => Deno.core.ops.bsengine_get_touches(),
+
     // Raycast: origin/{x,y,z}, dir/{x,y,z}, maxDist → {entityName, point, normal, distance} or null
     raycast:        (origin, dir, maxDist) =>
         Deno.core.ops.bsengine_raycast(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, maxDist),

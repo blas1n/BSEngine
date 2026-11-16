@@ -517,7 +517,8 @@ fn embedded_pak() -> Option<bsengine_asset::pak::Pak> {
 /// `init_resource` leaves them alone. A bad binding stops the game at start,
 /// as a manifest that does not parse does: an action bound to a typo would
 /// otherwise ship as a button that silently does nothing. `package` checks
-/// the same thing, so a packaged build never reaches this panic.
+/// the same thing, so a packaged build never reaches this panic. Also
+/// `[input] emulate_mouse_from_touch`, before the plugin for the same reason.
 pub(crate) fn insert_input_actions(app: &mut bevy_app::App, manifest: &ProjectManifest) {
     match manifest.input.actions() {
         Ok(actions) => {
@@ -525,6 +526,9 @@ pub(crate) fn insert_input_actions(app: &mut bevy_app::App, manifest: &ProjectMa
         }
         Err(e) => panic!("Cannot use project.toml's [input] table:\n{e}"),
     }
+    app.insert_resource(bsengine_input::TouchSettings {
+        emulate_mouse: manifest.input.emulate_mouse_from_touch,
+    });
 }
 
 /// `project.toml`'s `[localization]` tables, read (out of the archive in a

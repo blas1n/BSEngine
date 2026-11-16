@@ -98,7 +98,11 @@ adb logcat -s bsengine                                 # the game's log
 An emulator needs an image whose Vulkan wgpu accepts: android-35
 `google_apis;x86_64` with `-gpu host` draws; android-30 x86 has no Vulkan
 adapter and GLES 3.1 lacks downlevel features the renderer needs, and the
-android-37 16 KB preview image crash-loops its system server.
+android-37 16 KB preview image crash-loops its system server. On that
+android-35 image a `--debug` APK dies two seconds in with SIGSEGV inside the
+emulator's driver (`vulkan.ranchu.so`, `vk_common_SetDebugUtilsObjectNameEXT`);
+build without `--debug` there. Drive it with `adb shell input swipe x1 y1 x2 y2
+ms` and `input tap x y`: they arrive as real touches.
 
 The browser build's errors are in the page's console, not a terminal, and
 Chrome reports WebGPU's — a shader it rejects included — as *warnings* while

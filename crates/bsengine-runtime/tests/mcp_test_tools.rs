@@ -34,9 +34,33 @@ fn find<'a>(tools: &'a [McpTool], name: &str) -> &'a McpTool {
 }
 
 #[test]
-fn builds_fifteen_tools() {
+fn builds_sixteen_tools() {
     let tools = test_tools(test_registry());
-    assert_eq!(tools.len(), 15);
+    assert_eq!(tools.len(), 16);
+}
+
+/// `test_touch` reaches a running session and its runtime accepts the
+/// command; an event name the protocol does not know is refused, not
+/// silently dropped.
+#[test]
+fn a_touch_reaches_the_session() {
+    let tools = test_tools(test_registry());
+    let start = find(&tools, "test_session_start");
+    let out = (start.handler)(json!({"game": "cube-evader"}));
+    assert!(out.is_ok(), "{:?}", out.error);
+    let session_id = out.content["session_id"].as_str().unwrap().to_string();
+
+    let touch = find(&tools, "test_touch");
+    let out = (touch.handler)(
+        json!({"session_id": session_id, "id": 1, "event": "started", "x": 10.0, "y": 20.0}),
+    );
+    assert!(out.is_ok(), "{:?}", out.error);
+    let out = (touch.handler)(
+        json!({"session_id": session_id, "id": 1, "event": "lifted", "x": 10.0, "y": 20.0}),
+    );
+    assert!(!out.is_ok(), "an unknown touch event was accepted");
+
+    (find(&tools, "test_session_stop").handler)(json!({"session_id": session_id}));
 }
 
 #[test]

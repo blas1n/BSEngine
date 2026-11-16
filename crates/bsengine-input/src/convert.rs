@@ -1,3 +1,4 @@
+use crate::touch::{TouchEvent, TouchInput};
 use crate::types::{ElementState, KeyCode};
 use winit::event::ElementState as WinitState;
 use winit::keyboard::{KeyCode as WinitKeyCode, PhysicalKey};
@@ -79,6 +80,22 @@ pub fn convert_element_state(state: WinitState) -> ElementState {
     }
 }
 
+/// Maps a winit touch (`WindowEvent::Touch`) to BSEngine's `TouchInput`.
+pub fn convert_touch(touch: &winit::event::Touch) -> TouchInput {
+    use winit::event::TouchPhase as WinitPhase;
+    TouchInput {
+        id: touch.id,
+        event: match touch.phase {
+            WinitPhase::Started => TouchEvent::Started,
+            WinitPhase::Moved => TouchEvent::Moved,
+            WinitPhase::Ended => TouchEvent::Ended,
+            WinitPhase::Cancelled => TouchEvent::Cancelled,
+        },
+        x: touch.location.x,
+        y: touch.location.y,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -98,6 +115,28 @@ mod tests {
             winit::keyboard::NativeKeyCode::Unidentified,
         ));
         assert_eq!(result, KeyCode::Unknown);
+    }
+
+    #[test]
+    fn convert_touch_keeps_id_position_and_phase() {
+        use winit::event::{Touch, TouchPhase as WinitPhase};
+        for (phase, event) in [
+            (WinitPhase::Started, TouchEvent::Started),
+            (WinitPhase::Moved, TouchEvent::Moved),
+            (WinitPhase::Ended, TouchEvent::Ended),
+            (WinitPhase::Cancelled, TouchEvent::Cancelled),
+        ] {
+            let touch = Touch {
+                device_id: winit::event::DeviceId::dummy(),
+                phase,
+                location: winit::dpi::PhysicalPosition::new(12.5, 34.0),
+                force: None,
+                id: 9,
+            };
+            let converted = convert_touch(&touch);
+            assert_eq!(converted.event, event);
+            assert_eq!((converted.id, converted.x, converted.y), (9, 12.5, 34.0));
+        }
     }
 
     #[test]

@@ -165,8 +165,18 @@ impl ApplicationHandler for BsWinitApp {
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 use bevy_ecs::message::Messages;
-                use bsengine_input::convert::{convert_element_state, convert_key_code};
+                use bsengine_input::convert::convert_element_state;
+                #[cfg(not(target_os = "android"))]
+                use bsengine_input::convert::convert_key_code;
                 use bsengine_input::KeyInput;
+                // Android's Back button is a key with no physical code: see
+                // `convert_key_code_with_back`.
+                #[cfg(target_os = "android")]
+                let key_code = bsengine_input::convert::convert_key_code_with_back(
+                    event.physical_key,
+                    &event.logical_key,
+                );
+                #[cfg(not(target_os = "android"))]
                 let key_code = convert_key_code(event.physical_key);
                 let state = convert_element_state(event.state);
                 let text = event.text.map(|t| t.to_string());

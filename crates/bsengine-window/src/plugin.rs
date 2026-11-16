@@ -16,6 +16,8 @@ impl Plugin for WindowPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(self.descriptor.clone())
             .init_resource::<CursorPos>()
+            // `init_resource`: the runtime inserts `[ui] safe_area` first.
+            .init_resource::<bsengine_core::SafeArea>()
             .add_message::<WindowCreated>()
             .add_message::<WindowResized>()
             .add_message::<WindowClosed>()

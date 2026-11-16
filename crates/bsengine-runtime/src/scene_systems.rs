@@ -45,6 +45,8 @@ pub struct ProjectManifest {
 /// # UI text is drawn in the first; a character it lacks comes from the
 /// # next, and last from the built-in fonts (Latin, Greek, Cyrillic).
 /// fonts = ["assets/fonts/Title.ttf", "assets/fonts/NotoSansKR-Regular.otf"]
+/// # Anchored widgets keep clear of a phone's bars and cutout (default true).
+/// safe_area = true
 ///
 /// # While the locale is one of these (exactly, or by its language), its
 /// # fonts go in front of `fonts`.
@@ -57,7 +59,7 @@ pub struct ProjectManifest {
 /// [ui.font_families]
 /// title = ["assets/fonts/Title.ttf"]
 /// ```
-#[derive(Deserialize, Default)]
+#[derive(Deserialize)]
 pub struct UiSection {
     /// `.ttf`/`.otf` files, project-relative. Packaged like `extra_assets`.
     #[serde(default)]
@@ -71,6 +73,24 @@ pub struct UiSection {
     /// widget's `opts.font` gives. Packaged like `fonts`, every family's.
     #[serde(default)]
     pub font_families: std::collections::BTreeMap<String, Vec<String>>,
+    /// Whether anchored root UI widgets keep inside the safe area -- clear of
+    /// a phone's status bar, navigation bar and cutout. On unless set to
+    /// `false`; see [`bsengine_core::SafeArea`]. HUD lines always do.
+    #[serde(default = "enabled_by_default")]
+    pub safe_area: bool,
+}
+
+// Not derived: a derived `Default` would make an absent `[ui]` table's
+// `safe_area` false while an empty one's is true. Same rule as `[input]`.
+impl Default for UiSection {
+    fn default() -> Self {
+        Self {
+            fonts: Vec::new(),
+            locale_fonts: Default::default(),
+            font_families: Default::default(),
+            safe_area: enabled_by_default(),
+        }
+    }
 }
 
 /// `project.toml`'s `[localization]` table.
@@ -1369,6 +1389,29 @@ mod tests {
             empty.context_names().collect::<Vec<_>>(),
             "an absent [input] and an empty one agree"
         );
+    }
+
+    /// `[ui] safe_area` reaches the `SafeArea` resource through the order the
+    /// runtime uses -- inserted, then `WindowPlugin`'s `init_resource`, which
+    /// must leave it -- and is on when the project says nothing, whether the
+    /// `[ui]` table is absent or empty.
+    #[test]
+    fn ui_safe_area_reaches_the_window_plugin() {
+        let settle = |toml_text: &str| {
+            let manifest: super::ProjectManifest = toml::from_str(&format!(
+                "[project]\nname = \"t\"\nentry_scene = \"s.ron\"\n{toml_text}"
+            ))
+            .unwrap();
+            let mut app = bsengine_app::new_app();
+            crate::insert_ui_fonts(&mut app, ".", None, &manifest);
+            app.add_plugins(bsengine_window::WindowPlugin::default());
+            app.world()
+                .resource::<bsengine_core::SafeArea>()
+                .applies_to_ui
+        };
+        assert!(!settle("[ui]\nsafe_area = false\n"));
+        assert!(settle(""), "absent: on");
+        assert!(settle("[ui]\n"), "an empty [ui] agrees with an absent one");
     }
 
     /// `emulate_mouse_from_touch` reaches the input plugin's `TouchSettings`

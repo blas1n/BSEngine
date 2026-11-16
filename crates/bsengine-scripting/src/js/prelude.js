@@ -531,6 +531,8 @@ var Bsengine = {
     getTime:        ()                     => Deno.core.ops.bsengine_get_time(),
     getDeltaTime:   ()                     => Deno.core.ops.bsengine_get_delta_time(),
     getScreenSize:  ()                     => { const [w, h] = Deno.core.ops.bsengine_get_screen_size(); return { width: w, height: h }; },
+    // The window less a phone's status bar, navigation bar and cutout.
+    getSafeArea:    ()                     => { const [x, y, w, h] = Deno.core.ops.bsengine_get_safe_area(); return { x, y, width: w, height: h }; },
     setParent:      (child, parent)        => Deno.core.ops.bsengine_set_parent(child, parent),
     clearParent:      (child)   => Deno.core.ops.bsengine_clear_parent(child),
     getParent:        (name)    => { const r = Deno.core.ops.bsengine_get_parent(name); return JSON.parse(r); },

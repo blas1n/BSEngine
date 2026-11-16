@@ -1300,6 +1300,8 @@ dependencies = [
  "bsengine-core",
  "bsengine-ecs",
  "bsengine-input",
+ "jni 0.22.4",
+ "tracing",
  "winit",
 ]
 

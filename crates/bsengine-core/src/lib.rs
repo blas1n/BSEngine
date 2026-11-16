@@ -134,6 +134,8 @@ pub mod reflection_probe;
 pub mod root_motion;
 /// Remote procedure calls in flight, between the network and scripting layers.
 pub mod rpc_state;
+/// The part of the window system bars and cutouts leave uncovered.
+pub mod safe_area;
 /// Serializable save-game data resource.
 pub mod save_data;
 pub mod save_dir;
@@ -258,6 +260,7 @@ pub use reflect_validate::{ReflectValidate, Validate};
 pub use reflection_probe::{ReflectionProbe, MAX_REFLECTION_PROBES};
 pub use root_motion::RootMotion;
 pub use rpc_state::{OutgoingRpc, RpcCall, RpcQueues, RpcTarget};
+pub use safe_area::SafeArea;
 pub use save_data::SaveData;
 pub use save_dir::{SaveDir, SaveStore};
 pub use screen_size::ScreenSize;

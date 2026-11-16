@@ -660,6 +660,12 @@ pub(crate) fn insert_ui_fonts(
             .collect(),
     };
     app.insert_resource(fonts);
+    // `[ui] safe_area`, before `WindowPlugin`'s `init_resource`; the window
+    // layer fills in the insets themselves.
+    app.insert_resource(bsengine_core::SafeArea {
+        applies_to_ui: manifest.ui.safe_area,
+        ..bsengine_core::SafeArea::default()
+    });
 }
 
 fn read_manifest(project_dir: &str, pak: Option<&bsengine_asset::pak::Pak>) -> ProjectManifest {

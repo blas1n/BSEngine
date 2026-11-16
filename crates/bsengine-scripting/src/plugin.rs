@@ -3943,6 +3943,11 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
     if let Some(ss) = world.get_resource::<ScreenSize>() {
         SCREEN_SIZE_SNAPSHOT.with(|s| *s.borrow_mut() = (ss.width, ss.height));
     }
+    let safe_area = world
+        .get_resource::<bsengine_core::SafeArea>()
+        .map(|a| (a.left, a.top, a.right, a.bottom))
+        .unwrap_or_default();
+    crate::ops::SAFE_AREA_SNAPSHOT.with(|s| *s.borrow_mut() = safe_area);
     // Published for `bsengine-network`, which sends it as this peer's input but
     // cannot convert key codes to names itself -- that conversion lives here and
     // stays in one place.
@@ -8393,6 +8398,88 @@ function onUpdate(name) {
         app.update();
         let _ = std::fs::remove_file(&script_path);
         assert_eq!(x(&app), 1.0, "J is");
+    }
+
+    /// The window's `SafeArea` reaches a script's `Bsengine.getSafeArea()` as
+    /// the uncovered rectangle of the current window size, and follows a
+    /// change (a rotation) on the next frame. Uneven insets on every side, so
+    /// a swapped edge cannot pass.
+    #[test]
+    fn the_safe_area_reaches_a_script_as_a_rectangle() {
+        let script_path =
+            std::env::temp_dir().join(format!("bsengine_test_safe_area_{}.js", std::process::id()));
+        std::fs::write(
+            &script_path,
+            "function onUpdate(name) {\n\
+                 Bsengine.setHudText(\"area\", JSON.stringify(Bsengine.getSafeArea()));\n\
+                 Bsengine.setPosition(name, 0, 1, 0);\n\
+             }",
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.insert_resource(bsengine_core::ScreenSize {
+            width: 1080,
+            height: 2400,
+        });
+        app.insert_resource(bsengine_core::SafeArea {
+            left: 10.0,
+            top: 128.0,
+            right: 20.0,
+            bottom: 48.0,
+            applies_to_ui: true,
+        });
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
+        });
+        let entity = app
+            .world_mut()
+            .spawn((
+                Name("Hud".to_string()),
+                ScriptPath(
+                    script_path
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
+                Transform::default(),
+            ))
+            .id();
+        let mut frames = 0;
+        while app.world().get::<Transform>(entity).unwrap().position.y != 1.0 {
+            app.update();
+            frames += 1;
+            assert!(frames < 300, "the script never ran");
+        }
+        let seen = |app: &mut bevy_app::App| -> serde_json::Value {
+            app.update();
+            let text = app.world().resource::<HudTexts>().0.get("area").cloned();
+            serde_json::from_str(&text.expect("the script wrote the slot")).unwrap()
+        };
+        assert_eq!(
+            seen(&mut app),
+            serde_json::json!({"x": 10, "y": 128, "width": 1050, "height": 2224})
+        );
+
+        // Rotated to landscape: the cutout now on the left, the bars moved.
+        app.insert_resource(bsengine_core::ScreenSize {
+            width: 2400,
+            height: 1080,
+        });
+        app.insert_resource(bsengine_core::SafeArea {
+            left: 128.0,
+            top: 24.0,
+            right: 0.0,
+            bottom: 0.0,
+            applies_to_ui: true,
+        });
+        let _ = std::fs::remove_file(&script_path);
+        assert_eq!(
+            seen(&mut app),
+            serde_json::json!({"x": 128, "y": 24, "width": 2272, "height": 1056})
+        );
     }
 
     /// A touch written as the window layer writes it reaches a script's

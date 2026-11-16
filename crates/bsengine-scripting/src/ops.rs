@@ -1616,6 +1616,9 @@ thread_local! {
     pub(crate) static PAUSED_SNAPSHOT: RefCell<bool> = const { RefCell::new(false) };
 
     pub(crate) static SCREEN_SIZE_SNAPSHOT: RefCell<(u32, u32)> = const { RefCell::new((1280, 720)) };
+    // The window's `SafeArea` insets: (left, top, right, bottom).
+    pub(crate) static SAFE_AREA_SNAPSHOT: RefCell<(f32, f32, f32, f32)> =
+        const { RefCell::new((0.0, 0.0, 0.0, 0.0)) };
 
     // name → linear velocity Vec3 (only for entities with a physics body)
     pub(crate) static VELOCITY_SNAPSHOT: RefCell<HashMap<String, Vec3>> =
@@ -4319,6 +4322,25 @@ pub fn bsengine_get_screen_size() -> Vec<u32> {
     })
 }
 
+/// Get the part of the window the system bars and a camera cutout leave
+/// uncovered, as `[x, y, width, height]` in window pixels -- Unity's
+/// `Screen.safeArea`. The whole window on desktop and in a browser.
+#[script_op]
+#[serde]
+pub fn bsengine_get_safe_area() -> Vec<f32> {
+    let (w, h) = SCREEN_SIZE_SNAPSHOT.with(|s| *s.borrow());
+    let (left, top, right, bottom) = SAFE_AREA_SNAPSHOT.with(|s| *s.borrow());
+    let area = bsengine_core::SafeArea {
+        left,
+        top,
+        right,
+        bottom,
+        ..bsengine_core::SafeArea::default()
+    };
+    let (x, y, width, height) = area.rect(w as f32, h as f32);
+    vec![x, y, width, height]
+}
+
 /// Queue attaching an entity as the child of another entity.
 #[script_op(fast)]
 pub fn bsengine_set_parent(#[string] child: String, #[string] parent: String) {
@@ -5820,6 +5842,7 @@ macro_rules! with_every_op {
             bsengine_get_time,
             bsengine_get_delta_time,
             bsengine_get_screen_size,
+            bsengine_get_safe_area,
             bsengine_set_parent,
             bsengine_clear_parent,
             bsengine_get_parent,

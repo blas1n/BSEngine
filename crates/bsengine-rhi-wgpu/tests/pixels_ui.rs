@@ -95,6 +95,83 @@ fn render_settled(h: &mut Harness, scene: &Scene) -> common::Pixels {
     h.render(scene)
 }
 
+/// Insets a phone's status bar and a side cutout would give, scaled to the
+/// harness's 200x150 frame: large enough that "inside the safe area" and "at
+/// the window's corner" cannot describe the same pixels.
+fn insets(applies_to_ui: bool) -> bsengine_core::SafeArea {
+    bsengine_core::SafeArea {
+        left: 40.0,
+        top: 60.0,
+        right: 0.0,
+        bottom: 0.0,
+        applies_to_ui,
+    }
+}
+
+/// HUD lines start inside the safe area -- and do so even with `[ui]
+/// safe_area = false`, since nothing else can move them.
+#[test]
+fn hud_lines_are_drawn_inside_the_safe_area() {
+    let mut h = Harness::new();
+    let blank = h.render(&Scene::default());
+    let hud_scene = |ui: UiState| Scene {
+        hud: HashMap::from([("0".to_string(), "SCORE 1234".to_string())]),
+        ui,
+        ..Scene::default()
+    };
+    let at_corner = changed_bounds(&h.render(&hud_scene(UiState::default())), &blank)
+        .expect("premise: the HUD draws");
+    assert!(
+        at_corner.0 < 20 && at_corner.1 < 20,
+        "premise: with no insets the HUD starts near the corner, at {at_corner:?}"
+    );
+    for applies_to_ui in [true, false] {
+        let ui = UiState {
+            safe_area: insets(applies_to_ui),
+            ..UiState::default()
+        };
+        let at = changed_bounds(&h.render(&hud_scene(ui)), &blank).expect("the HUD draws");
+        assert!(
+            at.0 >= 40 && at.1 >= 60,
+            "HUD lines must start inside the 40/60 insets (applies_to_ui = {applies_to_ui}), \
+             but the changed pixels start at {at:?}"
+        );
+    }
+}
+
+/// A top-left button draws inside the safe area, and at the window's corner
+/// again when the project turns `[ui] safe_area` off.
+#[test]
+fn an_anchored_widget_is_drawn_inside_the_safe_area() {
+    let mut h = Harness::new();
+    let blank = render_settled(&mut h, &Scene::default());
+    let with = |area: bsengine_core::SafeArea| {
+        let mut ui = UiState {
+            safe_area: area,
+            ..UiState::default()
+        };
+        ui.set_widget(button("b", 60.0, 30.0));
+        Scene {
+            ui,
+            ..Scene::default()
+        }
+    };
+    let inside = changed_bounds(&render_settled(&mut h, &with(insets(true))), &blank)
+        .expect("the button draws");
+    assert!(
+        inside.0 >= 36 && inside.1 >= 56,
+        "a top-left button must draw from the safe area's corner (40, 60), but the \
+         changed pixels start at {inside:?}"
+    );
+    let off = changed_bounds(&render_settled(&mut h, &with(insets(false))), &blank)
+        .expect("the button draws");
+    assert!(
+        off.0 < 20 && off.1 < 20,
+        "with the safe area off for UI the button belongs at the window's corner, \
+         but the changed pixels start at {off:?}"
+    );
+}
+
 #[test]
 fn a_container_moves_its_child_away_from_the_childs_own_coordinates() {
     let mut h = Harness::new();

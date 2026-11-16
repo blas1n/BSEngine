@@ -16,6 +16,10 @@ winit.workspace = true
 # (no Java of our own), handed the `AndroidApp` the entry point receives.
 [target.'cfg(target_os = "android")'.dependencies]
 winit = { workspace = true, features = ["android-native-activity"] }
+# The safe area is Java's `WindowInsets`; the version android-activity
+# already pulls in, so nothing new is vendored.
+jni = "0.22.4"
+tracing.workspace = true
 
 [dev-dependencies]
 bsengine-app.workspace = true

@@ -550,6 +550,12 @@ pub struct UiState {
     /// is the UI's own fonts. Inherited through `parents` as the translate
     /// mode is: see [`Self::font_of`].
     pub fonts: HashMap<String, String>,
+    /// The window's [`crate::SafeArea`], copied in by the renderer every
+    /// frame. Here rather than read beside the UI because the code that draws
+    /// it already receives this resource and has no room for another: the
+    /// frame's render system is at Bevy's parameter ceiling. Engine-owned --
+    /// no script op writes it.
+    pub safe_area: crate::SafeArea,
 }
 
 impl UiState {
@@ -806,6 +812,12 @@ impl UiState {
     /// Pure: no GPU, no window, no egui. Every layout rule is testable on a
     /// machine with no display, which is how [`UiAnchor::resolve`] is tested
     /// and for the same reason.
+    ///
+    /// Root widgets anchor to [`Self::safe_area`]'s rectangle when it
+    /// `applies_to_ui`, the whole window otherwise: on a phone a top-left
+    /// anchor then sits below the status bar, a bottom one above the
+    /// navigation bar, and a full-screen stretch spans what the player can
+    /// see. Children follow their containers, so only roots need it.
     pub fn layout(&self, screen_w: f32, screen_h: f32) -> UiLayout {
         let mut out = UiLayout::default();
         // Children grouped by parent, in declaration order. Declaration order
@@ -818,16 +830,21 @@ impl UiState {
                 children.entry(parent).or_default().push(w);
             }
         }
+        let (area_x, area_y, area_w, area_h) = if self.safe_area.applies_to_ui {
+            self.safe_area.rect(screen_w, screen_h)
+        } else {
+            (0.0, 0.0, screen_w, screen_h)
+        };
         for w in &self.widgets {
             if self.effective_parent(w.id()).is_none() {
                 let (x, y, width, height) =
                     w.anchor()
-                        .resolve(w.x(), w.y(), w.width(), w.height(), screen_w, screen_h);
+                        .resolve(w.x(), w.y(), w.width(), w.height(), area_w, area_h);
                 self.place(
                     w,
                     UiRect {
-                        x,
-                        y,
+                        x: area_x + x,
+                        y: area_y + y,
                         width,
                         height,
                     },
@@ -1163,6 +1180,99 @@ mod tests {
             st.set_parent(k.id(), "box");
         }
         st
+    }
+
+    /// A phone held upright: status bar and cutout on top, navigation bar
+    /// below, and uneven sides so a left/right swap cannot pass.
+    fn phone_insets(applies_to_ui: bool) -> crate::SafeArea {
+        crate::SafeArea {
+            left: 10.0,
+            top: 128.0,
+            right: 20.0,
+            bottom: 48.0,
+            applies_to_ui,
+        }
+    }
+
+    fn anchored(id: &str, anchor: UiAnchor, x: f32, y: f32, w: f32, h: f32) -> UiWidget {
+        let mut b = button(id, w, h);
+        if let UiWidget::Button {
+            x: bx,
+            y: by,
+            anchor: ba,
+            ..
+        } = &mut b
+        {
+            (*bx, *by, *ba) = (x, y, anchor);
+        }
+        b
+    }
+
+    /// Root anchors resolve against the safe area: a top-left button moves
+    /// below the status bar, a bottom-right one above the navigation bar and
+    /// in from the right inset, a full stretch spans exactly the safe area,
+    /// and a container's child moves with its container.
+    #[test]
+    fn root_widgets_anchor_to_the_safe_area() {
+        let mut st = UiState::default();
+        st.set_widget(anchored("tl", UiAnchor::TOP_LEFT, 5.0, 6.0, 40.0, 20.0));
+        st.set_widget(anchored(
+            "br",
+            UiAnchor::point(1.0, 1.0),
+            -110.0,
+            -50.0,
+            100.0,
+            40.0,
+        ));
+        let full = UiAnchor {
+            min_x: 0.0,
+            min_y: 0.0,
+            max_x: 1.0,
+            max_y: 1.0,
+        };
+        st.set_widget(anchored("full", full, 0.0, 0.0, 0.0, 0.0));
+        st.set_widget(container("box", UiDirection::Vertical));
+        st.set_widget(button("kid", 10.0, 10.0));
+        st.set_parent("kid", "box");
+        let plain = st.layout(W, H);
+
+        st.safe_area = phone_insets(true);
+        let r = st.layout(W, H);
+        // The premise: the insets moved something at all.
+        assert_ne!(r["tl"].y, plain["tl"].y);
+
+        assert_eq!((r["tl"].x, r["tl"].y), (15.0, 134.0));
+        assert_eq!(
+            (r["br"].x, r["br"].y),
+            (10.0 + (W - 30.0) - 110.0, 128.0 + (H - 176.0) - 50.0)
+        );
+        assert_eq!(
+            (r["full"].x, r["full"].y, r["full"].width, r["full"].height),
+            (10.0, 128.0, W - 30.0, H - 176.0)
+        );
+        assert_eq!(
+            (r["kid"].x - plain["kid"].x, r["kid"].y - plain["kid"].y),
+            (10.0, 128.0),
+            "a child follows its container"
+        );
+    }
+
+    /// `[ui] safe_area = false`: the insets are known but roots anchor to the
+    /// whole window, exactly as with no insets.
+    #[test]
+    fn with_safe_area_off_widgets_anchor_to_the_whole_window() {
+        let mut st = UiState::default();
+        st.set_widget(anchored(
+            "br",
+            UiAnchor::point(1.0, 1.0),
+            -110.0,
+            -50.0,
+            100.0,
+            40.0,
+        ));
+        let plain = st.layout(W, H);
+        st.safe_area = phone_insets(false);
+        assert_eq!(st.layout(W, H)["br"], plain["br"]);
     }
 
     /// Three columns of a 400-wide container with a 10px gap: each column is

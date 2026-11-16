@@ -1721,10 +1721,27 @@ impl Plugin for RenderPlugin {
                     crate::realtime_gi::feed_baked_probes,
                     crate::realtime_gi::feed_ssgi,
                     sync_ui_fonts,
+                    sync_safe_area,
                     render_frame,
                 )
                     .chain(),
             );
+    }
+}
+
+/// Copies the window's [`bsengine_core::SafeArea`] into [`UiState`], where
+/// `render_frame` lays out the UI and places the HUD: that function has no
+/// room for another parameter (see its comment). Chained right before it, so
+/// a rotation's new insets reach the very frame drawn at the new size.
+fn sync_safe_area(
+    safe_area: Option<Res<bsengine_core::SafeArea>>,
+    ui_state: Option<ResMut<UiState>>,
+) {
+    let (Some(safe_area), Some(mut ui_state)) = (safe_area, ui_state) else {
+        return;
+    };
+    if ui_state.safe_area != *safe_area {
+        ui_state.safe_area = *safe_area;
     }
 }
 
@@ -1739,6 +1756,35 @@ mod tests {
     use bsengine_rhi_wgpu::{GpuMeshRegistry, Vertex, WgpuRHIPlugin};
     use bsengine_window::WindowResized;
     use glam::Vec3;
+
+    /// The window's insets reach `UiState`, where the frame lays out the UI
+    /// and places the HUD, and a later change (a rotation) follows.
+    #[test]
+    fn the_safe_area_is_copied_into_the_ui_state() {
+        let mut app = new_app();
+        app.init_resource::<bsengine_core::UiState>();
+        let area = bsengine_core::SafeArea {
+            left: 1.0,
+            top: 2.0,
+            right: 3.0,
+            bottom: 4.0,
+            applies_to_ui: false,
+        };
+        app.insert_resource(area);
+        app.add_systems(bevy_app::Update, super::sync_safe_area);
+        app.update();
+        assert_eq!(
+            app.world().resource::<bsengine_core::UiState>().safe_area,
+            area
+        );
+        let rotated = bsengine_core::SafeArea { top: 9.0, ..area };
+        app.insert_resource(rotated);
+        app.update();
+        assert_eq!(
+            app.world().resource::<bsengine_core::UiState>().safe_area,
+            rotated
+        );
+    }
 
     /// Every texture a chunk's `TerrainSplat` names reaches its draw call, in
     /// the slot of its own kind -- distinct ids throughout, so one kind's ids

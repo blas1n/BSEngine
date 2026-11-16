@@ -108,6 +108,7 @@ declare namespace Bsengine {
     function getRightVector(name: string): unknown;
     function getRotation(name: string): unknown;
     function getRoughness(name: string): number;
+    function getSafeArea(): unknown;
     function getSaveField(name: string, key: string): string;
     function getScale(name: string): unknown;
     function getScreenSize(): unknown;

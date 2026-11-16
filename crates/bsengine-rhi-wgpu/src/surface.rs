@@ -10638,11 +10638,15 @@ impl WgpuSurface {
         // dock layout, not the whole window — anchor the HUD to that
         // panel's top-left instead of the window's, or "Fell! Retry" etc.
         // paint under the toolbar/other panels instead of over the game.
+        // Outside the editor, inside the safe area -- always, whatever
+        // `[ui] safe_area` says: a script cannot place HUD lines, so the
+        // engine must, and on a phone the window's top-left is under the
+        // status bar (zero insets on desktop leave this at (8, 8)).
         let hud_offset = inspector
             .as_ref()
             .filter(|i| i.editor_mode)
             .map(|i| (i.viewport_pos[0] + 8.0, i.viewport_pos[1] + 8.0))
-            .unwrap_or((8.0, 8.0));
+            .unwrap_or((ui_state.safe_area.left + 8.0, ui_state.safe_area.top + 8.0));
         // Under HDR10 the chain writes the scRGB frame, which `PqOutput`
         // encodes into `view` once the UI is drawn (below).
         let frame_view = self.pq_output.as_ref().map_or(&view, |pq| pq.frame_view());

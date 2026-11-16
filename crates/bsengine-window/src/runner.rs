@@ -20,6 +20,38 @@ struct BsWinitApp {
     /// The `AppExit` that ended the loop, which [`winit_runner`] returns: an
     /// error one (no GPU surface, say) must reach the process's exit status.
     exit: AppExit,
+    /// Whether the safe area must be read again: set when the window appears
+    /// or is resized (a rotation moves the bars), cleared once the system
+    /// answers. Android only reports insets once the window's view is
+    /// attached, which can be a few frames after the window exists.
+    #[cfg(target_os = "android")]
+    safe_area_pending: bool,
+}
+
+impl BsWinitApp {
+    /// Reads the safe area if it is pending, into [`bsengine_core::SafeArea`]
+    /// -- the insets only: whether UI follows them is the project's setting,
+    /// which this keeps.
+    #[cfg(target_os = "android")]
+    fn refresh_safe_area(&mut self) {
+        if !self.safe_area_pending {
+            return;
+        }
+        let Some((left, top, right, bottom)) = crate::android::safe_area_insets() else {
+            return;
+        };
+        self.safe_area_pending = false;
+        if let Some(mut area) = self
+            .ecs_app
+            .world_mut()
+            .get_resource_mut::<bsengine_core::SafeArea>()
+        {
+            (area.left, area.top, area.right, area.bottom) = (left, top, right, bottom);
+            tracing::info!(
+                "safe area: insets left {left}, top {top}, right {right}, bottom {bottom}"
+            );
+        }
+    }
 }
 
 impl BsWinitApp {
@@ -68,6 +100,10 @@ impl ApplicationHandler for BsWinitApp {
                 .expect("Failed to create window"),
         );
         self.window = Some(window.clone());
+        #[cfg(target_os = "android")]
+        {
+            self.safe_area_pending = true;
+        }
         if let Some(mut gate) = self
             .ecs_app
             .world_mut()
@@ -121,6 +157,10 @@ impl ApplicationHandler for BsWinitApp {
                 if let Some(mut ss) = self.ecs_app.world_mut().get_resource_mut::<ScreenSize>() {
                     ss.width = size.width;
                     ss.height = size.height;
+                }
+                #[cfg(target_os = "android")]
+                {
+                    self.safe_area_pending = true;
                 }
             }
             WindowEvent::KeyboardInput { event, .. } => {
@@ -214,6 +254,8 @@ impl ApplicationHandler for BsWinitApp {
                     }
                     return;
                 }
+                #[cfg(target_os = "android")]
+                self.refresh_safe_area();
                 self.ecs_app.update();
 
                 // Both of the messages' buffers, as Bevy's own runners read
@@ -278,6 +320,8 @@ pub fn winit_runner(app: App) -> AppExit {
         window: None,
         started: false,
         exit: AppExit::Success,
+        #[cfg(target_os = "android")]
+        safe_area_pending: false,
     };
 
     // A page's event loop is the browser's: `run_app` would escape it by

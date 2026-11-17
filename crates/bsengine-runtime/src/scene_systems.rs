@@ -47,6 +47,9 @@ pub struct ProjectManifest {
 /// fonts = ["assets/fonts/Title.ttf", "assets/fonts/NotoSansKR-Regular.otf"]
 /// # Anchored widgets keep clear of a phone's bars and cutout (default true).
 /// safe_area = true
+/// # The UI grows with the window's shorter side, against the [window] size
+/// # (default); or "none", or a fixed number.
+/// scale = "reference"
 ///
 /// # While the locale is one of these (exactly, or by its language), its
 /// # fonts go in front of `fonts`.
@@ -78,6 +81,36 @@ pub struct UiSection {
     /// `false`; see [`bsengine_core::SafeArea`]. HUD lines always do.
     #[serde(default = "enabled_by_default")]
     pub safe_area: bool,
+    /// How the UI is sized against the window; see
+    /// [`bsengine_core::UiScale`] and [`UiSection::ui_scale`].
+    #[serde(default)]
+    pub scale: UiScaleSetting,
+}
+
+/// `[ui] scale` as written: a word, or a fixed multiplier.
+///
+/// ```toml
+/// [ui]
+/// scale = "reference"   # the default: against the [window] size
+/// scale = "none"        # 1:1 with the window's pixels
+/// scale = 1.5           # always x1.5
+/// ```
+///
+/// Kept as written and read by [`UiSection::ui_scale`], so that a typo is an
+/// error that names it instead of a serde "did not match any variant".
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum UiScaleSetting {
+    /// `"reference"` or `"none"`.
+    Word(String),
+    /// A fixed multiplier.
+    Factor(f32),
+}
+
+impl Default for UiScaleSetting {
+    fn default() -> Self {
+        UiScaleSetting::Word("reference".to_string())
+    }
 }
 
 // Not derived: a derived `Default` would make an absent `[ui]` table's
@@ -89,7 +122,41 @@ impl Default for UiSection {
             locale_fonts: Default::default(),
             font_families: Default::default(),
             safe_area: enabled_by_default(),
+            scale: UiScaleSetting::default(),
         }
+    }
+}
+
+impl UiSection {
+    /// The [`bsengine_core::UiScale`] this table asks for, against the design
+    /// size `[window]` gives. An unknown word, or a multiplier that is zero,
+    /// negative or not a number, is an error -- the game would otherwise start
+    /// at a scale nobody wrote.
+    pub fn ui_scale(&self, window: &WindowSection) -> Result<bsengine_core::UiScale, String> {
+        use bsengine_core::UiScaleMode;
+        let mode = match &self.scale {
+            UiScaleSetting::Word(word) => match word.as_str() {
+                "reference" => UiScaleMode::Reference,
+                "none" => UiScaleMode::Off,
+                other => {
+                    return Err(format!(
+                        "[ui] scale: unknown value {other:?}; expected \"reference\", \
+                         \"none\" or a number above 0"
+                    ))
+                }
+            },
+            UiScaleSetting::Factor(f) if f.is_finite() && *f > 0.0 => UiScaleMode::Fixed(*f),
+            UiScaleSetting::Factor(f) => {
+                return Err(format!(
+                    "[ui] scale: {f} is not a usable multiplier; expected \"reference\", \
+                     \"none\" or a number above 0"
+                ))
+            }
+        };
+        Ok(bsengine_core::UiScale {
+            mode,
+            reference: (window.width as f32, window.height as f32),
+        })
     }
 }
 
@@ -1412,6 +1479,48 @@ mod tests {
         assert!(!settle("[ui]\nsafe_area = false\n"));
         assert!(settle(""), "absent: on");
         assert!(settle("[ui]\n"), "an empty [ui] agrees with an absent one");
+    }
+
+    fn scale_of(toml_text: &str) -> Result<bsengine_core::UiScale, String> {
+        let manifest: super::ProjectManifest = toml::from_str(&format!(
+            "[project]\nname = \"t\"\nentry_scene = \"s.ron\"\n{toml_text}"
+        ))
+        .unwrap();
+        manifest.ui.ui_scale(&manifest.window)
+    }
+
+    /// Every form of `[ui] scale` reaches the resource, with the `[window]`
+    /// size as the design size -- a value distinct from the default so a
+    /// field that fell back would show -- and a project that says nothing is
+    /// "reference", whether `[ui]` is absent or empty.
+    #[test]
+    fn ui_scale_is_read_with_the_window_as_the_design_size() {
+        use bsengine_core::UiScaleMode;
+        let window = "[window]\nwidth = 1920\nheight = 1080\n";
+        let read = |ui: &str| scale_of(&format!("{window}{ui}")).unwrap();
+        assert_eq!(read("").reference, (1920.0, 1080.0));
+        assert_eq!(read("").mode, UiScaleMode::Reference);
+        assert_eq!(read("[ui]\n").mode, UiScaleMode::Reference);
+        assert_eq!(
+            read("[ui]\nscale = \"reference\"\n").mode,
+            UiScaleMode::Reference
+        );
+        assert_eq!(read("[ui]\nscale = \"none\"\n").mode, UiScaleMode::Off);
+        assert_eq!(read("[ui]\nscale = 1.5\n").mode, UiScaleMode::Fixed(1.5));
+        // An integer is a number too.
+        assert_eq!(read("[ui]\nscale = 2\n").mode, UiScaleMode::Fixed(2.0));
+    }
+
+    /// A typo or a multiplier that cannot work is an error that names it,
+    /// not a game that starts at a scale nobody wrote.
+    #[test]
+    fn a_bad_ui_scale_is_an_error_that_names_it() {
+        let err = scale_of("[ui]\nscale = \"larg\"\n").expect_err("unknown word");
+        assert!(err.contains("\"larg\""), "{err}");
+        for bad in ["0", "-1.5"] {
+            let err = scale_of(&format!("[ui]\nscale = {bad}\n")).expect_err(bad);
+            assert!(err.contains("not a usable multiplier"), "{bad}: {err}");
+        }
     }
 
     /// `emulate_mouse_from_touch` reaches the input plugin's `TouchSettings`

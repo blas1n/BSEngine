@@ -983,7 +983,18 @@ fn render_frame(
             let layout = state.layout(w, h);
             // Negated: a wheel pushed forward scrolls the content up, which is
             // what every one of the reference engines and every browser does.
-            state.scroll_by(&layout, cursor_x, cursor_y, 0.0, -wheel * WHEEL_PIXELS);
+            //
+            // The layout is in UI units and the cursor is in pixels: without
+            // this the wheel hit-tests a container where it would be at scale 1,
+            // which on a phone is the wrong place by the scale.
+            let scale = state.scale.get();
+            state.scroll_by(
+                &layout,
+                cursor_x / scale,
+                cursor_y / scale,
+                0.0,
+                -wheel * WHEEL_PIXELS,
+            );
         }
     }
     let empty_ui = UiState::default();
@@ -1722,10 +1733,39 @@ impl Plugin for RenderPlugin {
                     crate::realtime_gi::feed_ssgi,
                     sync_ui_fonts,
                     sync_safe_area,
+                    sync_ui_scale,
                     render_frame,
                 )
                     .chain(),
             );
+    }
+}
+
+/// Works out this frame's UI scale (`[ui] scale`) from the *surface's* size and
+/// puts it in [`UiState`], where `render_frame` lays out and draws the UI.
+///
+/// The surface's size, not `ScreenSize`: that resource starts as the window's
+/// logical size and only becomes the framebuffer's when the first `Resized`
+/// arrives, which on a phone is a few frames in -- the UI would be drawn at the
+/// wrong scale for them, with its fonts rebuilt twice. In the editor the scale
+/// is always 1: its panels are egui laid out in pixels, and the game's own UI
+/// draws inside them.
+fn sync_ui_scale(
+    surface: Option<Res<WgpuSurfaceResource>>,
+    scale: Option<Res<bsengine_core::UiScale>>,
+    inspector: Option<Res<InspectorState>>,
+    ui_state: Option<ResMut<UiState>>,
+) {
+    let (Some(surface), Some(mut ui_state)) = (surface, ui_state) else {
+        return;
+    };
+    let in_editor = inspector.is_some_and(|i| i.editor_mode);
+    let factor = match (&scale, in_editor) {
+        (Some(scale), false) => scale.factor(surface.0.width() as f32, surface.0.height() as f32),
+        _ => bsengine_core::UiScaleFactor::default(),
+    };
+    if ui_state.scale != factor {
+        ui_state.scale = factor;
     }
 }
 
@@ -1756,6 +1796,120 @@ mod tests {
     use bsengine_rhi_wgpu::{GpuMeshRegistry, Vertex, WgpuRHIPlugin};
     use bsengine_window::WindowResized;
     use glam::Vec3;
+
+    /// The UI scale is worked out from the real surface's size against the
+    /// design size, reaches `UiState`, and follows a project that turns it off
+    /// -- and the editor, whose egui is always 1:1. The surface is 16x16 and
+    /// the design 8x8, so the rule gives x2; the premise is that it did.
+    #[test]
+    fn the_ui_scale_is_worked_out_from_the_surface() {
+        let mut app = new_app();
+        app.init_resource::<bsengine_core::UiState>();
+        with_surface(&mut app);
+        app.insert_resource(bsengine_core::UiScale {
+            mode: bsengine_core::UiScaleMode::Reference,
+            reference: (8.0, 8.0),
+        });
+        app.add_systems(bevy_app::Update, super::sync_ui_scale);
+        let scale =
+            |app: &bevy_app::App| app.world().resource::<bsengine_core::UiState>().scale.get();
+
+        app.update();
+        assert_eq!(scale(&app), 2.0, "premise: the rule gave x2");
+
+        app.insert_resource(bsengine_core::UiScale {
+            mode: bsengine_core::UiScaleMode::Off,
+            reference: (8.0, 8.0),
+        });
+        app.update();
+        assert_eq!(scale(&app), 1.0, "[ui] scale = \"none\"");
+
+        app.insert_resource(bsengine_core::UiScale {
+            mode: bsengine_core::UiScaleMode::Reference,
+            reference: (8.0, 8.0),
+        });
+        let mut editing = bsengine_core::InspectorState::default();
+        editing.editor_mode = true;
+        app.insert_resource(editing);
+        app.update();
+        assert_eq!(scale(&app), 1.0, "the editor is always 1:1");
+    }
+
+    /// The wheel finds its scroll container with the cursor converted to UI
+    /// units: the container is 8x8 units at the corner, the surface 16x16
+    /// pixels at x2, and the cursor at pixel (10, 10) is unit (5, 5) -- inside.
+    /// Read as units it would be (10, 10): outside, and nothing scrolls. The
+    /// same scene with scaling off is the premise, and the mirror: there (10,
+    /// 10) *is* outside, so the offset stays 0.
+    #[test]
+    fn the_wheel_finds_its_scroll_container_at_a_scale() {
+        use bsengine_core::{UiAlign, UiAnchor, UiDirection, UiScale, UiScaleMode, UiWidget};
+        let scrolled = |mode: UiScaleMode| -> f32 {
+            let mut app = new_app();
+            app.add_plugins(bsengine_asset::AssetPlugin);
+            app.add_plugins(WgpuRHIPlugin::windowed());
+            app.add_plugins(RenderPlugin);
+            with_surface(&mut app);
+            app.insert_resource(UiScale {
+                mode,
+                reference: (8.0, 8.0),
+            });
+            app.insert_resource(bsengine_input::MouseState {
+                position: (10.0, 10.0),
+                delta: (0.0, 0.0),
+                // Backwards: content scrolls down, the offset grows. A forward
+                // notch (+1) would ask for a negative offset, which is clamped
+                // to 0 -- and the test would read 0 whether or not the cursor
+                // found the container.
+                scroll_delta: -1.0,
+            });
+            {
+                let mut ui = app.world_mut().resource_mut::<bsengine_core::UiState>();
+                ui.set_widget(UiWidget::Container {
+                    id: "list".into(),
+                    x: 0.0,
+                    y: 0.0,
+                    width: 8.0,
+                    height: 8.0,
+                    anchor: UiAnchor::TOP_LEFT,
+                    direction: UiDirection::Vertical,
+                    spacing: 0.0,
+                    padding: 0.0,
+                    align: UiAlign::Stretch,
+                    scrollable: true,
+                });
+                // 3 x 6 units of content in an 8-unit container: it overflows,
+                // so there is something to scroll.
+                for id in ["a", "b", "c"] {
+                    ui.set_widget(UiWidget::Button {
+                        id: id.into(),
+                        label: id.into(),
+                        x: 0.0,
+                        y: 0.0,
+                        width: 8.0,
+                        height: 6.0,
+                        anchor: UiAnchor::TOP_LEFT,
+                    });
+                    ui.set_parent(id, "list");
+                }
+            }
+            app.update();
+            app.world()
+                .resource::<bsengine_core::UiState>()
+                .scroll_offsets
+                .get("list")
+                .map_or(0.0, |o| o.1)
+        };
+        assert_eq!(
+            scrolled(UiScaleMode::Off),
+            0.0,
+            "premise: at x1 the cursor at (10, 10) is outside the 8x8 container"
+        );
+        assert!(
+            scrolled(UiScaleMode::Reference) > 0.0,
+            "at x2 the same pixel is inside it, and the wheel must scroll it"
+        );
+    }
 
     /// The window's insets reach `UiState`, where the frame lays out the UI
     /// and places the HUD, and a later change (a rotation) follows.

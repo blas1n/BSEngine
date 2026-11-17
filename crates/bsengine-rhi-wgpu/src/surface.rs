@@ -10642,11 +10642,19 @@ impl WgpuSurface {
         // `[ui] safe_area` says: a script cannot place HUD lines, so the
         // engine must, and on a phone the window's top-left is under the
         // status bar (zero insets on desktop leave this at (8, 8)).
+        //
+        // In UI units, like everything egui draws below: the insets are
+        // pixels, the 8 is a unit, and the frame is drawn at `ui_scale`
+        // pixels per unit (`[ui] scale`). The editor's own egui runs at 1.
+        let ui_scale = ui_state.scale.get();
         let hud_offset = inspector
             .as_ref()
             .filter(|i| i.editor_mode)
             .map(|i| (i.viewport_pos[0] + 8.0, i.viewport_pos[1] + 8.0))
-            .unwrap_or((ui_state.safe_area.left + 8.0, ui_state.safe_area.top + 8.0));
+            .unwrap_or((
+                ui_state.safe_area.left / ui_scale + 8.0,
+                ui_state.safe_area.top / ui_scale + 8.0,
+            ));
         // Under HDR10 the chain writes the scRGB frame, which `PqOutput`
         // encodes into `view` once the UI is drawn (below).
         let frame_view = self.pq_output.as_ref().map_or(&view, |pq| pq.frame_view());
@@ -10697,9 +10705,14 @@ impl WgpuSurface {
             || inspector.is_some();
         let mut clicked = std::collections::HashSet::<String>::new();
         if has_ui {
+            // In UI units: egui is told its scale below, and takes the screen
+            // and every pointer position in the units it draws in.
             let screen_rect = egui::Rect::from_min_size(
                 egui::Pos2::ZERO,
-                egui::vec2(self.output.width() as f32, self.output.height() as f32),
+                egui::vec2(
+                    self.output.width() as f32 / ui_scale,
+                    self.output.height() as f32 / ui_scale,
+                ),
             );
             let modifiers = egui::Modifiers {
                 alt: alt_held,
@@ -10708,7 +10721,7 @@ impl WgpuSurface {
                 mac_cmd: false,
                 command: ctrl_held,
             };
-            let cursor_pos = egui::Pos2::new(cursor_x, cursor_y);
+            let cursor_pos = egui::Pos2::new(cursor_x / ui_scale, cursor_y / ui_scale);
             let mut egui_events = vec![egui::Event::PointerMoved(cursor_pos)];
             if left_just_pressed {
                 egui_events.push(egui::Event::PointerButton {
@@ -10756,6 +10769,9 @@ impl WgpuSurface {
 
             let mut new_text_values = ui_state.text_values.clone();
             let mut missing_font_families = std::collections::BTreeSet::new();
+            // egui lays out and rasterises text at this many pixels per unit.
+            // A no-op while it is unchanged, so a steady window costs nothing.
+            self.egui_ctx.set_pixels_per_point(ui_scale);
             let mut full_output = self.egui_ctx.run_ui(raw_input, |root_ui| {
                 // Panels and the dock take the frame's root `Ui` now; what
                 // else draws (HUD, windows, areas) still goes through the

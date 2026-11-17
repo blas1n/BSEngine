@@ -1616,6 +1616,8 @@ thread_local! {
     pub(crate) static PAUSED_SNAPSHOT: RefCell<bool> = const { RefCell::new(false) };
 
     pub(crate) static SCREEN_SIZE_SNAPSHOT: RefCell<(u32, u32)> = const { RefCell::new((1280, 720)) };
+    // The UI's scale (`[ui] scale`): physical pixels per UI unit.
+    pub(crate) static UI_SCALE_SNAPSHOT: RefCell<f32> = const { RefCell::new(1.0) };
     // The window's `SafeArea` insets: (left, top, right, bottom).
     pub(crate) static SAFE_AREA_SNAPSHOT: RefCell<(f32, f32, f32, f32)> =
         const { RefCell::new((0.0, 0.0, 0.0, 0.0)) };
@@ -4322,6 +4324,17 @@ pub fn bsengine_get_screen_size() -> Vec<u32> {
     })
 }
 
+/// Get the UI's scale: physical pixels per UI unit (`[ui] scale`).
+///
+/// Widget coordinates, sizes and offsets are in UI units, so a window `w` pixels
+/// wide is `w / scale` units wide; `getScreenSize`, `getMousePos` and
+/// `getSafeArea` stay in pixels. 1 when the project turns scaling off, and
+/// whenever the window is exactly the `[window]` size.
+#[script_op(fast)]
+pub fn bsengine_get_ui_scale() -> f32 {
+    UI_SCALE_SNAPSHOT.with(|s| *s.borrow())
+}
+
 /// Get the part of the window the system bars and a camera cutout leave
 /// uncovered, as `[x, y, width, height]` in window pixels -- Unity's
 /// `Screen.safeArea`. The whole window on desktop and in a browser.
@@ -5843,6 +5856,7 @@ macro_rules! with_every_op {
             bsengine_get_delta_time,
             bsengine_get_screen_size,
             bsengine_get_safe_area,
+            bsengine_get_ui_scale,
             bsengine_set_parent,
             bsengine_clear_parent,
             bsengine_get_parent,

@@ -173,6 +173,8 @@ pub mod transform;
 pub mod tween;
 /// The project's UI fonts, ahead of the built-in ones.
 pub mod ui_fonts;
+/// How the UI is sized against the window.
+pub mod ui_scale;
 /// Immediate-mode UI widget tree and state resource.
 pub mod ui_state;
 /// A video playing on an entity, and the frames it shows.
@@ -283,6 +285,7 @@ pub use tone_map::{ToneMap, ToneMappingMode};
 pub use transform::Transform;
 pub use tween::{EasingFn, RepeatMode, Tween, TweenTarget};
 pub use ui_fonts::{UiFont, UiFonts};
+pub use ui_scale::{UiScale, UiScaleFactor, UiScaleMode};
 pub use ui_state::{UiAlign, UiAnchor, UiAutoTranslate, UiDirection, UiRect, UiState, UiWidget};
 pub use video::{VideoFrameData, VideoFrames, VideoPlayer, VideoStatus};
 pub use visible::Visible;

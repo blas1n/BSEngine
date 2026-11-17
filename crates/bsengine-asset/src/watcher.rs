@@ -1644,10 +1644,20 @@ mod tests {
             "the watcher must have started for an existing <ProjectDir>/assets"
         );
 
-        // Give the OS backend time to actually begin delivering, then drop
-        // both the asset events the initial load produced and anything already
-        // queued for the watcher, so what is counted below can only be the
-        // burst.
+        let mut modified = 0usize;
+        let count = |app: &App,
+                     reader: &mut MessageCursor<AssetEvent<TextureAsset>>,
+                     modified: &mut usize| {
+            let events = app.world().resource::<Messages<AssetEvent<TextureAsset>>>();
+            for event in reader.read(events) {
+                if matches!(event, AssetEvent::Modified { id } if *id == handle.id()) {
+                    *modified += 1;
+                }
+            }
+        };
+
+        // Give the OS backend time to actually begin delivering, then drop the
+        // asset events the initial load produced.
         std::thread::sleep(DEBOUNCE * 3);
         let mut reader: MessageCursor<AssetEvent<TextureAsset>> = app
             .world_mut()
@@ -1658,6 +1668,50 @@ mod tests {
             let events = app.world().resource::<Messages<AssetEvent<TextureAsset>>>();
             let _ = reader.read(events).count();
         }
+
+        // A save *before* the burst, on purpose, and a flush that waits it out.
+        //
+        // This test used to flush with one frame, and failed on macOS about one
+        // run in four with "2 reloads arrived". FSEvents can report a change
+        // made shortly before the watcher started -- here, the `tex.png` this
+        // test wrote just before adding the plugin -- after it has started. The
+        // one flush frame drained that report and dispatched a reload, but a
+        // reload is asynchronous: its `Modified` lands frames later, after the
+        // flush had moved on, and was counted as the burst's second reload. The
+        // dedupe was never at fault. inotify and Windows do not report a
+        // change from before they were armed, so only macOS ever saw it.
+        //
+        // A save after the backend is armed reproduces it on every platform
+        // (the old flush fails the count with it, here, on Windows), so the
+        // test now always makes one and always waits for its reload: the case
+        // that only macOS's timing produced is the case every run measures.
+        // Then a quiet window, so a reload FSEvents dispatched for the original
+        // write lands and is dropped here too, rather than in the count.
+        std::fs::write(&texture, png_bytes([11, 21, 31, 255])).unwrap();
+        run_until(
+            &mut app,
+            "the save before the burst reloaded the texture",
+            |app| {
+                count(app, &mut reader, &mut modified);
+                modified > 0
+            },
+        );
+        let deadline = Instant::now() + HARD_TIMEOUT;
+        let mut quiet_since = Instant::now();
+        while quiet_since.elapsed() < DEBOUNCE * 3 {
+            assert!(
+                Instant::now() < deadline,
+                "reloads kept arriving before the burst: the flush never went quiet"
+            );
+            let before = modified;
+            app.update();
+            count(&app, &mut reader, &mut modified);
+            if modified != before {
+                quiet_since = Instant::now();
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        modified = 0;
 
         // The burst. Spaced past the window on purpose -- see above -- and with
         // no frames in between, so each write ends up as its own queued batch.
@@ -1690,18 +1744,6 @@ mod tests {
         // still has to say is now inert, so the count below is exactly what the
         // single drain above dispatched.
         app.world_mut().remove_resource::<AssetWatcher>();
-
-        let mut modified = 0usize;
-        let count = |app: &App,
-                     reader: &mut MessageCursor<AssetEvent<TextureAsset>>,
-                     modified: &mut usize| {
-            let events = app.world().resource::<Messages<AssetEvent<TextureAsset>>>();
-            for event in reader.read(events) {
-                if matches!(event, AssetEvent::Modified { id } if *id == handle.id()) {
-                    *modified += 1;
-                }
-            }
-        };
 
         run_until(&mut app, "the burst reloaded the texture", |app| {
             count(app, &mut reader, &mut modified);

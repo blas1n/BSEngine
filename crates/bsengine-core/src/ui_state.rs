@@ -556,6 +556,12 @@ pub struct UiState {
     /// frame's render system is at Bevy's parameter ceiling. Engine-owned --
     /// no script op writes it.
     pub safe_area: crate::SafeArea,
+    /// The UI's scale this frame (`[ui] scale`): physical pixels per UI unit.
+    /// Copied in by the renderer like [`Self::safe_area`], from the window's
+    /// size; engine-owned, no script op writes it. 1 -- the default -- is the
+    /// UI at 1:1 with the window's pixels, which is also what the editor,
+    /// with its own egui layout, always has.
+    pub scale: crate::UiScaleFactor,
 }
 
 impl UiState {
@@ -818,7 +824,17 @@ impl UiState {
     /// anchor then sits below the status bar, a bottom one above the
     /// navigation bar, and a full-screen stretch spans what the player can
     /// see. Children follow their containers, so only roots need it.
+    ///
+    /// Takes the window's size in *pixels* and returns rectangles in *UI
+    /// units*: pixels divided by [`Self::scale`]. Widget coordinates, sizes
+    /// and offsets are in those units too, which is what lets a layout
+    /// authored for the `[window]` size fit a phone: at x1.5 a 1080-pixel
+    /// window is 720 units wide. The safe area's insets are converted the same
+    /// way, so an anchor and an inset never disagree about what a unit is. At
+    /// scale 1 -- the default -- units are pixels.
     pub fn layout(&self, screen_w: f32, screen_h: f32) -> UiLayout {
+        let scale = self.scale.get();
+        let (screen_w, screen_h) = (screen_w / scale, screen_h / scale);
         let mut out = UiLayout::default();
         // Children grouped by parent, in declaration order. Declaration order
         // is the layout order: a script that calls `setButton` three times
@@ -831,7 +847,14 @@ impl UiState {
             }
         }
         let (area_x, area_y, area_w, area_h) = if self.safe_area.applies_to_ui {
-            self.safe_area.rect(screen_w, screen_h)
+            crate::SafeArea {
+                left: self.safe_area.left / scale,
+                top: self.safe_area.top / scale,
+                right: self.safe_area.right / scale,
+                bottom: self.safe_area.bottom / scale,
+                ..self.safe_area
+            }
+            .rect(screen_w, screen_h)
         } else {
             (0.0, 0.0, screen_w, screen_h)
         };
@@ -1254,6 +1277,86 @@ mod tests {
             (r["kid"].x - plain["kid"].x, r["kid"].y - plain["kid"].y),
             (10.0, 128.0),
             "a child follows its container"
+        );
+    }
+
+    /// With a scale, the rectangles are in UI units -- pixels over the scale --
+    /// and the layout fills the same window: a bottom-right anchor lands on the
+    /// window's corner when drawn at that scale, which is the whole point of
+    /// scaling. A full stretch spans the window in units. Premise: the same
+    /// widgets at scale 1 are somewhere else.
+    #[test]
+    fn a_scale_lays_widgets_out_in_ui_units() {
+        let mut st = UiState::default();
+        st.set_widget(anchored("tl", UiAnchor::TOP_LEFT, 5.0, 6.0, 40.0, 20.0));
+        st.set_widget(anchored(
+            "br",
+            UiAnchor::point(1.0, 1.0),
+            -50.0,
+            -30.0,
+            50.0,
+            30.0,
+        ));
+        let full = UiAnchor {
+            min_x: 0.0,
+            min_y: 0.0,
+            max_x: 1.0,
+            max_y: 1.0,
+        };
+        st.set_widget(anchored("full", full, 0.0, 0.0, 0.0, 0.0));
+        let plain = st.layout(W, H);
+        st.scale = crate::UiScaleFactor(2.0);
+        let r = st.layout(W, H);
+        assert_ne!(
+            r["br"].x, plain["br"].x,
+            "premise: the scale moved something"
+        );
+
+        // A top-left offset is the same in units, whatever the scale.
+        assert_eq!((r["tl"].x, r["tl"].y), (5.0, 6.0));
+        // The corner: drawn at x2, its far edge is the window's far edge.
+        assert_eq!(
+            (
+                (r["br"].x + r["br"].width) * 2.0,
+                (r["br"].y + r["br"].height) * 2.0
+            ),
+            (W, H)
+        );
+        assert_eq!(
+            (r["full"].width, r["full"].height),
+            (W / 2.0, H / 2.0),
+            "a stretch spans the window in units"
+        );
+    }
+
+    /// The safe area's insets are pixels and the layout's units are not: with
+    /// both, a top inset of 128 pixels at scale 2 is 64 units. A layout that
+    /// subtracted the pixel inset from unit space would leave the button 64
+    /// units too low.
+    #[test]
+    fn insets_and_a_scale_agree_about_the_unit() {
+        let mut st = UiState::default();
+        st.set_widget(anchored("tl", UiAnchor::TOP_LEFT, 5.0, 6.0, 40.0, 20.0));
+        st.set_widget(anchored(
+            "br",
+            UiAnchor::point(1.0, 1.0),
+            -50.0,
+            -30.0,
+            50.0,
+            30.0,
+        ));
+        st.safe_area = phone_insets(true);
+        st.scale = crate::UiScaleFactor(2.0);
+        let r = st.layout(W, H);
+        // (left, top) = (10, 128) pixels = (5, 64) units.
+        assert_eq!((r["tl"].x, r["tl"].y), (5.0 + 5.0, 6.0 + 64.0));
+        // The far corner stops at the right/bottom insets (20, 48) pixels.
+        assert_eq!(
+            (
+                (r["br"].x + r["br"].width) * 2.0,
+                (r["br"].y + r["br"].height) * 2.0
+            ),
+            (W - 20.0, H - 48.0)
         );
     }
 

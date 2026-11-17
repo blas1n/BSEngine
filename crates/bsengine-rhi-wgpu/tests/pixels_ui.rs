@@ -95,6 +95,138 @@ fn render_settled(h: &mut Harness, scene: &Scene) -> common::Pixels {
     h.render(scene)
 }
 
+/// A UI at `scale` pixels per unit, with `widgets` set in it.
+fn scaled_scene(scale: f32, widgets: impl FnOnce(&mut UiState)) -> Scene {
+    let mut ui = UiState {
+        scale: bsengine_core::UiScaleFactor(scale),
+        ..UiState::default()
+    };
+    widgets(&mut ui);
+    Scene {
+        ui,
+        ..Scene::default()
+    }
+}
+
+/// `[ui] scale` makes everything egui draws larger by the scale, from the same
+/// anchor: a button 40x20 units at the corner is 80x40 pixels at x2, and the
+/// HUD's text -- which has no widget behind it -- is twice the size and starts
+/// twice as far in. The comparison is between the same scene at x1 and x2,
+/// so egui's metrics and the theme cancel out; the premise is that x1 drew.
+#[test]
+fn a_scaled_ui_draws_everything_larger_from_the_same_place() {
+    let mut h = Harness::new();
+    let blank = render_settled(&mut h, &Scene::default());
+    let bounds_of = |h: &mut Harness, scale: f32| {
+        let scene = scaled_scene(scale, |ui| ui.set_widget(button("b", 40.0, 20.0)));
+        changed_bounds(&render_settled(h, &scene), &blank).expect("the button draws")
+    };
+    let one = bounds_of(&mut h, 1.0);
+    let two = bounds_of(&mut h, 2.0);
+    // The far edge of the drawing doubles, within a pixel or two of egui's
+    // rounding; the near edge stays at the corner.
+    for (name, at_two, at_one) in [("right", two.2, one.2), ("bottom", two.3, one.3)] {
+        let want = 2 * at_one;
+        assert!(
+            at_two.abs_diff(want) <= 3,
+            "the button's {name} edge should double ({at_one} -> ~{want}), got {at_two}"
+        );
+    }
+    assert!(two.0 < 6 && two.1 < 6, "still from the corner: {two:?}");
+
+    // HUD text: twice the width, and the 8-unit margin is 16 pixels. A short
+    // string: "SCORE 1234" is 110 pixels wide at x1, and 220 at x2 does not fit
+    // the harness's 200-pixel frame, so the right edge is clipped and the
+    // width reads about 1.66x -- a fixture that never made the premise.
+    let hud_bounds = |h: &mut Harness, scale: f32| {
+        let mut scene = scaled_scene(scale, |_| {});
+        scene.hud = HashMap::from([("0".to_string(), "123".to_string())]);
+        changed_bounds(&h.render(&scene), &blank).expect("the HUD draws")
+    };
+    let hud_one = hud_bounds(&mut h, 1.0);
+    let hud_two = hud_bounds(&mut h, 2.0);
+    assert!(
+        hud_two.2 < common::WIDTH - 2,
+        "premise: the x2 text fits the frame ({hud_two:?})"
+    );
+    let (w_one, w_two) = (hud_one.2 - hud_one.0, hud_two.2 - hud_two.0);
+    assert!(
+        (w_two as f32) > 1.8 * w_one as f32 && (w_two as f32) < 2.2 * w_one as f32,
+        "the HUD text should be twice as wide: {w_one} -> {w_two}"
+    );
+    assert!(
+        hud_two.0 >= 14 && hud_one.0 <= 10,
+        "the margin should double too: starts {} at x1, {} at x2",
+        hud_one.0,
+        hud_two.0
+    );
+}
+
+/// The safe area's insets are pixels and the HUD's margin is in units, so with
+/// both the HUD starts at `(inset / scale + 8) * scale` pixels from the
+/// corner: 56 across and 76 down for 40/60-pixel insets at x2. Adding the pixel
+/// inset to the unit margin before scaling would put it at 96 and 136. The
+/// bounds sit between the right answer and each wrong one.
+#[test]
+fn the_hud_margin_and_the_safe_area_agree_about_the_unit() {
+    let mut h = Harness::new();
+    let blank = render_settled(&mut h, &Scene::default());
+    let mut scene = scaled_scene(2.0, |_| {});
+    scene.ui.safe_area = insets(true);
+    scene.hud = HashMap::from([("0".to_string(), "1".to_string())]);
+    let at = changed_bounds(&h.render(&scene), &blank).expect("the HUD draws");
+    assert!(
+        at.0 >= 50 && at.0 <= 70 && at.1 >= 70 && at.1 <= 100,
+        "the HUD should start near (56, 76); it starts at {at:?}"
+    );
+}
+
+/// The mouse is in pixels and the layout in units, so at x2 a click has to be
+/// halved to find its button. Both ways: the middle of the scaled button is
+/// pressed, and a pixel that would be *inside* the button if the cursor were
+/// read as units -- but is outside the scaled one -- is not. Either conversion
+/// missing fails one half.
+#[test]
+fn a_click_finds_the_button_at_a_scale() {
+    let mut h = Harness::new();
+    // Units: x 20..60, y 10..30. At x2, pixels: x 40..120, y 20..60.
+    let scene = |pointer: Option<common::Pointer>| {
+        let mut scene = scaled_scene(2.0, |ui| {
+            ui.set_widget(UiWidget::Button {
+                id: "b".into(),
+                label: "OK".into(),
+                x: 20.0,
+                y: 10.0,
+                width: 40.0,
+                height: 20.0,
+                anchor: UiAnchor::TOP_LEFT,
+            })
+        });
+        scene.pointer = pointer;
+        scene
+    };
+    let click_at = |h: &mut Harness, x: f32, y: f32| {
+        // Settled first: egui clips an area's first frame, and a click needs
+        // the rectangle it learned on the frame before.
+        render_settled(h, &scene(None));
+        h.render(&scene(Some(common::Pointer {
+            x,
+            y,
+            pressed: true,
+            released: true,
+        })));
+        h.clicked().contains("b")
+    };
+    assert!(
+        click_at(&mut h, 80.0, 40.0),
+        "the middle of the scaled button"
+    );
+    assert!(
+        !click_at(&mut h, 30.0, 15.0),
+        "a pixel inside the button only if the cursor were read as units"
+    );
+}
+
 /// Insets a phone's status bar and a side cutout would give, scaled to the
 /// harness's 200x150 frame: large enough that "inside the safe area" and "at
 /// the window's corner" cannot describe the same pixels.

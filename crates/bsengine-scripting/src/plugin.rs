@@ -3948,6 +3948,11 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
         .map(|a| (a.left, a.top, a.right, a.bottom))
         .unwrap_or_default();
     crate::ops::SAFE_AREA_SNAPSHOT.with(|s| *s.borrow_mut() = safe_area);
+    let ui_scale = world
+        .get_resource::<UiState>()
+        .map(|ui| ui.scale.get())
+        .unwrap_or(1.0);
+    crate::ops::UI_SCALE_SNAPSHOT.with(|s| *s.borrow_mut() = ui_scale);
     // Published for `bsengine-network`, which sends it as this peer's input but
     // cannot convert key codes to names itself -- that conversion lives here and
     // stays in one place.
@@ -8398,6 +8403,82 @@ function onUpdate(name) {
         app.update();
         let _ = std::fs::remove_file(&script_path);
         assert_eq!(x(&app), 1.0, "J is");
+    }
+
+    /// The UI's scale reaches a script as `getUiScale()`, and `getUiSize()` is
+    /// the window over it -- the size widget coordinates are laid out in -- while
+    /// `getScreenSize()` stays in pixels. A change follows on the next frame.
+    #[test]
+    fn the_ui_scale_reaches_a_script_and_divides_the_window() {
+        let script_path =
+            std::env::temp_dir().join(format!("bsengine_test_ui_scale_{}.js", std::process::id()));
+        std::fs::write(
+            &script_path,
+            "function onUpdate(name) {\n\
+                 Bsengine.setHudText(\"ui\", JSON.stringify({scale: Bsengine.getUiScale(), \
+                     ui: Bsengine.getUiSize(), px: Bsengine.getScreenSize()}));\n\
+                 Bsengine.setPosition(name, 0, 1, 0);\n\
+             }",
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.insert_resource(bsengine_core::ScreenSize {
+            width: 1080,
+            height: 2400,
+        });
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: script_path.parent().unwrap().to_string_lossy().into_owned(),
+        });
+        let entity = app
+            .world_mut()
+            .spawn((
+                Name("Ui".to_string()),
+                ScriptPath(
+                    script_path
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
+                Transform::default(),
+            ))
+            .id();
+        let mut frames = 0;
+        while app.world().get::<Transform>(entity).unwrap().position.y != 1.0 {
+            app.update();
+            frames += 1;
+            assert!(frames < 300, "the script never ran");
+        }
+        let seen = |app: &mut bevy_app::App| -> serde_json::Value {
+            app.update();
+            let text = app.world().resource::<HudTexts>().0.get("ui").cloned();
+            serde_json::from_str(&text.expect("the script wrote the slot")).unwrap()
+        };
+        let set_scale = |app: &mut bevy_app::App, scale: f32| {
+            app.world_mut()
+                .resource_mut::<bsengine_core::UiState>()
+                .scale = bsengine_core::UiScaleFactor(scale);
+        };
+
+        assert_eq!(
+            seen(&mut app)["scale"],
+            1.0,
+            "no UI state at all (a headless host): units are pixels"
+        );
+        app.init_resource::<bsengine_core::UiState>();
+        assert_eq!(seen(&mut app)["scale"], 1.0, "the default scale is 1");
+        set_scale(&mut app, 1.5);
+        let _ = std::fs::remove_file(&script_path);
+        let s = seen(&mut app);
+        assert_eq!(s["scale"], 1.5);
+        assert_eq!(s["ui"], serde_json::json!({"width": 720, "height": 1600}));
+        assert_eq!(
+            s["px"],
+            serde_json::json!({"width": 1080, "height": 2400}),
+            "the screen stays in pixels"
+        );
     }
 
     /// The window's `SafeArea` reaches a script's `Bsengine.getSafeArea()` as

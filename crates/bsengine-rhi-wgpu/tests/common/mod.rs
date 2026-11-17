@@ -272,6 +272,19 @@ impl Light {
     }
 }
 
+/// A mouse for one frame: see [`Scene::pointer`].
+#[derive(Clone, Copy, Debug)]
+#[allow(dead_code)] // only pixels_ui.rs moves the mouse
+pub struct Pointer {
+    /// Window pixels, top-left origin.
+    pub x: f32,
+    pub y: f32,
+    /// The left button went down this frame...
+    pub pressed: bool,
+    /// ...and came up this frame.
+    pub released: bool,
+}
+
 /// Everything that goes into one frame. The default is "nothing in front of
 /// the camera".
 pub struct Scene {
@@ -293,6 +306,15 @@ pub struct Scene {
     /// unobservable from a pixel test -- the renderer could have ignored them
     /// entirely and nothing here would have noticed.
     pub ui: bsengine_core::UiState,
+    /// The mouse for this frame: the cursor in window *pixels*, and whether the
+    /// left button went down and came up in it (one click, in one frame).
+    /// `None` -- every scene before UI scaling -- is a cursor at the origin
+    /// with no button, which is what these tests always passed.
+    ///
+    /// Exposed because the cursor is the one input that has to be converted
+    /// from pixels to UI units when the UI is scaled, and nothing could press
+    /// a scaled button to see whether the conversion happened.
+    pub pointer: Option<Pointer>,
     /// Cross-fade width at each cascade boundary, as a fraction of that
     /// cascade's far distance.
     ///
@@ -377,6 +399,7 @@ impl Default for Scene {
             camera_pos: Vec3::new(0.0, 0.0, 5.0),
             look_at: Vec3::ZERO,
             ui: bsengine_core::UiState::default(),
+            pointer: None,
             ui_textures: HashMap::new(),
             shadow_blend: bsengine_core::shadow_config::DEFAULT_CASCADE_BLEND,
             soft_shadows: bsengine_core::shadow_config::DEFAULT_SOFT_SHADOWS,
@@ -493,6 +516,8 @@ pub struct Harness {
     surface: WgpuSurface,
     registry: GpuMeshRegistry,
     textures: GpuTextureRegistry,
+    /// The buttons the last frame's [`Scene::pointer`] clicked.
+    clicked: std::collections::HashSet<String>,
 }
 
 impl Harness {
@@ -534,7 +559,14 @@ impl Harness {
             surface,
             registry,
             textures,
+            clicked: Default::default(),
         }
+    }
+
+    /// The buttons the last frame's [`Scene::pointer`] clicked.
+    #[allow(dead_code)] // only pixels_ui.rs clicks
+    pub fn clicked(&self) -> &std::collections::HashSet<String> {
+        &self.clicked
     }
 
     /// The last frame of an HDR harness as it went to the display: linear
@@ -605,6 +637,7 @@ impl Harness {
             surface,
             registry,
             textures,
+            clicked: Default::default(),
         }
     }
 
@@ -1086,7 +1119,8 @@ struct VertOut {{
         self.surface.set_msaa(scene.msaa);
         self.surface.set_ssgi(scene.ssgi);
         self.surface.step_gpu_particles(&scene.gpu_particles);
-        self.surface
+        self.clicked = self
+            .surface
             .render_frame(
                 view_proj,
                 scene.camera_pos,
@@ -1107,10 +1141,10 @@ struct VertOut {{
                 &scene.hud,
                 &scene.ui,
                 &scene.ui_textures,
-                0.0,
-                0.0,
-                false,
-                false,
+                scene.pointer.map_or(0.0, |p| p.x),
+                scene.pointer.map_or(0.0, |p| p.y),
+                scene.pointer.is_some_and(|p| p.pressed),
+                scene.pointer.is_some_and(|p| p.released),
                 proj,
                 scene.bloom,
                 scene.tone_map,

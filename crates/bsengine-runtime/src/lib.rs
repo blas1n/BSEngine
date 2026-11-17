@@ -382,6 +382,10 @@ fn run_package(
         eprintln!("package: {manifest_path} [input]:\n{e}");
         return 1;
     }
+    if let Err(e) = manifest.ui.ui_scale(&manifest.window) {
+        eprintln!("package: {manifest_path} [ui]:\n{e}");
+        return 1;
+    }
 
     let exe = match std::env::current_exe() {
         Ok(exe) => exe,
@@ -666,6 +670,14 @@ pub(crate) fn insert_ui_fonts(
         applies_to_ui: manifest.ui.safe_area,
         ..bsengine_core::SafeArea::default()
     });
+    // `[ui] scale`, against the `[window]` size. A bad value stops the game at
+    // start, as a bad `[input]` binding does; `package` checks it too.
+    match manifest.ui.ui_scale(&manifest.window) {
+        Ok(scale) => {
+            app.insert_resource(scale);
+        }
+        Err(e) => panic!("Cannot use project.toml's [ui] table:\n{e}"),
+    }
 }
 
 fn read_manifest(project_dir: &str, pak: Option<&bsengine_asset::pak::Pak>) -> ProjectManifest {

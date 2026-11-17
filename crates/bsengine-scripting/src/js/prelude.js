@@ -531,6 +531,11 @@ var Bsengine = {
     getTime:        ()                     => Deno.core.ops.bsengine_get_time(),
     getDeltaTime:   ()                     => Deno.core.ops.bsengine_get_delta_time(),
     getScreenSize:  ()                     => { const [w, h] = Deno.core.ops.bsengine_get_screen_size(); return { width: w, height: h }; },
+    // Physical pixels per UI unit (`[ui] scale`). Widget coordinates are in UI
+    // units; getScreenSize/getMousePos/getSafeArea stay in pixels.
+    getUiScale:     ()                     => Deno.core.ops.bsengine_get_ui_scale(),
+    // The window in UI units: what widget coordinates are laid out in.
+    getUiSize:      ()                     => { const [w, h] = Deno.core.ops.bsengine_get_screen_size(); const k = Deno.core.ops.bsengine_get_ui_scale(); return { width: w / k, height: h / k }; },
     // The window less a phone's status bar, navigation bar and cutout.
     getSafeArea:    ()                     => { const [x, y, w, h] = Deno.core.ops.bsengine_get_safe_area(); return { x, y, width: w, height: h }; },
     setParent:      (child, parent)        => Deno.core.ops.bsengine_set_parent(child, parent),

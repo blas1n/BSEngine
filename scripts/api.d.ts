@@ -130,6 +130,8 @@ declare namespace Bsengine {
     function getTweenProgress(name: string): number;
     function getTweenRepeat(name: string): number;
     function getTweenTargetType(name: string): number;
+    function getUiScale(): number;
+    function getUiSize(): unknown;
     function getUpVector(name: string): unknown;
     function getVector(negX: unknown, posX: unknown, negY: unknown, posY: unknown): unknown;
     function getVelocity(name: string): unknown;

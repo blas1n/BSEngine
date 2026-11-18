@@ -34,9 +34,9 @@ use bsengine_scene::ScenePlugin;
 use bsengine_scripting::ScriptingPlugin;
 use bsengine_window::{WindowDescriptor, WindowPlugin};
 
-#[cfg(not(target_arch = "wasm32"))]
 mod android_settings;
 mod audio_occlusion;
+#[cfg(not(target_arch = "wasm32"))]
 mod bake;
 mod scene_systems;
 #[cfg(not(target_arch = "wasm32"))]

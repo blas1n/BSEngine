@@ -6,7 +6,11 @@
 #   AndroidManifest.xml                android.app.NativeActivity, which loads the
 #                                      library -- no Java of ours
 #
-# signed with the debug key, ready for `adb install`. Like Godot's and Unity's
+# signed, ready for `adb install`: with the project's release key when its
+# `[android]` table names one (a release build only; the passwords come from
+# BSENGINE_ANDROID_KEYSTORE_PASSWORD and BSENGINE_ANDROID_KEY_PASSWORD), else
+# with the debug key. The same table sets the application id and the version
+# (src/android_settings.rs in bsengine-runtime). Like Godot's and Unity's
 # Android exports, the engine is native code and the activity is the
 # platform's; unlike them there is no Gradle project -- aapt2, zipalign and
 # apksigner from the SDK's build-tools make the APK directly.
@@ -101,6 +105,53 @@ cargo run $flag -p bsengine-runtime -- --package "$project" --mode android --out
 mkdir -p "$stage/apk/assets" "$stage/apk/lib/$abi"
 cp "$stage/pak/game.pak" "$stage/apk/assets/game.pak"
 
+# `[android]` as `--package` checked and resolved it (src/android_settings.rs):
+# the application id, the version, the app's name, and the release key if
+# the project names one.
+props=$stage/pak/android.properties
+prop() { sed -n "s/^$1=//p" "$props" | head -1; }
+package=$(prop package)
+version_code=$(prop version_code)
+version_name_xml=$(prop version_name_xml)
+label_xml=$(prop label_xml)
+release_keystore=$(prop keystore)
+release_alias=$(prop key_alias)
+
+# Which key signs, decided before the long compile so a missing password
+# fails in seconds. A release build of a project that names a keystore is
+# signed with it, the passwords from the environment -- never the project,
+# never the command line (apksigner reads them with `env:`). Godot takes
+# them the same way (GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD). A `--debug`
+# build is debug-signed whatever the project says, as Godot's debug export is.
+if [[ $profile == release && -n $release_keystore ]]; then
+  if [[ -z ${BSENGINE_ANDROID_KEYSTORE_PASSWORD:-} ]]; then
+    echo "the project signs with $release_keystore (key '$release_alias'):" \
+      "set BSENGINE_ANDROID_KEYSTORE_PASSWORD, and BSENGINE_ANDROID_KEY_PASSWORD" \
+      "if the key's differs. Not falling back to the debug key: a store ties an" \
+      "app to the key of its first upload." >&2
+    exit 1
+  fi
+  export BSENGINE_ANDROID_KEY_PASSWORD=${BSENGINE_ANDROID_KEY_PASSWORD:-$BSENGINE_ANDROID_KEYSTORE_PASSWORD}
+  sign_args=(--ks "$release_keystore" --ks-key-alias "$release_alias"
+    --ks-pass env:BSENGINE_ANDROID_KEYSTORE_PASSWORD
+    --key-pass env:BSENGINE_ANDROID_KEY_PASSWORD)
+  signed_with="the release key '$release_alias' ($release_keystore)"
+else
+  # The debug key every Android tool uses, made on first need.
+  keystore=${ANDROID_DEBUG_KEYSTORE:-$HOME/.android/debug.keystore}
+  if [[ ! -f $keystore ]]; then
+    mkdir -p "$(dirname "$keystore")"
+    keytool -genkeypair -keystore "$keystore" -storepass android -keypass android \
+      -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+      -dname "CN=Android Debug,O=Android,C=US" > /dev/null
+  fi
+  sign_args=(--ks "$keystore" --ks-pass pass:android --key-pass pass:android)
+  signed_with="the debug key"
+  if [[ $profile == release ]]; then
+    signed_with="the debug key -- installable, not publishable (name a keystore in [android])"
+  fi
+fi
+
 # The runtime crate is a library behind its executable; as a `cdylib` it is
 # the shared library the activity loads (src/android.rs).
 cargo rustc $flag -p bsengine-runtime --lib --crate-type cdylib --target "$triple"
@@ -109,21 +160,19 @@ target_dir=$(cargo metadata --format-version 1 --no-deps |
 "$tc/bin/llvm-strip${exe}" -o "$stage/apk/lib/$abi/libbsengine_runtime.so" \
   "$target_dir/$triple/$profile/libbsengine_runtime.so"
 
-# The package name: the project's name, lower-cased to what Java allows.
-name=$(sed -n 's/^name *= *"\(.*\)"/\1/p' "$project/project.toml" | head -1)
-name=${name:-$(basename "$project")}
-id=$(echo "$name" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9\n' '_' | sed 's/^\([0-9]\)/_\1/')
-package=com.bsengine.$id
+# The APK's file name: the application id's last part -- for the default id,
+# the project's name lower-cased, the name it always had.
+id=${package##*.}
 target_sdk=${platform##*android-}; target_sdk=${target_sdk%%.*}
 
 cat > "$stage/AndroidManifest.xml" <<EOF
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="$package" android:versionCode="1" android:versionName="1.0">
+    package="$package" android:versionCode="$version_code" android:versionName="$version_name_xml">
   <uses-sdk android:minSdkVersion="$api" android:targetSdkVersion="$target_sdk" />
   <uses-feature android:name="android.hardware.vulkan.version" android:required="false" />
   <uses-permission android:name="android.permission.INTERNET" />
-  <application android:label="$name" android:hasCode="false" android:extractNativeLibs="true">
+  <application android:label="$label_xml" android:hasCode="false" android:extractNativeLibs="true">
     <activity android:name="android.app.NativeActivity" android:exported="true"
         android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|uiMode"
         android:launchMode="singleTask">
@@ -144,17 +193,12 @@ EOF
 (cd "$stage/apk" && "$build_tools/aapt${exe}" add ../unaligned.apk "lib/$abi/libbsengine_runtime.so" > /dev/null)
 "$build_tools/zipalign${exe}" -f 4 "$stage/unaligned.apk" "$stage/aligned.apk"
 
-# The debug key every Android tool uses, made on first need.
-keystore=${ANDROID_DEBUG_KEYSTORE:-$HOME/.android/debug.keystore}
-if [[ ! -f $keystore ]]; then
-  mkdir -p "$(dirname "$keystore")"
-  keytool -genkeypair -keystore "$keystore" -storepass android -keypass android \
-    -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
-    -dname "CN=Android Debug,O=Android,C=US" > /dev/null
-fi
 mkdir -p "$out"
 apk="$out/$id.apk"
-"$build_tools/apksigner${bat}" sign --ks "$keystore" --ks-pass pass:android \
-  --key-pass pass:android --out "$apk" "$stage/aligned.apk"
-echo "android build: $apk ($package, $abi)"
+"$build_tools/apksigner${bat}" sign "${sign_args[@]}" --out "$apk" "$stage/aligned.apk"
+# Checked, and the certificate named: which key signed a build is otherwise
+# invisible until a store or a device refuses an update.
+"$build_tools/apksigner${bat}" verify --print-certs "$apk" | grep -m1 "SHA-256 digest" |
+  sed "s/.*SHA-256 digest: /  certificate SHA-256: /"
+echo "android build: $apk ($package, version $version_code, $abi), signed with $signed_with"
 echo "  adb install -r \"$apk\" && adb shell am start -n $package/android.app.NativeActivity"

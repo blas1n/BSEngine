@@ -93,6 +93,9 @@ node scripts/web_smoke.mjs games/mini-arena/dist-web  # headless Chrome/Edge; WE
 # (LIBCLANG_PATH) -- scripts are QuickJS there, its bindings generated per target.
 scripts/build_android.sh games/mini-arena [out-dir] [--debug] [--abi arm64-v8a|x86_64|x86]
 adb logcat -s bsengine                                 # the game's log
+# A release build is signed with the key `[android] keystore`/`key_alias` names
+# (passwords: BSENGINE_ANDROID_KEYSTORE_PASSWORD, BSENGINE_ANDROID_KEY_PASSWORD),
+# else with the debug key -- installable, not publishable.
 ```
 
 An emulator needs an image whose Vulkan wgpu accepts: android-35

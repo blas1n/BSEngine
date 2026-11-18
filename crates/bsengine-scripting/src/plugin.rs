@@ -336,6 +336,17 @@ impl Plugin for ScriptingPlugin {
         // an app built without the animation plugin (this crate's own tests).
         app.add_message::<bsengine_core::AnimationEventFired>();
         app.add_systems(PostStartup, load_scripts);
+        // `Bsengine.onApplicationPause`: told, synchronously, when the app
+        // leaves the screen and when it returns.
+        let mut lifecycle = app
+            .world_mut()
+            .get_resource_or_init::<bsengine_core::AppLifecycleHooks>();
+        lifecycle
+            .on_suspend
+            .push(|world| notify_application_pause(world, true));
+        lifecycle
+            .on_resume
+            .push(|world| notify_application_pause(world, false));
         app.add_systems(
             Update,
             // `execute_loaded_scripts` before `run_scripts`, as an explicit
@@ -1117,6 +1128,44 @@ fn run_scripts(world: &mut World) {
         }
     }
 
+    apply_script_commands(world);
+}
+
+/// Tells every script the app has left the screen (`paused`) or come back:
+/// the callbacks `Bsengine.onApplicationPause` registered, each given
+/// `paused` -- Unity's `OnApplicationPause(bool)`, Godot's
+/// `NOTIFICATION_APPLICATION_PAUSED`/`RESUMED`. Called from
+/// [`bsengine_core::AppLifecycleHooks`], inside the window runner's
+/// `suspended` and `resumed`.
+///
+/// ⚠️ Synchronous, and what the callbacks ask for is applied before this
+/// returns: a game that saves on the way out (`Bsengine.save`) has saved
+/// when the app goes into the background, where Android may end the process
+/// without another frame. That is the whole point of the callback.
+///
+/// No frame runs: no `onUpdate`, no timers, collisions or animation events,
+/// and the snapshots scripts read are the last frame's -- which is the
+/// world as it is, since no frame has run since. Physics queries see no
+/// world here (they need the frame's step). The command buffer is cleared
+/// first: it still holds the last frame's commands, already applied, which
+/// would otherwise be applied a second time.
+pub fn notify_application_pause(world: &mut World, paused: bool) {
+    if world.get_non_send::<ScriptRuntimeResource>().is_none() {
+        return;
+    }
+    COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    if let Some(mut rt) = world.get_non_send_mut::<ScriptRuntimeResource>() {
+        let call = format!("Bsengine._runApplicationPause({paused});");
+        if let Err(e) = rt.0.exec_source(&call, "<application_pause>") {
+            tracing::error!("[scripting] _runApplicationPause error: {e}");
+        }
+    }
+    apply_script_commands(world);
+}
+
+/// Applies what this frame's scripts asked for (`COMMAND_BUFFER`): the
+/// second half of a script pass, after the JavaScript has run.
+fn apply_script_commands(world: &mut World) {
     let commands: Vec<ScriptCommand> = COMMAND_BUFFER.with(|c| c.borrow().clone());
     for cmd in commands {
         match cmd {
@@ -9539,5 +9588,119 @@ function onUpdate(name) {
                 "Wait(100s)"
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod application_pause_tests {
+    use super::{notify_application_pause, HudTexts, Name, Script, ScriptPath, ScriptingPlugin};
+    use bsengine_app::new_app;
+
+    fn hud(app: &bevy_app::App, id: &str) -> Option<String> {
+        app.world().resource::<HudTexts>().0.get(id).cloned()
+    }
+
+    fn sparks(app: &mut bevy_app::App) -> usize {
+        let world = app.world_mut();
+        let mut q = world.query::<&Name>();
+        q.iter(world).filter(|n| n.0 == "Spark").count()
+    }
+
+    /// `Bsengine.onApplicationPause` callbacks run when the app leaves the
+    /// screen and when it returns -- at once, with no frame: what they ask
+    /// for is in the world (and on disk) before `notify_application_pause`
+    /// returns, no `onUpdate` runs, and the last frame's commands are not
+    /// applied a second time.
+    ///
+    /// The fixture makes each of those visible: `onUpdate` counts its calls
+    /// into the HUD and spawns a `Spark` every frame (a command that, unlike
+    /// a HUD write, shows when it is applied twice), and the callback writes
+    /// the count it saw and saves on the way out.
+    #[test]
+    fn the_pause_callbacks_run_at_once_and_no_frame_runs_with_them() {
+        let dir = std::env::temp_dir().join(format!("bsengine_app_pause_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let saves = dir.join("saves");
+        std::fs::create_dir_all(&saves).unwrap();
+        std::fs::write(
+            dir.join("pauser.js"),
+            r#"let frames = 0;
+Bsengine.onApplicationPause(function (paused) {
+    Bsengine.setHudText("pause", String(paused) + "@" + frames);
+    if (paused) Bsengine.save("on-pause.json");
+});
+function onUpdate(name) {
+    frames++;
+    Bsengine.setHudText("frames", String(frames));
+    Bsengine.spawn({ name: "Spark" });
+}
+"#,
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: dir.to_string_lossy().into_owned(),
+        });
+        app.insert_resource(bsengine_core::SaveDir(saves.clone()));
+        let entity = app
+            .world_mut()
+            .spawn((
+                Name("Pauser".to_string()),
+                ScriptPath("pauser.js".to_string()),
+            ))
+            .id();
+        let mut frames = 0;
+        while app.world().get::<Script>(entity).is_none() {
+            app.update();
+            frames += 1;
+            assert!(
+                frames < 300,
+                "the script never loaded, so nothing was measured"
+            );
+        }
+        app.update();
+        app.update();
+
+        // The premise: frames have run, each spawning, and nothing paused yet.
+        let ran = hud(&app, "frames").expect("onUpdate never ran");
+        let ran_n: usize = ran.parse().unwrap();
+        assert!(ran_n >= 2, "only {ran_n} frames ran");
+        let sparks_before = sparks(&mut app);
+        assert!(sparks_before >= 2, "onUpdate's spawns were never applied");
+        assert_eq!(hud(&app, "pause"), None);
+
+        notify_application_pause(app.world_mut(), true);
+
+        assert_eq!(
+            hud(&app, "pause"),
+            Some(format!("true@{ran}")),
+            "the callback's command was not applied before the notification \
+             returned, or it saw another frame count"
+        );
+        assert!(
+            saves.join("on-pause.json").is_file(),
+            "the callback's save was not on disk when the app went into the background"
+        );
+        assert_eq!(
+            hud(&app, "frames"),
+            Some(ran.clone()),
+            "an onUpdate ran during the notification"
+        );
+        assert_eq!(
+            sparks(&mut app),
+            sparks_before,
+            "the last frame's commands were applied a second time"
+        );
+
+        notify_application_pause(app.world_mut(), false);
+        assert_eq!(hud(&app, "pause"), Some(format!("false@{ran}")));
+
+        // And frames carry on afterwards, as before.
+        app.update();
+        assert_eq!(hud(&app, "frames"), Some((ran_n + 1).to_string()));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

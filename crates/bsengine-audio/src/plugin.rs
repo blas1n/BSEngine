@@ -46,6 +46,29 @@ impl Plugin for AudioPlugin {
         // setBusVolume straight back to the authored value.
         app.add_systems(Startup, load_bus_layout);
         app.add_systems(Update, (sync_listener, sync_emitters).chain());
+        // Every sound stops where it is while the app is in the background,
+        // and carries on when it returns (`AudioWorld::pause_all`).
+        let mut lifecycle = app
+            .world_mut()
+            .get_resource_or_init::<bsengine_core::AppLifecycleHooks>();
+        lifecycle.on_suspend.push(pause_audio);
+        lifecycle.on_resume.push(resume_audio);
+    }
+}
+
+/// [`bsengine_core::AppLifecycleHooks`]'s suspend hook: the mixer pauses.
+fn pause_audio(world: &mut World) {
+    if let Some(mut audio) = world.get_resource_mut::<AudioWorld>() {
+        audio.pause_all();
+        tracing::info!("[audio] paused: every sound holds where it is");
+    }
+}
+
+/// [`bsengine_core::AppLifecycleHooks`]'s resume hook: the mixer resumes.
+fn resume_audio(world: &mut World) {
+    if let Some(mut audio) = world.get_resource_mut::<AudioWorld>() {
+        audio.resume_all();
+        tracing::info!("[audio] resumed");
     }
 }
 
@@ -124,6 +147,41 @@ mod tests {
     use super::*;
     use bsengine_app::new_app;
     use glam::{Quat, Vec3};
+
+    /// The plugin wires the mixer to the app's lifecycle: running the hooks
+    /// the window runner runs on `suspended` and `resumed` pauses and
+    /// resumes it. (That a paused mixer holds its sounds is
+    /// `AudioWorld`'s own test, on a device.)
+    #[test]
+    fn leaving_the_screen_pauses_the_mixer_and_returning_resumes_it() {
+        let mut app = new_app();
+        app.insert_resource(AudioWorld::silent());
+        app.add_plugins(AudioPlugin);
+        let run = |app: &mut App, resume: bool| {
+            let hooks = {
+                let h = app.world().resource::<bsengine_core::AppLifecycleHooks>();
+                if resume {
+                    h.on_resume.clone()
+                } else {
+                    h.on_suspend.clone()
+                }
+            };
+            for hook in hooks {
+                hook(app.world_mut());
+            }
+        };
+        assert!(!app.world().resource::<AudioWorld>().is_paused());
+        run(&mut app, false);
+        assert!(
+            app.world().resource::<AudioWorld>().is_paused(),
+            "the suspend hooks did not pause the mixer"
+        );
+        run(&mut app, true);
+        assert!(
+            !app.world().resource::<AudioWorld>().is_paused(),
+            "the resume hooks did not resume the mixer"
+        );
+    }
 
     #[test]
     fn the_listener_pose_follows_its_entity() {

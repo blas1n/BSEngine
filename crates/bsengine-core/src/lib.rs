@@ -16,6 +16,8 @@ pub mod animation_events;
 pub mod animation_player;
 /// Graph-based animation state machine with parameterized transitions.
 pub mod animation_state_machine;
+/// What runs when the app leaves the screen and when it returns.
+pub mod app_lifecycle;
 /// Behaviour trees: tree assets of composites, decorators and tasks ticked
 /// against a blackboard.
 pub mod behavior_tree;
@@ -193,6 +195,7 @@ pub use animation_state_machine::{
     AnimationStateMachine, AsmState, AsmTransition, BlendClip, BlendClip2D, BlendTree1D,
     BlendTree2D, TransitionCondition,
 };
+pub use app_lifecycle::AppLifecycleHooks;
 pub use behavior_tree::{
     BbValue, BehaviorTree, BehaviorTreeAsset, BehaviorTreeSystems, Blackboard, BtNode,
     BtScriptCall, BtScriptQueue, BtScriptRequest, BtStatus,

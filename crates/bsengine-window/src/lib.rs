@@ -17,6 +17,6 @@ pub mod types;
 
 pub use plugin::WindowPlugin;
 pub use types::{
-    FirstFrameGate, SurfaceLifecycle, SuspendAndResume, WindowClosed, WindowCreated,
-    WindowDescriptor, WindowHandle, WindowResized,
+    FirstFrameGate, SuspendAndResume, WindowClosed, WindowCreated, WindowDescriptor, WindowHandle,
+    WindowResized,
 };

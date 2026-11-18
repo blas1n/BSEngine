@@ -68,24 +68,6 @@ pub struct FirstFrameGate {
     pub ready: Vec<Box<dyn Fn() -> bool>>,
 }
 
-/// What has to happen at once when the app goes into the background, and
-/// when it comes back: the runner calls these from winit's `suspended` and
-/// `resumed`, before either returns.
-///
-/// Not a message, because a message is read at the next frame and there is
-/// no next frame in time: on Android the activity's native window is
-/// destroyed as soon as `suspended` returns, and the renderer must have let
-/// go of its surface on it by then (`bsengine_rhi_wgpu`'s hooks do). Plain
-/// function pointers, so the resource stays `Send`; each finds what it needs
-/// in the world.
-#[derive(Resource, Default)]
-pub struct SurfaceLifecycle {
-    /// Called when the app leaves the screen, in the order added.
-    pub on_suspend: Vec<fn(&mut bevy_ecs::world::World)>,
-    /// Called when it comes back, in the order added, before the next frame.
-    pub on_resume: Vec<fn(&mut bevy_ecs::world::World)>,
-}
-
 /// Inserted by a frame to have the runner, once that frame ends, go into the
 /// background and come straight back -- through the same `suspended` and
 /// `resumed` it runs when Android takes the window away and gives it back.

@@ -248,6 +248,84 @@ fn a_window_draws_again_after_the_app_returns_from_the_background() {
     );
 }
 
+/// `Bsengine.onApplicationPause` reaches a script in the shipped game, both
+/// ways: the runner's `suspended` and `resumed` (driven by `--suspend-after`
+/// as in the test above) call the scripting plugin's hooks, and a save made
+/// in the callback is on disk. The script saves under a different name for
+/// each direction, so each file is one call's doing. The control is the
+/// premise: a save from `onUpdate` lands in the same directory, so a missing
+/// pause save is the callback's absence and not a save that went elsewhere.
+#[test]
+fn a_script_is_told_when_the_app_leaves_the_screen_and_returns() {
+    const AWAY_AT: u32 = 3;
+    let dir = std::env::temp_dir().join(format!("bsengine-app-pause-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let project = dir.join("project");
+    let user = dir.join("user");
+    for sub in ["assets/scenes", "assets/scripts"] {
+        std::fs::create_dir_all(project.join(sub)).expect("fixture dirs");
+    }
+    std::fs::write(
+        project.join("project.toml"),
+        "[project]\n\
+         name = \"App Pause\"\n\
+         entry_scene = \"assets/scenes/main.ron\"\n\
+         \n\
+         [window]\n\
+         width = 160\n\
+         height = 120\n",
+    )
+    .expect("project.toml");
+    std::fs::write(
+        project.join("assets/scenes/main.ron"),
+        r#"SceneDescriptor(entities: [
+    EntityDescriptor(name: "Camera", camera: true),
+    EntityDescriptor(name: "Pauser", script: Some("assets/scripts/pauser.js")),
+])"#,
+    )
+    .expect("main.ron");
+    std::fs::write(
+        project.join("assets/scripts/pauser.js"),
+        "Bsengine.onApplicationPause(function (paused) {\n\
+             Bsengine.save(paused ? \"left.json\" : \"returned.json\");\n\
+         });\n\
+         function onUpdate(name) { Bsengine.save(\"frame.json\"); }\n",
+    )
+    .expect("pauser.js");
+
+    let (status, stdout, stderr) = run_to_exit_with(
+        &project,
+        FRAMES + AWAY_AT,
+        &[(bsengine_core::crash::USER_DIR_ENV, user.to_str().unwrap())],
+        &["--suspend-after", &AWAY_AT.to_string()],
+    );
+    let saved = |name: &str| user.join("saves").join(name).is_file();
+    let (frame, left, returned) = (
+        saved("frame.json"),
+        saved("left.json"),
+        saved("returned.json"),
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert!(
+        status.success(),
+        "the runtime exited with {status}\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
+    );
+    assert!(
+        frame,
+        "onUpdate's save is not in <user>/saves -- the fixture measures nothing\n\
+         --- stderr ---\n{stderr}"
+    );
+    assert!(
+        left,
+        "the script was not told the app left the screen\n--- stderr ---\n{stderr}"
+    );
+    assert!(
+        returned,
+        "the script was not told the app came back\n--- stderr ---\n{stderr}"
+    );
+}
+
 /// A script's `Bsengine.save` in the shipped game lands in the per-user
 /// directory's `saves/` -- the one the log is already in -- and nowhere near
 /// the project or the working directory, where every save used to go. Only

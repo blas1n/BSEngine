@@ -1013,6 +1013,23 @@ var Bsengine = {
         }
     },
 
+    // The app leaving the screen and coming back -- Unity's
+    // OnApplicationPause(bool), Godot's NOTIFICATION_APPLICATION_PAUSED and
+    // RESUMED. `callback(true)` when it leaves (home button, app switcher, a
+    // call), `callback(false)` when it returns. Called at once, outside any
+    // frame, and what it asks for is done before the app goes: the place to
+    // save, since the system may end a backgrounded app without warning.
+    // Desktop windows never leave the screen this way.
+    _applicationPauseHandlers: [],
+    onApplicationPause(callback) {
+        this._applicationPauseHandlers.push(callback);
+    },
+    _runApplicationPause(paused) {
+        for (const cb of this._applicationPauseHandlers) {
+            try { cb(paused); } catch (e) { this.log('[applicationPause] ' + e); }
+        }
+    },
+
     // Morph targets (blend shapes): by name or by index, as Unity's
     // SetBlendShapeWeight, Unreal's SetMorphTarget and Godot's
     // set_blend_shape_value address them. A target or entity that has none

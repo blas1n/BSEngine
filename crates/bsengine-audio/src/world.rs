@@ -297,6 +297,20 @@ struct BusState {
 #[derive(Resource)]
 pub struct AudioWorld {
     manager: Option<AudioManager<DefaultBackend>>,
+    /// The one track everything plays under: every sound, bus and emitter
+    /// track that would sit on the main track sits on this instead, at 0 dB
+    /// and with no effects, so it changes nothing about how anything sounds.
+    ///
+    /// It exists to be paused. kira's main track has no pause, and a paused
+    /// sub-track does not process its sub-tracks or sounds at all -- so
+    /// pausing this one stops every sound where it is, and resuming carries
+    /// each on from that point ([`Self::pause_all`]). `None` without a
+    /// backend, or if it could not be made (everything then plays on the
+    /// main track, as before, and cannot be paused).
+    root: Option<TrackHandle>,
+    /// Whether [`Self::pause_all`] is in effect. Recorded whether or not a
+    /// backend exists, as every observable here is.
+    paused: bool,
     /// The scene's ears. Created lazily on the first listener pose, because a
     /// spatial track can only be built once there is a listener to link it to.
     listener: Option<ListenerHandle>,
@@ -372,7 +386,8 @@ pub struct AudioWorld {
 impl Default for AudioWorld {
     fn default() -> Self {
         match AudioManager::<DefaultBackend>::new(AudioManagerSettings::default()) {
-            Ok(manager) => Self {
+            Ok(mut manager) => Self {
+                root: manager.add_sub_track(TrackBuilder::new()).ok(),
                 manager: Some(manager),
                 ..Self::silent()
             },
@@ -399,6 +414,8 @@ impl AudioWorld {
     pub fn silent() -> Self {
         Self {
             manager: None,
+            root: None,
+            paused: false,
             listener: None,
             emitters: HashMap::new(),
             emitter_order: Vec::new(),
@@ -454,7 +471,10 @@ impl AudioWorld {
     ) -> Option<TrackHandle> {
         let builder = self.with_effects(TrackBuilder::new().volume(Decibels(volume_db)), effects);
         match parent {
-            None => self.manager.as_mut()?.add_sub_track(builder).ok(),
+            None => match self.root.as_mut() {
+                Some(root) => root.add_sub_track(builder).ok(),
+                None => self.manager.as_mut()?.add_sub_track(builder).ok(),
+            },
             Some(name) => {
                 let slot = self.buses.iter_mut().find(|(n, _)| n == name)?;
                 slot.1.handle.as_mut()?.add_sub_track(builder).ok()
@@ -519,6 +539,32 @@ impl AudioWorld {
         true
     }
 
+    /// Pauses every sound where it is: the app has left the screen
+    /// (`bsengine_core::AppLifecycleHooks`). Music, effects, emitters and a
+    /// video's soundtrack alike -- a sound started while paused waits too.
+    /// Unity pauses its audio with the player on Android and iOS, and
+    /// Godot's and Unreal's mobile audio devices suspend; a phone game that
+    /// kept playing from the background is one players uninstall.
+    pub fn pause_all(&mut self) {
+        self.paused = true;
+        if let Some(root) = self.root.as_mut() {
+            root.pause(Tween::default());
+        }
+    }
+
+    /// Carries every sound on from where [`Self::pause_all`] stopped it.
+    pub fn resume_all(&mut self) {
+        self.paused = false;
+        if let Some(root) = self.root.as_mut() {
+            root.resume(Tween::default());
+        }
+    }
+
+    /// Whether [`Self::pause_all`] is in effect.
+    pub fn is_paused(&self) -> bool {
+        self.paused
+    }
+
     /// Returns whether the audio backend initialized successfully and can play sounds.
     pub fn is_available(&self) -> bool {
         self.manager.is_some()
@@ -527,7 +573,10 @@ impl AudioWorld {
     /// Starts playing the given sound data, returning a handle to it, or `None` if the audio
     /// backend is unavailable or playback failed to start.
     pub fn play(&mut self, data: StaticSoundData) -> Option<StaticSoundHandle> {
-        self.manager.as_mut()?.play(data).ok()
+        match self.root.as_mut() {
+            Some(root) => root.play(data).ok(),
+            None => self.manager.as_mut()?.play(data).ok(),
+        }
     }
 
     /// Moves the listener — the ears the scene is heard from.
@@ -636,10 +685,15 @@ impl AudioWorld {
             _ => SpatialTrackBuilder::new(),
         };
         let created = match bus {
-            None => self.manager.as_mut().and_then(|m| {
-                m.add_spatial_sub_track(listener_id, to_mint_vec(position), builder)
-                    .ok()
-            }),
+            None => match self.root.as_mut() {
+                Some(root) => root
+                    .add_spatial_sub_track(listener_id, to_mint_vec(position), builder)
+                    .ok(),
+                None => self.manager.as_mut().and_then(|m| {
+                    m.add_spatial_sub_track(listener_id, to_mint_vec(position), builder)
+                        .ok()
+                }),
+            },
             Some(name) => {
                 let slot = self.buses.iter_mut().find(|(n, _)| n == name);
                 slot.and_then(|(_, b)| b.handle.as_mut()).and_then(|h| {
@@ -824,7 +878,7 @@ impl AudioWorld {
                 .find(|(n, _)| n == name)
                 .and_then(|(_, b)| b.handle.as_mut())
         });
-        match on_bus {
+        match on_bus.or(self.root.as_mut()) {
             Some(track) => track.play(data).is_ok(),
             None => self
                 .manager
@@ -1362,5 +1416,95 @@ mod bus_tests {
                 ("ui".to_string(), -3.0),
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod pause_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    /// Silence, long enough that it is still playing when the test ends.
+    fn ten_seconds_of_silence() -> StaticSoundData {
+        StaticSoundData {
+            sample_rate: 48_000,
+            frames: vec![kira::Frame::ZERO; 48_000 * 10].into(),
+            settings: Default::default(),
+            slice: None,
+        }
+    }
+
+    /// Polls `f` until it holds or two seconds pass.
+    fn within_two_seconds(mut f: impl FnMut() -> bool) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            if f() {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        f()
+    }
+
+    /// The flag alone, which is all a machine with no audio device has.
+    #[test]
+    fn pausing_is_recorded_without_an_audio_backend() {
+        let mut audio = AudioWorld::silent();
+        assert!(!audio.is_paused());
+        audio.pause_all();
+        assert!(audio.is_paused());
+        audio.resume_all();
+        assert!(!audio.is_paused());
+    }
+
+    /// The property itself, on a real device: a playing sound stops where it
+    /// is while the mixer is paused, and carries on from there after. The
+    /// hard side is "it stopped": a do-nothing `pause_all` leaves the
+    /// position running. The sound is played the way every unrouted sound
+    /// is (`play`), so a sound that bypassed the root track would also keep
+    /// running and fail here.
+    ///
+    /// Ignored on Windows with the other device tests (see
+    /// `AudioWorld::silent` for why a manager there can fault the process on
+    /// a machine with no device); run it locally with `--ignored`. Without a
+    /// device it says so and checks nothing more -- its premise is a sound
+    /// that advances.
+    #[test]
+    #[cfg_attr(target_os = "windows", ignore)]
+    fn a_paused_mixer_holds_every_sound_where_it_is() {
+        let mut audio = AudioWorld::default();
+        if !audio.is_available() {
+            eprintln!("no audio device: nothing to pause here");
+            return;
+        }
+        let sound = audio
+            .play(ten_seconds_of_silence())
+            .expect("a sound plays on a device");
+        // The premise: the device is running, so the sound's position moves.
+        assert!(
+            within_two_seconds(|| sound.position() > 0.05),
+            "the sound never advanced -- the device is not running, and a \
+             pause could not be told from it"
+        );
+
+        audio.pause_all();
+        // Past kira's fade-out tween, then held still.
+        std::thread::sleep(Duration::from_millis(100));
+        let held = sound.position();
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(
+            (sound.position() - held).abs() < 1e-6,
+            "the sound ran on while paused: {held} -> {}",
+            sound.position()
+        );
+
+        audio.resume_all();
+        assert!(
+            within_two_seconds(|| sound.position() > held + 0.05),
+            "the sound did not carry on after the resume (still at {})",
+            sound.position()
+        );
+        // From where it was, not from the start.
+        assert!(sound.position() > held);
     }
 }

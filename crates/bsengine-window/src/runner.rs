@@ -9,8 +9,8 @@ use winit::window::{Window, WindowId};
 use bsengine_core::{CursorPos, ScreenSize};
 
 use crate::types::{
-    FirstFrameGate, SurfaceLifecycle, SuspendAndResume, WindowClosed, WindowCreated,
-    WindowDescriptor, WindowHandle, WindowResized,
+    FirstFrameGate, SuspendAndResume, WindowClosed, WindowCreated, WindowDescriptor, WindowHandle,
+    WindowResized,
 };
 
 struct BsWinitApp {
@@ -61,13 +61,13 @@ impl BsWinitApp {
 }
 
 impl BsWinitApp {
-    /// Runs the [`SurfaceLifecycle`] hooks for leaving the screen
+    /// Runs the [`bsengine_core::AppLifecycleHooks`] hooks for leaving the screen
     /// (`resume == false`) or coming back.
     fn run_lifecycle_hooks(&mut self, resume: bool) {
         let hooks = self
             .ecs_app
             .world()
-            .get_resource::<SurfaceLifecycle>()
+            .get_resource::<bsengine_core::AppLifecycleHooks>()
             .map(|l| {
                 if resume {
                     l.on_resume.clone()
@@ -82,7 +82,7 @@ impl BsWinitApp {
     }
 
     /// The app has left the screen. Lets go of the window's surface before
-    /// returning (see [`SurfaceLifecycle`]) and stops running frames.
+    /// returning (see [`bsengine_core::AppLifecycleHooks`]) and stops running frames.
     fn go_to_background(&mut self) {
         if self.window.is_none() || self.suspended {
             return;

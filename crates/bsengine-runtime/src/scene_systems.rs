@@ -36,6 +36,9 @@ pub struct ProjectManifest {
     pub localization: LocalizationSection,
     #[serde(default)]
     pub ui: UiSection,
+    /// `[android]`: application id, version and release key.
+    #[serde(default)]
+    pub android: crate::android_settings::AndroidSection,
 }
 
 /// `project.toml`'s `[ui]` table.

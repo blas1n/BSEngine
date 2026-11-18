@@ -34,8 +34,9 @@ use bsengine_scene::ScenePlugin;
 use bsengine_scripting::ScriptingPlugin;
 use bsengine_window::{WindowDescriptor, WindowPlugin};
 
-mod audio_occlusion;
 #[cfg(not(target_arch = "wasm32"))]
+mod android_settings;
+mod audio_occlusion;
 mod bake;
 mod scene_systems;
 #[cfg(not(target_arch = "wasm32"))]
@@ -400,6 +401,25 @@ fn run_package(
         return 1;
     }
 
+    // The flag wins over the manifest, the ordinary precedence for a build
+    // option: the setting says what this project normally produces, the flag
+    // says what this one invocation should.
+    let mode = mode_override.unwrap_or(manifest.package.mode);
+    let android_mode = mode == bsengine_asset::cook::PackageMode::Android;
+    // Checked in every mode: a wrong application id or version is found at
+    // the first desktop build, not at the first upload.
+    let android = match manifest.android.resolve(
+        &manifest.project.name,
+        std::path::Path::new(project_dir),
+        android_mode,
+    ) {
+        Ok(android) => android,
+        Err(e) => {
+            eprintln!("package: {manifest_path} [android]:\n{e}");
+            return 1;
+        }
+    };
+
     let exe = match std::env::current_exe() {
         Ok(exe) => exe,
         Err(e) => {
@@ -407,11 +427,6 @@ fn run_package(
             return 1;
         }
     };
-
-    // The flag wins over the manifest, the ordinary precedence for a build
-    // option: the setting says what this project normally produces, the flag
-    // says what this one invocation should.
-    let mode = mode_override.unwrap_or(manifest.package.mode);
 
     // With each block-compressed texture's mip cache made here, so no
     // player's machine encodes one (see `install_shipped_mips`).
@@ -455,6 +470,18 @@ fn run_package(
             cooked.problems.len()
         );
         return 1;
+    }
+
+    // What `scripts/build_android.sh` names, versions and signs the APK by.
+    if android_mode {
+        // The name under the icon: the project's, as it always was (Unity's
+        // Product Name, Godot's application name).
+        let label = manifest.project.name.clone();
+        let path = std::path::Path::new(out_dir).join("android.properties");
+        if let Err(e) = std::fs::write(&path, android.properties(&label)) {
+            eprintln!("package: cannot write {} ({e})", path.display());
+            return 1;
+        }
     }
 
     println!(

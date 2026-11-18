@@ -336,6 +336,107 @@ fn packaging_refuses_a_bad_input_binding_and_names_it() {
     );
 }
 
+/// `[android]` through `--package`, both halves of what `run_package` does
+/// with it:
+///
+/// - checked in every mode: a bad application id fails a *loose desktop*
+///   build, so it is found at the first build anyone makes, not the first
+///   Android one;
+/// - written out, resolved, by `--mode android` only, as the
+///   `android.properties` `scripts/build_android.sh` names, versions and
+///   signs the APK by -- with the keystore made absolute against the project.
+///   A desktop build of the same project needs no keystore on the machine
+///   and writes no such file.
+#[test]
+fn android_settings_are_checked_in_every_build_and_handed_to_the_android_one() {
+    let project = Output::new();
+    std::fs::create_dir_all(project.0.join("assets/scenes")).unwrap();
+    std::fs::write(
+        project.0.join("assets/scenes/main.ron"),
+        r#"SceneDescriptor(entities: [EntityDescriptor(name: "Only")])"#,
+    )
+    .unwrap();
+    let package = |android: &str, mode: &str| {
+        std::fs::write(
+            project.0.join("project.toml"),
+            format!(
+                "[project]\nname = \"Signed Game\"\nentry_scene = \"assets/scenes/main.ron\"\n\n\
+                 [android]\n{android}"
+            ),
+        )
+        .unwrap();
+        let out = Output::new();
+        let run = Command::new(env!("CARGO_BIN_EXE_bsengine-runtime"))
+            .arg("--package")
+            .arg(&project.0)
+            .arg("--out")
+            .arg(&out.0)
+            .arg("--mode")
+            .arg(mode)
+            .output()
+            .expect("run --package");
+        let props = std::fs::read_to_string(out.0.join("android.properties")).ok();
+        (run, props)
+    };
+    let signed = "package = \"com.studio.signed\"\nversion_code = 12\n\
+                  keystore = \"keys/release.jks\"\nkey_alias = \"upload\"\n";
+
+    // A desktop build: the keystore is not on this machine, and need not be.
+    let (loose, loose_props) = package(signed, "loose");
+    assert!(
+        loose.status.success(),
+        "a desktop build failed for want of the release key: {}",
+        String::from_utf8_lossy(&loose.stderr)
+    );
+    assert_eq!(
+        loose_props, None,
+        "a desktop build wrote android.properties"
+    );
+
+    // The same, for Android: the key must be there.
+    let (no_key, _) = package(signed, "android");
+    assert!(
+        !no_key.status.success(),
+        "an Android build signed with a keystore that does not exist"
+    );
+    assert!(
+        String::from_utf8_lossy(&no_key.stderr).contains("no such file"),
+        "the failure names the missing keystore: {}",
+        String::from_utf8_lossy(&no_key.stderr)
+    );
+
+    std::fs::create_dir_all(project.0.join("keys")).unwrap();
+    std::fs::write(project.0.join("keys/release.jks"), b"a keystore").unwrap();
+    let (android, props) = package(signed, "android");
+    assert!(
+        android.status.success(),
+        "{}",
+        String::from_utf8_lossy(&android.stderr)
+    );
+    let props = props.expect("an Android build writes android.properties");
+    assert!(props.contains("package=com.studio.signed\n"), "{props}");
+    assert!(props.contains("version_code=12\n"), "{props}");
+    assert!(props.contains("label_xml=Signed Game\n"), "{props}");
+    assert!(props.contains("key_alias=upload\n"), "{props}");
+    let keystore = props
+        .lines()
+        .find_map(|l| l.strip_prefix("keystore="))
+        .expect("the keystore line");
+    assert!(
+        Path::new(keystore).is_absolute() && Path::new(keystore).is_file(),
+        "the keystore is not the project's file, made absolute: {keystore}"
+    );
+
+    // And a bad application id fails even the desktop build.
+    let (bad, _) = package("package = \"signed\"\n", "loose");
+    assert!(!bad.status.success(), "a one-part application id packaged");
+    assert!(
+        String::from_utf8_lossy(&bad.stderr).contains("[android]"),
+        "the failure names the table: {}",
+        String::from_utf8_lossy(&bad.stderr)
+    );
+}
+
 /// A project's `[localization] tables` ship in a pak build and are read out
 /// of the archive: no scene references a CSV, so without the manifest adding
 /// them to the cook the build would carry none, and with no loose `assets/`

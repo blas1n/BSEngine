@@ -4635,10 +4635,11 @@ impl WgpuSurface {
         window: Arc<winit::window::Window>,
         hdr: bsengine_core::HdrOutputSettings,
     ) -> Result<Self, String> {
-        // `_instance` is kept to the end of this function, as the instance
-        // was before the Android path: the device holds what it needs of it.
+        // The instance and the adapter go into the output with the surface:
+        // a window whose app went into the background makes its surface
+        // again from them when it comes back (`Output::recreate_surface`).
         #[cfg(not(target_os = "android"))]
-        let (_instance, surface, parts) = {
+        let (instance, surface, parts) = {
             let instance = new_instance();
             let surface = instance
                 .create_surface(window.clone())
@@ -4647,7 +4648,7 @@ impl WgpuSurface {
             (instance, surface, parts)
         };
         #[cfg(target_os = "android")]
-        let (_instance, surface, parts) = Self::android_device(&window).await?;
+        let (instance, surface, parts) = Self::android_device(&window).await?;
         let (adapter, device, queue, timestamp_supported, instancing_supported, msaa_supported) =
             parts;
 
@@ -4707,9 +4708,13 @@ impl WgpuSurface {
             device,
             queue,
             crate::output::Output::Window {
-                surface,
+                surface: Some(surface),
                 config,
-                _window: window,
+                instance,
+                adapter: adapter.clone(),
+                window,
+                surfaces_made: 1,
+                presented: 0,
             },
             false,
             timestamp_supported,
@@ -4793,7 +4798,12 @@ impl WgpuSurface {
         let Some(adapter) = &self.display_adapter else {
             return;
         };
-        let crate::output::Output::Window { surface, .. } = &self.output else {
+        // No surface in the background: there is no display to ask.
+        let crate::output::Output::Window {
+            surface: Some(surface),
+            ..
+        } = &self.output
+        else {
             return;
         };
         let display = surface.display_hdr_info(adapter);
@@ -11491,6 +11501,7 @@ impl WgpuSurface {
 
         if let Some(frame) = presentable {
             self.queue.present(frame);
+            self.output.note_presented();
         } else {
             // Offscreen mode (headless E2E replays, MCP test sessions) has no
             // swapchain to present to, so nothing else provides the
@@ -11558,6 +11569,45 @@ impl WgpuSurface {
         self.particle_depth_view_proj = Some(raster_view_proj);
 
         Ok(clicked)
+    }
+
+    /// Lets go of the window's surface: the app is going into the background
+    /// (winit's `suspended`; on Android, the activity's native window is
+    /// about to be destroyed). Everything else -- the device, every pipeline,
+    /// every mesh and texture -- stays, so coming back costs one surface,
+    /// not a reload. Returns whether there was a surface to let go of.
+    ///
+    /// Android keeps the GPU device across a trip to the background (only
+    /// the window goes), which is why Unity, Unreal and Godot all keep their
+    /// device and remake only the surface; a lost device is a different
+    /// event and is not handled here.
+    pub fn suspend_window(&mut self) -> bool {
+        self.output.release_surface()
+    }
+
+    /// Makes the window's surface again after [`Self::suspend_window`], and
+    /// resizes every screen-sized target if the window came back at another
+    /// size (rotated while away). `Ok(false)` if there was nothing to do.
+    pub fn resume_window(&mut self) -> Result<bool, String> {
+        let (old_w, old_h) = (self.output.width(), self.output.height());
+        if !self.output.recreate_surface(&self.device)? {
+            return Ok(false);
+        }
+        let (w, h) = (self.output.width(), self.output.height());
+        if (w, h) != (old_w, old_h) {
+            // The swapchain already has the new size; this is for the
+            // depth, post-process, UI and decal targets sized beside it.
+            self.resize(w, h);
+        }
+        Ok(true)
+    }
+
+    /// `(surfaces made, frames presented)` for a windowed renderer, `None`
+    /// offscreen. The first is 1 from the start and one more per return
+    /// from the background: what tells a test of that path that it ran, and
+    /// the second that frames were drawn into the new surface.
+    pub fn window_surface_counts(&self) -> Option<(u32, u64)> {
+        self.output.window_counts()
     }
 
     /// Reconfigures the swapchain and depth/post-process targets for a new

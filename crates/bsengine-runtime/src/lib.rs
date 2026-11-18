@@ -248,6 +248,7 @@ pub fn run() {
 
     let mut frame_limit = None;
     let mut force_crash = false;
+    let mut suspend_after = None;
     while let Some(flag) = args.next() {
         match flag.as_str() {
             // Crash natively once the game has started, to check a build
@@ -263,11 +264,23 @@ pub fn run() {
                         .unwrap_or_else(|_| panic!("--frames expects a number, got {value}")),
                 );
             }
+            // Go into the background and come back after this many frames,
+            // as Android does to an app the player switches away from (see
+            // `bsengine_window::SuspendAndResume`). For `window_smoke.rs`.
+            "--suspend-after" => {
+                let value = args
+                    .next()
+                    .unwrap_or_else(|| panic!("--suspend-after requires a frame count"));
+                suspend_after =
+                    Some(value.parse::<u32>().unwrap_or_else(|_| {
+                        panic!("--suspend-after expects a number, got {value}")
+                    }));
+            }
             other => panic!("unknown argument after project dir: {other}"),
         }
     }
 
-    run_windowed(&first_arg, frame_limit, force_crash);
+    run_windowed(&first_arg, frame_limit, suspend_after, force_crash);
 }
 
 /// `--fixup <dir> [--json]`: settles every reference in a project that only
@@ -706,7 +719,12 @@ fn read_manifest(project_dir: &str, pak: Option<&bsengine_asset::pak::Pak>) -> P
 /// certifies is the arrangement a player gets rather than a second one
 /// assembled for the test.
 #[cfg(not(target_arch = "wasm32"))]
-fn run_windowed(project_dir: &str, frame_limit: Option<u32>, force_crash: bool) {
+fn run_windowed(
+    project_dir: &str,
+    frame_limit: Option<u32>,
+    suspend_after: Option<u32>,
+    force_crash: bool,
+) {
     let mut app = build_windowed_app(project_dir);
     // `--force-crash`: after the crash handlers are in (`build_windowed_app`
     // installs them) and before a window opens, so checking that a build
@@ -718,7 +736,7 @@ fn run_windowed(project_dir: &str, frame_limit: Option<u32>, force_crash: bool) 
     #[cfg(any(target_os = "android", target_os = "ios"))]
     let _ = force_crash;
     if let Some(frames) = frame_limit {
-        quit_after_frames(&mut app, frames);
+        quit_after_frames(&mut app, frames, suspend_after);
     }
     // The runner hands back how the game ended; a failure -- no GPU surface
     // for the window -- is the process's status too, not a 0 a launcher or a
@@ -743,23 +761,46 @@ fn run_windowed(project_dir: &str, frame_limit: Option<u32>, force_crash: bool) 
 /// presents nothing -- a surface that failed to configure, a renderer that
 /// found no camera -- still ticks `Update` happily, and a frame count alone
 /// would call that a success.
-fn quit_after_frames(app: &mut bevy_app::App, frames: u32) {
+///
+/// With `suspend_after`, the runner goes into the background and comes back
+/// once that many frames have run, and a second line reports how many
+/// surfaces the window has had and how many frames were presented after the
+/// return -- `presented_after` is the one a renderer that never got its
+/// surface back fails, since frame stats alone would still show the last
+/// frame drawn before it left.
+fn quit_after_frames(app: &mut bevy_app::App, frames: u32, suspend_after: Option<u32>) {
     app.add_message::<bevy_app::AppExit>();
 
     let mut seen = 0u32;
     let mut drawn = 0u32;
+    let mut presented_at_return = None;
     app.add_systems(
         bevy_app::Last,
         move |surface: Option<bevy_ecs::prelude::Res<bsengine_rhi_wgpu::WgpuSurfaceResource>>,
+              mut commands: bevy_ecs::prelude::Commands,
               mut exit: bevy_ecs::prelude::MessageWriter<bevy_app::AppExit>| {
             seen += 1;
-            if let Some(stats) = surface.and_then(|s| s.0.latest_frame_stats()) {
+            let counts = surface.as_ref().and_then(|s| s.0.window_surface_counts());
+            if let Some(stats) = surface.as_ref().and_then(|s| s.0.latest_frame_stats()) {
                 drawn = drawn.max(stats.draw_calls);
+            }
+            if suspend_after == Some(seen) {
+                // Acted on by the runner once this frame ends; the frames
+                // presented so far are the ones from before it.
+                commands.insert_resource(bsengine_window::SuspendAndResume);
+                presented_at_return = Some(counts.map_or(0, |(_, p)| p));
             }
             if seen >= frames {
                 // The line `window_smoke.rs` parses. Printed once, on the way
                 // out, so a truncated run cannot look like a complete one.
                 println!("frames={seen} draw_calls={drawn}");
+                if let Some(before) = presented_at_return {
+                    let (surfaces, presented) = counts.unwrap_or_default();
+                    println!(
+                        "surfaces={surfaces} presented_after={}",
+                        presented.saturating_sub(before)
+                    );
+                }
                 exit.write(bevy_app::AppExit::Success);
             }
         },

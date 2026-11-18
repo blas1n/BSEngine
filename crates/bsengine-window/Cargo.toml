@@ -11,6 +11,8 @@ bsengine-input.workspace = true
 bevy_app.workspace = true
 bevy_ecs.workspace = true
 winit.workspace = true
+# Already in the workspace's lock: the background and return are logged.
+tracing.workspace = true
 
 # An Android app's event loop is the activity's: winit's NativeActivity glue
 # (no Java of our own), handed the `AndroidApp` the entry point receives.
@@ -19,7 +21,6 @@ winit = { workspace = true, features = ["android-native-activity"] }
 # The safe area is Java's `WindowInsets`; the version android-activity
 # already pulls in, so nothing new is vendored.
 jni = "0.22.4"
-tracing.workspace = true
 
 [dev-dependencies]
 bsengine-app.workspace = true

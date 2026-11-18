@@ -24,9 +24,28 @@ pub(crate) enum Output {
     /// A window's swapchain. The frame is presented and cannot be read back: a
     /// swapchain texture is not created with `COPY_SRC`.
     Window {
-        surface: wgpu::Surface<'static>,
+        /// `None` while the app is in the background: Android takes the
+        /// window's native surface away when the app leaves the screen and
+        /// gives it a new one when it comes back (`Output::release_surface`,
+        /// `Output::recreate_surface`).
+        surface: Option<wgpu::Surface<'static>>,
         config: wgpu::SurfaceConfiguration,
-        _window: Arc<winit::window::Window>,
+        /// What the surface is made again from on the way back. The device
+        /// belongs to this instance: a surface from another instance is one
+        /// the device cannot present to.
+        instance: wgpu::Instance,
+        /// What the new surface's formats are checked against before it is
+        /// configured -- configuring one in a format it lacks is a fatal
+        /// validation error, not one `configure` returns.
+        adapter: wgpu::Adapter,
+        window: Arc<winit::window::Window>,
+        /// How many surfaces this window has had: 1 from the start, one more
+        /// for every return from the background. What the test of that path
+        /// reads to know the path ran.
+        surfaces_made: u32,
+        /// Frames presented to this window, every surface it has had
+        /// counted. A frame that found no surface is not one.
+        presented: u64,
     },
     /// A texture we own. Nothing is presented, and the pixels can be read back.
     Offscreen {
@@ -108,6 +127,14 @@ impl Output {
             Output::Window {
                 surface, config, ..
             } => {
+                // In the background there is nothing to draw into; the
+                // runner draws no frames there, so this is only reached by
+                // one already under way.
+                let Some(surface) = surface else {
+                    return Err("no frame to draw into: the window has no surface \
+                                (the app is in the background)"
+                        .to_string());
+                };
                 let frame = match surface.get_current_texture() {
                     wgpu::CurrentSurfaceTexture::Success(frame)
                     | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
@@ -136,7 +163,11 @@ impl Output {
             } => {
                 config.width = width;
                 config.height = height;
-                surface.configure(device, config);
+                // Kept in `config` when there is no surface: the one made on
+                // the way back from the background is configured from it.
+                if let Some(surface) = surface {
+                    surface.configure(device, config);
+                }
             }
             Output::Offscreen {
                 texture,
@@ -148,6 +179,98 @@ impl Output {
                 *w = width;
                 *h = height;
             }
+        }
+    }
+}
+
+impl Output {
+    /// Lets go of the window's surface, for the app going into the
+    /// background. Returns whether there was one to let go of (an offscreen
+    /// target has none, and a second call finds it gone).
+    ///
+    /// ⚠️ Has to happen before the runner's `suspended` returns. Android
+    /// reclaims the native window as soon as the app has been told, and a
+    /// surface left on it is one the next present faults on -- or, when the
+    /// app comes back, a second swapchain on the window, which wgpu treats
+    /// as fatal (measured on a desktop Vulkan window: a renderer that kept
+    /// its surface and made another died in the winit callback,
+    /// 0xc000041d). Unity, Unreal and Godot's Android players all destroy the
+    /// surface in `surfaceDestroyed` and make a new one in `surfaceCreated`.
+    pub(crate) fn release_surface(&mut self) -> bool {
+        match self {
+            Output::Window { surface, .. } => surface.take().is_some(),
+            Output::Offscreen { .. } => false,
+        }
+    }
+
+    /// Makes the window's surface again, after [`Self::release_surface`], on
+    /// the same device and in the same format, at the window's size now.
+    /// `Ok(false)` where there is nothing to do: a surface already there, or
+    /// an offscreen target.
+    ///
+    /// The format is the one chosen at start and is checked, not assumed:
+    /// a new surface could in principle offer others, and configuring one
+    /// in a format it lacks is fatal. A failure here leaves the window
+    /// without a surface -- frames then report it and draw nothing -- rather
+    /// than ending the game.
+    pub(crate) fn recreate_surface(&mut self, device: &wgpu::Device) -> Result<bool, String> {
+        let Output::Window {
+            surface,
+            config,
+            instance,
+            adapter,
+            window,
+            surfaces_made,
+            ..
+        } = self
+        else {
+            return Ok(false);
+        };
+        if surface.is_some() {
+            return Ok(false);
+        }
+        let new = instance
+            .create_surface(window.clone())
+            .map_err(|e| format!("cannot make the window's surface again: {e}"))?;
+        let caps = new.get_capabilities(adapter);
+        if !caps.formats.contains(&config.format) {
+            return Err(format!(
+                "the window's new surface does not offer {:?}, the format the renderer \
+                 was built for (it offers {:?})",
+                config.format, caps.formats
+            ));
+        }
+        // The window may have changed size while it was away (rotated in the
+        // background); a zero size is a window not laid out yet, which keeps
+        // the last one rather than configuring an empty swapchain.
+        let size = window.inner_size();
+        if size.width > 0 && size.height > 0 {
+            config.width = size.width;
+            config.height = size.height;
+        }
+        new.configure(device, config);
+        *surface = Some(new);
+        *surfaces_made += 1;
+        Ok(true)
+    }
+
+    /// Counts a frame presented to the window. Nothing for an offscreen
+    /// target, which presents nothing.
+    pub(crate) fn note_presented(&mut self) {
+        if let Output::Window { presented, .. } = self {
+            *presented += 1;
+        }
+    }
+
+    /// `(surfaces made, frames presented)` for a window; `None` offscreen.
+    pub(crate) fn window_counts(&self) -> Option<(u32, u64)> {
+        match self {
+            Output::Window {
+                surfaces_made,
+                presented,
+                ..
+            } => Some((*surfaces_made, *presented)),
+            Output::Offscreen { .. } => None,
         }
     }
 }

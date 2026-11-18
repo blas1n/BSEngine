@@ -104,6 +104,38 @@ impl Plugin for WgpuRHIPlugin {
             app.add_systems(bevy_app::PreStartup, install_arrived_surface);
         }
         app.add_systems(Update, handle_window_resize);
+        // A window's surface goes with the app into the background and is
+        // made again when it comes back (Android destroys the native window
+        // in between). The runner calls these synchronously: see
+        // `bsengine_window::SurfaceLifecycle` for why a message would be
+        // too late.
+        if let SurfaceMode::Windowed = mode {
+            let mut lifecycle = app
+                .world_mut()
+                .get_resource_or_init::<bsengine_window::SurfaceLifecycle>();
+            lifecycle.on_suspend.push(release_window_surface);
+            lifecycle.on_resume.push(recreate_window_surface);
+        }
+    }
+}
+
+/// [`bsengine_window::SurfaceLifecycle`]'s suspend hook: the renderer lets go
+/// of the window's surface. Nothing before the renderer exists.
+fn release_window_surface(world: &mut World) {
+    if let Some(mut surface) = world.get_resource_mut::<WgpuSurfaceResource>() {
+        surface.0.suspend_window();
+    }
+}
+
+/// [`bsengine_window::SurfaceLifecycle`]'s resume hook: the renderer makes
+/// the window's surface again. A failure is logged and the game runs on
+/// without drawing -- each frame then says why -- rather than quitting, as a
+/// phone app does not vanish because a surface could not be had once.
+fn recreate_window_surface(world: &mut World) {
+    if let Some(mut surface) = world.get_resource_mut::<WgpuSurfaceResource>() {
+        if let Err(e) = surface.0.resume_window() {
+            tracing::error!("the window came back but its surface did not: {e}");
+        }
     }
 }
 

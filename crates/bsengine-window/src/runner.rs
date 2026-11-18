@@ -9,7 +9,8 @@ use winit::window::{Window, WindowId};
 use bsengine_core::{CursorPos, ScreenSize};
 
 use crate::types::{
-    FirstFrameGate, WindowClosed, WindowCreated, WindowDescriptor, WindowHandle, WindowResized,
+    FirstFrameGate, SurfaceLifecycle, SuspendAndResume, WindowClosed, WindowCreated,
+    WindowDescriptor, WindowHandle, WindowResized,
 };
 
 struct BsWinitApp {
@@ -20,6 +21,11 @@ struct BsWinitApp {
     /// The `AppExit` that ended the loop, which [`winit_runner`] returns: an
     /// error one (no GPU surface, say) must reach the process's exit status.
     exit: AppExit,
+    /// Whether the app is in the background: between winit's `suspended`
+    /// and the `resumed` that brings it back. No frame runs then -- there is
+    /// no surface to draw into, and a game in the background is paused, as
+    /// Unity, Unreal and Godot pause theirs.
+    suspended: bool,
     /// Whether the safe area must be read again: set when the window appears
     /// or is resized (a rotation moves the bars), cleared once the system
     /// answers. Android only reports insets once the window's view is
@@ -55,6 +61,67 @@ impl BsWinitApp {
 }
 
 impl BsWinitApp {
+    /// Runs the [`SurfaceLifecycle`] hooks for leaving the screen
+    /// (`resume == false`) or coming back.
+    fn run_lifecycle_hooks(&mut self, resume: bool) {
+        let hooks = self
+            .ecs_app
+            .world()
+            .get_resource::<SurfaceLifecycle>()
+            .map(|l| {
+                if resume {
+                    l.on_resume.clone()
+                } else {
+                    l.on_suspend.clone()
+                }
+            })
+            .unwrap_or_default();
+        for hook in hooks {
+            hook(self.ecs_app.world_mut());
+        }
+    }
+
+    /// The app has left the screen. Lets go of the window's surface before
+    /// returning (see [`SurfaceLifecycle`]) and stops running frames.
+    fn go_to_background(&mut self) {
+        if self.window.is_none() || self.suspended {
+            return;
+        }
+        self.suspended = true;
+        self.run_lifecycle_hooks(false);
+        tracing::info!("in the background: the window's surface is released, frames stop");
+    }
+
+    /// The app is back on screen with the window it had: makes the surface
+    /// again and runs frames from where they stopped.
+    fn come_back(&mut self) {
+        if !self.suspended {
+            return;
+        }
+        self.suspended = false;
+        // The time spent away is not a frame: without this the first frame
+        // back would step every timer, tween and animation by however long
+        // the app sat in the background. Unity's `Time.time` and Godot's
+        // process delta skip a pause the same way.
+        if let Some(mut time) = self
+            .ecs_app
+            .world_mut()
+            .get_resource_mut::<bsengine_core::Time>()
+        {
+            time.resume_after_pause();
+        }
+        self.run_lifecycle_hooks(true);
+        // A rotation in the background moves the bars too.
+        #[cfg(target_os = "android")]
+        {
+            self.safe_area_pending = true;
+        }
+        tracing::info!("back from the background: the window has a surface again");
+        if let Some(w) = &self.window {
+            w.request_redraw();
+        }
+    }
+
     /// Whether frames may run: always once started, and before that only
     /// when every [`FirstFrameGate`] check passes.
     fn may_update(&mut self) -> bool {
@@ -73,7 +140,11 @@ impl BsWinitApp {
 
 impl ApplicationHandler for BsWinitApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        // Android sends this again each time the app returns from the
+        // background, with the window it had and a new native surface under
+        // it; desktop window systems send it once.
         if self.window.is_some() {
+            self.come_back();
             return;
         }
         let desc = self
@@ -129,6 +200,10 @@ impl ApplicationHandler for BsWinitApp {
                 .resource_mut::<Messages<WindowCreated>>();
             events.write(WindowCreated);
         }
+    }
+
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        self.go_to_background();
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -258,6 +333,13 @@ impl ApplicationHandler for BsWinitApp {
                 }
             }
             WindowEvent::RedrawRequested => {
+                // Android stops asking for redraws once the activity pauses,
+                // but resumes them before the window is back (`Resume`
+                // comes before `InitWindow`): such a frame would find no
+                // surface. Nothing asks for another until `come_back`.
+                if self.suspended {
+                    return;
+                }
                 if !self.may_update() {
                     if let Some(w) = &self.window {
                         w.request_redraw();
@@ -279,6 +361,18 @@ impl ApplicationHandler for BsWinitApp {
                     self.exit = exit;
                     event_loop.exit();
                     return;
+                }
+
+                // `--suspend-after`: through the background and back, by the
+                // same two calls winit makes on Android.
+                if self
+                    .ecs_app
+                    .world_mut()
+                    .remove_resource::<SuspendAndResume>()
+                    .is_some()
+                {
+                    self.suspended(event_loop);
+                    self.resumed(event_loop);
                 }
 
                 if let Some(w) = &self.window {
@@ -330,6 +424,7 @@ pub fn winit_runner(app: App) -> AppExit {
         window: None,
         started: false,
         exit: AppExit::Success,
+        suspended: false,
         #[cfg(target_os = "android")]
         safe_area_pending: false,
     };

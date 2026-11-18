@@ -76,6 +76,16 @@ fn run_to_exit(
     frames: u32,
     envs: &[(&str, &str)],
 ) -> (std::process::ExitStatus, String, String) {
+    run_to_exit_with(project, frames, envs, &[])
+}
+
+/// [`run_to_exit`], with `args` after `--frames`.
+fn run_to_exit_with(
+    project: &Path,
+    frames: u32,
+    envs: &[(&str, &str)],
+    args: &[&str],
+) -> (std::process::ExitStatus, String, String) {
     let mut child = Command::new(env!("CARGO_BIN_EXE_bsengine-runtime"))
         // The windowed path writes a log (and on a panic, a crash report)
         // under the per-user directory; a test must not fill a real profile.
@@ -88,6 +98,7 @@ fn run_to_exit(
         .arg(project)
         .arg("--frames")
         .arg(frames.to_string())
+        .args(args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
@@ -170,6 +181,70 @@ fn a_window_opens_and_draws_frames() {
         draw_calls > 0,
         "{frames} frames ran but nothing was ever drawn -- the window is open \
          and the renderer is submitting empty frames"
+    );
+}
+
+/// The window survives a trip to the background: the runner goes through
+/// `suspended` and `resumed` -- the two calls winit makes when Android takes
+/// an app off the screen and brings it back -- and the game draws again,
+/// into a surface made anew. On a phone, before this, the game came back to
+/// a surface on a destroyed window and never drew again.
+///
+/// No desktop window system suspends an app, so `--suspend-after` makes the
+/// runner do it (`bsengine_window::SuspendAndResume`); everything from there
+/// on is the code a phone runs. The release is observed too, if less
+/// directly: a renderer that kept its surface and made a second one on the
+/// same window died in the winit callback on a desktop Vulkan run
+/// (0xc000041d), so it fails here on the exit status. (Measured on Vulkan
+/// only; the D3D12 and Metal runs are CI's.)
+///
+/// `surfaces=2` is the premise -- the path ran, and made one surface more --
+/// and `presented_after` the result: frames presented after the return. A
+/// renderer that never got its surface back still reports its pre-trip
+/// draw calls in `draw_calls`, which is why the count of frames presented
+/// is read instead.
+#[test]
+fn a_window_draws_again_after_the_app_returns_from_the_background() {
+    const AWAY_AT: u32 = 3;
+    let project = project("cube-evader");
+    let (status, stdout, stderr) = run_to_exit_with(
+        &project,
+        FRAMES + AWAY_AT,
+        &[],
+        &["--suspend-after", &AWAY_AT.to_string()],
+    );
+    assert!(
+        status.success(),
+        "the runtime exited with {status}\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
+    );
+    let line = stdout
+        .lines()
+        .find(|line| line.starts_with("surfaces="))
+        .unwrap_or_else(|| {
+            panic!(
+                "no report of the trip to the background -- the run ended before its \
+                 frames, or --suspend-after was ignored\n--- stdout ---\n{stdout}\n\
+                 --- stderr ---\n{stderr}"
+            )
+        });
+    let field = |name: &str| -> u64 {
+        line.split_whitespace()
+            .find_map(|kv| kv.strip_prefix(name)?.strip_prefix('='))
+            .unwrap_or_else(|| panic!("no {name} in the report line: {line}"))
+            .parse()
+            .unwrap_or_else(|_| panic!("{name} is not a number in: {line}"))
+    };
+    assert_eq!(
+        field("surfaces"),
+        2,
+        "the window should have had its first surface and one made on its return: {line}\n\
+         --- stderr ---\n{stderr}"
+    );
+    assert_eq!(
+        field("presented_after"),
+        u64::from(FRAMES),
+        "every frame after the return should have been presented into the new surface: \
+         {line}\n--- stderr ---\n{stderr}"
     );
 }
 

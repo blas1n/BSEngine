@@ -91,11 +91,14 @@ node scripts/web_smoke.mjs games/mini-arena/dist-web  # headless Chrome/Edge; WE
 # On Android: a NativeActivity APK in <project>/dist-android. Needs the Rust
 # target, ANDROID_HOME (build-tools, a platform), the NDK and libclang
 # (LIBCLANG_PATH) -- scripts are QuickJS there, its bindings generated per target.
-scripts/build_android.sh games/mini-arena [out-dir] [--debug] [--abi arm64-v8a|x86_64|x86]
+scripts/build_android.sh games/mini-arena [out-dir] [--debug] [--bundle] [--abi arm64-v8a|x86_64|x86]
 adb logcat -s bsengine                                 # the game's log
 # A release build is signed with the key `[android] keystore`/`key_alias` names
 # (passwords: BSENGINE_ANDROID_KEYSTORE_PASSWORD, BSENGINE_ANDROID_KEY_PASSWORD),
 # else with the debug key -- installable, not publishable.
+# --bundle makes the .aab Google Play takes instead (bundletool, pinned and
+# fetched into target/; BUNDLETOOL_JAR overrides), jarsigner-signed by the same
+# rule. Install one locally with the build-apks/install-apks lines it prints.
 ```
 
 An emulator needs an image whose Vulkan wgpu accepts: android-35

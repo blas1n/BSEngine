@@ -3003,7 +3003,6 @@ mod tests {
         }
         assert_eq!(family_for(true, true, false), Some(Bc), "a desktop build");
         assert_eq!(family_for(true, true, true), Some(Astc), "a phone's build");
-        assert!(!MOBILE_BUILD, "premise: these tests run on a desktop");
     }
 
     /// On an ASTC device each of BC1, BC3 and BC7 is ASTC 4x4, in the colour

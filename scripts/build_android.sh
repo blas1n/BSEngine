@@ -26,9 +26,14 @@
 # the APKs it serves with its own key (Play App Signing) -- the project's key
 # is the upload key.
 #
-# usage: scripts/build_android.sh <project-dir> [out-dir] [--debug] [--bundle] [--abi arm64-v8a|x86_64]
+# usage: scripts/build_android.sh <project-dir> [out-dir] [--debug] [--bundle] [--abi <abi>[,<abi>...]]
 #   out-dir defaults to <project-dir>/dist-android; --abi to arm64-v8a (phones;
-#   x86_64 is the emulator's).
+#   x86_64 is the emulator's and Chromebooks'). Several, comma-separated
+#   (`--abi arm64-v8a,x86_64`), build the engine once for each and carry every
+#   one: an APK then installs on all of them, and a bundle lets Play give each
+#   device only its own library (its per-ABI split) -- Unity's "Target
+#   Architectures", Unreal's "Support arm64 / x86_64" and Godot's export
+#   architectures are the same list.
 #
 # Needs: the Rust target (`rustup target add aarch64-linux-android` or
 # `x86_64-linux-android`), the NDK (ANDROID_NDK_HOME, or the newest under
@@ -43,28 +48,43 @@
 set -euo pipefail
 
 profile=release
-abi=arm64-v8a
+abi_list=arm64-v8a
 format=apk
 args=()
 while [[ $# -gt 0 ]]; do
   case $1 in
     --debug) profile=debug ;;
     --bundle) format=aab ;;
-    --abi) abi=$2; shift ;;
+    --abi) abi_list=$2; shift ;;
     *) args+=("$1") ;;
   esac
   shift
 done
-project=${args[0]:?usage: scripts/build_android.sh <project-dir> [out-dir] [--debug] [--bundle] [--abi arm64-v8a|x86_64]}
+project=${args[0]:?usage: scripts/build_android.sh <project-dir> [out-dir] [--debug] [--bundle] [--abi <abi>[,<abi>...]]}
 out=${args[1]:-$project/dist-android}
 
-case $abi in
-  arm64-v8a) triple=aarch64-linux-android ;;
-  x86_64) triple=x86_64-linux-android ;;
-  # Older emulator images only; no phone ships it.
-  x86) triple=i686-linux-android ;;
-  *) echo "unknown --abi $abi (arm64-v8a, x86_64 or x86)" >&2; exit 1 ;;
-esac
+# Every ABI checked, and its Rust target found, before anything is built: a
+# typo in the second of two must not cost the first one's compile.
+abis=()
+triples=()
+IFS=, read -ra requested <<< "$abi_list"
+for abi in "${requested[@]}"; do
+  case $abi in
+    arm64-v8a) triple=aarch64-linux-android ;;
+    x86_64) triple=x86_64-linux-android ;;
+    # Older emulator images only; no phone ships it.
+    x86) triple=i686-linux-android ;;
+    *) echo "unknown --abi $abi (arm64-v8a, x86_64 or x86)" >&2; exit 1 ;;
+  esac
+  # `${abis[@]+...}`: bash 3.2 (macOS) calls an empty array unbound under set -u.
+  for seen in ${abis[@]+"${abis[@]}"}; do
+    [[ $seen != "$abi" ]] || { echo "--abi names $abi twice" >&2; exit 1; }
+  done
+  abis+=("$abi")
+  triples+=("$triple")
+done
+[[ ${#abis[@]} -gt 0 ]] || { echo "--abi names no ABI" >&2; exit 1; }
+abis_shown=$(IFS=,; echo "${abis[*]}")
 # The lowest Android the build runs on: AAudio (cpal's backend) is 26+.
 api=26
 
@@ -124,21 +144,24 @@ fi
 # invocation (build scripts, proc macros) keeps the host's compiler. CC is
 # NDK clang itself with the API level in --target: cc-rs resolves the
 # versioned `.cmd` wrappers to a path without `bin/` on Windows.
-t=${triple//-/_}
-T=$(echo "$t" | tr a-z A-Z)
-export "CARGO_TARGET_${T}_LINKER=$tc/bin/${triple}${api}-clang${cmd}"
-export "CC_${t}=$tc/bin/clang${exe}"
-export "CXX_${t}=$tc/bin/clang++${exe}"
-export "CFLAGS_${t}=--target=${triple}${api}"
-export "CXXFLAGS_${t}=--target=${triple}${api}"
-export "AR_${t}=$tc/bin/llvm-ar${exe}"
-# bindgen (QuickJS's header) parses with the NDK's sysroot and the NDK clang's
-# builtin headers (stdbool.h, stdint.h), as its resource directory --
-# replacing libclang's own, not added to it. LLVM's libclang.dll on Windows
-# resolves its resource directory to a path that does not exist ("stdbool.h
-# not found"); Linux's finds its own, and with the NDK's added beside it as
-# -isystem, the two stdint.h chains crossed and `uint32_t` was undeclared.
-export "BINDGEN_EXTRA_CLANG_ARGS_${t}=--sysroot=$tc/sysroot -resource-dir $clang_resources --target=${triple}${api}"
+for triple in "${triples[@]}"; do
+  t=${triple//-/_}
+  T=$(echo "$t" | tr a-z A-Z)
+  export "CARGO_TARGET_${T}_LINKER=$tc/bin/${triple}${api}-clang${cmd}"
+  export "CC_${t}=$tc/bin/clang${exe}"
+  export "CXX_${t}=$tc/bin/clang++${exe}"
+  export "CFLAGS_${t}=--target=${triple}${api}"
+  export "CXXFLAGS_${t}=--target=${triple}${api}"
+  export "AR_${t}=$tc/bin/llvm-ar${exe}"
+  # bindgen (QuickJS's header) parses with the NDK's sysroot and the NDK
+  # clang's builtin headers (stdbool.h, stdint.h), as its resource directory
+  # -- replacing libclang's own, not added to it. LLVM's libclang.dll on
+  # Windows resolves its resource directory to a path that does not exist
+  # ("stdbool.h not found"); Linux's finds its own, and with the NDK's added
+  # beside it as -isystem, the two stdint.h chains crossed and `uint32_t` was
+  # undeclared.
+  export "BINDGEN_EXTRA_CLANG_ARGS_${t}=--sysroot=$tc/sysroot -resource-dir $clang_resources --target=${triple}${api}"
+done
 
 flag=--release
 [[ $profile == debug ]] && flag=
@@ -149,7 +172,7 @@ trap 'rm -rf "$stage"' EXIT
 # The data first: it is quick, and a project that cannot be packaged should
 # fail before the engine's compile, not after it.
 cargo run $flag -p bsengine-runtime -- --package "$project" --mode android --out "$stage/pak"
-mkdir -p "$stage/apk/assets" "$stage/apk/lib/$abi"
+mkdir -p "$stage/apk/assets"
 cp "$stage/pak/game.pak" "$stage/apk/assets/game.pak"
 
 # `[android]` as `--package` checked and resolved it (src/android_settings.rs):
@@ -207,10 +230,16 @@ else
 fi
 
 # The runtime crate is a library behind its executable; as a `cdylib` it is
-# the shared library the activity loads (src/android.rs).
-cargo rustc $flag -p bsengine-runtime --lib --crate-type cdylib --target "$triple"
-"$tc/bin/llvm-strip${exe}" -o "$stage/apk/lib/$abi/libbsengine_runtime.so" \
-  "$target_dir/$triple/$profile/libbsengine_runtime.so"
+# the shared library the activity loads (src/android.rs). One compile per ABI,
+# each into its own `target/<triple>/`, so a second ABI costs a second engine
+# compile and nothing else.
+for i in "${!abis[@]}"; do
+  abi=${abis[$i]}; triple=${triples[$i]}
+  cargo rustc $flag -p bsengine-runtime --lib --crate-type cdylib --target "$triple"
+  mkdir -p "$stage/apk/lib/$abi"
+  "$tc/bin/llvm-strip${exe}" -o "$stage/apk/lib/$abi/libbsengine_runtime.so" \
+    "$target_dir/$triple/$profile/libbsengine_runtime.so"
+done
 
 # The APK's file name: the application id's last part -- for the default id,
 # the project's name lower-cased, the name it always had.
@@ -280,7 +309,7 @@ if [[ $format == aab ]]; then
   # bundle's certificates compare at a glance.
   "${jdk_bin}keytool${exe}" -printcert -jarfile "$aab" | grep -m1 "SHA256:" |
     tr -d '\r' | sed "s/.*SHA256: //; s/://g" | tr A-F a-f | sed "s/^/  certificate SHA-256: /"
-  echo "android build: $aab ($package, version $version_code, $abi), signed with $signed_with"
+  echo "android build: $aab ($package, version $version_code, $abis_shown), signed with $signed_with"
   echo "  to install it here, as Play would cut it for the device:"
   echo "  \"${jdk_bin}java${exe}\" -jar \"$bundletool\" build-apks --bundle=\"$aab\" --output=$id.apks --connected-device"
   echo "  \"${jdk_bin}java${exe}\" -jar \"$bundletool\" install-apks --apks=$id.apks"
@@ -291,7 +320,10 @@ fi
   -I "$platform/android.jar" -A "$stage/apk/assets"
 # aapt2 takes no native libraries; `aapt add` stores the path as given, so it
 # runs from the staging root.
-(cd "$stage/apk" && "$build_tools/aapt${exe}" add ../unaligned.apk "lib/$abi/libbsengine_runtime.so" > /dev/null)
+# Every ABI's library, in one call.
+libs=()
+for abi in "${abis[@]}"; do libs+=("lib/$abi/libbsengine_runtime.so"); done
+(cd "$stage/apk" && "$build_tools/aapt${exe}" add ../unaligned.apk "${libs[@]}" > /dev/null)
 "$build_tools/zipalign${exe}" -f 4 "$stage/unaligned.apk" "$stage/aligned.apk"
 
 apk="$out/$id.apk"
@@ -300,5 +332,5 @@ apk="$out/$id.apk"
 # invisible until a store or a device refuses an update.
 "$build_tools/apksigner${bat}" verify --print-certs "$apk" | grep -m1 "SHA-256 digest" |
   sed "s/.*SHA-256 digest: /  certificate SHA-256: /"
-echo "android build: $apk ($package, version $version_code, $abi), signed with $signed_with"
+echo "android build: $apk ($package, version $version_code, $abis_shown), signed with $signed_with"
 echo "  adb install -r \"$apk\" && adb shell am start -n $package/android.app.NativeActivity"

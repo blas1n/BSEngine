@@ -596,9 +596,11 @@ fn an_android_build_precooks_astc_and_a_desktop_build_bc() {
     )
     .unwrap();
     let texture = project.0.join("assets/textures/a.png");
-    image::RgbaImage::from_fn(64, 64, |x, y| image::Rgba([(x * 4) as u8, (y * 4) as u8, 90, 255]))
-        .save(&texture)
-        .unwrap();
+    image::RgbaImage::from_fn(64, 64, |x, y| {
+        image::Rgba([(x * 4) as u8, (y * 4) as u8, 90, 255])
+    })
+    .save(&texture)
+    .unwrap();
     bsengine_asset::identity::write_import_settings(
         &texture,
         ImportSettings::Texture(TextureImportSettings {
@@ -640,11 +642,12 @@ fn an_android_build_precooks_astc_and_a_desktop_build_bc() {
 
     let android = package("android");
     let pak = bsengine_asset::pak::Pak::open(android.0.join("game.pak")).expect("the archive");
-    let shipped: Vec<&str> = pak
-        .paths()
-        .filter(|p| p.starts_with(shipped_dir))
-        .collect();
-    assert_eq!(shipped.len(), 1, "an Android build ships one precooked file: {shipped:?}");
+    let shipped: Vec<&str> = pak.paths().filter(|p| p.starts_with(shipped_dir)).collect();
+    assert_eq!(
+        shipped.len(),
+        1,
+        "an Android build ships one precooked file: {shipped:?}"
+    );
     let phone = pak.get(shipped[0]).unwrap();
     assert_eq!(tag(phone), 41, "an Android build ships ASTC 4x4 sRGB");
     assert_ne!(

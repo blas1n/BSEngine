@@ -46,15 +46,8 @@ pub(crate) fn encode(width: u32, height: u32, rgba: &[u8], srgb: bool) -> Option
     // a linear texture is decoded at fp16 precision, which is what the
     // encoder assumes without the flag. An sRGB one decodes to unorm8 by
     // the format's definition, whatever the flag says.
-    let config = ctt_astcenc::config_init(
-        profile,
-        4,
-        4,
-        1,
-        PRESET,
-        ctt_astcenc::Flags::empty(),
-    )
-    .ok()?;
+    let config =
+        ctt_astcenc::config_init(profile, 4, 4, 1, PRESET, ctt_astcenc::Flags::empty()).ok()?;
     let row_bytes = width.div_ceil(4) as usize * 16;
     let mut out = vec![0u8; row_bytes * height.div_ceil(4) as usize];
     let strip_bytes = row_bytes * STRIP_BLOCK_ROWS as usize;
@@ -183,7 +176,13 @@ mod tests {
             assert_eq!(blocks.len(), (w / 4 * h / 4 * 16) as usize);
             let decoded = decode(w, h, &blocks, srgb);
             for channel in 0..4 {
-                let pick = |v: &[u8]| v.iter().skip(channel).step_by(4).copied().collect::<Vec<_>>();
+                let pick = |v: &[u8]| {
+                    v.iter()
+                        .skip(channel)
+                        .step_by(4)
+                        .copied()
+                        .collect::<Vec<_>>()
+                };
                 let db = psnr(&pick(&image), &pick(&decoded));
                 assert!(db > 40.0, "srgb {srgb}, channel {channel}: {db:.1} dB");
             }
@@ -218,12 +217,17 @@ mod tests {
     /// encoder, and decodes to its texels.
     #[test]
     fn a_level_smaller_than_a_block_is_one_block() {
-        let tiny = [200u8, 40, 90, 255, 10, 220, 60, 255, 90, 90, 200, 255, 250, 250, 20, 255];
+        let tiny = [
+            200u8, 40, 90, 255, 10, 220, 60, 255, 90, 90, 200, 255, 250, 250, 20, 255,
+        ];
         let blocks = encode(2, 2, &tiny, false).expect("encoded");
         assert_eq!(blocks.len(), 16);
         let decoded = decode(2, 2, &blocks, false);
         for (a, b) in tiny.iter().zip(&decoded) {
-            assert!((*a as i32 - *b as i32).abs() <= 24, "{tiny:?} -> {decoded:?}");
+            assert!(
+                (*a as i32 - *b as i32).abs() <= 24,
+                "{tiny:?} -> {decoded:?}"
+            );
         }
     }
 }

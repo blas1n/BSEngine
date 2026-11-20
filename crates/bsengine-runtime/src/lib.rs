@@ -439,9 +439,8 @@ fn run_package(
     } else {
         bsengine_rhi_wgpu::CompressionFamily::Bc
     };
-    let precook = move |bytes: &[u8], settings| {
-        bsengine_rhi_wgpu::precook_mip_cache(bytes, settings, family)
-    };
+    let precook =
+        move |bytes: &[u8], settings| bsengine_rhi_wgpu::precook_mip_cache(bytes, settings, family);
     let cooked = match bsengine_asset::cook::package_with_precook(
         project_dir,
         &manifest.project.entry_scene,

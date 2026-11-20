@@ -2920,7 +2920,8 @@ mod tests {
         }
 
         let pixels = gradient(64, 64);
-        let bc3_blocks = encode_level(wgpu::TextureFormat::Bc3RgbaUnormSrgb, 64, 64, &pixels).unwrap();
+        let bc3_blocks =
+            encode_level(wgpu::TextureFormat::Bc3RgbaUnormSrgb, 64, 64, &pixels).unwrap();
         let as_bc7 = worst_channel_error(&decode_bc7(64, 64, &bc3_blocks), &pixels);
         assert!(
             as_bc7 > 12,
@@ -2993,7 +2994,11 @@ mod tests {
         use CompressionFamily::{Astc, Bc};
         for mobile in [false, true] {
             assert_eq!(family_for(true, false, mobile), Some(Bc), "mobile {mobile}");
-            assert_eq!(family_for(false, true, mobile), Some(Astc), "mobile {mobile}");
+            assert_eq!(
+                family_for(false, true, mobile),
+                Some(Astc),
+                "mobile {mobile}"
+            );
             assert_eq!(family_for(false, false, mobile), None, "mobile {mobile}");
         }
         assert_eq!(family_for(true, true, false), Some(Bc), "a desktop build");
@@ -3080,7 +3085,10 @@ mod tests {
         let format = format_for(settings, CompressionFamily::Astc);
         assert_eq!(name, mip_cache_name(64, 64, &rgba, format));
         let (bc_name, _) = precook_mip_cache(&png, settings, CompressionFamily::Bc).unwrap();
-        assert_ne!(name, bc_name, "a desktop and a phone package ship different files");
+        assert_ne!(
+            name, bc_name,
+            "a desktop and a phone package ship different files"
+        );
 
         let dims: Vec<(u32, u32)> = mip_chain(64, 64, &rgba)
             .iter()
@@ -3116,7 +3124,10 @@ mod tests {
                 .map(|(a, b)| a.abs_diff(*b))
                 .max()
                 .unwrap();
-            assert!(worst <= 24, "level 0 decodes to the picture (worst {worst})");
+            assert!(
+                worst <= 24,
+                "level 0 decodes to the picture (worst {worst})"
+            );
         }
     }
 
@@ -3195,7 +3206,8 @@ mod tests {
             compression: TextureCompression::Bc1,
             ..Default::default()
         };
-        let (name, bytes) = precook_mip_cache(&png, settings, CompressionFamily::Bc).expect("a BC1 texture precooks");
+        let (name, bytes) = precook_mip_cache(&png, settings, CompressionFamily::Bc)
+            .expect("a BC1 texture precooks");
 
         let (mut reg, dir) = make_registry_with_cache("precooked_matches");
         assert!(
@@ -3212,7 +3224,12 @@ mod tests {
 
         // Nothing to precook: uncompressed, or not whole blocks (the
         // registry uploads that one as RGBA8 and never asks).
-        assert!(precook_mip_cache(&png, TextureImportSettings::default(), CompressionFamily::Bc).is_none());
+        assert!(precook_mip_cache(
+            &png,
+            TextureImportSettings::default(),
+            CompressionFamily::Bc
+        )
+        .is_none());
         let mut odd = Vec::new();
         image::RgbaImage::new(66, 40)
             .write_to(&mut std::io::Cursor::new(&mut odd), image::ImageFormat::Png)

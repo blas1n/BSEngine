@@ -107,5 +107,6 @@ pub use surface::{
     SpotLightEntry, TerrainDrawCall, WgpuSurfaceResource,
 };
 pub use texture::{
-    precook_mip_cache, CompressionFamily, GpuTextureRegistry, ShippedMipCache, StreamingStep, SHIPPED_MIP_DIR,
+    precook_mip_cache, CompressionFamily, GpuTextureRegistry, ShippedMipCache, StreamingStep,
+    SHIPPED_MIP_DIR,
 };

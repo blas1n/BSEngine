@@ -932,6 +932,13 @@ pub(crate) fn build_player_app(
     // files instead of its own archive.
     if let Some(pak) = pak {
         crate::install_shipped_mips(&mut app, &pak);
+        // A game run from an archive writes its mip cache where it may
+        // write, the per-user directory, not into its install directory
+        // (`mip_cache_dir_for_archive`).
+        #[cfg(not(target_arch = "wasm32"))]
+        app.insert_resource(bsengine_rhi_wgpu::MipCacheDirResource(
+            mip_cache_dir_for_archive(&user_paths.dir),
+        ));
         app.add_plugins(bsengine_asset::PakAssetPlugin {
             pak,
             project_dir: project_dir.to_string(),
@@ -1081,6 +1088,18 @@ pub(crate) fn build_player_app(
     }
 
     app
+}
+
+/// Where a game run from an archive (pak, single-file, Android) keeps its
+/// mip cache: `<user dir>/cache/mips`, beside its saves and logs. Its
+/// project directory is where it was installed -- `game/` under Android's
+/// read-only root, `Program Files` on a desktop -- so the cache write there
+/// was refused, and every texture the package did not bring precooked was
+/// encoded again at every start. A development project, and a loose
+/// package, keep the cache under the project as before.
+#[cfg(not(target_arch = "wasm32"))]
+fn mip_cache_dir_for_archive(user_dir: &std::path::Path) -> std::path::PathBuf {
+    user_dir.join("cache").join("mips")
 }
 
 /// Gives the texture registry the archive's precooked mip cache files --

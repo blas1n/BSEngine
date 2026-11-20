@@ -404,8 +404,7 @@ GPU 테스트 2개(레지스트리 업로드·인코더 없는 폴백, 픽셀 �
 CI macOS(Apple)에서 실행. **에뮬레이터(android-35, x86_64 릴리스)**: mini-arena 사본의 체커에 BC1 → `upload as Some(Astc)`,
 대체 경고 없음, 바닥 체커가 정상; 대조군(패키저가 BC를 굽게 바꾼 APK)은 "cannot encode … uploads uncompressed" 경고.
 **비용(릴리스, 24스레드)**: 2048² 밉 체인 패키징 BC1 1.13 s, ASTC 0.81 s; 파일은 ASTC가 BC1의 두 배(텍셀당 1 vs 0.5 바이트).
-**남음**: Android에서 mip 캐시 경로(`game/.bsengine_cache`)가 읽기 전용 — 패키지에 없는 압축 텍스처(에뮬레이터의 BC 등)는 매
-시작 인코딩(기존 격차, 이 변경 전부터); ASTC 4x4보다 작은 크기(6x6·8x8)는 비-2의 거듭제곱 텍스처에만 가능해 미지원.
+**mip 캐시 경로(2026-11-20 해소)**: 아카이브 빌드(pak·single·Android)는 캐시를 사용자 폴더 `<user dir>/cache/mips`에 씀(`MipCacheDirResource`; Android는 앱 내부 저장소, Unity `persistentDataPath`·Godot `user://`와 같음) — 전에는 설치 폴더(Android `game/`는 읽기 전용)에 쓰다 거부돼 패키지에 없는 압축 텍스처를 매 시작 인코딩했다. 루즈 패키지와 개발 프로젝트는 그대로 프로젝트 아래. **남음**: ASTC 4x4보다 작은 크기(6x6·8x8)는 비-2의 거듭제곱 텍스처에만 가능해 미지원.
 
 **단일 실행 파일 — `--mode single`(2026-09-28).** 로드맵 item 55에서 의도적으로 범위 밖에 뒀던 마지막 항목. 선례는 갈린다:
 Unity(`exe + Data/`)·Unreal(`exe + Content/Paks/`)은 단일 파일을 만들지 않고, **Godot만 "Embed PCK"로 `.pck`를 내보내기

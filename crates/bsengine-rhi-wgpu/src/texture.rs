@@ -401,16 +401,31 @@ fn format_for(settings: TextureImportSettings, family: CompressionFamily) -> wgp
     }
 }
 
-/// The family a device with these features takes; see
-/// [`GpuTextureRegistry::family`].
-fn family_for(bc: bool, astc: bool) -> Option<CompressionFamily> {
-    if bc {
-        Some(CompressionFamily::Bc)
-    } else if astc {
-        Some(CompressionFamily::Astc)
+/// Whether this build is a phone's: its packages carry ASTC
+/// (`--mode android`), so ASTC comes first where the GPU has both.
+const MOBILE_BUILD: bool = cfg!(any(target_os = "android", target_os = "ios"));
+
+/// The family a device with these features takes, in a `mobile` build or a
+/// desktop one; see [`GpuTextureRegistry::family`]. The platform decides
+/// which comes first, not the GPU -- as Unity and Unreal pick the format by
+/// target platform: a desktop build takes BC where the GPU has it (Apple's
+/// have both), a phone's build ASTC, the family its package was precooked
+/// in. The other family is the fallback in either. Found on the Android
+/// emulator, whose GPU is the host's and has both: preferring BC there
+/// ignored the package's ASTC and encoded BC at every start.
+fn family_for(bc: bool, astc: bool, mobile: bool) -> Option<CompressionFamily> {
+    let (first, second) = if mobile {
+        (
+            astc.then_some(CompressionFamily::Astc),
+            bc.then_some(CompressionFamily::Bc),
+        )
     } else {
-        None
-    }
+        (
+            bc.then_some(CompressionFamily::Bc),
+            astc.then_some(CompressionFamily::Astc),
+        )
+    };
+    first.or(second)
 }
 
 /// The uncompressed format for these settings: what a texture uploads as
@@ -796,6 +811,13 @@ impl GpuTextureRegistry {
         let features = device.features();
         let bc_supported = features.contains(wgpu::Features::TEXTURE_COMPRESSION_BC);
         let astc_supported = features.contains(wgpu::Features::TEXTURE_COMPRESSION_ASTC);
+        // Which family compressed textures will go up in, said once per
+        // device: on a phone the difference between ASTC and an uncompressed
+        // fallback is invisible on screen and four times the memory.
+        tracing::info!(
+            "[texture] block-compressed textures upload as {:?}",
+            family_for(bc_supported, astc_supported, MOBILE_BUILD)
+        );
         Self {
             device,
             queue,
@@ -836,12 +858,12 @@ impl GpuTextureRegistry {
         self.astc_supported
     }
 
-    /// The block family compressed textures go up in on this device: BC
-    /// where the device has it, ASTC where it has only that, none otherwise.
-    /// BC first: a GPU with both (Apple's) gets the format desktop builds are
-    /// precooked in, and BC1 is half ASTC 4x4's size.
+    /// The block family compressed textures go up in on this device: the
+    /// build's own first -- BC on a desktop, ASTC on a phone, the family its
+    /// package is precooked in -- the other where the GPU lacks it, none
+    /// where it has neither.
     pub fn family(&self) -> Option<CompressionFamily> {
-        family_for(self.bc_supported, self.astc_supported)
+        family_for(self.bc_supported, self.astc_supported, MOBILE_BUILD)
     }
 
     /// Makes this registry behave as on a device without block compression,
@@ -2961,15 +2983,22 @@ mod tests {
 
     /// A 64x64 PNG with more than one colour, and its decoded pixels as the
     /// texture loader would hand them over.
-    /// BC where a device has it, ASTC where that is all it has, nothing
-    /// otherwise. A GPU with both (Apple's) keeps BC: the family desktop
-    /// packages are precooked in.
+    /// A desktop build takes BC where the GPU has it and a phone's build
+    /// ASTC -- each the family its packages are precooked in -- with the
+    /// other as the fallback and nothing where the GPU has neither. The case
+    /// that tells them apart is a GPU with both (Apple's; the Android
+    /// emulator's, which is the host's).
     #[test]
-    fn a_device_takes_bc_first_then_astc() {
-        assert_eq!(family_for(true, true), Some(CompressionFamily::Bc));
-        assert_eq!(family_for(true, false), Some(CompressionFamily::Bc));
-        assert_eq!(family_for(false, true), Some(CompressionFamily::Astc));
-        assert_eq!(family_for(false, false), None);
+    fn the_build_picks_which_family_comes_first() {
+        use CompressionFamily::{Astc, Bc};
+        for mobile in [false, true] {
+            assert_eq!(family_for(true, false, mobile), Some(Bc), "mobile {mobile}");
+            assert_eq!(family_for(false, true, mobile), Some(Astc), "mobile {mobile}");
+            assert_eq!(family_for(false, false, mobile), None, "mobile {mobile}");
+        }
+        assert_eq!(family_for(true, true, false), Some(Bc), "a desktop build");
+        assert_eq!(family_for(true, true, true), Some(Astc), "a phone's build");
+        assert!(!MOBILE_BUILD, "premise: these tests run on a desktop");
     }
 
     /// On an ASTC device each of BC1, BC3 and BC7 is ASTC 4x4, in the colour

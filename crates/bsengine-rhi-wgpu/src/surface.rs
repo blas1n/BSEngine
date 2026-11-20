@@ -5413,8 +5413,9 @@ impl WgpuSurface {
             required_features |= wgpu::Features::TEXTURE_COMPRESSION_BC;
         }
         // ASTC, the block family of every phone GPU (no phone has BC), asked
-        // for on the same terms. The registry uses it where BC is missing;
-        // a GPU with both (Apple's) keeps BC. A Vulkan Android device has it
+        // for on the same terms. The registry takes it first in a phone's
+        // build and where BC is missing in a desktop one (texture.rs
+        // `family_for`). A Vulkan Android device has it
         // by the Android baseline profile, so a phone without it is a GLES
         // one, which this renderer does not run on anyway.
         if adapter

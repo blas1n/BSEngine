@@ -641,7 +641,8 @@ fn draw_asset_import(ui: &mut egui::Ui, insp: &mut bsengine_core::InspectorState
                      channel matters (a quarter), BC7 at BC3's size for the best colour \
                      (gradients that band in BC1/BC3; slower to encode). Lossy; the \
                      compressed levels are cached under .bsengine_cache so the encode is \
-                     paid once.",
+                     paid once. On a phone (no BC) any of the three is ASTC 4x4, a byte a \
+                     texel, which an Android package ships already encoded.",
                 );
         }
         ImportSettings::Model(m) => {

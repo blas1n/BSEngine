@@ -118,6 +118,12 @@ pub struct TextureImportSettings {
 /// than by looking at the alpha channel, as Unreal's `TC_Default` does: an
 /// image with an all-opaque alpha and one with a mask look the same to a
 /// scan.
+///
+/// The names are the desktop formats. A GPU without BC -- every phone's --
+/// takes ASTC 4x4 for any of them (a byte a texel), and a game packaged for
+/// Android ships its textures already encoded that way: one setting, the
+/// format per platform, as Godot's "VRAM Compressed" and Unity's and
+/// Unreal's per-platform cooking do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum TextureCompression {
     /// RGBA8 as decoded. Lossless, four bytes per texel.

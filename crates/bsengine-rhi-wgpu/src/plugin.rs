@@ -20,6 +20,41 @@ pub struct GpuQueueResource(pub Arc<wgpu::Queue>);
 #[derive(Resource)]
 pub struct ShippedMipCacheResource(pub crate::texture::ShippedMipCache);
 
+/// Where the texture registry writes its mip cache files, in place of the
+/// project's `.bsengine_cache/mips`; inserted before the surface is created.
+///
+/// For a game run from an archive: its "project" is the install directory,
+/// which a player may not write to -- on Android it is `game/` under the
+/// read-only root, and every texture that came without a precooked file was
+/// re-encoded at every start, its cache write refused. The runtime points
+/// this at the per-user directory saves and logs already use (the app's
+/// internal storage on Android), as Unity keeps such files under
+/// `persistentDataPath` and Godot under `user://`.
+#[derive(Resource)]
+pub struct MipCacheDirResource(pub std::path::PathBuf);
+
+/// The mip cache directory for this world: [`MipCacheDirResource`] when the
+/// runtime set one, else `<project>/.bsengine_cache/mips` -- beside the Asset
+/// Browser's thumbnail cache (`games/*/.bsengine_cache/` is ignored by git),
+/// under the working directory when no project is named.
+fn mip_cache_dir(world: &World) -> std::path::PathBuf {
+    if let Some(dir) = world.get_resource::<MipCacheDirResource>() {
+        return dir.0.clone();
+    }
+    project_dir(world).join(".bsengine_cache").join("mips")
+}
+
+/// The project directory, or the working directory when none is named.
+fn project_dir(world: &World) -> std::path::PathBuf {
+    world
+        .get_resource::<bsengine_core::ProjectDir>()
+        .filter(|p| !p.0.is_empty())
+        .map_or_else(
+            || std::path::PathBuf::from("."),
+            |p| std::path::PathBuf::from(&p.0),
+        )
+}
+
 /// Where `WgpuRHIPlugin` gets its render target from.
 #[derive(Clone, Copy, Debug)]
 pub enum SurfaceMode {
@@ -241,17 +276,9 @@ fn install_surface(world: &mut World, surface: WgpuSurface) {
         registry.retain_cpu_copies();
     }
     let mut tex_registry = GpuTextureRegistry::new(surface.device.clone(), surface.queue.clone());
-    // Streamed textures' mip cache files go under the project, beside the
-    // Asset Browser's thumbnail cache (`games/*/.bsengine_cache/` is
-    // ignored by git); the working directory when no project is named.
-    let project = world
-        .get_resource::<bsengine_core::ProjectDir>()
-        .filter(|p| !p.0.is_empty())
-        .map_or_else(
-            || std::path::PathBuf::from("."),
-            |p| std::path::PathBuf::from(&p.0),
-        );
-    let mips = project.join(".bsengine_cache").join("mips");
+    // Streamed textures' mip cache files: see `mip_cache_dir`.
+    let project = project_dir(world);
+    let mips = mip_cache_dir(world);
     // Cache files are keyed by their pixels, so every re-import leaves the
     // previous chain behind as a file nothing opens again. Swept here, once
     // per process and before the registry reads any of them, so a file the
@@ -312,6 +339,23 @@ mod tests {
             app.world().get_resource::<WgpuSurfaceResource>().is_none(),
             "windowed mode must wait for a WindowHandle before creating a surface"
         );
+    }
+
+    /// The mip cache directory: under the project unless the runtime named
+    /// another (a game run from an archive), and then exactly that one.
+    #[test]
+    fn the_mip_cache_goes_where_the_runtime_says_else_under_the_project() {
+        let mut world = bevy_ecs::world::World::new();
+        world.insert_resource(bsengine_core::ProjectDir("game".into()));
+        assert_eq!(
+            super::mip_cache_dir(&world),
+            std::path::Path::new("game")
+                .join(".bsengine_cache")
+                .join("mips")
+        );
+        let user = std::path::PathBuf::from("user").join("cache").join("mips");
+        world.insert_resource(super::MipCacheDirResource(user.clone()));
+        assert_eq!(super::mip_cache_dir(&world), user);
     }
 
     /// Also where the texture registry's mip cache lands -- under the

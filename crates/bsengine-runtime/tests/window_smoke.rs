@@ -669,3 +669,112 @@ fn a_game_that_starts_in_a_locale_draws_in_that_locales_fonts() {
         "expected `{installed}` ({status})\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
     );
 }
+
+/// A game run from an archive writes its mip cache into the per-user
+/// directory, not into the directory it was installed in. On Android that
+/// directory is `game/` under the read-only root, so the write was refused
+/// and every compressed texture the package had not precooked was encoded
+/// again at every start; a desktop install under `Program Files` is the
+/// same. The real binary, a pak package of a project whose one texture asks
+/// for BC1, run for long enough to load and upload it.
+#[test]
+fn a_packaged_game_keeps_its_mip_cache_in_the_user_directory() {
+    let dir = std::env::temp_dir().join(format!("bsengine-mip-dir-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let project = dir.join("project");
+    let installed = dir.join("installed");
+    let user = dir.join("user");
+    for sub in ["assets/scenes", "assets/textures"] {
+        std::fs::create_dir_all(project.join(sub)).expect("fixture dirs");
+    }
+    std::fs::write(
+        project.join("project.toml"),
+        "[project]\n\
+         name = \"Mip Dir\"\n\
+         entry_scene = \"assets/scenes/main.ron\"\n\
+         \n\
+         [window]\n\
+         width = 160\n\
+         height = 120\n",
+    )
+    .expect("project.toml");
+    std::fs::write(
+        project.join("assets/scenes/main.ron"),
+        r#"SceneDescriptor(entities: [
+    EntityDescriptor(name: "Camera", camera: true, transform: Some((position: (0.0, 0.0, 4.0)))),
+    EntityDescriptor(name: "Box", primitive: Some(Cube), texture: Some("assets/textures/checker.png")),
+])"#,
+    )
+    .expect("main.ron");
+    let texture = project.join("assets/textures/checker.png");
+    image::RgbaImage::from_fn(64, 64, |x, y| {
+        let on = ((x / 8) + (y / 8)) % 2 == 0;
+        image::Rgba(if on {
+            [230, 230, 230, 255]
+        } else {
+            [30, 30, 30, 255]
+        })
+    })
+    .save(&texture)
+    .expect("checker.png");
+    bsengine_asset::identity::write_import_settings(
+        &texture,
+        bsengine_core::ImportSettings::Texture(bsengine_core::TextureImportSettings {
+            compression: bsengine_core::TextureCompression::Bc1,
+            ..Default::default()
+        }),
+    )
+    .expect("the texture's settings");
+
+    let packaged = Command::new(env!("CARGO_BIN_EXE_bsengine-runtime"))
+        .arg("--package")
+        .arg(&project)
+        .arg("--mode")
+        .arg("pak")
+        .arg("--out")
+        .arg(&installed)
+        .output()
+        .expect("run --package");
+    assert!(
+        packaged.status.success(),
+        "packaging failed: {}",
+        String::from_utf8_lossy(&packaged.stderr)
+    );
+
+    let (status, stdout, stderr) = run_to_exit(
+        &installed,
+        SPAWN_FRAMES,
+        &[(bsengine_core::crash::USER_DIR_ENV, user.to_str().unwrap())],
+    );
+    let cache_files = |at: &Path| -> usize {
+        std::fs::read_dir(at).map_or(0, |entries| {
+            entries
+                .filter_map(Result::ok)
+                .filter(|e| e.path().extension().is_some_and(|x| x == "mips"))
+                .count()
+        })
+    };
+    let in_user = cache_files(&user.join("cache").join("mips"));
+    let in_install = cache_files(&installed.join(".bsengine_cache").join("mips"));
+    let log_written = user.join("logs").join("game.log").is_file();
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert!(
+        status.success(),
+        "the runtime exited with {status}\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
+    );
+    // The premise: the runtime used the directory this test gave it.
+    assert!(
+        log_written,
+        "no log in the given user directory -- it went somewhere else"
+    );
+    assert_eq!(
+        in_install, 0,
+        "the mip cache was written into the installed game's directory"
+    );
+    assert_eq!(
+        in_user, 1,
+        "the compressed texture's chain is not cached in <user>/cache/mips\n\
+         --- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
+    );
+}

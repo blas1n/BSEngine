@@ -15,32 +15,47 @@
 # platform's; unlike them there is no Gradle project -- aapt2, zipalign and
 # apksigner from the SDK's build-tools make the APK directly.
 #
-# usage: scripts/build_android.sh <project-dir> [out-dir] [--debug] [--abi arm64-v8a|x86_64]
+# `--bundle` makes an Android App Bundle (`<name>.aab`) instead: the same
+# contents as a `base` module, the form Google Play has required of new apps
+# since August 2021 -- it takes no APK. Unity ("Build App Bundle (Google
+# Play)"), Unreal ("Generate bundle (AAB)") and Godot (export format AAB) all
+# offer it as an export option beside the APK, and so does this. A bundle is
+# made by Google's bundletool (fetched once into target/bundletool at the
+# version and SHA-256 pinned below, or BUNDLETOOL_JAR names a copy) and signed
+# by the JDK's jarsigner with the same key choice as an APK; Play then signs
+# the APKs it serves with its own key (Play App Signing) -- the project's key
+# is the upload key.
+#
+# usage: scripts/build_android.sh <project-dir> [out-dir] [--debug] [--bundle] [--abi arm64-v8a|x86_64]
 #   out-dir defaults to <project-dir>/dist-android; --abi to arm64-v8a (phones;
 #   x86_64 is the emulator's).
 #
 # Needs: the Rust target (`rustup target add aarch64-linux-android` or
 # `x86_64-linux-android`), the NDK (ANDROID_NDK_HOME, or the newest under
 # $ANDROID_HOME/ndk), the SDK's build-tools and a platform (ANDROID_HOME), a
-# JDK's keytool for the debug key, and libclang (LIBCLANG_PATH) -- QuickJS's
+# JDK (JAVA_HOME, else the one on PATH): keytool for the debug key, and for a
+# bundle java and jarsigner -- and libclang (LIBCLANG_PATH): QuickJS's
 # bindings are generated for the target at build time (bsengine-scripting).
 #
 # Run:  adb install -r <out>/<name>.apk && adb shell am start -n <package>/android.app.NativeActivity
+#       a bundle: the two bundletool commands the build prints (build-apks, install-apks)
 # Log:  adb logcat -s bsengine
 set -euo pipefail
 
 profile=release
 abi=arm64-v8a
+format=apk
 args=()
 while [[ $# -gt 0 ]]; do
   case $1 in
     --debug) profile=debug ;;
+    --bundle) format=aab ;;
     --abi) abi=$2; shift ;;
     *) args+=("$1") ;;
   esac
   shift
 done
-project=${args[0]:?usage: scripts/build_android.sh <project-dir> [out-dir] [--debug] [--abi arm64-v8a|x86_64]}
+project=${args[0]:?usage: scripts/build_android.sh <project-dir> [out-dir] [--debug] [--bundle] [--abi arm64-v8a|x86_64]}
 out=${args[1]:-$project/dist-android}
 
 case $abi in
@@ -72,6 +87,38 @@ case $(uname -s) in
 esac
 tc=$ndk/toolchains/llvm/prebuilt/$host
 clang_resources=$(ls -d "$tc"/lib/clang/* | tail -1)
+# The JDK's tools: JAVA_HOME's when it is set, as Gradle and the SDK's own
+# wrappers (apksigner) take it -- the `java` on PATH may be an older one
+# (a JDK 8 there beside a JDK 17 in JAVA_HOME is a common Windows setup).
+jdk_bin=
+if [[ -n ${JAVA_HOME:-} ]]; then jdk_bin=${JAVA_HOME//\\//}/bin/; fi
+target_dir=$(cargo metadata --format-version 1 --no-deps |
+  grep -o '"target_directory":"[^"]*"' | sed 's/.*:"//; s/"$//; s/\\\\/\//g')
+
+# bundletool, for a bundle: resolved before anything is compiled, so a
+# machine that cannot get it fails in seconds. Pinned by version and SHA-256
+# (the release's own digest on GitHub) -- a download that is cut short or
+# replaced is refused, not run.
+if [[ $format == aab ]]; then
+  bundletool_version=1.18.3
+  bundletool_sha256=a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29
+  bundletool=${BUNDLETOOL_JAR:-$target_dir/bundletool/bundletool-all-$bundletool_version.jar}
+  if [[ ! -f $bundletool ]]; then
+    [[ -z ${BUNDLETOOL_JAR:-} ]] || { echo "BUNDLETOOL_JAR=$BUNDLETOOL_JAR does not exist" >&2; exit 1; }
+    mkdir -p "$(dirname "$bundletool")"
+    echo "fetching bundletool $bundletool_version"
+    curl -fsSL -o "$bundletool.part" \
+      "https://github.com/google/bundletool/releases/download/$bundletool_version/bundletool-all-$bundletool_version.jar"
+    if command -v sha256sum > /dev/null; then got=$(sha256sum "$bundletool.part"); else got=$(shasum -a 256 "$bundletool.part"); fi
+    got=${got%% *}
+    if [[ $got != "$bundletool_sha256" ]]; then
+      rm -f "$bundletool.part"
+      echo "bundletool $bundletool_version: SHA-256 $got, expected $bundletool_sha256" >&2
+      exit 1
+    fi
+    mv "$bundletool.part" "$bundletool"
+  fi
+fi
 
 # The cross-compile environment, per target so a host build in the same cargo
 # invocation (build scripts, proc macros) keeps the host's compiler. CC is
@@ -135,17 +182,24 @@ if [[ $profile == release && -n $release_keystore ]]; then
   sign_args=(--ks "$release_keystore" --ks-key-alias "$release_alias"
     --ks-pass env:BSENGINE_ANDROID_KEYSTORE_PASSWORD
     --key-pass env:BSENGINE_ANDROID_KEY_PASSWORD)
+  # jarsigner, for a bundle, reads them the same way (`:env`).
+  jar_sign_args=(-keystore "$release_keystore"
+    -storepass:env BSENGINE_ANDROID_KEYSTORE_PASSWORD
+    -keypass:env BSENGINE_ANDROID_KEY_PASSWORD)
+  key_alias=$release_alias
   signed_with="the release key '$release_alias' ($release_keystore)"
 else
   # The debug key every Android tool uses, made on first need.
   keystore=${ANDROID_DEBUG_KEYSTORE:-$HOME/.android/debug.keystore}
   if [[ ! -f $keystore ]]; then
     mkdir -p "$(dirname "$keystore")"
-    keytool -genkeypair -keystore "$keystore" -storepass android -keypass android \
+    "${jdk_bin}keytool${exe}" -genkeypair -keystore "$keystore" -storepass android -keypass android \
       -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
       -dname "CN=Android Debug,O=Android,C=US" > /dev/null
   fi
   sign_args=(--ks "$keystore" --ks-pass pass:android --key-pass pass:android)
+  jar_sign_args=(-keystore "$keystore" -storepass android -keypass android)
+  key_alias=androiddebugkey
   signed_with="the debug key"
   if [[ $profile == release ]]; then
     signed_with="the debug key -- installable, not publishable (name a keystore in [android])"
@@ -155,8 +209,6 @@ fi
 # The runtime crate is a library behind its executable; as a `cdylib` it is
 # the shared library the activity loads (src/android.rs).
 cargo rustc $flag -p bsengine-runtime --lib --crate-type cdylib --target "$triple"
-target_dir=$(cargo metadata --format-version 1 --no-deps |
-  grep -o '"target_directory":"[^"]*"' | sed 's/.*:"//; s/"$//; s/\\\\/\//g')
 "$tc/bin/llvm-strip${exe}" -o "$stage/apk/lib/$abi/libbsengine_runtime.so" \
   "$target_dir/$triple/$profile/libbsengine_runtime.so"
 
@@ -186,6 +238,55 @@ cat > "$stage/AndroidManifest.xml" <<EOF
 </manifest>
 EOF
 
+mkdir -p "$out"
+
+if [[ $format == aab ]]; then
+  # A bundle's module is a zip in its own layout -- manifest/AndroidManifest.xml,
+  # resources.pb, assets/, lib/<abi>/ -- with the manifest and the resource
+  # table as protocol buffers, not the binary XML an APK carries: aapt2 writes
+  # that form with --proto-format, and the files are then moved to where
+  # bundletool looks. bundletool builds the bundle; the APKs a device gets are
+  # cut from it later (by Play, or by `build-apks` here), which is when native
+  # libraries and assets are aligned and compressed -- so no zipalign now.
+  "$build_tools/aapt2${exe}" link --proto-format -o "$stage/proto.apk" \
+    --manifest "$stage/AndroidManifest.xml" -I "$platform/android.jar" -A "$stage/apk/assets"
+  mkdir -p "$stage/base/manifest"
+  # The JDK's jar, not zip/unzip: a JDK is already needed here (bundletool,
+  # jarsigner), and zip is not on every machine that has one. Relative
+  # paths from inside the staging root, so nothing depends on how a Windows
+  # shell turns a path into an argument.
+  (cd "$stage/base" && "${jdk_bin}jar${exe}" xf ../proto.apk)
+  mv "$stage/base/AndroidManifest.xml" "$stage/base/manifest/AndroidManifest.xml"
+  cp -r "$stage/apk/lib" "$stage/base/lib"
+  (cd "$stage/base" && "${jdk_bin}jar${exe}" cfM ../base.zip .)
+  (cd "$stage" && "${jdk_bin}java${exe}" -jar "$bundletool" build-bundle --modules=base.zip --output=unsigned.aab)
+
+  aab="$out/$id.aab"
+  # A bundle is signed as a JAR (v1 signing): that is what Play reads for the
+  # upload key; apksigner's v2/v3 schemes are for the APKs cut from it.
+  # jarsigner reports a wrong password on stdout, not stderr: kept, and shown
+  # only on failure (a success prints a timestamp warning worth nothing).
+  if ! signed=$("${jdk_bin}jarsigner${exe}" -sigalg SHA256withRSA -digestalg SHA-256 "${jar_sign_args[@]}" \
+    -signedjar "$aab" "$stage/unsigned.aab" "$key_alias" 2>&1); then
+    echo "$signed" >&2
+    rm -f "$aab"
+    exit 1
+  fi
+  # Checked, and the certificate named, as for an APK below. `-verify` exits 0
+  # for an unsigned jar too, so its "jar verified." is what is looked for.
+  "${jdk_bin}jarsigner${exe}" -verify "$aab" | grep -q "^jar verified" ||
+    { echo "$aab: jarsigner -verify did not verify it" >&2; exit 1; }
+  # keytool prints AB:CD:..; written as apksigner prints it, so an APK's and a
+  # bundle's certificates compare at a glance.
+  "${jdk_bin}keytool${exe}" -printcert -jarfile "$aab" | grep -m1 "SHA256:" |
+    tr -d '\r' | sed "s/.*SHA256: //; s/://g" | tr A-F a-f | sed "s/^/  certificate SHA-256: /"
+  echo "android build: $aab ($package, version $version_code, $abi), signed with $signed_with"
+  echo "  to install it here, as Play would cut it for the device:"
+  echo "  \"${jdk_bin}java${exe}\" -jar \"$bundletool\" build-apks --bundle=\"$aab\" --output=$id.apks --connected-device"
+  echo "  \"${jdk_bin}java${exe}\" -jar \"$bundletool\" install-apks --apks=$id.apks"
+  exit 0
+fi
+
 "$build_tools/aapt2${exe}" link -o "$stage/unaligned.apk" --manifest "$stage/AndroidManifest.xml" \
   -I "$platform/android.jar" -A "$stage/apk/assets"
 # aapt2 takes no native libraries; `aapt add` stores the path as given, so it
@@ -193,7 +294,6 @@ EOF
 (cd "$stage/apk" && "$build_tools/aapt${exe}" add ../unaligned.apk "lib/$abi/libbsengine_runtime.so" > /dev/null)
 "$build_tools/zipalign${exe}" -f 4 "$stage/unaligned.apk" "$stage/aligned.apk"
 
-mkdir -p "$out"
 apk="$out/$id.apk"
 "$build_tools/apksigner${bat}" sign "${sign_args[@]}" --out "$apk" "$stage/aligned.apk"
 # Checked, and the certificate named: which key signed a build is otherwise

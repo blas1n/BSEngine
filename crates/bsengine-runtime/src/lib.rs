@@ -429,7 +429,19 @@ fn run_package(
     };
 
     // With each block-compressed texture's mip cache made here, so no
-    // player's machine encodes one (see `install_shipped_mips`).
+    // player's machine encodes one (see `install_shipped_mips`) -- in the
+    // block family the player's GPU takes: BC for a desktop, ASTC for a
+    // phone, which has no BC and whose runtime has no ASTC encoder, so what
+    // is not made here uploads uncompressed there. One family per build, as
+    // Unity and Unreal cook per target platform.
+    let family = if android_mode {
+        bsengine_rhi_wgpu::CompressionFamily::Astc
+    } else {
+        bsengine_rhi_wgpu::CompressionFamily::Bc
+    };
+    let precook = move |bytes: &[u8], settings| {
+        bsengine_rhi_wgpu::precook_mip_cache(bytes, settings, family)
+    };
     let cooked = match bsengine_asset::cook::package_with_precook(
         project_dir,
         &manifest.project.entry_scene,
@@ -437,7 +449,7 @@ fn run_package(
         mode,
         &exe,
         std::path::Path::new(out_dir),
-        Some(&bsengine_rhi_wgpu::precook_mip_cache),
+        Some(&precook),
     ) {
         Ok(cooked) => cooked,
         Err(e) => {

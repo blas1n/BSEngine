@@ -109,6 +109,16 @@ texpresso         = { version = "2", features = ["rayon"] }
 # ISPC kernel. No default features -- those are its wgpu compute path, whose
 # BC7 shader DXC takes a long time to compile, and BC6H.
 block_compression = { version = "0.11", default-features = false, features = ["bc7"] }
+# ASTC, the mobile GPUs' block format (no phone has BC): ARM's astcenc, the
+# encoder Unity, Unreal and Godot all ship, as C++ built by `cc`. No pure Rust
+# ASTC encoder exists, and the user chose the reference encoder over Intel's
+# prebuilt ISPC kernels (intel_tex_2: binary blobs in vendor/, a weaker ASTC).
+# Its build script supports x86_64 and aarch64 only, and only the machine that
+# packages a game encodes -- so bsengine-rhi-wgpu takes it for desktop hosts
+# alone (see its Cargo.toml). Default features: no `rayon`, whose
+# `rayon::broadcast` path needs the pool's size fixed; the strips are
+# parallelised by the engine instead.
+ctt-astcenc       = "0.6"
 # Vertex tangents by MikkTSpace -- what glTF prescribes when a model brings
 # none, and what Blender, Substance and the three reference engines bake and
 # shade normal maps with. Pure Rust, no dependencies. Default features only:

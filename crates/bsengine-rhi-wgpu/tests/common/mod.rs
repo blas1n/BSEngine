@@ -772,6 +772,12 @@ impl Harness {
         self.textures.bc_supported()
     }
 
+    /// Makes compressed textures go up as ASTC, as on a phone, where the GPU
+    /// has it; false (and nothing changed) where it does not.
+    pub fn use_astc(&mut self) -> bool {
+        self.textures.use_astc_for_testing()
+    }
+
     /// The unit cube with every UV multiplied by `factor`, so a face spans
     /// `factor` repeats of its texture. Only a UV outside `0..1` can show what
     /// a wrap mode does.

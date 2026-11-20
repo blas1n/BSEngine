@@ -87,6 +87,8 @@ pub mod tangents;
 pub mod terrain_layers;
 /// GPU texture loading and the texture registry.
 pub mod texture;
+// ASTC 4x4 encoding for mobile GPUs; an encoder only on desktop hosts.
+mod astc;
 pub mod theme;
 // Which compiler D3D12 shaders go through, here for the runtime's
 // `--package` (which ships DXC's libraries): the runtime takes the bake crate
@@ -105,5 +107,5 @@ pub use surface::{
     SpotLightEntry, TerrainDrawCall, WgpuSurfaceResource,
 };
 pub use texture::{
-    precook_mip_cache, GpuTextureRegistry, ShippedMipCache, StreamingStep, SHIPPED_MIP_DIR,
+    precook_mip_cache, CompressionFamily, GpuTextureRegistry, ShippedMipCache, StreamingStep, SHIPPED_MIP_DIR,
 };

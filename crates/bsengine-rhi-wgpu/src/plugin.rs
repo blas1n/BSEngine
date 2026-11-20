@@ -382,7 +382,7 @@ mod tests {
             compression: bsengine_core::TextureCompression::Bc1,
             ..Default::default()
         };
-        let (name, bytes) = crate::texture::precook_mip_cache(&png, settings).unwrap();
+        let (name, bytes) = crate::texture::precook_mip_cache(&png, settings, crate::texture::CompressionFamily::Bc).unwrap();
         let rgba = image::load_from_memory(&png).unwrap().to_rgba8().into_raw();
         (rgba, settings, name, bytes)
     }

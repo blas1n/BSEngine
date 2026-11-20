@@ -571,3 +571,85 @@ fn a_pak_build_carries_its_string_tables_and_translates_from_them() {
         String::from_utf8_lossy(&run.stderr)
     );
 }
+
+/// A compressed texture is precooked in the block family of the build's
+/// players: BC for a desktop build, ASTC for an Android one -- whose GPU has
+/// no BC and whose runtime cannot encode ASTC, so a BC file there would
+/// leave every compressed texture uncompressed on the phone. Read from the
+/// packages the real binary writes: the encoding tag in each shipped file's
+/// header (bytes 12..16; 1 = BC1, 41 = ASTC 4x4 sRGB).
+#[test]
+fn an_android_build_precooks_astc_and_a_desktop_build_bc() {
+    use bsengine_core::{ImportSettings, TextureCompression, TextureImportSettings};
+    let project = Output::new();
+    std::fs::create_dir_all(project.0.join("assets/scenes")).unwrap();
+    std::fs::create_dir_all(project.0.join("assets/textures")).unwrap();
+    std::fs::write(
+        project.0.join("assets/scenes/main.ron"),
+        r#"SceneDescriptor(entities: [EntityDescriptor(name: "Only")])"#,
+    )
+    .unwrap();
+    std::fs::write(
+        project.0.join("project.toml"),
+        "[project]\nname = \"Squeezed\"\nentry_scene = \"assets/scenes/main.ron\"\n\n\
+         [package]\nextra_assets = [\"assets/textures/a.png\"]\n",
+    )
+    .unwrap();
+    let texture = project.0.join("assets/textures/a.png");
+    image::RgbaImage::from_fn(64, 64, |x, y| image::Rgba([(x * 4) as u8, (y * 4) as u8, 90, 255]))
+        .save(&texture)
+        .unwrap();
+    bsengine_asset::identity::write_import_settings(
+        &texture,
+        ImportSettings::Texture(TextureImportSettings {
+            compression: TextureCompression::Bc1,
+            ..Default::default()
+        }),
+    )
+    .expect("record the texture's settings");
+
+    let package = |mode: &str| {
+        let out = Output::new();
+        let run = Command::new(env!("CARGO_BIN_EXE_bsengine-runtime"))
+            .arg("--package")
+            .arg(&project.0)
+            .arg("--out")
+            .arg(&out.0)
+            .arg("--mode")
+            .arg(mode)
+            .output()
+            .expect("run --package");
+        assert!(
+            run.status.success(),
+            "{mode}: {}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+        out
+    };
+    let shipped_dir = bsengine_asset::cook::PRECOOKED_MIP_DIR;
+    let tag = |file: &[u8]| u32::from_le_bytes(file[12..16].try_into().unwrap());
+
+    let loose = package("loose");
+    let files: Vec<_> = std::fs::read_dir(loose.0.join(shipped_dir))
+        .expect("a desktop build ships a precooked file")
+        .map(|e| e.unwrap().path())
+        .collect();
+    assert_eq!(files.len(), 1, "{files:?}");
+    let desktop = std::fs::read(&files[0]).unwrap();
+    assert_eq!(tag(&desktop), 1, "a desktop build ships BC1");
+
+    let android = package("android");
+    let pak = bsengine_asset::pak::Pak::open(android.0.join("game.pak")).expect("the archive");
+    let shipped: Vec<&str> = pak
+        .paths()
+        .filter(|p| p.starts_with(shipped_dir))
+        .collect();
+    assert_eq!(shipped.len(), 1, "an Android build ships one precooked file: {shipped:?}");
+    let phone = pak.get(shipped[0]).unwrap();
+    assert_eq!(tag(phone), 41, "an Android build ships ASTC 4x4 sRGB");
+    assert_ne!(
+        files[0].file_name().unwrap().to_str().unwrap(),
+        shipped[0].rsplit('/').next().unwrap(),
+        "the two files are named for their encodings"
+    );
+}

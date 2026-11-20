@@ -102,6 +102,15 @@ pub(crate) fn level_bytes(format: wgpu::TextureFormat, width: u32, height: u32) 
         | wgpu::TextureFormat::Bc3RgbaUnormSrgb
         | wgpu::TextureFormat::Bc7RgbaUnorm
         | wgpu::TextureFormat::Bc7RgbaUnormSrgb => blocks(16),
+        // ASTC 4x4, the mobile format the registry uploads (texture.rs
+        // `format_for`): 16 bytes a 4x4 block, as BC3 and BC7. Without it
+        // the streaming budget counted a compressed chain as RGBA8 texels at
+        // `bytes_per_texel`'s 4 -- and a cache file's level lengths, checked
+        // against this, never matched, so every load re-encoded.
+        wgpu::TextureFormat::Astc {
+            block: wgpu::AstcBlock::B4x4,
+            ..
+        } => blocks(16),
         other => width as u64 * height as u64 * bytes_per_texel(other),
     }
 }

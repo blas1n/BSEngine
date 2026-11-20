@@ -345,24 +345,99 @@ fn read_all_levels(
         .collect()
 }
 
-/// The GPU format a texture's settings ask for, on a device that has
-/// (`bc_supported`) or lacks block compression -- lacking it, the texture
-/// goes up as RGBA8 and looks the same at eight times the memory. The
-/// `…Srgb` variants are what make `srgb` mean anything: such a view decodes
-/// on sample, so the shader receives linear light without a `pow` of its
-/// own. Uploaded bytes are identical either way.
-fn format_for(settings: TextureImportSettings) -> wgpu::TextureFormat {
+/// Which family of block formats a device takes: BC on desktop GPUs, ASTC
+/// on mobile ones (every phone GPU, Apple's included; the Android Vulkan
+/// baseline profile requires it). A texture's `compression` names a BC
+/// format, and on an ASTC device every choice becomes ASTC 4x4 -- as Godot's
+/// "VRAM Compressed" is S3TC/BPTC on desktop and ASTC on mobile, and as Unity
+/// and Unreal pick the format per platform from one import setting. 4x4 is
+/// the one ASTC size a power-of-two texture fits whole (see `astc.rs`), at
+/// BC3's and BC7's byte a texel: BC1's half-byte has no ASTC equal that fits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CompressionFamily {
+    /// BC1/BC3/BC7 as the settings say: desktop GPUs.
+    Bc,
+    /// ASTC 4x4 for any of them: mobile GPUs.
+    Astc,
+}
+
+/// The GPU format a texture's settings ask for in a block family. A device
+/// with neither family uploads RGBA8, which looks the same at four to eight
+/// times the memory (`compression: None` here). The `…Srgb` variants are
+/// what make `srgb` mean anything: such a view decodes on sample, so the
+/// shader receives linear light without a `pow` of its own. BC and RGBA8
+/// bytes are identical either way; ASTC's are not (see [`encoding_tag`]).
+fn format_for(settings: TextureImportSettings, family: CompressionFamily) -> wgpu::TextureFormat {
     use bsengine_core::TextureCompression;
-    match (settings.compression, settings.srgb) {
-        (TextureCompression::None, true) => wgpu::TextureFormat::Rgba8UnormSrgb,
-        (TextureCompression::None, false) => wgpu::TextureFormat::Rgba8Unorm,
-        (TextureCompression::Bc1, true) => wgpu::TextureFormat::Bc1RgbaUnormSrgb,
-        (TextureCompression::Bc1, false) => wgpu::TextureFormat::Bc1RgbaUnorm,
-        (TextureCompression::Bc3, true) => wgpu::TextureFormat::Bc3RgbaUnormSrgb,
-        (TextureCompression::Bc3, false) => wgpu::TextureFormat::Bc3RgbaUnorm,
-        (TextureCompression::Bc7, true) => wgpu::TextureFormat::Bc7RgbaUnormSrgb,
-        (TextureCompression::Bc7, false) => wgpu::TextureFormat::Bc7RgbaUnorm,
+    match (settings.compression, family, settings.srgb) {
+        (TextureCompression::None, _, true) => wgpu::TextureFormat::Rgba8UnormSrgb,
+        (TextureCompression::None, _, false) => wgpu::TextureFormat::Rgba8Unorm,
+        (_, CompressionFamily::Astc, srgb) => wgpu::TextureFormat::Astc {
+            block: wgpu::AstcBlock::B4x4,
+            channel: if srgb {
+                wgpu::AstcChannel::UnormSrgb
+            } else {
+                wgpu::AstcChannel::Unorm
+            },
+        },
+        (TextureCompression::Bc1, CompressionFamily::Bc, true) => {
+            wgpu::TextureFormat::Bc1RgbaUnormSrgb
+        }
+        (TextureCompression::Bc1, CompressionFamily::Bc, false) => {
+            wgpu::TextureFormat::Bc1RgbaUnorm
+        }
+        (TextureCompression::Bc3, CompressionFamily::Bc, true) => {
+            wgpu::TextureFormat::Bc3RgbaUnormSrgb
+        }
+        (TextureCompression::Bc3, CompressionFamily::Bc, false) => {
+            wgpu::TextureFormat::Bc3RgbaUnorm
+        }
+        (TextureCompression::Bc7, CompressionFamily::Bc, true) => {
+            wgpu::TextureFormat::Bc7RgbaUnormSrgb
+        }
+        (TextureCompression::Bc7, CompressionFamily::Bc, false) => {
+            wgpu::TextureFormat::Bc7RgbaUnorm
+        }
     }
+}
+
+/// Whether this build is a phone's: its packages carry ASTC
+/// (`--mode android`), so ASTC comes first where the GPU has both.
+const MOBILE_BUILD: bool = cfg!(any(target_os = "android", target_os = "ios"));
+
+/// The family a device with these features takes, in a `mobile` build or a
+/// desktop one; see [`GpuTextureRegistry::family`]. The platform decides
+/// which comes first, not the GPU -- as Unity and Unreal pick the format by
+/// target platform: a desktop build takes BC where the GPU has it (Apple's
+/// have both), a phone's build ASTC, the family its package was precooked
+/// in. The other family is the fallback in either. Found on the Android
+/// emulator, whose GPU is the host's and has both: preferring BC there
+/// ignored the package's ASTC and encoded BC at every start.
+fn family_for(bc: bool, astc: bool, mobile: bool) -> Option<CompressionFamily> {
+    let (first, second) = if mobile {
+        (
+            astc.then_some(CompressionFamily::Astc),
+            bc.then_some(CompressionFamily::Bc),
+        )
+    } else {
+        (
+            bc.then_some(CompressionFamily::Bc),
+            astc.then_some(CompressionFamily::Astc),
+        )
+    };
+    first.or(second)
+}
+
+/// The uncompressed format for these settings: what a texture uploads as
+/// where its compression cannot be had.
+fn uncompressed_format(settings: TextureImportSettings) -> wgpu::TextureFormat {
+    format_for(
+        TextureImportSettings {
+            compression: bsengine_core::TextureCompression::None,
+            ..settings
+        },
+        CompressionFamily::Bc,
+    )
 }
 
 /// The block encoding of a GPU format. Two encoders behind it: texpresso
@@ -374,6 +449,11 @@ enum BlockEncoding {
     Bc1,
     Bc3,
     Bc7,
+    /// ASTC 4x4 by astcenc (`astc.rs`). sRGB is part of the encoding, unlike
+    /// BC's: astcenc encodes for the profile the texture is decoded with.
+    Astc4x4 {
+        srgb: bool,
+    },
 }
 
 impl BlockEncoding {
@@ -381,7 +461,7 @@ impl BlockEncoding {
     fn block_size(self) -> u32 {
         match self {
             Self::Bc1 => 8,
-            Self::Bc3 | Self::Bc7 => 16,
+            Self::Bc3 | Self::Bc7 | Self::Astc4x4 { .. } => 16,
         }
     }
 }
@@ -398,6 +478,12 @@ fn block_encoder(format: wgpu::TextureFormat) -> Option<BlockEncoding> {
         wgpu::TextureFormat::Bc7RgbaUnorm | wgpu::TextureFormat::Bc7RgbaUnormSrgb => {
             Some(BlockEncoding::Bc7)
         }
+        wgpu::TextureFormat::Astc {
+            block: wgpu::AstcBlock::B4x4,
+            channel,
+        } => Some(BlockEncoding::Astc4x4 {
+            srgb: channel == wgpu::AstcChannel::UnormSrgb,
+        }),
         _ => None,
     }
 }
@@ -408,15 +494,19 @@ fn block_encoder(format: wgpu::TextureFormat) -> Option<BlockEncoding> {
 /// RGBA8, 16ab in BC3 and 8ab in BC1 -- but not BC3 from BC7, which is 16
 /// bytes a block too: without the tag a BC3 file would be read as BC7 and
 /// upload as noise. The file name's hash carries the tag as well, so a
-/// mismatch here means a file was renamed or written by hand. sRGB is not
-/// part of it -- the bytes are the same either way and only the view
-/// differs.
+/// mismatch here means a file was renamed or written by hand. For BC and
+/// RGBA8 sRGB is not part of it -- the bytes are the same either way and
+/// only the view differs. For ASTC it is: astcenc encodes for the profile
+/// the texture decodes with, so an sRGB file read as linear would come out
+/// subtly wrong rather than as noise, which nothing would catch.
 fn encoding_tag(format: wgpu::TextureFormat) -> u32 {
     match block_encoder(format) {
         None => 0,
         Some(BlockEncoding::Bc1) => 1,
         Some(BlockEncoding::Bc3) => 3,
         Some(BlockEncoding::Bc7) => 7,
+        Some(BlockEncoding::Astc4x4 { srgb: false }) => 40,
+        Some(BlockEncoding::Astc4x4 { srgb: true }) => 41,
     }
 }
 
@@ -427,17 +517,25 @@ fn encoding_tag(format: wgpu::TextureFormat) -> u32 {
 /// fast range fit -- parallel over block rows. Quality wins because the
 /// result is cached to disk and paid once per image; the range fit's
 /// banding would be paid on every frame the texture is looked at. BC7 is
-/// [`encode_bc7`], on the same reasoning.
+/// [`encode_bc7`], on the same reasoning; ASTC is astcenc's "medium"
+/// (`astc.rs`).
+///
+/// `None` only for ASTC in a build without its encoder -- a phone, a
+/// browser -- which must find the level already encoded (a package's
+/// precooked file, the mip cache) or upload uncompressed.
 fn encode_level<'a>(
     format: wgpu::TextureFormat,
     width: u32,
     height: u32,
     rgba: &'a [u8],
-) -> std::borrow::Cow<'a, [u8]> {
+) -> Option<std::borrow::Cow<'a, [u8]>> {
     let texpresso_format = match block_encoder(format) {
-        None => return std::borrow::Cow::Borrowed(rgba),
+        None => return Some(std::borrow::Cow::Borrowed(rgba)),
         Some(BlockEncoding::Bc7) => {
-            return std::borrow::Cow::Owned(encode_bc7(width, height, rgba))
+            return Some(std::borrow::Cow::Owned(encode_bc7(width, height, rgba)))
+        }
+        Some(BlockEncoding::Astc4x4 { srgb }) => {
+            return crate::astc::encode(width, height, rgba, srgb).map(std::borrow::Cow::Owned)
         }
         Some(BlockEncoding::Bc1) => texpresso::Format::Bc1,
         Some(BlockEncoding::Bc3) => texpresso::Format::Bc3,
@@ -450,7 +548,7 @@ fn encode_level<'a>(
         texpresso::Params::default(),
         &mut out,
     );
-    std::borrow::Cow::Owned(out)
+    Some(std::borrow::Cow::Owned(out))
 }
 
 /// One RGBA8 level in BC7 blocks, parallel over block rows.
@@ -572,12 +670,16 @@ fn mip_cache_name(width: u32, height: u32, rgba: &[u8], format: wgpu::TextureFor
 /// must not depend on this GPU crate; the runtime's `--package` passes this
 /// function in. Decodes as the texture loader does (`load_from_memory` then
 /// RGBA8) -- the file name is a hash of the decoded pixels, so a different
-/// decode would ship a file no runtime ever asks for. Assumes the player's
-/// device has BC support, as every desktop GPU does; one without it falls
-/// back to RGBA8 and never looks the file up.
+/// decode would ship a file no runtime ever asks for.
+///
+/// `family` is the player's GPU's: [`CompressionFamily::Bc`] for a desktop
+/// build, [`CompressionFamily::Astc`] for a phone's -- which has no BC, and
+/// no encoder in its runtime either, so a texture not precooked here uploads
+/// uncompressed there. A device of the other family never asks for the file.
 pub fn precook_mip_cache(
     file_bytes: &[u8],
     settings: TextureImportSettings,
+    family: CompressionFamily,
 ) -> Option<(String, Vec<u8>)> {
     if settings.compression == bsengine_core::TextureCompression::None {
         return None;
@@ -593,17 +695,17 @@ pub fn precook_mip_cache(
     } else {
         vec![(width, height, std::borrow::Cow::Borrowed(rgba.as_slice()))]
     };
-    let format = format_for(settings);
+    let format = format_for(settings, family);
     let levels: Vec<(u32, u32, std::borrow::Cow<'_, [u8]>)> = raw
         .iter()
         .map(|(w, h, pixels)| {
-            (
+            Some((
                 *w,
                 *h,
-                std::borrow::Cow::Owned(encode_level(format, *w, *h, pixels).into_owned()),
-            )
+                std::borrow::Cow::Owned(encode_level(format, *w, *h, pixels)?.into_owned()),
+            ))
         })
-        .collect();
+        .collect::<Option<_>>()?;
     let (bytes, _) = encode_mip_cache(&levels, format);
     Some((mip_cache_name(width, height, rgba, format), bytes))
 }
@@ -665,12 +767,22 @@ pub struct GpuTextureRegistry {
     /// Whether the cache directory has already been reported unusable, so
     /// a read-only install logs it once rather than per texture.
     mip_cache_warned: bool,
-    /// Whether the device has `TEXTURE_COMPRESSION_BC`. Without it a
-    /// texture whose sidecar asks for BC1/BC3 uploads as RGBA8 instead --
-    /// said once (`compression_warned`), since it is a property of the
-    /// machine and not of any one texture.
+    /// Whether the device has `TEXTURE_COMPRESSION_BC`, and whether it has
+    /// `TEXTURE_COMPRESSION_ASTC` -- which family a compressed texture goes
+    /// up in ([`Self::family`]). With neither, a texture whose sidecar asks
+    /// for compression uploads as RGBA8 instead -- said once
+    /// (`compression_warned`), since it is a property of the machine and not
+    /// of any one texture.
     bc_supported: bool,
+    astc_supported: bool,
     compression_warned: bool,
+    /// Whether "no ASTC encoder in this build, and the package carries no
+    /// precooked file for this texture" has been said; once, like
+    /// `compression_warned` -- every unprecooked texture would say it.
+    no_encoder_warned: bool,
+    /// [`Self::disable_astc_encoder_for_testing`]: behave as a build with no
+    /// ASTC encoder, as a phone's is, on a machine that has one.
+    astc_encoder_disabled: bool,
     /// How many chains have been block-encoded, as opposed to read back
     /// from the mip cache. What makes "encoded once, then cached"
     /// observable.
@@ -696,9 +808,16 @@ impl GpuTextureRegistry {
     /// Creates an empty registry bound to the given wgpu device/queue.
     pub fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
         let bgl = Self::create_bgl(&device);
-        let bc_supported = device
-            .features()
-            .contains(wgpu::Features::TEXTURE_COMPRESSION_BC);
+        let features = device.features();
+        let bc_supported = features.contains(wgpu::Features::TEXTURE_COMPRESSION_BC);
+        let astc_supported = features.contains(wgpu::Features::TEXTURE_COMPRESSION_ASTC);
+        // Which family compressed textures will go up in, said once per
+        // device: on a phone the difference between ASTC and an uncompressed
+        // fallback is invisible on screen and four times the memory.
+        tracing::info!(
+            "[texture] block-compressed textures upload as {:?}",
+            family_for(bc_supported, astc_supported, MOBILE_BUILD)
+        );
         Self {
             device,
             queue,
@@ -712,7 +831,10 @@ impl GpuTextureRegistry {
             mip_cache_root: None,
             mip_cache_warned: false,
             bc_supported,
+            astc_supported,
             compression_warned: false,
+            no_encoder_warned: false,
+            astc_encoder_disabled: false,
             encodes: 0,
             shipped_mip_cache: None,
         }
@@ -730,23 +852,59 @@ impl GpuTextureRegistry {
         self.encodes
     }
 
+    /// Whether the device has ASTC, the family a compressed texture goes up
+    /// in where BC is missing (every phone).
+    pub fn astc_supported(&self) -> bool {
+        self.astc_supported
+    }
+
+    /// The block family compressed textures go up in on this device: the
+    /// build's own first -- BC on a desktop, ASTC on a phone, the family its
+    /// package is precooked in -- the other where the GPU lacks it, none
+    /// where it has neither.
+    pub fn family(&self) -> Option<CompressionFamily> {
+        family_for(self.bc_supported, self.astc_supported, MOBILE_BUILD)
+    }
+
     /// Makes this registry behave as on a device without block compression,
     /// so the fallback can be tested on one that has it.
     #[cfg(test)]
     pub(crate) fn pretend_bc_unsupported_for_testing(&mut self) {
         self.bc_supported = false;
+        self.astc_supported = false;
+    }
+
+    /// Makes a device with both families (Apple's GPUs) take ASTC, as a
+    /// phone does, so the ASTC path can be drawn on the machines that have
+    /// it -- none of which lacks BC. Returns whether the device has ASTC at
+    /// all; without it nothing changes and the caller has nothing to test.
+    #[doc(hidden)]
+    pub fn use_astc_for_testing(&mut self) -> bool {
+        if self.astc_supported {
+            self.bc_supported = false;
+        }
+        self.astc_supported
+    }
+
+    /// Makes this registry behave as a phone's build, which has no ASTC
+    /// encoder: what is not in the mip cache or the package uploads
+    /// uncompressed.
+    #[doc(hidden)]
+    pub fn disable_astc_encoder_for_testing(&mut self) {
+        self.astc_encoder_disabled = true;
     }
 
     /// The format a `width` x `height` texture goes up in on this device.
     /// A requested compression is refused, and the texture goes up as RGBA8
-    /// looking the same, in two cases: the device lacks the feature (said
+    /// looking the same, in two cases: the device lacks both families (said
     /// once, since every texture in the project would say it), and the
     /// image is not a multiple of 4 on each side (said per image, since it
-    /// is that image's problem to fix). The second is the rule every BC
-    /// consumer has -- a block-compressed texture's level 0 is whole blocks
-    /// -- and wgpu enforces it at `create_texture`; Unity refuses to
-    /// compress such an image with the same warning, rather than padding
-    /// it to a size the artist did not draw.
+    /// is that image's problem to fix). The second is the rule every block
+    /// format's consumer has -- a block-compressed texture's level 0 is
+    /// whole blocks, 4x4 for BC and the ASTC size used here -- and wgpu
+    /// enforces it at `create_texture`; Unity refuses to compress such an
+    /// image with the same warning, rather than padding it to a size the
+    /// artist did not draw.
     fn upload_format(
         &mut self,
         mut settings: TextureImportSettings,
@@ -755,19 +913,20 @@ impl GpuTextureRegistry {
     ) -> wgpu::TextureFormat {
         use bsengine_core::TextureCompression;
         if settings.compression == TextureCompression::None {
-            return format_for(settings);
+            return uncompressed_format(settings);
         }
-        if !self.bc_supported {
+        let Some(family) = self.family() else {
             if !self.compression_warned {
                 self.compression_warned = true;
                 tracing::warn!(
-                    "[texture] this device has no block-compressed texture support; textures \
-                     asking for {:?} upload uncompressed",
+                    "[texture] this device has no block-compressed texture support (BC or \
+                     ASTC); textures asking for {:?} upload uncompressed",
                     settings.compression
                 );
             }
-            settings.compression = TextureCompression::None;
-        } else if !width.is_multiple_of(4) || !height.is_multiple_of(4) {
+            return uncompressed_format(settings);
+        };
+        if !width.is_multiple_of(4) || !height.is_multiple_of(4) {
             tracing::warn!(
                 "[texture] a {width}x{height} texture asks for {:?}, but a block-compressed \
                  texture must be a multiple of 4 on each side; it uploads uncompressed",
@@ -775,7 +934,7 @@ impl GpuTextureRegistry {
             );
             settings.compression = TextureCompression::None;
         }
-        format_for(settings)
+        format_for(settings, family)
     }
 
     /// Sets the directory streamed textures' mip cache files are written
@@ -891,6 +1050,12 @@ impl GpuTextureRegistry {
     /// once per image and encoding, at first import, as the reference
     /// engines pay it at import -- and encoded, and written to the cache,
     /// when it is not.
+    ///
+    /// `Err` gives the chain back when it is in none of those places and
+    /// this build cannot encode the format: ASTC on a phone, where the
+    /// packager was meant to have encoded it. The caller uploads it
+    /// uncompressed.
+    #[allow(clippy::type_complexity)]
     fn encoded_levels<'a>(
         &mut self,
         width: u32,
@@ -898,9 +1063,12 @@ impl GpuTextureRegistry {
         rgba: &[u8],
         raw: Vec<(u32, u32, std::borrow::Cow<'a, [u8]>)>,
         format: wgpu::TextureFormat,
-    ) -> Vec<(u32, u32, std::borrow::Cow<'a, [u8]>)> {
+    ) -> Result<
+        Vec<(u32, u32, std::borrow::Cow<'a, [u8]>)>,
+        Vec<(u32, u32, std::borrow::Cow<'a, [u8]>)>,
+    > {
         if block_encoder(format).is_none() {
-            return raw;
+            return Ok(raw);
         }
         let dims: Vec<(u32, u32)> = raw.iter().map(|(w, h, _)| (*w, *h)).collect();
         let cached = self.mip_cache_root.as_ref().map(|root| {
@@ -911,7 +1079,7 @@ impl GpuTextureRegistry {
             if let Some(table) = read_mip_cache_table(path, &dims, format) {
                 if let Ok(levels) = read_all_levels(path, &dims, &table) {
                     crate::cache_sweep::touch(path);
-                    return levels;
+                    return Ok(levels);
                 }
             }
         }
@@ -922,18 +1090,28 @@ impl GpuTextureRegistry {
         let encoded: Vec<(u32, u32, std::borrow::Cow<'a, [u8]>)> = match shipped {
             Some(levels) => levels,
             None => {
-                self.encodes += 1;
-                raw.iter()
+                if self.astc_encoder_disabled
+                    && matches!(block_encoder(format), Some(BlockEncoding::Astc4x4 { .. }))
+                {
+                    return Err(raw);
+                }
+                let encoded: Option<Vec<_>> = raw
+                    .iter()
                     .map(|(w, h, pixels)| {
-                        (
+                        Some((
                             *w,
                             *h,
                             std::borrow::Cow::Owned(
-                                encode_level(format, *w, *h, pixels).into_owned(),
+                                encode_level(format, *w, *h, pixels)?.into_owned(),
                             ),
-                        )
+                        ))
                     })
-                    .collect()
+                    .collect();
+                let Some(encoded) = encoded else {
+                    return Err(raw);
+                };
+                self.encodes += 1;
+                encoded
             }
         };
         if let Some((root, path)) = cached {
@@ -941,7 +1119,7 @@ impl GpuTextureRegistry {
             // `cache_chain` then finds the very same file.
             let _ = self.write_mip_cache(&root, &path, &encoded, format);
         }
-        encoded
+        Ok(encoded)
     }
 
     fn create_bgl(device: &wgpu::Device) -> std::sync::Arc<wgpu::BindGroupLayout> {
@@ -1101,8 +1279,26 @@ impl GpuTextureRegistry {
         // The chain is built in RGBA8 and encoded afterwards, level by
         // level: a mip of a compressed image would otherwise be a blur of
         // block artefacts, and every reference engine filters first too.
-        let format = self.upload_format(settings, width, height);
-        let levels = self.encoded_levels(width, height, rgba, raw, format);
+        let mut format = self.upload_format(settings, width, height);
+        let levels = match self.encoded_levels(width, height, rgba, raw, format) {
+            Ok(levels) => levels,
+            // ASTC on a device whose build has no encoder (a phone), for an
+            // image the package did not bring encoded: uncompressed, as on a
+            // device without the format at all, rather than not at all.
+            Err(raw) => {
+                if !self.no_encoder_warned {
+                    self.no_encoder_warned = true;
+                    tracing::warn!(
+                        "[texture] a {width}x{height} texture asks for {:?}; this device takes \
+                         ASTC, which this build cannot encode and the package did not bring \
+                         encoded (package with `--mode android`), so it uploads uncompressed",
+                        settings.compression
+                    );
+                }
+                format = uncompressed_format(settings);
+                raw
+            }
+        };
         // A streamed texture starts with only its small levels on the GPU
         // and keeps the chain -- in its cache file when there is one, else
         // in RAM -- to bring the rest in from. Streaming a texture with no
@@ -2695,7 +2891,7 @@ mod tests {
         // into block rows is exercised and not just one row.
         for (w, h) in [(64u32, 64u32), (12, 12), (6, 6), (2, 2), (1, 1)] {
             let pixels = gradient(w, h);
-            let blocks = encode_level(bc7, w, h, &pixels);
+            let blocks = encode_level(bc7, w, h, &pixels).unwrap();
             assert_eq!(
                 blocks.len() as u64,
                 crate::profiler::level_bytes(bc7, w, h),
@@ -2715,7 +2911,7 @@ mod tests {
         // is off by 93.
         for (w, h) in [(6u32, 6u32), (3, 3), (2, 2), (1, 1)] {
             let pixels = mixed_hues(w, h);
-            let decoded = decode_bc7(w, h, &encode_level(bc7, w, h, &pixels));
+            let decoded = decode_bc7(w, h, &encode_level(bc7, w, h, &pixels).unwrap());
             let error = worst_channel_error(&decoded, &pixels);
             assert!(
                 error <= 12,
@@ -2724,7 +2920,8 @@ mod tests {
         }
 
         let pixels = gradient(64, 64);
-        let bc3_blocks = encode_level(wgpu::TextureFormat::Bc3RgbaUnormSrgb, 64, 64, &pixels);
+        let bc3_blocks =
+            encode_level(wgpu::TextureFormat::Bc3RgbaUnormSrgb, 64, 64, &pixels).unwrap();
         let as_bc7 = worst_channel_error(&decode_bc7(64, 64, &bc3_blocks), &pixels);
         assert!(
             as_bc7 > 12,
@@ -2734,14 +2931,14 @@ mod tests {
         let hues = mixed_hues(64, 64);
         let mut bc3_decoded = vec![0u8; hues.len()];
         texpresso::Format::Bc3.decompress(
-            &encode_level(wgpu::TextureFormat::Bc3RgbaUnormSrgb, 64, 64, &hues),
+            &encode_level(wgpu::TextureFormat::Bc3RgbaUnormSrgb, 64, 64, &hues).unwrap(),
             64,
             64,
             &mut bc3_decoded,
         );
         let bc3_error = mean_channel_error(&bc3_decoded, &hues);
         let bc7_error = mean_channel_error(
-            &decode_bc7(64, 64, &encode_level(bc7, 64, 64, &hues)),
+            &decode_bc7(64, 64, &encode_level(bc7, 64, 64, &hues).unwrap()),
             &hues,
         );
         assert!(
@@ -2764,7 +2961,7 @@ mod tests {
         let gradient: Vec<u8> = (0..16u32 * 16)
             .flat_map(|i| [120, 60, 200, (i % 16 * 16) as u8])
             .collect();
-        let decoded = decode_bc7(16, 16, &encode_level(bc7, 16, 16, &gradient));
+        let decoded = decode_bc7(16, 16, &encode_level(bc7, 16, 16, &gradient).unwrap());
         let alpha_error = decoded
             .chunks_exact(4)
             .zip(gradient.chunks_exact(4))
@@ -2778,7 +2975,7 @@ mod tests {
 
         let mut opaque = mixed_hues(16, 16);
         opaque.chunks_exact_mut(4).for_each(|t| t[3] = 255);
-        let decoded = decode_bc7(16, 16, &encode_level(bc7, 16, 16, &opaque));
+        let decoded = decode_bc7(16, 16, &encode_level(bc7, 16, 16, &opaque).unwrap());
         assert!(
             decoded.chunks_exact(4).all(|t| t[3] == 255),
             "an opaque image decodes fully opaque"
@@ -2787,6 +2984,202 @@ mod tests {
 
     /// A 64x64 PNG with more than one colour, and its decoded pixels as the
     /// texture loader would hand them over.
+    /// A desktop build takes BC where the GPU has it and a phone's build
+    /// ASTC -- each the family its packages are precooked in -- with the
+    /// other as the fallback and nothing where the GPU has neither. The case
+    /// that tells them apart is a GPU with both (Apple's; the Android
+    /// emulator's, which is the host's).
+    #[test]
+    fn the_build_picks_which_family_comes_first() {
+        use CompressionFamily::{Astc, Bc};
+        for mobile in [false, true] {
+            assert_eq!(family_for(true, false, mobile), Some(Bc), "mobile {mobile}");
+            assert_eq!(
+                family_for(false, true, mobile),
+                Some(Astc),
+                "mobile {mobile}"
+            );
+            assert_eq!(family_for(false, false, mobile), None, "mobile {mobile}");
+        }
+        assert_eq!(family_for(true, true, false), Some(Bc), "a desktop build");
+        assert_eq!(family_for(true, true, true), Some(Astc), "a phone's build");
+    }
+
+    /// On an ASTC device each of BC1, BC3 and BC7 is ASTC 4x4, in the colour
+    /// space the settings ask for; uncompressed stays RGBA8. And the sRGB and
+    /// linear ASTC encodings are told apart -- by tag and by file name --
+    /// where BC's are not, because astcenc encodes them differently.
+    #[test]
+    fn every_compression_choice_is_astc_4x4_on_an_astc_device() {
+        use bsengine_core::TextureCompression;
+        for srgb in [true, false] {
+            let channel = if srgb {
+                wgpu::AstcChannel::UnormSrgb
+            } else {
+                wgpu::AstcChannel::Unorm
+            };
+            for compression in [
+                TextureCompression::Bc1,
+                TextureCompression::Bc3,
+                TextureCompression::Bc7,
+            ] {
+                let settings = TextureImportSettings {
+                    compression,
+                    srgb,
+                    ..Default::default()
+                };
+                assert_eq!(
+                    format_for(settings, CompressionFamily::Astc),
+                    wgpu::TextureFormat::Astc {
+                        block: wgpu::AstcBlock::B4x4,
+                        channel
+                    },
+                    "{compression:?}, srgb {srgb}"
+                );
+            }
+            let plain = TextureImportSettings {
+                srgb,
+                ..Default::default()
+            };
+            assert_eq!(
+                format_for(plain, CompressionFamily::Astc),
+                uncompressed_format(plain)
+            );
+        }
+        let astc = |channel| wgpu::TextureFormat::Astc {
+            block: wgpu::AstcBlock::B4x4,
+            channel,
+        };
+        let (srgb, linear) = (
+            astc(wgpu::AstcChannel::UnormSrgb),
+            astc(wgpu::AstcChannel::Unorm),
+        );
+        assert_ne!(encoding_tag(srgb), encoding_tag(linear));
+        let pixels = vec![9u8; 16 * 16 * 4];
+        assert_ne!(
+            mip_cache_name(16, 16, &pixels, srgb),
+            mip_cache_name(16, 16, &pixels, linear)
+        );
+        assert_eq!(
+            mip_cache_name(16, 16, &pixels, wgpu::TextureFormat::Bc1RgbaUnormSrgb),
+            mip_cache_name(16, 16, &pixels, wgpu::TextureFormat::Bc1RgbaUnorm),
+            "premise: BC's colour space is the view's alone"
+        );
+    }
+
+    /// A phone's package carries ASTC: the file the registry looks up by name
+    /// for this image on an ASTC device (not the BC one), tagged ASTC sRGB --
+    /// a linear ASTC lookup refuses it -- with every level whole 16-byte
+    /// blocks and level 0 decoding back to the picture.
+    #[test]
+    fn a_phone_package_precooks_astc_under_the_name_the_registry_looks_up() {
+        use bsengine_core::TextureCompression;
+        let (png, rgba) = png_fixture();
+        let settings = TextureImportSettings {
+            compression: TextureCompression::Bc1,
+            ..Default::default()
+        };
+        let (name, bytes) =
+            precook_mip_cache(&png, settings, CompressionFamily::Astc).expect("ASTC precooks");
+        let format = format_for(settings, CompressionFamily::Astc);
+        assert_eq!(name, mip_cache_name(64, 64, &rgba, format));
+        let (bc_name, _) = precook_mip_cache(&png, settings, CompressionFamily::Bc).unwrap();
+        assert_ne!(
+            name, bc_name,
+            "a desktop and a phone package ship different files"
+        );
+
+        let dims: Vec<(u32, u32)> = mip_chain(64, 64, &rgba)
+            .iter()
+            .map(|(w, h, _)| (*w, *h))
+            .collect();
+        assert_eq!(dims.len(), 7, "premise: the whole chain, 64 down to 1");
+        let levels = levels_from_bytes(&bytes, &dims, format).expect("reads as ASTC sRGB");
+        let linear = format_for(
+            TextureImportSettings {
+                srgb: false,
+                ..settings
+            },
+            CompressionFamily::Astc,
+        );
+        assert!(
+            levels_from_bytes(&bytes, &dims, linear).is_none(),
+            "an sRGB file is not read as linear"
+        );
+        for (w, h, blocks) in &levels {
+            assert_eq!(
+                blocks.len() as u64,
+                crate::profiler::level_bytes(format, *w, *h),
+                "{w}x{h}"
+            );
+            assert_eq!(blocks.len() as u32, w.div_ceil(4) * h.div_ceil(4) * 16);
+        }
+        #[cfg(astc_encoder)]
+        {
+            let decoded = crate::astc::decode(64, 64, &levels[0].2, true);
+            let worst = rgba
+                .iter()
+                .zip(&decoded)
+                .map(|(a, b)| a.abs_diff(*b))
+                .max()
+                .unwrap();
+            assert!(
+                worst <= 24,
+                "level 0 decodes to the picture (worst {worst})"
+            );
+        }
+    }
+
+    /// On an ASTC device (taking ASTC as a phone does; skipped loudly where
+    /// the GPU has none -- every desktop one but Apple's), a compressed
+    /// texture goes up as ASTC 4x4 at a byte a texel with its whole chain.
+    /// A build without an encoder -- a phone's -- uploads one the package
+    /// brought without encoding anything, and one it did not bring as
+    /// RGBA8, rather than failing.
+    #[test]
+    fn an_astc_device_uploads_astc_and_a_build_without_the_encoder_falls_back() {
+        use bsengine_core::TextureCompression;
+        let mut reg = make_registry();
+        if !reg.use_astc_for_testing() {
+            eprintln!("SKIPPED: this GPU has no ASTC; the ASTC upload is not measured here");
+            return;
+        }
+        let (png, rgba) = png_fixture();
+        let settings = TextureImportSettings {
+            compression: TextureCompression::Bc7,
+            ..Default::default()
+        };
+        let astc = wgpu::TextureFormat::Astc {
+            block: wgpu::AstcBlock::B4x4,
+            channel: wgpu::AstcChannel::UnormSrgb,
+        };
+        let id = reg.load_with(64, 64, &rgba, settings);
+        assert_eq!(reg.get_gpu_shape(id), Some((astc, 7)));
+        // Levels 64..1: 256 + 64 + 16 + 4 + 1 + 1 + 1 blocks of 16 bytes.
+        assert_eq!(reg.get_gpu_footprint(id).unwrap().2, 343 * 16);
+        assert_eq!(reg.encodes(), 1);
+
+        let (name, bytes) = precook_mip_cache(&png, settings, CompressionFamily::Astc).unwrap();
+        let mut phone = make_registry();
+        assert!(phone.use_astc_for_testing());
+        phone.disable_astc_encoder_for_testing();
+        phone.set_shipped_mip_cache(Some(Arc::new(move |n: &str| {
+            (n == name).then(|| bytes.clone())
+        })));
+        let shipped = phone.load_with(64, 64, &rgba, settings);
+        assert_eq!(phone.get_gpu_shape(shipped), Some((astc, 7)));
+        assert_eq!(phone.encodes(), 0, "the package's blocks, not an encode");
+
+        let other: Vec<u8> = rgba.iter().map(|v| 255 - v).collect();
+        let fallback = phone.load_with(64, 64, &other, settings);
+        assert_eq!(
+            phone.get_gpu_shape(fallback),
+            Some((wgpu::TextureFormat::Rgba8UnormSrgb, 7)),
+            "not in the package, no encoder: uncompressed"
+        );
+        assert_eq!(phone.encodes(), 0);
+    }
+
     fn png_fixture() -> (Vec<u8>, Vec<u8>) {
         let mut img = image::RgbaImage::new(64, 64);
         for (x, y, p) in img.enumerate_pixels_mut() {
@@ -2812,7 +3205,8 @@ mod tests {
             compression: TextureCompression::Bc1,
             ..Default::default()
         };
-        let (name, bytes) = precook_mip_cache(&png, settings).expect("a BC1 texture precooks");
+        let (name, bytes) = precook_mip_cache(&png, settings, CompressionFamily::Bc)
+            .expect("a BC1 texture precooks");
 
         let (mut reg, dir) = make_registry_with_cache("precooked_matches");
         assert!(
@@ -2829,12 +3223,17 @@ mod tests {
 
         // Nothing to precook: uncompressed, or not whole blocks (the
         // registry uploads that one as RGBA8 and never asks).
-        assert!(precook_mip_cache(&png, TextureImportSettings::default()).is_none());
+        assert!(precook_mip_cache(
+            &png,
+            TextureImportSettings::default(),
+            CompressionFamily::Bc
+        )
+        .is_none());
         let mut odd = Vec::new();
         image::RgbaImage::new(66, 40)
             .write_to(&mut std::io::Cursor::new(&mut odd), image::ImageFormat::Png)
             .unwrap();
-        assert!(precook_mip_cache(&odd, settings).is_none());
+        assert!(precook_mip_cache(&odd, settings, CompressionFamily::Bc).is_none());
     }
 
     /// With a shipped file for the texture, the registry encodes nothing --
@@ -2850,7 +3249,7 @@ mod tests {
             compression: TextureCompression::Bc1,
             ..Default::default()
         };
-        let (name, bytes) = precook_mip_cache(&png, settings).unwrap();
+        let (name, bytes) = precook_mip_cache(&png, settings, CompressionFamily::Bc).unwrap();
 
         let mut without = make_registry();
         without.set_shipped_mip_cache(Some(Arc::new(|_: &str| None)));

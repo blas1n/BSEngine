@@ -292,7 +292,9 @@ pub fn game_tools(root: PathBuf) -> Vec<McpTool> {
                 BC7: Bc1 is half a byte a texel with no alpha, Bc3 a byte a texel with \
                 alpha, Bc7 a byte a texel with alpha and much better colour (slower to \
                 encode), against four for None; encoded once and cached; needs the image to be a multiple \
-                of 4 on each side and a GPU with BC support, else it uploads uncompressed \
+                of 4 on each side and a GPU with BC or ASTC support (a phone takes any of \
+                the three as ASTC 4x4, a byte a texel, which an Android package ships \
+                encoded), else it uploads uncompressed \
                 with a warning; not for data textures such as normal maps, whose blocks \
                 show as banding).\n\
                 Models (glb, gltf): `scale` (number > 0, default 1.0 -- baked into vertices, \

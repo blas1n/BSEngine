@@ -1115,6 +1115,7 @@ dependencies = [
  "bsengine-visualscript",
  "bsengine-window",
  "bytemuck",
+ "ctt-astcenc",
  "egui",
  "egui-phosphor",
  "egui-wgpu",
@@ -1765,6 +1766,17 @@ dependencies = [
  "dispatch2",
  "nix",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "ctt-astcenc"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc6dc5595dd5b65dd4cf644bf0d9159f0bd3de2e37c539a1a8df12fb1ecfdd77"
+dependencies = [
+ "bitflags 2.13.0",
+ "cc",
+ "paste",
 ]
 
 [[package]]

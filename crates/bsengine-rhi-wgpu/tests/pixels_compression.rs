@@ -226,3 +226,57 @@ fn a_bc7_texture_draws_mixed_colours_that_bc1_cannot_at_a_quarter_of_the_memory(
         "BC7 draws mixed hues far closer to RGBA8 than BC1 does: {bc7} against {bc1}"
     );
 }
+
+/// ASTC 4x4, what a phone's GPU takes in place of BC: on a GPU that has it
+/// (Apple's, among the machines CI runs on; no other desktop GPU) the block
+/// checker draws exactly as RGBA8 does at a byte a texel. Exact, because a
+/// 4x4 block of one colour whose channels are 0 or 255 is a constant block
+/// that ASTC stores losslessly -- and decoded as the wrong format, or with
+/// the blocks out of order, it would be noise or a shifted checker. Skipped,
+/// saying so, on a GPU without ASTC.
+#[test]
+fn an_astc_texture_draws_the_same_picture_at_a_byte_a_texel() {
+    let mut h = Harness::new();
+    if !h.use_astc() {
+        eprintln!("SKIPPED: this GPU has no ASTC; the ASTC draw is not measured here");
+        return;
+    }
+    let cube = h.cube();
+    let checker = block_checker();
+    let plain = h.texture_with(settings(TextureCompression::None), SIZE, SIZE, &checker);
+    let astc = h.texture_with(settings(TextureCompression::Bc1), SIZE, SIZE, &checker);
+    assert_eq!(
+        h.gpu_shape(astc).map(|s| s.0),
+        Some(wgpu::TextureFormat::Astc {
+            block: wgpu::AstcBlock::B4x4,
+            channel: wgpu::AstcChannel::Unorm,
+        }),
+        "a phone's GPU takes BC1's request as ASTC 4x4"
+    );
+    assert_eq!(
+        h.gpu_footprint(astc).unwrap().2 * 4,
+        h.gpu_footprint(plain).unwrap().2,
+        "ASTC 4x4 is a byte a texel"
+    );
+    let reference = h.render(&scene(cube, plain));
+    let (mut dark, mut bright) = (0u32, 0u32);
+    for y in (HEIGHT / 3)..(2 * HEIGHT / 3) {
+        for x in (WIDTH / 3)..(2 * WIDTH / 3) {
+            let red = reference.at(x, y)[0];
+            if red < 30 {
+                dark += 1;
+            } else if red > 80 {
+                bright += 1;
+            }
+        }
+    }
+    assert!(
+        dark > 100 && bright > 100,
+        "premise: the checker is on screen in both colours ({dark} dark, {bright} bright)"
+    );
+    let difference = max_difference(&reference, &h.render(&scene(cube, astc)));
+    assert!(
+        difference <= 1,
+        "the block checker is exact in ASTC; largest channel difference {difference}"
+    );
+}

@@ -4618,6 +4618,15 @@ async fn adapter_named(
         info.driver,
         info.driver_info
     );
+    // And which block formats it takes, which decides what a compressed
+    // texture costs here: BC on a desktop GPU, ASTC on a phone's, neither
+    // (RGBA8, four to eight times the memory) on a few.
+    let features = adapter.features();
+    tracing::info!(
+        "GPU block compression: BC {}, ASTC {}",
+        features.contains(wgpu::Features::TEXTURE_COMPRESSION_BC),
+        features.contains(wgpu::Features::TEXTURE_COMPRESSION_ASTC)
+    );
     Ok(adapter)
 }
 
@@ -5402,6 +5411,18 @@ impl WgpuSurface {
             .contains(wgpu::Features::TEXTURE_COMPRESSION_BC)
         {
             required_features |= wgpu::Features::TEXTURE_COMPRESSION_BC;
+        }
+        // ASTC, the block family of every phone GPU (no phone has BC), asked
+        // for on the same terms. The registry takes it first in a phone's
+        // build and where BC is missing in a desktop one (texture.rs
+        // `family_for`). A Vulkan Android device has it
+        // by the Android baseline profile, so a phone without it is a GLES
+        // one, which this renderer does not run on anyway.
+        if adapter
+            .features()
+            .contains(wgpu::Features::TEXTURE_COMPRESSION_ASTC)
+        {
+            required_features |= wgpu::Features::TEXTURE_COMPRESSION_ASTC;
         }
 
         let mut required_limits = wgpu::Limits {

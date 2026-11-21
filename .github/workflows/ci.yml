@@ -624,3 +624,96 @@ jobs:
             echo "a LOAD segment is not 16 KB-aligned:"; "$tc/llvm-readelf" -l "$so" | grep LOAD; exit 1
           fi
           echo "android build: $(du -h "$apk" | cut -f1) APK, entry points exported, 16 KB-aligned"
+
+      # The path a store upload takes, which the step above never does: that
+      # one is `--debug`, so debug-signed whatever the project says, one ABI,
+      # an APK. A release for Play is a release build signed with the
+      # project's own key, a bundle, and more than one ABI -- three branches
+      # of build_android.sh that had only ever been run by hand. Here a key
+      # is made for the run (its password random, and passed the only way a
+      # real one is: the environment), a copy of the project names it in
+      # `[android]`, and then:
+      # - without the password the build stops, before the engine's compile,
+      #   instead of quietly signing with the debug key: an upload signed
+      #   with the wrong key is refused by Play, and an update signed with a
+      #   different key than the installed app will not install;
+      # - the bundle holds both ABIs, bundletool accepts it, and the APKs it
+      #   cuts for an arm64 and an x86_64 device each hold only that device's
+      #   library -- a bundle with one ABI's library under the other's name
+      #   would pass a listing of its contents;
+      # - the bundle, and an APK of the same build, carry this key's
+      #   certificate (read with keytool and apksigner here, not taken from
+      #   the script's own report of it), and each library is the
+      #   architecture its directory names.
+      # The release compiles are the cost (the host runtime for packaging,
+      # then the engine for two targets); Ubuntu finishes well inside the
+      # Windows job's time, so they do not lengthen a run.
+      - name: Android release (signed bundle and APK, two ABIs)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          rustup target add aarch64-linux-android x86_64-linux-android
+          jdk="${JAVA_HOME:+$JAVA_HOME/bin/}"
+          tc="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner"
+          work="$RUNNER_TEMP/android-release"
+          rm -rf "$work" && mkdir -p "$work/out"
+          cp -r games/cube-evader "$work/game"
+
+          pw=$(od -An -tx1 -N16 /dev/urandom | tr -d ' \n')
+          echo "::add-mask::$pw"
+          export BSENGINE_ANDROID_KEYSTORE_PASSWORD="$pw"
+          "${jdk}keytool" -genkeypair -keystore "$work/game/ci-release.jks" -alias ci \
+            -storepass:env BSENGINE_ANDROID_KEYSTORE_PASSWORD -keypass:env BSENGINE_ANDROID_KEYSTORE_PASSWORD \
+            -keyalg RSA -keysize 2048 -validity 1 -dname "CN=BSEngine CI" > /dev/null
+          printf '\n[android]\nkeystore = "ci-release.jks"\nkey_alias = "ci"\n' >> "$work/game/project.toml"
+          # As keytool and apksigner print a certificate, made comparable.
+          norm() { grep -m1 -E "$1" | tr -d '\r' | sed -E "s/.*$1 *//; s/://g" | tr A-F a-f; }
+          want=$("${jdk}keytool" -list -v -keystore "$work/game/ci-release.jks" -alias ci \
+            -storepass:env BSENGINE_ANDROID_KEYSTORE_PASSWORD | norm 'SHA256:')
+          [ -n "$want" ] || { echo "could not read the CI key's certificate"; exit 1; }
+
+          # 1. No password: refused, nothing written.
+          if log=$(env -u BSENGINE_ANDROID_KEYSTORE_PASSWORD \
+              bash scripts/build_android.sh "$work/game" "$work/out" --bundle 2>&1); then
+            echo "$log"; echo "a release build without the key's password succeeded"; exit 1
+          fi
+          echo "$log" | grep -q "set BSENGINE_ANDROID_KEYSTORE_PASSWORD" ||
+            { echo "$log"; echo "the build failed, but not for the missing password"; exit 1; }
+          [ -z "$(ls -A "$work/out")" ] || { ls -l "$work/out"; echo "it wrote a package anyway"; exit 1; }
+
+          # 2. The bundle.
+          bash scripts/build_android.sh "$work/game" "$work/out" --bundle --abi arm64-v8a,x86_64
+          aabs=("$work"/out/*.aab)
+          [ ${#aabs[@]} -eq 1 ] && [ -f "${aabs[0]}" ] || { ls -l "$work/out"; echo "expected one .aab"; exit 1; }
+          aab=${aabs[0]}
+          bundletool=$(ls "$CARGO_TARGET_DIR"/bundletool/bundletool-all-*.jar | tail -1)
+          "${jdk}java" -jar "$bundletool" validate --bundle="$aab" > /dev/null
+          for abi in arm64-v8a x86_64; do
+            unzip -l "$aab" | grep -q "base/lib/$abi/libbsengine_runtime.so" ||
+              { echo "the bundle has no $abi library"; exit 1; }
+          done
+          got=$("${jdk}keytool" -printcert -jarfile "$aab" | norm 'SHA256:')
+          [ "$got" = "$want" ] || { echo "bundle signed by $got, expected the CI key $want"; exit 1; }
+          for abi in arm64-v8a x86_64; do
+            d="$work/device-$abi"; mkdir -p "$d/apks"
+            printf '{"supportedAbis":["%s"],"supportedLocales":["en"],"screenDensity":420,"sdkVersion":35}' "$abi" > "$d/spec.json"
+            "${jdk}java" -jar "$bundletool" build-apks --bundle="$aab" --output="$d/game.apks" --device-spec="$d/spec.json"
+            "${jdk}java" -jar "$bundletool" extract-apks --apks="$d/game.apks" --output-dir="$d/apks" --device-spec="$d/spec.json"
+            libs=$(for a in "$d"/apks/*.apk; do unzip -Z1 "$a"; done | grep '^lib/' | sort -u)
+            [ "$libs" = "lib/$abi/libbsengine_runtime.so" ] ||
+              { echo "an $abi device gets: ${libs:-no library}"; exit 1; }
+          done
+
+          # 3. An APK of the same build (the engine is not compiled again).
+          bash scripts/build_android.sh "$work/game" "$work/out" --abi arm64-v8a,x86_64
+          apk=$(ls "$work"/out/*.apk)
+          got=$("$apksigner" verify --print-certs "$apk" | norm 'SHA-256 digest:')
+          [ "$got" = "$want" ] || { echo "APK signed by $got, expected the CI key $want"; exit 1; }
+          for pair in arm64-v8a:AArch64 x86_64:X86-64; do
+            abi=${pair%%:*} machine=${pair#*:}
+            unzip -p "$apk" "lib/$abi/libbsengine_runtime.so" > "$work/$abi.so"
+            "$tc/llvm-readelf" -h "$work/$abi.so" | grep -q "Machine:.*$machine" ||
+              { echo "lib/$abi is not $machine"; exit 1; }
+          done
+          echo "android release: bundle and APK signed with the CI key ($want), both ABIs, splits per ABI"

@@ -30,6 +30,35 @@ const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 /// first frame and then wedges is still caught; small enough to stay quick.
 const FRAMES: u32 = 5;
 
+/// Taken by [`run_to_exit_with`] for the life of each window; see there.
+static ONE_WINDOW_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Windows alive right now, by [`LiveWindow`].
+static LIVE_WINDOWS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Counts one window for as long as it lives -- through a panic too, so a
+/// failed test does not leave the count raised for every test after it.
+struct LiveWindow;
+
+impl LiveWindow {
+    fn open() -> Self {
+        let alive = LIVE_WINDOWS.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        let window = LiveWindow;
+        assert_eq!(
+            alive, 1,
+            "{alive} runtime windows alive at once: the tests here must open one \
+             at a time (ONE_WINDOW_AT_A_TIME), or one can hide another"
+        );
+        window
+    }
+}
+
+impl Drop for LiveWindow {
+    fn drop(&mut self) {
+        LIVE_WINDOWS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 fn project(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../games")
@@ -37,12 +66,15 @@ fn project(name: &str) -> PathBuf {
 }
 
 /// Runs the shipped executable on `project` for `frames` frames and returns
-/// what it reported: `(frames drawn, most draw calls in any one frame)`.
+/// what it reported: `(frames drawn, most draw calls in any one frame)`, and
+/// its stdout and stderr for a caller's own failure message -- a report of
+/// zero draw calls is only diagnosable with the `render_frame error` lines
+/// that explain it.
 ///
 /// Panics -- with the runtime's own output -- if the window never closes
 /// itself, exits non-zero, or never prints its report line, so every caller
 /// gets the same three diagnostics without repeating them.
-fn run_frames(project: &Path, frames: u32) -> (u32, u32) {
+fn run_frames(project: &Path, frames: u32) -> (u32, u32, String) {
     let (status, stdout, stderr) = run_to_exit(project, frames, &[]);
     assert!(
         status.success(),
@@ -65,7 +97,11 @@ fn run_frames(project: &Path, frames: u32) -> (u32, u32) {
     let drawn: u32 = drawn.parse().expect("frame count is a number");
     let draw_calls: u32 = draw_calls.trim().parse().expect("draw calls is a number");
     assert_eq!(drawn, frames, "the window delivered the wrong frame count");
-    (drawn, draw_calls)
+    (
+        drawn,
+        draw_calls,
+        format!("--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"),
+    )
 }
 
 /// Runs the shipped executable on `project` for `frames` frames, with `envs`
@@ -86,6 +122,27 @@ fn run_to_exit_with(
     envs: &[(&str, &str)],
     args: &[&str],
 ) -> (std::process::ExitStatus, String, String) {
+    // One window at a time. libtest runs these tests in parallel, and the
+    // runner gives a window no position (the OS places it; winit centres it
+    // on macOS), so windows of one size open on top of each other and a
+    // later one can cover an earlier one completely. On macOS a window with
+    // no visible part is "occluded", and wgpu's Metal surface then hands out
+    // no frame at all (`CurrentSurfaceTexture::Occluded`, gfx-rs/wgpu#8309:
+    // it skips `nextDrawable` rather than hang in it): the runtime logs
+    // `render_frame error` and draws nothing that frame. The likely cause of
+    // `a_window_opens_and_draws_frames` reporting `draw_calls=0` once on CI
+    // (macOS, 2026-11-21; passed on the rerun) -- not reproduced, as the
+    // child's output was not in that failure message (it is now).
+    // Held across the spawn and the wait, so no two windows exist at once;
+    // a poisoned lock (a test that panicked holding it) still serialises.
+    let _one_window = ONE_WINDOW_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    // The lock's effect is invisible off macOS (overlap costs nothing on
+    // Windows and Linux), so it is checked where it can be: no other window
+    // is alive while this one is. Without the lock, the parallel tests here
+    // trip this on any machine.
+    let _alive = LiveWindow::open();
     let mut child = Command::new(env!("CARGO_BIN_EXE_bsengine-runtime"))
         // The windowed path writes a log (and on a panic, a crash report)
         // under the per-user directory; a test must not fill a real profile.
@@ -176,11 +233,11 @@ fn a_window_opens_and_draws_frames() {
     // ⚠️ Asserting on draw calls, not just on the frame count. A window that
     // opens and presents nothing still ticks `Update` happily and would reach
     // its frame count either way.
-    let (frames, draw_calls) = run_frames(&project, FRAMES);
+    let (frames, draw_calls, output) = run_frames(&project, FRAMES);
     assert!(
         draw_calls > 0,
         "{frames} frames ran but nothing was ever drawn -- the window is open \
-         and the renderer is submitting empty frames"
+         and the renderer is submitting empty frames\n{output}"
     );
 }
 
@@ -510,8 +567,8 @@ fn a_gltf_spawned_by_a_script_is_actually_drawn() {
     let control = script_spawn_project(false);
     let spawn = script_spawn_project(true);
 
-    let (_, control_draws) = run_frames(&control, SPAWN_FRAMES);
-    let (_, spawn_draws) = run_frames(&spawn, SPAWN_FRAMES);
+    let (_, control_draws, control_output) = run_frames(&control, SPAWN_FRAMES);
+    let (_, spawn_draws, spawn_output) = run_frames(&spawn, SPAWN_FRAMES);
 
     let _ = std::fs::remove_dir_all(&control);
     let _ = std::fs::remove_dir_all(&spawn);
@@ -524,7 +581,8 @@ fn a_gltf_spawned_by_a_script_is_actually_drawn() {
         spawn_draws > control_draws,
         "a script spawned assets/models/fox.glb and the window drew no more than the same \
          scene without it (spawn run: {spawn_draws} draw calls in its busiest frame, control: \
-         {control_draws}) -- the spawn never produced a mesh, or produced one nothing drew"
+         {control_draws}) -- the spawn never produced a mesh, or produced one nothing drew\n\
+         === spawn run ===\n{spawn_output}\n=== control run ===\n{control_output}"
     );
 }
 

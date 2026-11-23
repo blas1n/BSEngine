@@ -1,8 +1,11 @@
 # Every shader module this crate makes goes through
 # `pipeline_cache::create_shader_module`, which records it for the GLSL ES
 # gate (`gles_gate.rs`): no CI runner has a GLES device, so a module made
-# anywhere else is one nothing checks will compile on GLES.
+# anywhere else is one nothing checks will compile on GLES. Render pipelines
+# likewise go through `pipeline_cache::create_render_pipeline`, which records
+# the ones whose colour targets need independent blending (not in GLES 3.1).
 disallowed-methods = [
     { path = "wgpu::Device::create_shader_module", reason = "use pipeline_cache::create_shader_module (or CachedCreate::cached_shader_module), which the GLSL ES gate sees" },
     { path = "wgpu::Device::create_shader_module_trusted", reason = "use pipeline_cache::create_shader_module_trusted, which the GLSL ES gate sees" },
+    { path = "wgpu::Device::create_render_pipeline", reason = "use pipeline_cache::create_render_pipeline (or CachedCreate::cached_render_pipeline), which the GLES gate sees" },
 ]

@@ -29,12 +29,7 @@ mod tests {
     /// GLES support is landing a PR at a time, and these are the ones still
     /// to come. An entry that starts translating fails the test too, so the
     /// list only ever shrinks.
-    const KNOWN_FAILURES: &[(&str, &str)] = &[
-        // `textureNumLevels(hiz_tex)`: GLSL ES has no `textureQueryLevels`.
-        // The level count is to come from the uniforms instead.
-        ("ssr shader", "TEXTURE_LEVELS"),
-        ("ssgi", "TEXTURE_LEVELS"),
-    ];
+    const KNOWN_FAILURES: &[(&str, &str)] = &[];
 
     /// Labels in the source the gate does not make, and why.
     const NOT_ENGINE_SHADERS: &[(&str, &str)] = &[
@@ -171,6 +166,24 @@ mod tests {
             }],
         };
         crate::mesh_thumbnail::render_thumbnail(&device, &queue, &triangle);
+        // A game's unlit custom shader: its pipelines are the renderer's
+        // (`unlit_custom_desc`), only the WGSL is the game's. A lit one is
+        // built with the opaque mesh pipeline's descriptor, which the
+        // renderer above made already.
+        surface
+            .compile_and_store_shader(
+                "gles gate unlit",
+                "@vertex fn vs_main() -> @builtin(position) vec4<f32> {\n\
+                     return vec4<f32>(0.0, 0.0, 0.0, 1.0);\n\
+                 }\n\
+                 @fragment fn fs_main() -> @location(0) vec4<f32> {\n\
+                     return vec4<f32>(1.0);\n\
+                 }\n",
+            )
+            .expect("the unlit custom shader validates");
+        for (path, verdict) in surface.finish_custom_shaders() {
+            verdict.unwrap_or_else(|e| panic!("custom shader {path}: {e}"));
+        }
     }
 
     #[test]
@@ -240,6 +253,49 @@ mod tests {
             "{} modules checked.\nDo not translate to GLSL ES 3.10: {unexpected:#?}\n\
              Listed as failing but now translate (remove from KNOWN_FAILURES): {fixed:#?}",
             recorded.len()
+        );
+    }
+
+    /// Pipelines that still give their colour targets different blend states
+    /// or write masks -- each draws colour only and masks the other targets
+    /// off. GLES 3.1 has no independent blending, so on it these are invalid
+    /// until they get a pass of their own. Like `KNOWN_FAILURES`, an entry
+    /// that stops mixing fails the test, so the list only shrinks.
+    const KNOWN_MIXED_TARGETS: &[&str] = &[
+        "transparent mesh pipeline",
+        "terrain pipeline",
+        "custom pipeline",
+    ];
+
+    /// Every render pipeline gives all its colour targets one blend state and
+    /// write mask, which is all GLES 3.1 can do (`INDEPENDENT_BLEND` is core
+    /// only from 3.2). wgpu checks this when a pipeline is made, on the
+    /// adapter's flags, so on every backend CI has the test is the only thing
+    /// that sees it.
+    #[test]
+    fn no_pipeline_needs_independent_blending() {
+        make_every_module();
+        let mixed = crate::pipeline_cache::MIXED_TARGET_PIPELINES
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        // The premise: what this test watches is recorded at all -- the
+        // known ones are made, and do mix.
+        for known in KNOWN_MIXED_TARGETS {
+            assert!(
+                mixed.iter().any(|m| m == known),
+                "{known} is listed as mixing its targets but was not recorded doing so: \
+                 if it no longer does, remove it from KNOWN_MIXED_TARGETS. Recorded: {mixed:?}"
+            );
+        }
+        let unexpected: Vec<_> = mixed
+            .iter()
+            .filter(|m| !KNOWN_MIXED_TARGETS.contains(&m.as_str()))
+            .collect();
+        assert!(
+            unexpected.is_empty(),
+            "pipelines whose colour targets differ in blend or write mask, which GLES \
+             3.1 cannot make (`REPLACE` and `None` count as different): {unexpected:?}"
         );
     }
 }

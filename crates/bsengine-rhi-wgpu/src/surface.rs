@@ -3774,9 +3774,14 @@ fn opaque_mesh_desc<'a>(
             module,
             entry_point: Some("fs_main"),
             targets: &[
+                // `None`, as every other target here: the same pixels as
+                // `REPLACE`, and wgpu compares the two as different blend
+                // states -- which asks for independent blending, and GLES 3.1
+                // has none, so with `REPLACE` this pipeline was invalid there
+                // (`gles_gate`).
                 Some(wgpu::ColorTargetState {
                     format: crate::post_process::HDR_FORMAT,
-                    blend: Some(wgpu::BlendState::REPLACE),
+                    blend: None,
                     write_mask: wgpu::ColorWrites::ALL,
                 }),
                 // The screen-space normal SSR traces along.
@@ -4063,7 +4068,10 @@ impl CustomShaderJob {
             },
         );
         let make = |desc: &wgpu::RenderPipelineDescriptor| {
-            std::sync::Arc::new(self.device.create_render_pipeline(desc))
+            std::sync::Arc::new(crate::pipeline_cache::create_render_pipeline(
+                &self.device,
+                desc,
+            ))
         };
         let make_msaa = |desc: &wgpu::RenderPipelineDescriptor| {
             self.msaa_supported

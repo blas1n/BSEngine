@@ -207,8 +207,15 @@ mod tests {
             );
         }
 
+        // The record is the process's: tests running beside this one add
+        // their own modules to it. Those without a label are tests' one-offs,
+        // and a `NOT_ENGINE_SHADERS` one can be WGSL that is invalid on
+        // purpose -- a `compile_shader` test's ("expected `)`, found 1.0"
+        // failed this gate in a full run and never alone).
+        let engine =
+            |label: &str| !label.is_empty() && !NOT_ENGINE_SHADERS.iter().any(|(n, _)| *n == label);
         let mut failures = Vec::new();
-        for (label, source) in &recorded {
+        for (label, source) in recorded.iter().filter(|(l, _)| engine(l)) {
             for error in glsl_es_errors(source) {
                 failures.push((label.clone(), error));
             }

@@ -1540,10 +1540,13 @@ fn fs_probe(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
         });
         let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("ibl probe shader"),
-            source: wgpu::ShaderSource::Wgsl(PROBE_WGSL.into()),
-        });
+        let shader = crate::pipeline_cache::create_shader_module(
+            device,
+            wgpu::ShaderModuleDescriptor {
+                label: Some("ibl probe shader"),
+                source: wgpu::ShaderSource::Wgsl(PROBE_WGSL.into()),
+            },
+        );
         let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("ibl probe bgl"),
             entries: &[

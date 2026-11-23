@@ -167,7 +167,7 @@ pub struct DepthResolve {
 }
 
 const DEPTH_RESOLVE_WGSL: &str = r#"
-@group(0) @binding(0) var ms_depth: texture_depth_multisampled_2d;
+@group(0) @binding(0) var ms_depth: texture_multisampled_2d<f32>;
 
 @vertex
 fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
@@ -179,7 +179,7 @@ fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32>
 
 @fragment
 fn fs_resolve(@builtin(position) pos: vec4<f32>) -> @builtin(frag_depth) f32 {
-    return textureLoad(ms_depth, vec2<i32>(pos.xy), 0);
+    return textureLoad(ms_depth, vec2<i32>(pos.xy), 0).x;
 }
 "#;
 
@@ -192,7 +192,7 @@ impl DepthResolve {
                 binding: 0,
                 visibility: wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Depth,
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
                     view_dimension: wgpu::TextureViewDimension::D2,
                     multisampled: true,
                 },

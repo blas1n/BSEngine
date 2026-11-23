@@ -62,6 +62,63 @@ pub struct CacheStats {
 
 static CACHES: Mutex<Vec<DeviceCache>> = Mutex::new(Vec::new());
 
+/// Every WGSL module this crate asked a device for, label and source, in
+/// this crate's test build -- what `gles_gate` translates to GLSL ES.
+///
+/// Recorded here, where every module is made ([`create_shader_module`] and
+/// [`CachedCreate::cached_shader_module`]; this crate's `clippy.toml`
+/// refuses `wgpu::Device::create_shader_module` anywhere else), so a new
+/// shader is checked without anyone adding it to a list. A list was the
+/// alternative, and a shader forgotten on it is a shader GLES never sees
+/// checked: no CI runner has a GLES device, so nothing else would notice.
+#[cfg(test)]
+pub(crate) static RECORDED_WGSL: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+
+#[cfg(test)]
+fn record(desc: &wgpu::ShaderModuleDescriptor) {
+    if let wgpu::ShaderSource::Wgsl(source) = &desc.source {
+        let mut recorded = RECORDED_WGSL.lock().unwrap_or_else(|e| e.into_inner());
+        let label = desc.label.unwrap_or("").to_string();
+        if !recorded.iter().any(|(l, s)| *l == label && s == source) {
+            recorded.push((label, source.to_string()));
+        }
+    }
+}
+
+/// `device.create_shader_module(desc)`, for a module that is not to be shared
+/// between renderers (a game's own shader, a one-off compile). The one place
+/// besides the cache that makes a module -- see [`RECORDED_WGSL`] for why.
+pub fn create_shader_module(
+    device: &wgpu::Device,
+    desc: wgpu::ShaderModuleDescriptor,
+) -> wgpu::ShaderModule {
+    #[cfg(test)]
+    record(&desc);
+    #[allow(clippy::disallowed_methods)] // the one sanctioned caller
+    device.create_shader_module(desc)
+}
+
+/// `device.create_shader_module_trusted(desc, checks)`, recorded like
+/// [`create_shader_module`].
+///
+/// # Safety
+///
+/// As `wgpu::Device::create_shader_module_trusted`: the checks `checks`
+/// turns off must be ones the shader cannot need.
+pub unsafe fn create_shader_module_trusted(
+    device: &wgpu::Device,
+    desc: wgpu::ShaderModuleDescriptor,
+    checks: wgpu::ShaderRuntimeChecks,
+) -> wgpu::ShaderModule {
+    #[cfg(test)]
+    record(&desc);
+    // SAFETY: passed on to this function's caller.
+    #[allow(clippy::disallowed_methods)] // the one sanctioned caller
+    unsafe {
+        device.create_shader_module_trusted(desc, checks)
+    }
+}
+
 /// Shares `device`'s pipelines between every renderer made on it, from now
 /// on, for the rest of the process. For a device that lives that long (see
 /// the module docs); a second call is a no-op.
@@ -170,7 +227,7 @@ impl CachedCreate for wgpu::Device {
         };
         let Some(key) = key else {
             with_cache(self, |c| c.stats.uncached += 1);
-            return Arc::new(self.create_shader_module(desc));
+            return Arc::new(create_shader_module(self, desc));
         };
         let mut desc = Some(desc);
         with_cache(self, |c| {
@@ -179,10 +236,10 @@ impl CachedCreate for wgpu::Device {
                 |c| &mut c.modules,
                 key,
                 true,
-                |d| d.create_shader_module(desc.take().expect("made once")),
+                |d| create_shader_module(d, desc.take().expect("made once")),
             )
         })
-        .unwrap_or_else(|| Arc::new(self.create_shader_module(desc.take().expect("made once"))))
+        .unwrap_or_else(|| Arc::new(create_shader_module(self, desc.take().expect("made once"))))
     }
 
     fn cached_bind_group_layout(

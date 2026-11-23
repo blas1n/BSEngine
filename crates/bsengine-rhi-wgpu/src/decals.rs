@@ -123,7 +123,7 @@ struct DecalUniform {
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
 @group(1) @binding(0) var<uniform> decal: DecalUniform;
-@group(2) @binding(0) var depth_tex: texture_depth_2d;
+@group(2) @binding(0) var depth_tex: texture_2d<f32>;
 @group(3) @binding(0) var t_decal: texture_2d<f32>;
 @group(3) @binding(1) var t_decal_normal: texture_2d<f32>;
 @group(3) @binding(2) var s_decal: sampler;
@@ -147,7 +147,7 @@ struct DecalOut {
 fn fs_decal(@builtin(position) frag: vec4<f32>) -> DecalOut {
     let dims = vec2<f32>(textureDimensions(depth_tex, 0));
     let coord = vec2<i32>(frag.xy);
-    let depth = textureLoad(depth_tex, coord, 0);
+    let depth = textureLoad(depth_tex, coord, 0).x;
 
     // Screen pixel back to the world position of whatever was drawn there.
     let uv = frag.xy / dims;
@@ -341,7 +341,7 @@ impl DecalResources {
                 binding: 0,
                 visibility: wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Depth,
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
                     view_dimension: wgpu::TextureViewDimension::D2,
                     multisampled: false,
                 },

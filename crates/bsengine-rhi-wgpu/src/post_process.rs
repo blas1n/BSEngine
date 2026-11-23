@@ -78,7 +78,7 @@ struct FullscreenOut {
 }
 @group(0) @binding(0) var hdr_tex: texture_2d<f32>;
 @group(0) @binding(1) var tex_sampler: sampler;
-@group(1) @binding(0) var depth_tex: texture_depth_2d;
+@group(1) @binding(0) var depth_tex: texture_2d<f32>;
 @group(2) @binding(0) var integrated_vol: texture_3d<f32>;
 @group(2) @binding(1) var vol_sampler: sampler;
 // `fog` sits at @group(3) @binding(0); see `fog_uniform_wgsl`.
@@ -98,7 +98,7 @@ fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> FullscreenOut {
 fn load_depth(uv: vec2<f32>) -> f32 {
     let dims = vec2<i32>(textureDimensions(depth_tex, 0));
     let coord = clamp(vec2<i32>(uv * vec2<f32>(dims)), vec2<i32>(0), dims - vec2<i32>(1));
-    return textureLoad(depth_tex, coord, 0);
+    return textureLoad(depth_tex, coord, 0).x;
 }
 
 // The camera-to-far-plane vector through this pixel: the exact ray the
@@ -946,7 +946,7 @@ macro_rules! hiz_trace_wgsl {
 // level 0 is the depth buffer itself.
 fn nearest_depth(cell: vec2<i32>, level: i32) -> f32 {
     if level == 0 {
-        return textureLoad(depth_tex, cell, 0);
+        return textureLoad(depth_tex, cell, 0).x;
     }
     return textureLoad(hiz_tex, cell, level - 1).r;
 }
@@ -1132,7 +1132,7 @@ struct SsrCamera {
 @group(0) @binding(2) var scene_samp: sampler;
 // The nearest depth of each cell (`HizPyramid`): mip `n` is level `n + 1`.
 @group(0) @binding(3) var hiz_tex: texture_2d<f32>;
-@group(1) @binding(0) var depth_tex: texture_depth_2d;
+@group(1) @binding(0) var depth_tex: texture_2d<f32>;
 @group(2) @binding(0) var normal_tex: texture_2d<f32>;
 // The prepass's velocities: how far each surface moved on screen since last
 // frame -- what finds a moving hit where it was then.
@@ -1172,7 +1172,7 @@ fn fs_ssr(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     let dims = vec2<f32>(textureDimensions(depth_tex, 0));
     let uv = frag.xy / dims;
     let coord = vec2<i32>(frag.xy);
-    let depth = textureLoad(depth_tex, coord, 0);
+    let depth = textureLoad(depth_tex, coord, 0).x;
 
     let nr = textureSampleLevel(normal_tex, normal_samp, uv, 0.0);
     let n = nr.xyz;
@@ -1236,7 +1236,7 @@ fn fs_ssr(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     // it was. A hit last frame's camera could not see has no answer, and
     // fades like one that left the screen.
     let hit_px = vec2<i32>(hit_uv * dims);
-    let hit_depth = textureLoad(depth_tex, hit_px, 0);
+    let hit_depth = textureLoad(depth_tex, hit_px, 0).x;
     let hit_velocity = textureLoad(velocity_tex, hit_px, 0).xy;
     var prev_uv = vec2<f32>(-1.0);
     if (hit_velocity.x < 1000.0) {
@@ -1341,7 +1341,7 @@ struct SsgiCamera {
 @group(0) @binding(2) var scene_samp: sampler;
 // The nearest depth of each cell (`HizPyramid`): mip `n` is level `n + 1`.
 @group(0) @binding(3) var hiz_tex: texture_2d<f32>;
-@group(1) @binding(0) var depth_tex: texture_depth_2d;
+@group(1) @binding(0) var depth_tex: texture_2d<f32>;
 @group(2) @binding(0) var normal_tex: texture_2d<f32>;
 @group(2) @binding(1) var normal_samp: sampler;
 @group(3) @binding(0) var<uniform> cam: SsgiCamera;
@@ -1405,7 +1405,7 @@ fn fs_ssgi(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     let dims = vec2<f32>(full);
     let coord = sample_coord(vec2<i32>(frag.xy), full);
     let uv = (vec2<f32>(coord) + vec2<f32>(0.5)) / dims;
-    let depth = textureLoad(depth_tex, coord, 0);
+    let depth = textureLoad(depth_tex, coord, 0).x;
     let nr = textureSampleLevel(normal_tex, normal_samp, uv, 0.0);
     // Nothing opaque here (the normal buffer clears to zero): no surface to
     // light, and nothing replaced.
@@ -1459,7 +1459,7 @@ fn fs_ssgi(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
 /// of the 2 x 2 pixels it covers. The pyramid is wider than the frame
 /// (`hiz_size`), and what lies past the frame's edge is the far plane.
 const HIZ_FIRST_WGSL: &str = r#"
-@group(0) @binding(0) var depth_tex: texture_depth_2d;
+@group(0) @binding(0) var depth_tex: texture_2d<f32>;
 
 @vertex
 fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
@@ -1480,7 +1480,7 @@ fn fs_first(@builtin(position) frag: vec4<f32>) -> @location(0) f32 {
         for (var x = 0; x < 2; x++) {
             let c = base + vec2<i32>(x, y);
             if c.x < size.x && c.y < size.y {
-                nearest = min(nearest, textureLoad(depth_tex, c, 0));
+                nearest = min(nearest, textureLoad(depth_tex, c, 0).x);
             }
         }
     }
@@ -1641,7 +1641,7 @@ struct SsgiCamera {
 @group(1) @binding(1) var albedo_tex: texture_2d<f32>;
 @group(1) @binding(2) var trace_depth_tex: texture_2d<f32>;
 @group(1) @binding(3) var inputs_samp: sampler;
-@group(2) @binding(0) var depth_tex: texture_depth_2d;
+@group(2) @binding(0) var depth_tex: texture_2d<f32>;
 @group(3) @binding(0) var<uniform> cam: SsgiCamera;
 
 @vertex
@@ -1665,7 +1665,7 @@ fn traced_at(coord: vec2<i32>) -> vec4<f32> {
     if cam.params2.w < 1.5 {
         return textureLoad(ssgi_tex, coord, 0);
     }
-    let depth = textureLoad(depth_tex, coord, 0);
+    let depth = textureLoad(depth_tex, coord, 0).x;
     if depth >= 1.0 {
         return vec4<f32>(0.0);
     }
@@ -1742,7 +1742,7 @@ struct SsgiCamera {
 @group(1) @binding(0) var history_tex: texture_2d<f32>;
 @group(1) @binding(1) var history_depth_tex: texture_2d<f32>;
 @group(1) @binding(2) var history_samp: sampler;
-@group(2) @binding(0) var depth_tex: texture_depth_2d;
+@group(2) @binding(0) var depth_tex: texture_2d<f32>;
 @group(2) @binding(1) var velocity_tex: texture_2d<f32>;
 @group(3) @binding(0) var<uniform> cam: SsgiCamera;
 
@@ -1783,7 +1783,7 @@ fn fs_temporal(@builtin(position) frag: vec4<f32>) -> TemporalOut {
     let current = textureLoad(current_tex, vec2<i32>(frag.xy), 0);
     let coord = sample_coord(vec2<i32>(frag.xy), full);
     let uv = (vec2<f32>(coord) + vec2<f32>(0.5)) / dims;
-    let depth = textureLoad(depth_tex, coord, 0);
+    let depth = textureLoad(depth_tex, coord, 0).x;
     var out: TemporalOut;
     out.light = current;
     out.depth = vec4<f32>(0.0);
@@ -1854,7 +1854,7 @@ struct SsgiCamera {
 };
 @group(0) @binding(0) var light_tex: texture_2d<f32>;
 @group(0) @binding(1) var light_samp: sampler;
-@group(1) @binding(0) var depth_tex: texture_depth_2d;
+@group(1) @binding(0) var depth_tex: texture_2d<f32>;
 @group(2) @binding(0) var normal_tex: texture_2d<f32>;
 @group(2) @binding(1) var normal_samp: sampler;
 @group(3) @binding(0) var<uniform> cam: SsgiCamera;
@@ -1883,7 +1883,7 @@ fn sample_coord(h: vec2<i32>, full: vec2<i32>) -> vec2<i32> {
 }
 
 fn view_depth(coord: vec2<i32>, dims: vec2<f32>) -> f32 {
-    let depth = textureLoad(depth_tex, coord, 0);
+    let depth = textureLoad(depth_tex, coord, 0).x;
     let uv = (vec2<f32>(coord) + vec2<f32>(0.5)) / dims;
     let ndc = vec4<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth, 1.0);
     let w = cam.inv_view_proj * ndc;
@@ -1899,7 +1899,7 @@ fn fs_spatial(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     let full = vec2<i32>(textureDimensions(depth_tex, 0));
     let dims = vec2<f32>(full);
     let c0 = sample_coord(coord, full);
-    if textureLoad(depth_tex, c0, 0) >= 1.0 {
+    if textureLoad(depth_tex, c0, 0).x >= 1.0 {
         return vec4<f32>(0.0);
     }
     let d0 = view_depth(c0, dims);
@@ -1910,7 +1910,7 @@ fn fs_spatial(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
         for (var dx = -2; dx <= 2; dx++) {
             let q = clamp(coord + vec2<i32>(dx, dy), vec2<i32>(0), size - vec2<i32>(1));
             let cq = sample_coord(q, full);
-            if textureLoad(depth_tex, cq, 0) >= 1.0 {
+            if textureLoad(depth_tex, cq, 0).x >= 1.0 {
                 continue;
             }
             let dq = view_depth(cq, dims);
@@ -2010,7 +2010,7 @@ struct SsaoCamera {
     proj: mat4x4<f32>,
     inv_proj: mat4x4<f32>,
 }
-@group(0) @binding(0) var depth_tex: texture_depth_2d;
+@group(0) @binding(0) var depth_tex: texture_2d<f32>;
 @group(1) @binding(0) var<uniform> config: PostProcessConfig;
 @group(2) @binding(0) var<uniform> cam: SsaoCamera;
 
@@ -2029,7 +2029,7 @@ fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> FullscreenOut {
 fn load_depth(uv: vec2<f32>) -> f32 {
     let dims = vec2<i32>(textureDimensions(depth_tex, 0));
     let coord = clamp(vec2<i32>(uv * vec2<f32>(dims)), vec2<i32>(0), dims - vec2<i32>(1));
-    return textureLoad(depth_tex, coord, 0);
+    return textureLoad(depth_tex, coord, 0).x;
 }
 
 fn reconstruct_view_pos(uv: vec2<f32>, depth: f32) -> vec3<f32> {
@@ -2152,7 +2152,7 @@ struct SsaoCamera {
     proj: mat4x4<f32>,
     inv_proj: mat4x4<f32>,
 }
-@group(0) @binding(0) var depth_tex: texture_depth_2d;
+@group(0) @binding(0) var depth_tex: texture_2d<f32>;
 @group(1) @binding(0) var ao_raw: texture_2d<f32>;
 @group(1) @binding(1) var ao_raw_sampler: sampler;
 @group(2) @binding(0) var<uniform> cam: SsaoCamera;
@@ -2179,13 +2179,13 @@ fn view_depth(depth: f32) -> f32 {
 fn fs_ssao_blur(in: FullscreenOut) -> @location(0) vec4<f32> {
     let dims = vec2<i32>(textureDimensions(ao_raw, 0));
     let centre = vec2<i32>(in.pos.xy);
-    let z0 = view_depth(textureLoad(depth_tex, centre, 0));
+    let z0 = view_depth(textureLoad(depth_tex, centre, 0).x);
     var sum = 0.0;
     var weight = 0.0;
     for (var y: i32 = -2; y < 2; y++) {
         for (var x: i32 = -2; x < 2; x++) {
             let p = clamp(centre + vec2<i32>(x, y), vec2<i32>(0), dims - vec2<i32>(1));
-            let z = view_depth(textureLoad(depth_tex, p, 0));
+            let z = view_depth(textureLoad(depth_tex, p, 0).x);
             // Within a tenth of the distance: the same surface, or one
             // touching it; anything further is something else.
             let w = select(0.0, 1.0, abs(z - z0) <= 0.1 * z0);
@@ -2428,7 +2428,7 @@ struct Dof {
 }
 @group(0) @binding(0) var hdr_tex: texture_2d<f32>;
 @group(0) @binding(1) var hdr_sampler: sampler;
-@group(1) @binding(0) var depth_tex: texture_depth_2d;
+@group(1) @binding(0) var depth_tex: texture_2d<f32>;
 @group(2) @binding(0) var<uniform> cam: SsaoCamera;
 @group(3) @binding(0) var<uniform> dof: Dof;
 
@@ -2449,7 +2449,7 @@ fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> FullscreenOut {
 fn view_depth(uv: vec2<f32>) -> f32 {
     let dims = vec2<i32>(textureDimensions(depth_tex, 0));
     let coord = clamp(vec2<i32>(uv * vec2<f32>(dims)), vec2<i32>(0), dims - vec2<i32>(1));
-    let d = textureLoad(depth_tex, coord, 0);
+    let d = textureLoad(depth_tex, coord, 0).x;
     let ndc = vec4<f32>(uv.x * 2.0 - 1.0, (1.0 - uv.y) * 2.0 - 1.0, d, 1.0);
     let v = cam.inv_proj * ndc;
     return -v.z / v.w;
@@ -2540,7 +2540,7 @@ struct MotionBlur {
 }
 @group(0) @binding(0) var hdr_tex: texture_2d<f32>;
 @group(0) @binding(1) var hdr_sampler: sampler;
-@group(1) @binding(0) var depth_tex: texture_depth_2d;
+@group(1) @binding(0) var depth_tex: texture_2d<f32>;
 @group(1) @binding(1) var velocity_tex: texture_2d<f32>;
 // Binding 1 of the TAA resolve's uniform group; binding 0 (the shared config)
 // is in the layout but this shader has no use for it.
@@ -2572,7 +2572,7 @@ fn fs_motion_blur(in: FullscreenOut) -> @location(0) vec4<f32> {
     // elsewhere the camera's, from the depth.
     var motion = textureLoad(velocity_tex, coord, 0).xy;
     if motion.x > 1000.0 {
-        let d = textureLoad(depth_tex, coord, 0);
+        let d = textureLoad(depth_tex, coord, 0).x;
         let ndc = vec4<f32>(in.uv.x * 2.0 - 1.0, (1.0 - in.uv.y) * 2.0 - 1.0, d, 1.0);
         let world_h = cam.inv_view_proj * ndc;
         let world = world_h.xyz / world_h.w;
@@ -2819,7 +2819,7 @@ struct TaaCamera {
 @group(0) @binding(1) var ldr_sampler: sampler;
 @group(1) @binding(0) var history_tex: texture_2d<f32>;
 @group(1) @binding(1) var history_sampler: sampler;
-@group(2) @binding(0) var depth_tex: texture_depth_2d;
+@group(2) @binding(0) var depth_tex: texture_2d<f32>;
 @group(2) @binding(1) var velocity_tex: texture_2d<f32>;
 // Both uniforms share group 3: four groups is the WebGPU baseline
 // `max_bind_groups`, and LDR/history/depth already take three.
@@ -2886,7 +2886,7 @@ fn fs_taa(in: FullscreenOut) -> TaaOut {
         vec2<i32>(0),
         depth_dims - vec2<i32>(1)
     );
-    let depth = textureLoad(depth_tex, coord, 0);
+    let depth = textureLoad(depth_tex, coord, 0).x;
     // Nothing was drawn here: sky/background has no reliable surface to
     // reproject, so trust the current frame.
     if depth >= 1.0 {
@@ -3696,7 +3696,7 @@ impl PostProcessState {
                     binding: 0,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Depth,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
                         view_dimension: wgpu::TextureViewDimension::D2,
                         multisampled: false,
                     },
@@ -7071,10 +7071,13 @@ mod tests {
     #[test]
     fn fog_shader_compiles() {
         let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
-        let _m = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: None,
-            source: wgpu::ShaderSource::Wgsl(fog_apply_wgsl().into()),
-        });
+        let _m = crate::pipeline_cache::create_shader_module(
+            &device,
+            wgpu::ShaderModuleDescriptor {
+                label: None,
+                source: wgpu::ShaderSource::Wgsl(fog_apply_wgsl().into()),
+            },
+        );
     }
 
     /// The two compute shaders are the first in the engine, so nothing else
@@ -7083,10 +7086,13 @@ mod tests {
     #[test]
     fn fog_inject_shader_compiles() {
         let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
-        let _m = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: None,
-            source: wgpu::ShaderSource::Wgsl(fog_inject_wgsl().into()),
-        });
+        let _m = crate::pipeline_cache::create_shader_module(
+            &device,
+            wgpu::ShaderModuleDescriptor {
+                label: None,
+                source: wgpu::ShaderSource::Wgsl(fog_inject_wgsl().into()),
+            },
+        );
     }
 
     /// The text of `point_shadow_factor` in `src`, from its signature to the
@@ -7138,10 +7144,13 @@ mod tests {
     #[test]
     fn fog_integrate_shader_compiles() {
         let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
-        let _m = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: None,
-            source: wgpu::ShaderSource::Wgsl(fog_integrate_wgsl().into()),
-        });
+        let _m = crate::pipeline_cache::create_shader_module(
+            &device,
+            wgpu::ShaderModuleDescriptor {
+                label: None,
+                source: wgpu::ShaderSource::Wgsl(fog_integrate_wgsl().into()),
+            },
+        );
     }
 
     /// Runs a test-only compute entry point named `cs_probe`, appended to the
@@ -7173,13 +7182,19 @@ mod tests {
         let bytes = (out_floats * std::mem::size_of::<f32>()) as u64;
 
         let (device, queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("froxel probe"),
-            source: wgpu::ShaderSource::Wgsl(
-                (froxel_wgsl_preamble() + &fog_uniform_wgsl(0) + FROXEL_COMMON_WGSL + probe_wgsl)
-                    .into(),
-            ),
-        });
+        let shader = crate::pipeline_cache::create_shader_module(
+            &device,
+            wgpu::ShaderModuleDescriptor {
+                label: Some("froxel probe"),
+                source: wgpu::ShaderSource::Wgsl(
+                    (froxel_wgsl_preamble()
+                        + &fog_uniform_wgsl(0)
+                        + FROXEL_COMMON_WGSL
+                        + probe_wgsl)
+                        .into(),
+                ),
+            },
+        );
 
         let fog_uniform_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
@@ -7646,37 +7661,49 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
     #[test]
     fn bloom_shader_compiles() {
         let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
-        let _m = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: None,
-            source: wgpu::ShaderSource::Wgsl(BLOOM_WGSL.into()),
-        });
+        let _m = crate::pipeline_cache::create_shader_module(
+            &device,
+            wgpu::ShaderModuleDescriptor {
+                label: None,
+                source: wgpu::ShaderSource::Wgsl(BLOOM_WGSL.into()),
+            },
+        );
     }
 
     #[test]
     fn ssao_shader_compiles() {
         let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
-        let _m = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: None,
-            source: wgpu::ShaderSource::Wgsl(SSAO_WGSL.into()),
-        });
+        let _m = crate::pipeline_cache::create_shader_module(
+            &device,
+            wgpu::ShaderModuleDescriptor {
+                label: None,
+                source: wgpu::ShaderSource::Wgsl(SSAO_WGSL.into()),
+            },
+        );
     }
 
     #[test]
     fn composite_shader_compiles() {
         let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
-        let _m = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: None,
-            source: wgpu::ShaderSource::Wgsl(COMPOSITE_WGSL.into()),
-        });
+        let _m = crate::pipeline_cache::create_shader_module(
+            &device,
+            wgpu::ShaderModuleDescriptor {
+                label: None,
+                source: wgpu::ShaderSource::Wgsl(COMPOSITE_WGSL.into()),
+            },
+        );
     }
 
     #[test]
     fn taa_shader_compiles() {
         let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
-        let _m = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: None,
-            source: wgpu::ShaderSource::Wgsl(TAA_WGSL.into()),
-        });
+        let _m = crate::pipeline_cache::create_shader_module(
+            &device,
+            wgpu::ShaderModuleDescriptor {
+                label: None,
+                source: wgpu::ShaderSource::Wgsl(TAA_WGSL.into()),
+            },
+        );
     }
 
     /// Stand-ins for the scene's shadow resources, so a test can build a

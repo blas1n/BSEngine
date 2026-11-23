@@ -57,6 +57,13 @@ impl ProbeDisplay {
         }
     }
 
+    /// Makes the pipelines now rather than at the first draw -- for
+    /// `gles_gate`, which must see their shader.
+    #[cfg(test)]
+    pub(crate) fn make_pipelines(&mut self, device: &wgpu::Device) {
+        self.pipelines(device);
+    }
+
     fn pipelines(&mut self, device: &wgpu::Device) -> &Pipelines {
         let (camera_bgl, msaa_supported) = (&self.camera_bgl, self.msaa_supported);
         self.pipelines.get_or_insert_with(|| {

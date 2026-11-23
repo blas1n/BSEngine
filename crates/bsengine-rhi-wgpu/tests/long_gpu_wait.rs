@@ -43,6 +43,9 @@ fn a_gpu_job_past_a_minute_is_waited_for_not_freed() {
     .expect("WARP is on every Windows; a skip would look like a pass");
     let (device, queue) = pollster::block_on(adapter.request_device(&Default::default())).unwrap();
 
+    // A bare WARP device of its own, not a renderer's: nothing here is a shader
+    // the engine ships, so the GLSL ES gate has no reason to see it.
+    #[allow(clippy::disallowed_methods)]
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("spin"),
         source: wgpu::ShaderSource::Wgsl(

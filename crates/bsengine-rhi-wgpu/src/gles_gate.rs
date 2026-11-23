@@ -134,6 +134,14 @@ mod tests {
     /// Makes every module this crate has: a renderer's own, then the ones a
     /// renderer makes only on first use, or that are not a renderer's.
     fn make_every_module() {
+        // A renderer built as for an OpenGL ES adapter, too: its fallbacks
+        // make shaders and pipelines of their own (the decal shader that
+        // encodes sRGB itself), and those are the ones GLES actually gets.
+        WgpuSurface::offscreen_for_testing_with_caps(64, 64, |caps| {
+            caps.view_formats = false;
+            caps.realtime_gi = false;
+        })
+        .expect("offscreen renderer as for GLES");
         let mut surface = WgpuSurface::offscreen_for_testing(64, 64).expect("offscreen renderer");
         surface.make_lazy_pipelines_for_gles_gate();
         surface.set_skybox_from_rgba(1, 1, &[128, 128, 255, 255]);

@@ -425,6 +425,35 @@ fn inner_volume() -> ProbeVolumeParams {
     }
 }
 
+/// Without realtime GI (`RenderCaps::realtime_gi`, off on OpenGL ES, whose
+/// one GL context the GI's pipeline thread held past wgpu's lock timeout) a
+/// realtime volume starts nothing: no GI object, so no pipeline thread, and
+/// the frames still render. The same input on a renderer that has it starts
+/// GI on its first frame -- observed there, not after updates, since the
+/// pipelines take seconds and "no update yet" would hold either way.
+#[test]
+fn without_realtime_gi_a_volume_starts_nothing() {
+    let mut with = furnace_scene(0.4, 0.5);
+    let input = with.input(inner_volume(), 0.0, 1 << 20);
+    with.scene.surface.set_realtime_gi(Some(input.clone()));
+    with.scene.render(None).expect("the frame renders");
+    assert!(
+        with.scene.surface.realtime_gi_started(),
+        "premise: a renderer with realtime GI starts it on the first frame"
+    );
+
+    let mut without = furnace_scene(0.4, 0.5);
+    without.scene.surface =
+        WgpuSurface::offscreen_for_testing_with_caps(64, 64, |caps| caps.realtime_gi = false)
+            .expect("these tests need an adapter; a skip would look like a pass");
+    for _ in 0..3 {
+        without.scene.surface.set_realtime_gi(Some(input.clone()));
+        without.scene.render(None).expect("the frame renders");
+    }
+    assert!(!without.scene.surface.realtime_gi_started());
+    assert_eq!(without.updates(), 0);
+}
+
 /// Closed form, the furnace: inside a closed box whose every surface
 /// emits `e` with albedo `rho`, the radiance everywhere is the fixed point
 /// of `L = e + rho * L`, `e / (1 - rho)`. With no history kept

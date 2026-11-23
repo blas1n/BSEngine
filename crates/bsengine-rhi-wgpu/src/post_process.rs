@@ -6155,11 +6155,17 @@ impl PostProcessState {
     /// strip (width = height squared, at least 2 slices) or not 8-bit RGBA --
     /// a block-compressed texture cannot be copied into an uncompressed one,
     /// and would have lost the precision a LUT exists to hold anyway.
+    ///
+    /// `view_formats`: [`crate::render_caps::RenderCaps::view_formats`].
+    /// Without views of another format (OpenGL ES) the copy *is* into the
+    /// linear format -- a copy wgpu allows, and Metal, the backend whose blit
+    /// failed at it, always has the views.
     pub fn set_lut(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         source: Option<&wgpu::Texture>,
+        view_formats: bool,
     ) -> Result<(), String> {
         let Some(source) = source else {
             self.lut = None;
@@ -6204,11 +6210,15 @@ impl PostProcessState {
                 // formats: Metal's blit copy between an sRGB and a linear
                 // format left the destination empty (the LUT read black on
                 // macOS CI while Vulkan and D3D12 copied the bytes).
-                format: source.format(),
+                format: if view_formats {
+                    source.format()
+                } else {
+                    LUT_FORMAT
+                },
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                 // ... and the linear reading comes from a *view* instead:
                 // WebGPU's sanctioned way to reinterpret sRGB-ness.
-                view_formats: &[LUT_FORMAT],
+                view_formats: if view_formats { &[LUT_FORMAT] } else { &[] },
             },
         );
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -6225,7 +6235,8 @@ impl PostProcessState {
         );
         queue.submit(std::iter::once(encoder.finish()));
         let view = texture.create_view(&wgpu::TextureViewDescriptor {
-            format: Some(LUT_FORMAT),
+            // The texture's own format where it is LUT_FORMAT already.
+            format: view_formats.then_some(LUT_FORMAT),
             ..Default::default()
         });
         self.composite_config_bg = make_composite_config_bg(

@@ -327,6 +327,61 @@ fn an_opaque_decal_is_its_texture_s_colour() {
     }
 }
 
+/// Without views of another format (OpenGL ES) the decal buffer's colour
+/// layer is written through its own linear view and the decal shader does
+/// the sRGB encode the view would have done. The mesh shader reads the same
+/// bytes either way, so a decal must look the same: here, a dark colour (where
+/// sRGB and linear 8-bit differ most) at full and half opacity, each against
+/// the normal path's pixel.
+#[test]
+fn without_view_formats_a_decal_looks_as_it_does_with_them() {
+    let mut normal = Harness::new();
+    let mut fallback = Harness::new_with_caps(|caps| caps.view_formats = false);
+    assert!(
+        normal.render_caps().view_formats,
+        "premise: the normal path is the view's"
+    );
+    assert!(!fallback.render_caps().view_formats);
+    for opacity in [1.0, 0.5] {
+        let frame = |h: &mut Harness| {
+            let plane = h.plane();
+            let dark = h.two_colour_texture([90, 40, 20, 255], [90, 40, 20, 255]);
+            let floor = || {
+                Draw::new(plane, Vec3::ZERO)
+                    .scaled(Vec3::new(20.0, 1.0, 20.0), Vec3::new(0.0, 0.5, 0.0))
+                    .colour(Vec3::ONE)
+            };
+            let scene = |decals| Scene {
+                draws: vec![floor()],
+                decals,
+                camera_pos: CAMERA,
+                look_at: Vec3::ZERO,
+                ..Default::default()
+            };
+            let plain = h.render(&scene(vec![])).centre();
+            let decalled = h
+                .render(&scene(vec![DecalDraw {
+                    opacity,
+                    ..decal(Vec3::new(8.0, 2.0, 8.0), dark)
+                }]))
+                .centre();
+            (plain, decalled)
+        };
+        let (plain, expected) = frame(&mut normal);
+        let (_, got) = frame(&mut fallback);
+        assert!(
+            (0..3).any(|c| (plain[c] as i32 - expected[c] as i32).abs() > 20),
+            "premise: the decal shows at opacity {opacity}: {plain:?} -> {expected:?}"
+        );
+        for c in 0..3 {
+            assert!(
+                (got[c] as i32 - expected[c] as i32).abs() <= 2,
+                "opacity {opacity}: without view formats {got:?}, with them {expected:?}"
+            );
+        }
+    }
+}
+
 /// An sRGB-encoded channel as linear light, 0..1.
 fn linear(c: u8) -> f32 {
     let c = c as f32 / 255.0;

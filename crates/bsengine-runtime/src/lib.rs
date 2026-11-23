@@ -903,6 +903,9 @@ pub(crate) fn build_player_app(
     app.insert_resource(bsengine_core::GiSettings {
         rays_per_frame: manifest.render.gi_rays_per_frame,
     });
+    // Before the renderer's `Startup` too: on Android the graphics API is
+    // chosen once, when the window's renderer is made.
+    app.insert_resource(manifest.android.graphics_apis());
     // Before the renderer's `Startup`, which reads it when it makes the
     // swapchain: the output format is chosen once, there.
     app.insert_resource(bsengine_core::HdrOutputSettings {

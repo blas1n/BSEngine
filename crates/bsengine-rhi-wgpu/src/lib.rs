@@ -67,6 +67,8 @@ pub(crate) mod probe_display;
 pub mod profiler;
 /// The realtime light-probe volume: probes ray traced every frame.
 pub mod realtime_gi;
+/// What the adapter under a renderer can do that the renderer adapts to.
+pub mod render_caps;
 /// Spherical-harmonic (L2) projection, irradiance evaluation and trilinear
 /// blending for light probes.
 pub mod sh;

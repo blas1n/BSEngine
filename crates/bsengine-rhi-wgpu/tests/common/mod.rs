@@ -631,6 +631,11 @@ impl Harness {
                      finding worth reporting -- do not silence it by skipping."
                 )
             });
+        Self::on(surface)
+    }
+
+    /// A harness on `surface`, with mesh and texture registries of its own.
+    fn on(surface: WgpuSurface) -> Self {
         let registry = GpuMeshRegistry::new(surface.device_arc());
         let textures = GpuTextureRegistry::new(surface.device_arc(), surface.queue_arc());
         Self {
@@ -639,6 +644,25 @@ impl Harness {
             textures,
             clicked: Default::default(),
         }
+    }
+
+    /// A harness whose renderer was built for an adapter without what
+    /// `adjust` turns off (see `RenderCaps`): how a fallback that only an
+    /// OpenGL ES device takes runs here, to be compared with the normal path.
+    #[allow(dead_code)] // only the tests of fallbacks build one
+    pub fn new_with_caps(
+        adjust: impl FnOnce(&mut bsengine_rhi_wgpu::render_caps::RenderCaps),
+    ) -> Self {
+        Self::on(
+            WgpuSurface::offscreen_for_testing_with_caps(WIDTH, HEIGHT, adjust)
+                .expect("these tests need an adapter; a skip would look like a pass"),
+        )
+    }
+
+    /// What the renderer was built for.
+    #[allow(dead_code)] // only the tests of fallbacks read it
+    pub fn render_caps(&self) -> bsengine_rhi_wgpu::render_caps::RenderCaps {
+        self.surface.render_caps()
     }
 
     /// The device this renderer is on: the one every test here shares.

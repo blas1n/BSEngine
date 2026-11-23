@@ -53,6 +53,8 @@ pub mod fxaa;
 pub mod gi_config;
 /// World-space transform resulting from local transform + parent hierarchy.
 pub mod global_transform;
+/// Which graphics APIs an Android build tries, in order.
+pub mod graphics_api;
 /// The project's MSAA setting.
 pub mod hdr_output;
 /// Parent-entity reference for building transform hierarchies.
@@ -214,6 +216,7 @@ pub use follow::{Follow, LookAt};
 pub use fxaa::Fxaa;
 pub use gi_config::GiSettings;
 pub use global_transform::GlobalTransform;
+pub use graphics_api::{GraphicsApi, GraphicsApis};
 pub use hdr_output::{HdrOutputFormat, HdrOutputSettings};
 pub use hierarchy::{ChildOf, Children};
 pub use hud_texts::HudTexts;

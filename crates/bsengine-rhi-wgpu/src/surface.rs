@@ -1,5 +1,6 @@
 use crate::mesh::GpuMeshRegistry;
 use crate::pipeline_cache::CachedCreate;
+use crate::render_caps::RenderCaps;
 use bsengine_ecs::Resource;
 use glam::{Mat4, Vec3};
 use std::sync::Arc;
@@ -4251,6 +4252,9 @@ pub struct WgpuSurface {
     /// Whether [`Self::probe_buffer`] holds a realtime volume's grid, which
     /// the baked path must then leave alone.
     realtime_gi_active: bool,
+    /// Whether the "realtime GI is not available" warning was given: once,
+    /// not every frame a volume asks.
+    realtime_gi_unavailable_logged: bool,
     /// The volume [`Self::probe_buffer`]'s contents were baked for, or `None`
     /// when nothing has been baked and the buffer is still the zeroed,
     /// `enabled: 0` one construction wrote.
@@ -4424,6 +4428,9 @@ pub struct WgpuSurface {
     /// stage, and therefore whether the shadow passes batch their draws
     /// instead of issuing one per object.
     instancing_supported: bool,
+    /// What the adapter can do that this renderer adapts to; decided once,
+    /// when the device was made. See [`RenderCaps`].
+    caps: RenderCaps,
     /// GPU timestamp query set `render_frame` writes begin/end pass
     /// boundaries into, when `timestamp_supported`.
     timestamp_query_set: Option<wgpu::QuerySet>,
@@ -4565,6 +4572,19 @@ fn new_instance_for(backends: wgpu::Backends) -> wgpu::Instance {
     wgpu::Instance::new(descriptor)
 }
 
+/// The wgpu backends an Android window tries, in `apis`' order: one each,
+/// never together (see `WgpuSurface::android_device` for why).
+#[cfg_attr(not(any(test, target_os = "android")), allow(dead_code))]
+fn backends_for(apis: &bsengine_core::GraphicsApis) -> Vec<wgpu::Backends> {
+    apis.0
+        .iter()
+        .map(|api| match api {
+            bsengine_core::GraphicsApi::Vulkan => wgpu::Backends::VULKAN,
+            bsengine_core::GraphicsApi::Gles => wgpu::Backends::GL,
+        })
+        .collect()
+}
+
 /// The adapter the renderer draws on: the one `WGPU_ADAPTER_NAME` names (by
 /// part of its name, any case, as wgpu's examples read it), else what wgpu
 /// prefers -- with a surface, one that can present on it. "Microsoft Basic
@@ -4643,16 +4663,28 @@ impl WgpuSurface {
     /// Initializes the wgpu adapter/device/swapchain for `window` and builds
     /// every pipeline, buffer, and bind group the main render loop needs.
     pub async fn new(window: Arc<winit::window::Window>) -> Result<Self, String> {
-        Self::new_with_hdr(window, bsengine_core::HdrOutputSettings::default()).await
+        Self::new_with_hdr(
+            window,
+            bsengine_core::HdrOutputSettings::default(),
+            &bsengine_core::GraphicsApis::default(),
+        )
+        .await
     }
 
     /// [`Self::new`], with HDR display output when `hdr` asks for it and the
     /// surface offers a signal for it (`choose_hdr_swapchain`: HDR10 or
     /// scRGB). Otherwise SDR, as `new` -- logged when HDR was asked for.
+    ///
+    /// On Android, `apis` are the graphics APIs tried, first to last
+    /// (`[android] graphics_apis`); elsewhere `WGPU_BACKEND` chooses and `apis`
+    /// is not read.
     pub async fn new_with_hdr(
         window: Arc<winit::window::Window>,
         hdr: bsengine_core::HdrOutputSettings,
+        apis: &bsengine_core::GraphicsApis,
     ) -> Result<Self, String> {
+        #[cfg(not(target_os = "android"))]
+        let _ = apis;
         // The instance and the adapter go into the output with the surface:
         // a window whose app went into the background makes its surface
         // again from them when it comes back (`Output::recreate_surface`).
@@ -4666,9 +4698,8 @@ impl WgpuSurface {
             (instance, surface, parts)
         };
         #[cfg(target_os = "android")]
-        let (instance, surface, parts) = Self::android_device(&window).await?;
-        let (adapter, device, queue, timestamp_supported, instancing_supported, msaa_supported) =
-            parts;
+        let (instance, surface, parts) = Self::android_device(&window, apis).await?;
+        let (adapter, device, queue, render_caps) = parts;
 
         let size = window.inner_size();
         let caps = surface.get_capabilities(&adapter);
@@ -4735,9 +4766,7 @@ impl WgpuSurface {
                 presented: 0,
             },
             false,
-            timestamp_supported,
-            instancing_supported,
-            msaa_supported,
+            render_caps,
         )?;
         if hdr_swapchain.is_some() {
             this.apply_hdr_output(hdr, &display);
@@ -4904,8 +4933,7 @@ impl WgpuSurface {
     /// pipelines that draw to a window.
     pub async fn new_offscreen(width: u32, height: u32, fast_render: bool) -> Result<Self, String> {
         let instance = new_instance();
-        let (adapter, device, queue, timestamp_supported, instancing_supported, msaa_supported) =
-            Self::request_device(&instance, None).await?;
+        let (adapter, device, queue, caps) = Self::request_device(&instance, None).await?;
         let texture = crate::output::create_offscreen_texture(&device, width, height);
         let mut surface = Self::build(
             device,
@@ -4917,9 +4945,7 @@ impl WgpuSurface {
                 format: crate::output::OFFSCREEN_FORMAT,
             },
             fast_render,
-            timestamp_supported,
-            instancing_supported,
-            msaa_supported,
+            caps,
         )?;
         surface.adapter_features = adapter.features();
         surface.adapter_backend = Some(adapter.get_info().backend);
@@ -5219,7 +5245,8 @@ impl WgpuSurface {
         &mut self,
         source: Option<&wgpu::Texture>,
     ) -> Result<(), String> {
-        self.post_process.set_lut(&self.device, &self.queue, source)
+        self.post_process
+            .set_lut(&self.device, &self.queue, source, self.caps.view_formats)
     }
 
     /// Binds a LUT strip given as RGBA8 pixels, sRGB-encoded as an image file
@@ -5342,6 +5369,7 @@ impl WgpuSurface {
     #[allow(clippy::type_complexity)]
     async fn android_device(
         window: &Arc<winit::window::Window>,
+        apis: &bsengine_core::GraphicsApis,
     ) -> Result<
         (
             wgpu::Instance,
@@ -5350,15 +5378,13 @@ impl WgpuSurface {
                 wgpu::Adapter,
                 Arc<wgpu::Device>,
                 Arc<wgpu::Queue>,
-                bool,
-                bool,
-                bool,
+                RenderCaps,
             ),
         ),
         String,
     > {
         let mut failures = Vec::new();
-        for backends in [wgpu::Backends::VULKAN, wgpu::Backends::GL] {
+        for backends in backends_for(apis) {
             let instance = new_instance_for(backends);
             let surface = match instance.create_surface(window.clone()) {
                 Ok(surface) => surface,
@@ -5391,28 +5417,26 @@ impl WgpuSurface {
             wgpu::Adapter,
             Arc<wgpu::Device>,
             Arc<wgpu::Queue>,
-            bool,
-            bool,
-            bool,
+            RenderCaps,
         ),
         String,
     > {
         let adapter = pick_adapter(instance, compatible_surface).await?;
-        let timestamp_supported = adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY);
-        // Storage buffers in the vertex stage are an adapter capability,
-        // not something `required_limits` can ask for, and a pipeline whose
-        // vertex shader reads storage fails at *creation* where it is
-        // missing -- so this has to be decided before the shadow pipelines
-        // are built, not at draw time.
-        //
-        // Every backend this engine ships to supports it (there is no
-        // wasm/WebGL target), but the flag is real and not ours to
-        // guarantee, so it is checked rather than assumed.
-        let instancing_supported = adapter
-            .get_downlevel_capabilities()
-            .flags
-            .contains(wgpu::DownlevelFlags::VERTEX_STORAGE);
-        let mut required_features = if timestamp_supported {
+        // 4x MSAA is a per-format capability: every target the geometry
+        // passes draw into -- the HDR colour, the normal, the depth -- has to
+        // support it, or one of their multisampled textures fails to create.
+        let caps = RenderCaps::of(
+            &adapter,
+            &[
+                crate::post_process::HDR_FORMAT,
+                crate::post_process::NORMAL_FORMAT,
+                crate::post_process::VELOCITY_FORMAT,
+                crate::post_process::GI_INDIRECT_FORMAT,
+                crate::post_process::GI_ALBEDO_FORMAT,
+                DEPTH_FORMAT,
+            ],
+        );
+        let mut required_features = if caps.timestamps {
             wgpu::Features::TIMESTAMP_QUERY
         } else {
             wgpu::Features::empty()
@@ -5475,33 +5499,7 @@ impl WgpuSurface {
             .await
             .map_err(|e| format!("Device request failed: {e}"))?;
 
-        // 4x MSAA is a per-format capability: every target the geometry
-        // passes draw into -- the HDR colour, the normal, the depth -- has to
-        // support it, or one of their multisampled textures fails to create.
-        let msaa_supported = [
-            crate::post_process::HDR_FORMAT,
-            crate::post_process::NORMAL_FORMAT,
-            crate::post_process::VELOCITY_FORMAT,
-            crate::post_process::GI_INDIRECT_FORMAT,
-            crate::post_process::GI_ALBEDO_FORMAT,
-            DEPTH_FORMAT,
-        ]
-        .iter()
-        .all(|f| {
-            adapter
-                .get_texture_format_features(*f)
-                .flags
-                .sample_count_supported(crate::msaa::MSAA_SAMPLES)
-        });
-
-        Ok((
-            adapter,
-            Arc::new(device),
-            Arc::new(queue),
-            timestamp_supported,
-            instancing_supported,
-            msaa_supported,
-        ))
+        Ok((adapter, Arc::new(device), Arc::new(queue), caps))
     }
 
     /// A bare device/queue pair with no surface, texture, or pipeline setup
@@ -5526,39 +5524,22 @@ impl WgpuSurface {
     }
 
     /// The one device tests share, with what `request_device` found out about
-    /// it: `(device, queue, timestamp_supported, instancing_supported)`.
-    fn shared_test_device() -> &'static (Arc<wgpu::Device>, Arc<wgpu::Queue>, bool, bool, bool) {
-        static SHARED: std::sync::OnceLock<(
-            Arc<wgpu::Device>,
-            Arc<wgpu::Queue>,
-            bool,
-            bool,
-            bool,
-        )> = std::sync::OnceLock::new();
+    /// it.
+    fn shared_test_device() -> &'static (Arc<wgpu::Device>, Arc<wgpu::Queue>, RenderCaps) {
+        static SHARED: std::sync::OnceLock<(Arc<wgpu::Device>, Arc<wgpu::Queue>, RenderCaps)> =
+            std::sync::OnceLock::new();
         SHARED.get_or_init(|| {
             let instance = new_instance();
-            let (
-                _adapter,
-                device,
-                queue,
-                timestamp_supported,
-                instancing_supported,
-                msaa_supported,
-            ) = pollster::block_on(Self::request_device(&instance, None))
-                .expect("headless device for test");
+            let (_adapter, device, queue, caps) =
+                pollster::block_on(Self::request_device(&instance, None))
+                    .expect("headless device for test");
             // Every renderer the tests make lands on this device, and this
             // device lives as long as the process: the case
             // `pipeline_cache` exists for. A renderer after the first
             // compiles nothing (2 s each on Windows CI's software D3D12, 70%
             // of a pixel test).
             crate::pipeline_cache::share_across_renderers(&device);
-            (
-                device,
-                queue,
-                timestamp_supported,
-                instancing_supported,
-                msaa_supported,
-            )
+            (device, queue, caps)
         })
     }
 
@@ -5585,8 +5566,7 @@ impl WgpuSurface {
         height: u32,
         fast_render: bool,
     ) -> Result<Self, String> {
-        let (device, queue, timestamp_supported, instancing_supported, msaa_supported) =
-            Self::shared_test_device().clone();
+        let (device, queue, caps) = Self::shared_test_device().clone();
         let texture = crate::output::create_offscreen_texture(&device, width, height);
         Self::build(
             device,
@@ -5598,10 +5578,41 @@ impl WgpuSurface {
                 format: crate::output::OFFSCREEN_FORMAT,
             },
             fast_render,
-            timestamp_supported,
-            instancing_supported,
-            msaa_supported,
+            caps,
         )
+    }
+
+    /// [`Self::offscreen_for_testing`] with the shared device's capabilities
+    /// changed by `adjust` first: how a test runs a fallback that only an
+    /// adapter lacking a capability takes (an OpenGL ES one, mostly) on the
+    /// adapter it has. Only turning a capability *off* is meaningful -- every
+    /// fallback is valid on every adapter, the normal paths are not.
+    #[doc(hidden)]
+    pub fn offscreen_for_testing_with_caps(
+        width: u32,
+        height: u32,
+        adjust: impl FnOnce(&mut RenderCaps),
+    ) -> Result<Self, String> {
+        let (device, queue, mut caps) = Self::shared_test_device().clone();
+        adjust(&mut caps);
+        let texture = crate::output::create_offscreen_texture(&device, width, height);
+        Self::build(
+            device,
+            queue,
+            crate::output::Output::Offscreen {
+                texture,
+                width,
+                height,
+                format: crate::output::OFFSCREEN_FORMAT,
+            },
+            false,
+            caps,
+        )
+    }
+
+    /// What this renderer's adapter could do, as it was built for it.
+    pub fn render_caps(&self) -> RenderCaps {
+        self.caps
     }
 
     /// [`Self::offscreen_for_testing`] with HDR display output, in the signal
@@ -5629,8 +5640,7 @@ impl WgpuSurface {
         hdr: bsengine_core::HdrOutputSettings,
         display: &wgpu::DisplayHdrInfo,
     ) -> Result<Self, String> {
-        let (device, queue, timestamp_supported, instancing_supported, msaa_supported) =
-            Self::shared_test_device().clone();
+        let (device, queue, caps) = Self::shared_test_device().clone();
         // The target the swapchain `hdr.format` prefers would be: a float
         // scRGB one, or HDR10's ten-bit PQ one (`Output::is_pq`).
         let format = match hdr.format {
@@ -5651,9 +5661,7 @@ impl WgpuSurface {
                 format,
             },
             false,
-            timestamp_supported,
-            instancing_supported,
-            msaa_supported,
+            caps,
         )?;
         this.apply_hdr_output(hdr, display);
         Ok(this)
@@ -5670,10 +5678,14 @@ impl WgpuSurface {
         queue: Arc<wgpu::Queue>,
         output: crate::output::Output,
         fast_render: bool,
-        timestamp_supported: bool,
-        instancing_supported: bool,
-        msaa_supported: bool,
+        caps: RenderCaps,
     ) -> Result<Self, String> {
+        let RenderCaps {
+            timestamps: timestamp_supported,
+            instancing: instancing_supported,
+            msaa: msaa_supported,
+            ..
+        } = caps;
         // What every pipeline that writes the frame targets: under HDR10 the
         // scRGB frame, not the PQ swapchain (`Output::frame_format`).
         let format = output.frame_format();
@@ -6250,6 +6262,7 @@ impl WgpuSurface {
             &depth_view,
             &camera_bgl,
             bsengine_core::MAX_DECALS,
+            caps.view_formats,
         );
 
         // The rect lights' uniform (rewritten every frame) and the LTC tables
@@ -7027,6 +7040,7 @@ impl WgpuSurface {
             realtime_gi: None,
             realtime_gi_input: None,
             realtime_gi_active: false,
+            realtime_gi_unavailable_logged: false,
             // Nothing baked yet, and `probe_buffer` was just zeroed to match.
             baked_probe_volume: None,
             baked_bricks: None,
@@ -7103,6 +7117,7 @@ impl WgpuSurface {
             fast_render,
             adapter_features: wgpu::Features::empty(),
             adapter_backend: None,
+            caps,
             timestamp_supported,
             instancing_supported,
             timestamp_query_set,
@@ -8458,6 +8473,13 @@ impl WgpuSurface {
         self.realtime_gi_input = input;
     }
 
+    /// Whether a realtime volume has started its GI (pipelines building or
+    /// built): from the first frame one is set, where the adapter has it.
+    #[doc(hidden)]
+    pub fn realtime_gi_started(&self) -> bool {
+        self.realtime_gi.is_some()
+    }
+
     /// Realtime probe updates run so far: what a test outside this crate
     /// observes to know a realtime volume reached the surface.
     #[doc(hidden)]
@@ -9054,6 +9076,17 @@ impl WgpuSurface {
         let mut gpu_pass_names: Vec<&'static str> = Vec::new();
 
         let realtime = if self.fast_render {
+            None
+        } else if !self.caps.realtime_gi {
+            // See `RenderCaps::realtime_gi`: the baked volume stands. Said
+            // once, not per frame.
+            if self.realtime_gi_input.take().is_some() && !self.realtime_gi_unavailable_logged {
+                self.realtime_gi_unavailable_logged = true;
+                tracing::warn!(
+                    "realtime GI is not available on this graphics API (OpenGL ES); \
+                     the probe volume keeps its baked lighting"
+                );
+            }
             None
         } else {
             self.realtime_gi_input.take()
@@ -12136,6 +12169,26 @@ fn srgb_view_of(format: wgpu::TextureFormat) -> Option<wgpu::TextureFormat> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `[android] graphics_apis` becomes the backends tried, one each, in its
+    /// order: `["gles"]` must never let Vulkan in, and the order is the
+    /// project's, not wgpu's.
+    #[test]
+    fn graphics_apis_become_backends_in_order() {
+        use bsengine_core::{GraphicsApi, GraphicsApis};
+        assert_eq!(
+            backends_for(&GraphicsApis::default()),
+            [wgpu::Backends::VULKAN, wgpu::Backends::GL]
+        );
+        assert_eq!(
+            backends_for(&GraphicsApis(vec![GraphicsApi::Gles])),
+            [wgpu::Backends::GL]
+        );
+        assert_eq!(
+            backends_for(&GraphicsApis(vec![GraphicsApi::Gles, GraphicsApi::Vulkan])),
+            [wgpu::Backends::GL, wgpu::Backends::VULKAN]
+        );
+    }
 
     /// `WGPU_ADAPTER_NAME` picks the adapter it names, by any part of its name
     /// in any case, and a name no adapter has is an error -- never another

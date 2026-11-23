@@ -4055,12 +4055,13 @@ impl CustomShaderJob {
     /// which off the main thread would hold every other renderer's pipeline
     /// creation for as long as the driver takes over this one.
     fn make(&self) -> CustomShaderPipelines {
-        let shader = self
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
+        let shader = crate::pipeline_cache::create_shader_module(
+            &self.device,
+            wgpu::ShaderModuleDescriptor {
                 label: Some("custom shader"),
                 source: wgpu::ShaderSource::Wgsl(self.wgsl.as_str().into()),
-            });
+            },
+        );
         let make = |desc: &wgpu::RenderPipelineDescriptor| {
             std::sync::Arc::new(self.device.create_render_pipeline(desc))
         };
@@ -5294,6 +5295,14 @@ impl WgpuSurface {
     /// same device -- a `GpuMeshRegistry`, for one.
     pub fn device_arc(&self) -> Arc<wgpu::Device> {
         self.device.clone()
+    }
+
+    /// For `gles_gate`: makes the pipelines this renderer otherwise makes
+    /// only when first drawn, so the gate sees their shaders.
+    #[cfg(test)]
+    pub(crate) fn make_lazy_pipelines_for_gles_gate(&mut self) {
+        let device = self.device.clone();
+        self.probe_display.make_pipelines(&device);
     }
 
     /// This renderer's GPU queue, needed alongside [`Self::device_arc`] to build
@@ -12029,10 +12038,13 @@ impl WgpuSurface {
     /// Compiles a standalone WGSL source string into a shader module, without
     /// building a pipeline or storing it.
     pub fn compile_shader(device: &wgpu::Device, src: &str) -> wgpu::ShaderModule {
-        device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("wgsl shader"),
-            source: wgpu::ShaderSource::Wgsl(src.into()),
-        })
+        crate::pipeline_cache::create_shader_module(
+            device,
+            wgpu::ShaderModuleDescriptor {
+                label: Some("wgsl shader"),
+                source: wgpu::ShaderSource::Wgsl(src.into()),
+            },
+        )
     }
 }
 

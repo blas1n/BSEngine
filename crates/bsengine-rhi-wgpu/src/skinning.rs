@@ -221,7 +221,7 @@ pub struct SkinningPipeline {
 }
 
 impl SkinningPipeline {
-    fn new(device: &wgpu::Device) -> Self {
+    pub(crate) fn new(device: &wgpu::Device) -> Self {
         let module = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("compute skinning"),
             source: wgpu::ShaderSource::Wgsl(SHADER.into()),

@@ -197,7 +197,11 @@ impl GpuParticles {
                     binding: 1,
                     visibility: wgpu::ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Depth,
+                        // Depth read as unfilterable float, not `Depth`: the shader takes a
+                        // `texture_2d<f32>` because naga's GLSL backend cannot `textureLoad` a
+                        // `texture_depth_2d` -- the pass did not compile on GLES at all
+                        // (`gles_gate`). WebGPU lets a `Depth32Float` view bind here.
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
                         view_dimension: wgpu::TextureViewDimension::D2,
                         multisampled: false,
                     },
@@ -503,7 +507,7 @@ struct Instance {
 // xyz velocity, w seconds of life left (0 = dead).
 @group(0) @binding(2) var<storage, read_write> motion: array<vec4<f32>>;
 @group(1) @binding(0) var<uniform> scene: SceneView;
-@group(1) @binding(1) var scene_depth: texture_depth_2d;
+@group(1) @binding(1) var scene_depth: texture_2d<f32>;
 
 // The world point the depth buffer saw at texel `t`, or at screen `uv` and
 // depth `d`.
@@ -513,7 +517,7 @@ fn unproject(uv: vec2<f32>, d: f32) -> vec3<f32> {
 }
 fn texel_depth(t: vec2<i32>) -> f32 {
     let c = clamp(t, vec2<i32>(0), vec2<i32>(scene.size) - vec2<i32>(1));
-    return textureLoad(scene_depth, c, 0);
+    return textureLoad(scene_depth, c, 0).x;
 }
 fn texel_world(t: vec2<i32>) -> vec3<f32> {
     let c = clamp(t, vec2<i32>(0), vec2<i32>(scene.size) - vec2<i32>(1));

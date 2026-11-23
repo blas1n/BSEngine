@@ -74,6 +74,10 @@ notify-debouncer-full.workspace = true
 ctt-astcenc.workspace = true
 
 [dev-dependencies]
+# `gles_gate` runs naga's GLSL ES writer itself. wgpu switches `glsl-out` on
+# only where it builds its GLES backend, which macOS does not, so the gate
+# asks for it here.
+naga = { version = "30", features = ["wgsl-in", "glsl-out"] }
 bsengine-app.workspace = true
 bsengine-editor.workspace = true
 bsengine-scene.workspace = true

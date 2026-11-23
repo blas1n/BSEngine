@@ -25,6 +25,7 @@ pub mod decals;
 pub mod froxel;
 /// Screen-space translate/rotate gizmo math and drawing.
 pub mod gizmo;
+mod gles_gate;
 /// GPU-simulated particle emitters (compute-shader emit, move, age).
 pub mod gpu_particles;
 /// HDR display output's UI layer, composited at paper white.

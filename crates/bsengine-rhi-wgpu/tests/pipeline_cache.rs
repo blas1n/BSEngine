@@ -188,7 +188,7 @@ fn a_pipeline_over_a_module_the_cache_did_not_make_is_never_cached() {
         bind_group_layouts: &[],
         immediate_size: 0,
     });
-    let module = device.create_shader_module(module_desc(SHADER));
+    let module = pipeline_cache::create_shader_module(&device, module_desc(SHADER));
     let rgba = wgpu::TextureFormat::Rgba8Unorm;
     let before = pipeline_cache::stats(&device).expect("premise: registered");
     let a = pipeline(&device, &module, &layout, 1, rgba);

@@ -1355,7 +1355,8 @@ fn build_pipelines(device: &wgpu::Device, layout: &wgpu::BindGroupLayout) -> Pip
     // bounded stack, whatever the tree holds. Bounds checks stay: the walk's
     // stack is a local array, where an index out of range is undefined.
     let module = unsafe {
-        device.create_shader_module_trusted(
+        crate::pipeline_cache::create_shader_module_trusted(
+            device,
             wgpu::ShaderModuleDescriptor {
                 label: Some("realtime gi update"),
                 source: wgpu::ShaderSource::Wgsl(source.into()),
@@ -1402,10 +1403,13 @@ fn build_pipelines(device: &wgpu::Device, layout: &wgpu::BindGroupLayout) -> Pip
                 },
             ],
         });
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some(label),
-            source: wgpu::ShaderSource::Wgsl(format!("{REFIT_COMMON_WGSL}{source}").into()),
-        });
+        let module = crate::pipeline_cache::create_shader_module(
+            device,
+            wgpu::ShaderModuleDescriptor {
+                label: Some(label),
+                source: wgpu::ShaderSource::Wgsl(format!("{REFIT_COMMON_WGSL}{source}").into()),
+            },
+        );
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some(label),
             bind_group_layouts: &[Some(&layout)],
@@ -2372,10 +2376,13 @@ pub(crate) fn probe_cells(
         probe_grid_wgsl!(),
         CELLS_WGSL
     );
-    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("probe cells"),
-        source: wgpu::ShaderSource::Wgsl(source.into()),
-    });
+    let module = crate::pipeline_cache::create_shader_module(
+        device,
+        wgpu::ShaderModuleDescriptor {
+            label: Some("probe cells"),
+            source: wgpu::ShaderSource::Wgsl(source.into()),
+        },
+    );
     let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
         label: Some("probe cells"),
         layout: None,

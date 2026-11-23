@@ -341,6 +341,9 @@ impl DecalResources {
     /// `camera_bgl` is the renderer's own. The decal's textures get a layout of
     /// their own instead of the renderer's: a decal binds a colour map *and* a
     /// normal map together, and the shared one holds a single texture.
+    ///
+    /// `view_formats`: [`crate::render_caps::RenderCaps::view_formats`].
+    #[allow(clippy::too_many_arguments)] // the renderer's targets and one capability
     pub fn new(
         device: &wgpu::Device,
         queue: &wgpu::Queue,

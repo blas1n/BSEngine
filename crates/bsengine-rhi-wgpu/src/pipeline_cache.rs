@@ -98,6 +98,54 @@ pub fn create_shader_module(
     device.create_shader_module(desc)
 }
 
+/// The label of every render pipeline this crate made whose colour targets
+/// do not all share one blend state and write mask, in this crate's test
+/// build -- what `gles_gate` holds to a known list.
+///
+/// Such a pipeline needs `DownlevelFlags::INDEPENDENT_BLEND`, which GLES 3.1
+/// does not have (it is core only from 3.2): there it is an invalid pipeline,
+/// and on every backend CI has it is fine. wgpu compares the
+/// `Option<BlendState>` itself, so `REPLACE` beside `None` counts as
+/// different although both write the same pixels.
+#[cfg(test)]
+pub(crate) static MIXED_TARGET_PIPELINES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+#[cfg(test)]
+fn record_targets(desc: &wgpu::RenderPipelineDescriptor) {
+    let targets: Vec<_> = desc
+        .fragment
+        .as_ref()
+        .map(|f| f.targets.iter().flatten().collect())
+        .unwrap_or_default();
+    // The same test wgpu-core applies before asking for the flag.
+    let mixed = targets.split_first().is_some_and(|(first, rest)| {
+        rest.iter()
+            .any(|t| t.write_mask != first.write_mask || t.blend != first.blend)
+    });
+    if mixed {
+        let label = desc.label.unwrap_or("").to_string();
+        let mut recorded = MIXED_TARGET_PIPELINES
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if !recorded.contains(&label) {
+            recorded.push(label);
+        }
+    }
+}
+
+/// `device.create_render_pipeline(desc)`, for a pipeline not to be shared
+/// between renderers. With the cache, the one place a render pipeline is
+/// made -- see [`MIXED_TARGET_PIPELINES`] for why that matters.
+pub fn create_render_pipeline(
+    device: &wgpu::Device,
+    desc: &wgpu::RenderPipelineDescriptor,
+) -> wgpu::RenderPipeline {
+    #[cfg(test)]
+    record_targets(desc);
+    #[allow(clippy::disallowed_methods)] // the one sanctioned caller
+    device.create_render_pipeline(desc)
+}
+
 /// `device.create_shader_module_trusted(desc, checks)`, recorded like
 /// [`create_shader_module`].
 ///
@@ -318,17 +366,17 @@ impl CachedCreate for wgpu::Device {
         with_cache(self, |c| {
             if desc.cache.is_some() || !refers_to.iter().all(|r| c.owned.contains(r)) {
                 c.stats.uncached += 1;
-                return Arc::new(c.device.create_render_pipeline(desc));
+                return Arc::new(create_render_pipeline(&c.device, desc));
             }
             get_or_make(
                 c,
                 |c| &mut c.render_pipelines,
                 key,
                 false,
-                |d| d.create_render_pipeline(desc),
+                |d| create_render_pipeline(d, desc),
             )
         })
-        .unwrap_or_else(|| Arc::new(self.create_render_pipeline(desc)))
+        .unwrap_or_else(|| Arc::new(create_render_pipeline(self, desc)))
     }
 
     fn cached_compute_pipeline(

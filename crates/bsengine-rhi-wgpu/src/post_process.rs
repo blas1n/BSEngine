@@ -936,12 +936,28 @@ fn fs_bloom(in: FullscreenOut) -> @location(0) vec4<f32> {
 }
 "#;
 
+/// The number of depth-pyramid levels, as a literal: `HIZ_MIPS` for Rust and
+/// `HIZ_LEVELS` in the trace's WGSL are both this, so they cannot drift apart.
+/// (A `macro_rules!` is visible only below its definition, hence here.)
+macro_rules! hiz_mips {
+    () => {
+        6
+    };
+}
+
 /// One ray through the depth pyramid: what reflections and screen-space GI both
 /// trace with. The shader around it binds `depth_tex`, `hiz_tex` and a `cam`
 /// with `proj` and `view`.
 macro_rules! hiz_trace_wgsl {
     () => {
-        r#"
+        concat!(
+            "// How many levels `hiz_tex` has (`HIZ_MIPS`). A constant rather than\n",
+            "// `textureNumLevels`: GLSL ES has no `textureQueryLevels`, and that one\n",
+            "// call kept SSR and SSGI from compiling on GLES (`gles_gate`).\n",
+            "const HIZ_LEVELS: i32 = ",
+            hiz_mips!(),
+            ";\n",
+            r#"
 // What is nearest the camera in the cell of `2^level` pixels at `cell`:
 // level 0 is the depth buffer itself.
 fn nearest_depth(cell: vec2<i32>, level: i32) -> f32 {
@@ -1019,7 +1035,7 @@ fn trace_ray(
     // Over a cell's edge, by a hundredth of a pixel.
     let nudge = 0.01 / max(max(abs(dir.x), abs(dir.y)), 1e-3);
     let side = select(vec2<f32>(0.0), vec2<f32>(1.0), dir.xy > vec2<f32>(0.0));
-    let top = i32(textureNumLevels(hiz_tex));
+    let top = HIZ_LEVELS;
     let last = vec2<i32>(dims) - vec2<i32>(1);
     var t = 0.0;
     var level = 1;
@@ -1091,6 +1107,7 @@ fn ray_clearance(world: vec3<f32>, dims: vec2<f32>) -> f32 {
     return 2.0 * w * 2.0 / (cam.proj[1][1] * dims.y);
 }
 "#
+        )
     };
 }
 
@@ -1513,8 +1530,9 @@ fn fs_down(@builtin(position) frag: vec4<f32>) -> @location(0) f32 {
 "#;
 
 /// Levels of the depth pyramid above the depth buffer: the coarsest cell is
-/// 64 pixels across.
-const HIZ_MIPS: u32 = 6;
+/// 64 pixels across. From `hiz_mips!`, which the shaders' `HIZ_LEVELS` is
+/// too.
+const HIZ_MIPS: u32 = hiz_mips!();
 
 /// The pyramid's first level for a `width` x `height` frame: half of each,
 /// after rounding up to whole coarsest cells.

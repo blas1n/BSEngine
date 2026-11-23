@@ -8,6 +8,7 @@
 //! version_name = "1.2"             # default "1.0"; what the store shows
 //! keystore = "keys/release.jks"    # project-relative; absent = debug key
 //! key_alias = "release"
+//! graphics_apis = ["vulkan", "gles"]  # tried in order; the default
 //! ```
 //!
 //! The passwords are never in the project: `scripts/build_android.sh` reads
@@ -53,6 +54,10 @@ pub struct AndroidSection {
     /// The key in [`Self::keystore`] to sign with.
     #[serde(default)]
     pub key_alias: Option<String>,
+    /// The graphics APIs to try, first to last (`"vulkan"`, `"gles"`).
+    /// Absent: `["vulkan", "gles"]`. See [`bsengine_core::GraphicsApis`].
+    #[serde(default)]
+    pub graphics_apis: Option<Vec<bsengine_core::GraphicsApi>>,
 }
 
 /// What `--mode android` hands the build script, resolved and validated.
@@ -69,6 +74,16 @@ pub struct AndroidBuild {
 }
 
 impl AndroidSection {
+    /// The graphics APIs to try, in order: [`Self::graphics_apis`] or the
+    /// default. Read by every build, not only Android's -- the renderer
+    /// ignores it elsewhere.
+    pub fn graphics_apis(&self) -> bsengine_core::GraphicsApis {
+        self.graphics_apis
+            .clone()
+            .map(bsengine_core::GraphicsApis)
+            .unwrap_or_default()
+    }
+
     /// Resolves the defaults against the project and checks every value,
     /// listing all that are wrong rather than the first.
     ///
@@ -134,6 +149,21 @@ impl AndroidSection {
                 Some((absolute.to_string_lossy().replace('\\', "/"), alias.clone()))
             }
         };
+
+        if let Some(apis) = &self.graphics_apis {
+            if apis.is_empty() {
+                problems.push(
+                    "graphics_apis = []: name at least one of \"vulkan\" and \"gles\", or leave \
+                     it out for both"
+                        .into(),
+                );
+            }
+            for (i, api) in apis.iter().enumerate() {
+                if apis[..i].contains(api) {
+                    problems.push(format!("graphics_apis names {api:?} twice"));
+                }
+            }
+        }
 
         if problems.is_empty() {
             Ok(AndroidBuild {
@@ -303,9 +333,19 @@ mod tests {
             version_name: Some(" ".into()),
             keystore: Some("missing.jks".into()),
             key_alias: None,
+            graphics_apis: Some(vec![
+                bsengine_core::GraphicsApi::Gles,
+                bsengine_core::GraphicsApi::Gles,
+            ]),
         };
         let err = bad.resolve("Game", Path::new("."), true).unwrap_err();
-        for expected in ["package", "version_code", "version_name", "go together"] {
+        for expected in [
+            "package",
+            "version_code",
+            "version_name",
+            "go together",
+            "twice",
+        ] {
             assert!(err.contains(expected), "no {expected} problem in:\n{err}");
         }
 
@@ -337,5 +377,30 @@ mod tests {
         }
         .resolve("Game", Path::new("."), true)
         .is_err());
+    }
+
+    /// `graphics_apis`: the default tries Vulkan, then GLES; a list is taken
+    /// in its order; an empty list and an API that does not exist are refused
+    /// when the project is read, not when a phone fails to draw.
+    #[test]
+    fn graphics_apis_are_read_in_order_and_checked() {
+        use bsengine_core::GraphicsApi::{Gles, Vulkan};
+        assert_eq!(
+            AndroidSection::default().graphics_apis().0,
+            vec![Vulkan, Gles]
+        );
+
+        let gles_only = section("[android]\ngraphics_apis = [\"gles\"]\n").unwrap();
+        assert_eq!(gles_only.graphics_apis().0, vec![Gles]);
+        let reversed = section("[android]\ngraphics_apis = [\"gles\", \"vulkan\"]\n").unwrap();
+        assert_eq!(reversed.graphics_apis().0, vec![Gles, Vulkan]);
+        assert!(reversed.resolve("Game", Path::new("."), true).is_ok());
+
+        let empty = section("[android]\ngraphics_apis = []\n").unwrap();
+        let err = empty.resolve("Game", Path::new("."), true).unwrap_err();
+        assert!(err.contains("at least one"), "{err}");
+
+        let err = section("[android]\ngraphics_apis = [\"metal\"]\n").unwrap_err();
+        assert!(err.contains("metal"), "{err}");
     }
 }

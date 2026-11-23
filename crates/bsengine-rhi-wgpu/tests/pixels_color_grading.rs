@@ -194,7 +194,22 @@ fn with_blue(cube: u64, grade: Option<ColorGrading>) -> Scene {
 /// hard side of "a LUT did something" is that the right LUT did nothing.
 #[test]
 fn a_lut_maps_each_colour_to_the_colour_its_texel_holds() {
-    let mut h = Harness::new();
+    lut_maps_each_colour_to_its_texel(Harness::new());
+}
+
+/// The same, on a renderer for an adapter without views of another format
+/// (OpenGL ES): there the LUT is copied into a linear texture rather than
+/// read through a linear view of an sRGB copy, and must hold the same values
+/// -- a copy that kept the sRGB format, read decoded, turns the rotation's
+/// `[64, 100, 128]` darker.
+#[test]
+fn without_view_formats_a_lut_maps_colours_the_same() {
+    let h = Harness::new_with_caps(|caps| caps.view_formats = false);
+    assert!(!h.render_caps().view_formats, "premise: the fallback path");
+    lut_maps_each_colour_to_its_texel(h);
+}
+
+fn lut_maps_each_colour_to_its_texel(mut h: Harness) {
     let cube = h.cube();
     let ungraded = h.render(&with_blue(cube, None));
     let u = ungraded.centre();

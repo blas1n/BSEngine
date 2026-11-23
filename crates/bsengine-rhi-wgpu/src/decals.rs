@@ -134,6 +134,18 @@ fn vs_decal(@location(0) pos: vec3<f32>) -> @builtin(position) vec4<f32> {
     return camera.view_proj * decal.model * vec4<f32>(pos, 1.0);
 }
 
+// True where the colour layer is written through a linear view, the adapter
+// having no view in another format than the texture's (`RenderCaps::
+// view_formats`, OpenGL ES): then this shader applies the sRGB encode the
+// target's view would have. Set by `decal_wgsl`.
+const ENCODE_SRGB: bool = false;
+
+fn linear_to_srgb(c: vec3<f32>) -> vec3<f32> {
+    let low = c * 12.92;
+    let high = 1.055 * pow(c, vec3<f32>(1.0 / 2.4)) - 0.055;
+    return select(high, low, c <= vec3<f32>(0.0031308));
+}
+
 struct DecalOut {
     // Premultiplied albedo, and how much of the base survives in alpha.
     @location(0) colour: vec4<f32>,
@@ -199,11 +211,45 @@ fn fs_decal(@builtin(position) frag: vec4<f32>) -> DecalOut {
     // Premultiplied. The buffer accumulates `sum(colour * a)` in rgb and
     // `product(1 - a)` in alpha, so the mesh shader finishes with
     // `albedo * dst.a + dst.rgb`.
-    out.colour = vec4<f32>(texel.rgb * a, a);
+    var colour = texel.rgb * a;
+    if ENCODE_SRGB {
+        colour = linear_to_srgb(colour);
+    }
+    out.colour = vec4<f32>(colour, a);
     out.normal = vec4<f32>((decal_normal * 0.5 + 0.5) * a, a);
     return out;
 }
 "#;
+
+/// [`DECAL_WGSL`] for an adapter with view formats or without.
+///
+/// Without, the colour layer cannot be given an sRGB view of its linear
+/// texture, so the shader encodes instead, and the bytes stored -- what the
+/// mesh shader decodes -- are the same. One decal over the cleared buffer
+/// stores exactly what the sRGB view would; where several overlap, the
+/// blend runs on encoded values rather than linear ones, a small shift in
+/// their mix that only an OpenGL ES device shows.
+fn decal_wgsl(view_formats: bool) -> String {
+    if view_formats {
+        DECAL_WGSL.to_string()
+    } else {
+        DECAL_WGSL.replace(
+            "const ENCODE_SRGB: bool = false;",
+            "const ENCODE_SRGB: bool = true;",
+        )
+    }
+}
+
+/// The colour layer's format as rendered into: sRGB through a view where
+/// the adapter has views of another format, else the texture's own linear
+/// format (see [`decal_wgsl`]).
+fn colour_target_format(view_formats: bool) -> wgpu::TextureFormat {
+    if view_formats {
+        DBUFFER_FORMAT
+    } else {
+        DBUFFER_NORMAL_FORMAT
+    }
+}
 
 /// A unit cube centred on the origin.
 ///
@@ -248,6 +294,10 @@ pub struct DecalResources {
     /// done on the read.
     pub array_view: wgpu::TextureView,
     _buffers: TrackedTexture,
+    /// Whether the colour layer is rendered through an sRGB view
+    /// ([`crate::render_caps::RenderCaps::view_formats`]); without, the
+    /// shader encodes ([`decal_wgsl`]).
+    view_formats: bool,
     pipeline: std::sync::Arc<wgpu::RenderPipeline>,
     uniform: wgpu::Buffer,
     uniform_bind_group: wgpu::BindGroup,
@@ -291,6 +341,9 @@ impl DecalResources {
     /// `camera_bgl` is the renderer's own. The decal's textures get a layout of
     /// their own instead of the renderer's: a decal binds a colour map *and* a
     /// normal map together, and the shared one holds a single texture.
+    ///
+    /// `view_formats`: [`crate::render_caps::RenderCaps::view_formats`].
+    #[allow(clippy::too_many_arguments)] // the renderer's targets and one capability
     pub fn new(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -299,8 +352,10 @@ impl DecalResources {
         depth_view: &wgpu::TextureView,
         camera_bgl: &wgpu::BindGroupLayout,
         max_decals: usize,
+        view_formats: bool,
     ) -> Self {
-        let (buffers, view, normal_view, array_view) = Self::create_buffers(device, width, height);
+        let (buffers, view, normal_view, array_view) =
+            Self::create_buffers(device, width, height, view_formats);
 
         let uniform_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("decal uniform bgl"),
@@ -438,7 +493,7 @@ impl DecalResources {
 
         let shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("decal shader"),
-            source: wgpu::ShaderSource::Wgsl(DECAL_WGSL.into()),
+            source: wgpu::ShaderSource::Wgsl(decal_wgsl(view_formats).into()),
         });
         let layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("decal pipeline layout"),
@@ -472,7 +527,7 @@ impl DecalResources {
                 entry_point: Some("fs_decal"),
                 targets: &[
                     Some(wgpu::ColorTargetState {
-                        format: DBUFFER_FORMAT,
+                        format: colour_target_format(view_formats),
                         // Premultiplied accumulation. rgb sums the contributions;
                         // alpha multiplies out to how much of the base albedo is
                         // left, which is what the mesh shader scales by.
@@ -585,6 +640,7 @@ impl DecalResources {
             normal_view,
             array_view,
             _buffers: buffers,
+            view_formats,
             texture_bgl: decal_texture_bgl,
             flat_normal,
             _flat_normal_texture: flat_normal_texture,
@@ -615,6 +671,7 @@ impl DecalResources {
         device: &wgpu::Device,
         width: u32,
         height: u32,
+        view_formats: bool,
     ) -> (
         TrackedTexture,
         wgpu::TextureView,
@@ -636,7 +693,7 @@ impl DecalResources {
                 format: DBUFFER_NORMAL_FORMAT,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                     | wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[DBUFFER_FORMAT],
+                view_formats: if view_formats { &[DBUFFER_FORMAT] } else { &[] },
             },
         );
         let layer = |label, layer, format| {
@@ -649,7 +706,7 @@ impl DecalResources {
                 ..Default::default()
             })
         };
-        let view = layer("decal buffer", 0, DBUFFER_FORMAT);
+        let view = layer("decal buffer", 0, colour_target_format(view_formats));
         let normal_view = layer("decal normal buffer", 1, DBUFFER_NORMAL_FORMAT);
         let array_view = texture.create_view(&wgpu::TextureViewDescriptor {
             label: Some("decal buffers"),
@@ -683,7 +740,8 @@ impl DecalResources {
         height: u32,
         depth_view: &wgpu::TextureView,
     ) {
-        let (buffers, view, normal_view, array_view) = Self::create_buffers(device, width, height);
+        let (buffers, view, normal_view, array_view) =
+            Self::create_buffers(device, width, height, self.view_formats);
         self._buffers = buffers;
         self.view = view;
         self.normal_view = normal_view;

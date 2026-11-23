@@ -211,9 +211,14 @@ fn create_surface_system(world: &mut World, mode: SurfaceMode) {
                 .get_resource::<bsengine_core::HdrOutputSettings>()
                 .copied()
                 .unwrap_or_default();
+            // On Android, the graphics APIs to try (`[android] graphics_apis`).
+            let apis = world
+                .get_resource::<bsengine_core::GraphicsApis>()
+                .cloned()
+                .unwrap_or_default();
             match handle {
                 Some(handle) => {
-                    match pollster::block_on(WgpuSurface::new_with_hdr(handle.0, hdr)) {
+                    match pollster::block_on(WgpuSurface::new_with_hdr(handle.0, hdr, &apis)) {
                         Ok(surface) => Some(surface),
                         Err(e) => {
                             // A game with a window and nothing to draw it with

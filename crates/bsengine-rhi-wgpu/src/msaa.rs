@@ -192,6 +192,10 @@ impl DepthResolve {
                 binding: 0,
                 visibility: wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Texture {
+                    // Depth read as unfilterable float, not `Depth`: the shader takes a
+                    // `texture_2d<f32>` because naga's GLSL backend cannot `textureLoad` a
+                    // `texture_depth_2d` -- the pass did not compile on GLES at all
+                    // (`gles_gate`). WebGPU lets a `Depth32Float` view bind here.
                     sample_type: wgpu::TextureSampleType::Float { filterable: false },
                     view_dimension: wgpu::TextureViewDimension::D2,
                     multisampled: true,

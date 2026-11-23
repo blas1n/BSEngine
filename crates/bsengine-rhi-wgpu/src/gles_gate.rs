@@ -24,7 +24,6 @@
 #[cfg(test)]
 mod tests {
     use crate::surface::WgpuSurface;
-    use wgpu::naga;
 
     /// Modules known not to translate yet, each with the error it gives:
     /// GLES support is landing a PR at a time, and these are the ones still

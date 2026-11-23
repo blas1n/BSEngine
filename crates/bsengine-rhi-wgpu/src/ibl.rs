@@ -1608,7 +1608,7 @@ fn fs_probe(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
             immediate_size: 0,
         });
         let pipeline = crate::pipeline_cache::create_render_pipeline(
-            &device,
+            device,
             &wgpu::RenderPipelineDescriptor {
                 label: Some("ibl probe pipeline"),
                 layout: Some(&layout),

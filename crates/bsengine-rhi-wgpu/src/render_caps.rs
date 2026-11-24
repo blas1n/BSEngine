@@ -64,3 +64,38 @@ impl RenderCaps {
         }
     }
 }
+
+/// Whether wgpu's OpenGL backend makes a texture of this shape a cube-map
+/// array, whatever it is later viewed as: wgpu-hal's
+/// `gles::Texture::get_info_from_desc` takes any square, single-sample 2D
+/// texture with a layer count that is a multiple of six for a cube map (six
+/// layers) or a cube-map array (more), "a HACK" by its own comment.
+///
+/// OpenGL ES 3.1 has no cube-map arrays, so there such a texture cannot be
+/// made, and a 2D-array view of one does not bind on any GL ("wgpu-hal
+/// heuristics assumed that the view dimension will be equal to `CubeArray`
+/// rather than `D2Array`", the emulator's log). Six layers are a plain cube
+/// map, which every GLES has.
+#[cfg(test)] // only the recording in `profiler` asks, in tests
+pub(crate) fn gl_makes_cube_array(desc: &wgpu::TextureDescriptor) -> bool {
+    desc.dimension == wgpu::TextureDimension::D2
+        && desc.sample_count == 1
+        && desc.size.width == desc.size.height
+        && desc.size.depth_or_array_layers > 6
+        && desc.size.depth_or_array_layers.is_multiple_of(6)
+}
+
+/// The layer count to make a 2D array of `layers` six-face groups with --
+/// point shadows, probe captures -- so that wgpu's OpenGL backend makes a
+/// plain `GL_TEXTURE_2D_ARRAY` of it ([`gl_makes_cube_array`]): one spare
+/// layer when `layers` is a multiple of six, which nothing reads. Spent on
+/// every backend: one layer is cheaper than a second code path, and a
+/// texture's shape that differed between backends would be one CI could not
+/// see.
+pub(crate) fn plain_array_layers(layers: u32) -> u32 {
+    if layers.is_multiple_of(6) {
+        layers + 1
+    } else {
+        layers
+    }
+}

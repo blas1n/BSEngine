@@ -162,6 +162,37 @@ impl Drop for TrackedTexture {
     }
 }
 
+/// Every texture made through [`create_tracked_texture`] in this test
+/// process that wgpu's OpenGL backend would make a cube-map array
+/// (`render_caps::gl_makes_cube_array`), by label. `gles_gate` reads it: on
+/// OpenGL ES 3.1 that texture type does not exist, and nothing on a CI
+/// runner's backends notices one being asked for.
+#[cfg(test)]
+pub(crate) static RECORDED_CUBE_ARRAY_SHAPES: std::sync::Mutex<Vec<String>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Labels of the textures made through [`create_tracked_texture`] in this
+/// test process, with their layer counts: the premise side of the check on
+/// [`RECORDED_CUBE_ARRAY_SHAPES`] (the texture it is about was made at all).
+#[cfg(test)]
+pub(crate) static RECORDED_LAYERS: std::sync::Mutex<Vec<(String, u32)>> =
+    std::sync::Mutex::new(Vec::new());
+
+#[cfg(test)]
+fn record_shape(desc: &wgpu::TextureDescriptor) {
+    let label = desc.label.unwrap_or("").to_string();
+    if crate::render_caps::gl_makes_cube_array(desc) {
+        RECORDED_CUBE_ARRAY_SHAPES
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(label.clone());
+    }
+    RECORDED_LAYERS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push((label, desc.size.depth_or_array_layers));
+}
+
 /// Creates a texture via `device.create_texture` and tracks its memory
 /// footprint until it's dropped.
 pub fn create_tracked_texture(
@@ -169,6 +200,8 @@ pub fn create_tracked_texture(
     desc: &wgpu::TextureDescriptor,
 ) -> TrackedTexture {
     let texture = device.create_texture(desc);
+    #[cfg(test)]
+    record_shape(desc);
     let size_bytes = texture_size_bytes(desc);
     TEXTURE_MEMORY_BYTES.fetch_add(size_bytes, Ordering::Relaxed);
     TEXTURE_COUNT.fetch_add(1, Ordering::Relaxed);

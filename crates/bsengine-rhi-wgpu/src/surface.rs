@@ -250,7 +250,7 @@ fn reflection_layers(cube_arrays: bool) -> u32 {
     if cube_arrays {
         faces
     } else {
-        faces + 1
+        crate::render_caps::plain_array_layers(faces)
     }
 }
 
@@ -6136,7 +6136,12 @@ impl WgpuSurface {
                 size: wgpu::Extent3d {
                     width: POINT_SHADOW_MAP_SIZE,
                     height: POINT_SHADOW_MAP_SIZE,
-                    depth_or_array_layers: (MAX_POINT_LIGHTS * 6) as u32,
+                    // Read as a 2D array, the face picked in the shader
+                    // (`point_shadow_factor`); on OpenGL a multiple of six
+                    // would make it a cube-map array that view cannot bind.
+                    depth_or_array_layers: crate::render_caps::plain_array_layers(
+                        (MAX_POINT_LIGHTS * 6) as u32,
+                    ),
                 },
                 mip_level_count: 1,
                 sample_count: 1,
@@ -6412,7 +6417,12 @@ impl WgpuSurface {
                 size: wgpu::Extent3d {
                     width: crate::spot_shadow::SPOT_SHADOW_MAP_SIZE,
                     height: crate::spot_shadow::SPOT_SHADOW_MAP_SIZE,
-                    depth_or_array_layers: crate::spot_shadow::SHADOW_LAYERS as u32,
+                    // Twelve shadows, a multiple of six: on OpenGL that would
+                    // make it a cube-map array its 2D-array view cannot bind
+                    // (`plain_array_layers`), not that it is one.
+                    depth_or_array_layers: crate::render_caps::plain_array_layers(
+                        crate::spot_shadow::SHADOW_LAYERS as u32,
+                    ),
                 },
                 mip_level_count: 1,
                 sample_count: 1,
@@ -6641,7 +6651,11 @@ impl WgpuSurface {
                 size: wgpu::Extent3d {
                     width: PROBE_FACE_SIZE,
                     height: PROBE_FACE_SIZE,
-                    depth_or_array_layers: (bsengine_core::MAX_BAKED_PROBES * 6) as u32,
+                    // Six faces a probe, plus the spare layer that keeps it
+                    // a 2D array on OpenGL (`plain_array_layers`).
+                    depth_or_array_layers: crate::render_caps::plain_array_layers(
+                        (bsengine_core::MAX_BAKED_PROBES * 6) as u32,
+                    ),
                 },
                 mip_level_count: 1,
                 sample_count: 1,

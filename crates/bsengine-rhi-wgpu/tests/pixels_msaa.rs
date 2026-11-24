@@ -329,3 +329,62 @@ fn ssr_is_the_same_reflection_under_msaa() {
         "under MSAA the reflection is the same: {reference:?} vs {on:?}"
     );
 }
+
+/// An unlit custom shader's opaque draws have a pass of their own before
+/// the main pass (only the colour and depth attached; see
+/// `UNLIT_CUSTOM_TARGETS`), and the main pass loads its samples and draws
+/// the rest on top. Under MSAA both must reach the frame: the custom cube
+/// drawn in the first pass and the standard one in the second, each as it
+/// looks without MSAA away from its edges, and the edges smoothed. A
+/// backend that did not carry multisampled contents from one pass to the
+/// next would lose the custom cube here, while
+/// `every_geometry_pass_draws_under_msaa` -- whose custom-only case has an
+/// empty main pass -- would not see it.
+#[test]
+fn an_unlit_custom_shader_and_a_mesh_both_draw_under_msaa() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let custom = h.constant_colour_shader([0.2, 0.9, 0.3], "msaa_custom_and_mesh");
+    let scene = |msaa| Scene {
+        draws: vec![
+            Draw::new(cube, Vec3::ZERO)
+                .scaled(Vec3::splat(0.8), Vec3::new(-1.2, 0.0, 0.0))
+                .shader(&custom),
+            Draw::new(cube, Vec3::ZERO)
+                .scaled(Vec3::splat(0.8), Vec3::new(1.2, 0.0, 0.0))
+                .colour(Vec3::ZERO)
+                .emissive(Vec3::new(1.0, 0.1, 0.1)),
+        ],
+        msaa,
+        ..flat_scene()
+    };
+    let off = h.render(&scene(1));
+    let on = h.render(&scene(4));
+    assert_eq!(h.msaa_samples(), 4, "premise: drawn multisampled");
+    // Each cube where it should be, in its own colour: green on the left
+    // (the unlit pass's), red on the right (the main pass's).
+    let y = off.height / 2;
+    let left = on.at(off.width / 2 - off.width / 5, y);
+    let right = on.at(off.width / 2 + off.width / 5, y);
+    assert!(
+        left[1] > left[0] + 60 && left[1] > left[2] + 60,
+        "the unlit custom cube is in the MSAA frame: {left:?}"
+    );
+    assert!(
+        right[0] > right[1] + 60 && right[0] > right[2] + 60,
+        "the standard cube is in the MSAA frame: {right:?}"
+    );
+    let mask = near_an_edge(&off, 1);
+    let interior_changes = (0..off.height)
+        .flat_map(|y| (0..off.width).map(move |x| (x, y)))
+        .filter(|&(x, y)| {
+            let (a, b) = (off.at(x, y), on.at(x, y));
+            (0..3).any(|c| a[c].abs_diff(b[c]) > 2) && !mask[(y * off.width + x) as usize]
+        })
+        .count();
+    assert_eq!(
+        interior_changes, 0,
+        "the frame looks the same away from edges"
+    );
+    assert!(off.differs_from(&on), "the edges did change under MSAA");
+}

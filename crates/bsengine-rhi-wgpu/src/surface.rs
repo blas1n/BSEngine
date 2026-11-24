@@ -1454,6 +1454,18 @@ struct SceneOut {
     // reconstructed from depth later, because this is where the normal the
     // surface was actually shaded with exists, decals included.
     @location(1) normal_roughness: vec4<f32>,
+    // The rest are written with what the main pass clears them to -- "no
+    // velocity" (`post_process::VELOCITY_NONE`; terrain does not move, and
+    // camera reprojection is exact for it) and no GI albedo or indirect
+    // light (the opaque meshes' are what screen-space GI works from) --
+    // rather than masked off. A pipeline whose targets differ in write mask
+    // needs independent blending, which OpenGL ES 3.1 does not have, and
+    // WebGPU allows a write only where the shader has an output. Terrain is
+    // drawn first in its pass, so a mesh behind it fails the depth test and
+    // these are exactly what masking left.
+    @location(2) velocity: vec2<f32>,
+    @location(3) gi_indirect: vec4<f32>,
+    @location(4) gi_albedo: vec2<f32>,
 };
 
 @fragment
@@ -1569,6 +1581,10 @@ fn fs_main(in: VertOut) -> SceneOut {
     var out: SceneOut;
     out.colour = vec4<f32>(color, model_data.opacity);
     out.normal_roughness = vec4<f32>(n, roughness);
+    // `VELOCITY_NONE`'s red and green, the largest half float.
+    out.velocity = vec2<f32>(65504.0);
+    out.gi_indirect = vec4<f32>(0.0);
+    out.gi_albedo = vec2<f32>(0.0);
     return out;
 }
 "#,
@@ -3954,42 +3970,25 @@ fn opaque_mesh_desc<'a>(
     }
 }
 
-const TRANSPARENT_MESH_TARGETS: [Option<wgpu::ColorTargetState>; 5] = [
-    Some(wgpu::ColorTargetState {
+/// The transparent pass's one target: the scene colour, blended. Its pass
+/// has nothing else attached (see the transparent pass in `render_frame`):
+/// a pane of glass writes no normal (a reflection traced from it would
+/// replace what is *behind* it, the one thing it is there to show), no
+/// velocity (as Unity and Unreal leave translucency out of the velocity
+/// buffer: the pixel keeps the motion of the opaque surface behind the
+/// glass, which is what TAA sees there) and no GI inputs. `fs_main` still
+/// writes all five locations; wgpu ignores those without a target.
+///
+/// One target rather than five with four masked off: a pipeline whose
+/// targets differ in blend state or write mask needs independent blending,
+/// which OpenGL ES 3.1 does not have -- and the masked four were attached
+/// only to be left alone.
+const TRANSPARENT_MESH_TARGETS: [Option<wgpu::ColorTargetState>; 1] =
+    [Some(wgpu::ColorTargetState {
         format: crate::post_process::HDR_FORMAT,
         blend: Some(wgpu::BlendState::ALPHA_BLENDING),
         write_mask: wgpu::ColorWrites::ALL,
-    }),
-    // Declared because this pass shares `fs_main`, which writes two
-    // locations -- but masked off. A reflection traced from a pane
-    // of glass's normal would replace what is *behind* the glass,
-    // which is the one thing the surface is there to show.
-    Some(wgpu::ColorTargetState {
-        format: crate::post_process::NORMAL_FORMAT,
-        blend: None,
-        write_mask: wgpu::ColorWrites::empty(),
-    }),
-    // Masked off too, as Unity and Unreal leave translucency out of the
-    // velocity buffer by default: the pixel keeps the motion of the
-    // opaque surface behind the glass, which is what TAA sees there.
-    Some(wgpu::ColorTargetState {
-        format: crate::post_process::VELOCITY_FORMAT,
-        blend: None,
-        write_mask: wgpu::ColorWrites::empty(),
-    }),
-    // The GI albedo and indirect light: masked off, as the
-    // velocity is -- the opaque mesh pass's are what stand.
-    Some(wgpu::ColorTargetState {
-        format: crate::post_process::GI_INDIRECT_FORMAT,
-        blend: None,
-        write_mask: wgpu::ColorWrites::empty(),
-    }),
-    Some(wgpu::ColorTargetState {
-        format: crate::post_process::GI_ALBEDO_FORMAT,
-        blend: None,
-        write_mask: wgpu::ColorWrites::empty(),
-    }),
-];
+    })];
 
 /// The transparent pass, for the standard material and a lit custom shader's
 /// `module` (see [`ssr_normal_desc`]).
@@ -4038,48 +4037,21 @@ fn transparent_mesh_desc<'a>(
     }
 }
 
-const UNLIT_CUSTOM_TARGETS: [Option<wgpu::ColorTargetState>; 5] = [
-    Some(wgpu::ColorTargetState {
-        format: crate::post_process::HDR_FORMAT,
-        blend: Some(wgpu::BlendState::REPLACE),
-        write_mask: wgpu::ColorWrites::ALL,
-    }),
-    // Declared with the pass's format and its write masked
-    // off. `None` is not an option: wgpu compares the
-    // pipeline's target *formats* against the pass's
-    // attachments, and a `None` against a real attachment is
-    // "incompatible", not "writes nothing".
-    //
-    // An unlit custom shader is the author's own WGSL with a single
-    // output, so it has nothing to put here -- and a surface
-    // drawn with one therefore reflects into nothing, which
-    // is a limitation to know rather than a bug to chase.
-    Some(wgpu::ColorTargetState {
-        format: crate::post_process::NORMAL_FORMAT,
-        blend: None,
-        write_mask: wgpu::ColorWrites::empty(),
-    }),
-    // Masked for the same reason: an unlit custom shader has no velocity to
-    // write. Its pixels fall back to camera reprojection, so a
-    // custom-shaded object that moves smears as it did before.
-    Some(wgpu::ColorTargetState {
-        format: crate::post_process::VELOCITY_FORMAT,
-        blend: None,
-        write_mask: wgpu::ColorWrites::empty(),
-    }),
-    // The GI albedo and indirect light: masked off, as the
-    // velocity is -- the opaque mesh pass's are what stand.
-    Some(wgpu::ColorTargetState {
-        format: crate::post_process::GI_INDIRECT_FORMAT,
-        blend: None,
-        write_mask: wgpu::ColorWrites::empty(),
-    }),
-    Some(wgpu::ColorTargetState {
-        format: crate::post_process::GI_ALBEDO_FORMAT,
-        blend: None,
-        write_mask: wgpu::ColorWrites::empty(),
-    }),
-];
+/// An unlit custom shader's one target: the scene colour. It is the
+/// author's own WGSL with a single output, so it has nothing to give the
+/// normal, velocity or GI targets -- a surface drawn with one reflects into
+/// nothing, and is reprojected by the camera, which are limitations to know
+/// rather than bugs to chase. WebGPU allows a write only where the shader
+/// has an output, and masking the other four off needs independent
+/// blending, which OpenGL ES 3.1 does not have; so its opaque draws have a
+/// pass of their own with only the colour and depth attached, before the
+/// main pass (`render_frame`), and its transparent ones are drawn in the
+/// transparent pass, which has only those too.
+const UNLIT_CUSTOM_TARGETS: [Option<wgpu::ColorTargetState>; 1] = [Some(wgpu::ColorTargetState {
+    format: crate::post_process::HDR_FORMAT,
+    blend: Some(wgpu::BlendState::REPLACE),
+    write_mask: wgpu::ColorWrites::ALL,
+})];
 
 // The mesh pipeline's attributes, all of them: a custom shader that
 // declares `@location(5) tangent` (or `@location(4) uv2`) needs the
@@ -7041,9 +7013,13 @@ impl WgpuSurface {
                 module: &terrain_shader,
                 entry_point: Some("fs_main"),
                 targets: &[
+                    // `None`, not `REPLACE`, which writes the same pixels:
+                    // wgpu compares the `Option` itself, and one target's
+                    // `REPLACE` beside the others' `None` would need
+                    // independent blending (as the mesh pipeline's did).
                     Some(wgpu::ColorTargetState {
                         format: crate::post_process::HDR_FORMAT,
-                        blend: Some(wgpu::BlendState::REPLACE),
+                        blend: None,
                         write_mask: wgpu::ColorWrites::ALL,
                     }),
                     // Terrain writes its normal too: it is a reflector like any other.
@@ -7052,24 +7028,23 @@ impl WgpuSurface {
                         blend: None,
                         write_mask: wgpu::ColorWrites::ALL,
                     }),
-                    // Masked: terrain does not move, and a pixel with no velocity
-                    // written is reprojected by the camera, which is exact for it.
+                    // The velocity and the GI albedo and indirect light are
+                    // written as their clear values, not masked: see the
+                    // terrain shader's `SceneOut`.
                     Some(wgpu::ColorTargetState {
                         format: crate::post_process::VELOCITY_FORMAT,
                         blend: None,
-                        write_mask: wgpu::ColorWrites::empty(),
+                        write_mask: wgpu::ColorWrites::ALL,
                     }),
-                    // The GI albedo and indirect light: masked off, as the
-                    // velocity is -- the opaque mesh pass's are what stand.
                     Some(wgpu::ColorTargetState {
                         format: crate::post_process::GI_INDIRECT_FORMAT,
                         blend: None,
-                        write_mask: wgpu::ColorWrites::empty(),
+                        write_mask: wgpu::ColorWrites::ALL,
                     }),
                     Some(wgpu::ColorTargetState {
                         format: crate::post_process::GI_ALBEDO_FORMAT,
                         blend: None,
-                        write_mask: wgpu::ColorWrites::empty(),
+                        write_mask: wgpu::ColorWrites::ALL,
                     }),
                 ],
                 compilation_options: Default::default(),
@@ -10000,8 +9975,9 @@ impl WgpuSurface {
         // the distance to each model's origin is the usual approximation: it is
         // wrong for interpenetrating or very large transparent meshes, which is
         // a limitation to know rather than a bug to chase here.
-        // Custom-shaded draws ahead of the rest, keeping each group's order:
-        // see the velocity note at the opaque pass's draw loop.
+        // Custom-shaded draws ahead of the rest, keeping each group's order
+        // (the unlit ones are then taken out to a pass of their own: see the
+        // unlit custom pass before the main pass).
         opaque.sort_by_key(|&i| draw_calls[i].4.is_none());
         transparent.sort_by(|&a, &b| {
             let d = |i: usize| (draw_calls[i].1.w_axis.truncate() - cam_pos).length_squared();
@@ -10461,6 +10437,102 @@ impl WgpuSurface {
             &self.custom_pipelines
         };
 
+        // The opaque draws of unlit custom shaders, which have only a colour
+        // to write (`UNLIT_CUSTOM_TARGETS`): in a pass of their own with only
+        // the colour and depth attached, ahead of the main pass. Ahead, so a
+        // mesh behind one fails the depth test in the main pass and leaves
+        // the clear values -- "no velocity", no normal, no GI inputs -- under
+        // it, as drawing them first in the main pass with the other targets
+        // masked off used to; that masking needs independent blending, which
+        // OpenGL ES 3.1 does not have. A shader still compiling draws with
+        // the standard material in the main pass, as before.
+        let unlit_opaque: Vec<usize> = opaque
+            .iter()
+            .copied()
+            .filter(|&i| {
+                draw_calls[i].4.as_deref().is_some_and(|p| {
+                    custom_pipelines.contains_key(p) && !self.lit_custom_pipelines.contains_key(p)
+                })
+            })
+            .collect();
+        // By draw index, for the main pass to skip them in O(1).
+        let mut in_unlit_pass = vec![false; draw_calls.len()];
+        for &i in &unlit_opaque {
+            in_unlit_pass[i] = true;
+        }
+        let scene_clear = wgpu::Color {
+            r: 0.08,
+            g: 0.08,
+            b: 0.08,
+            a: 1.0,
+        };
+        if !unlit_opaque.is_empty() {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("unlit custom pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: scene_color,
+                    // Resolved here as well as by the main pass, which loads
+                    // these samples and resolves them again with its own
+                    // draws on top. Without it, a frame whose only opaque
+                    // draws were unlit custom shaders -- a main pass with
+                    // nothing to draw -- came out on macOS CI (Metal) under
+                    // MSAA identical to the same frame without it, edges
+                    // and all (`pixels_msaa::every_geometry_pass_draws_under_msaa`),
+                    // while Vulkan resolved it. The cost is one resolve,
+                    // only in frames with such a draw.
+                    resolve_target: scene_resolve,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(scene_clear),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: scene_depth,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            pass.set_bind_group(2, &self.light_bind_group, &[]);
+            for &i in &unlit_opaque {
+                let (mesh_id, _, tex_id, mat, custom_path) = &draw_calls[i];
+                let (Some(mesh), Some(pipeline)) = (
+                    registry.get(*mesh_id),
+                    custom_path.as_deref().and_then(|p| custom_pipelines.get(p)),
+                ) else {
+                    continue;
+                };
+                pass.set_pipeline(pipeline);
+                let tex_bg = self
+                    .material_textures
+                    .group(material_texture_ids(*tex_id, mat), tex_registry);
+                let offset = (i as u64 * MODEL_STRIDE) as u32;
+                pass.set_bind_group(1, &self.model_bind_group, &[offset]);
+                pass.set_bind_group(3, tex_bg, &[]);
+                pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                pass.set_vertex_buffer(1, mesh.previous_vertex_buffer().slice(..));
+                pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                frame_draw_calls += 1;
+                frame_objects_drawn += 1;
+                frame_triangles += (mesh.index_count / 3) as u64;
+            }
+        }
+        // What the main pass starts the colour and depth from: the unlit
+        // pass's, when it ran.
+        let (scene_load, depth_load) = if unlit_opaque.is_empty() {
+            (wgpu::LoadOp::Clear(scene_clear), wgpu::LoadOp::Clear(1.0))
+        } else {
+            (wgpu::LoadOp::Load, wgpu::LoadOp::Load)
+        };
+
         // --- main pass (into HDR buffer) ---
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -10471,12 +10543,7 @@ impl WgpuSurface {
                         resolve_target: scene_resolve,
                         depth_slice: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color {
-                                r: 0.08,
-                                g: 0.08,
-                                b: 0.08,
-                                a: 1.0,
-                            }),
+                            load: scene_load,
                             store: wgpu::StoreOp::Store,
                         },
                     }),
@@ -10531,7 +10598,7 @@ impl WgpuSurface {
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: scene_depth,
                     depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
+                        load: depth_load,
                         store: wgpu::StoreOp::Store,
                     }),
                     stencil_ops: None,
@@ -10548,16 +10615,16 @@ impl WgpuSurface {
             pass.set_bind_group(0, &self.camera_bind_group, &[]);
             pass.set_bind_group(2, &self.light_bind_group, &[]);
 
-            // Terrain first, then custom-shaded draws, then the rest. Neither
-            // terrain nor an unlit custom shader writes a velocity (their
-            // pipelines mask it off), so
-            // a pixel they cover has to keep the clear value -- "no velocity",
-            // camera reprojection. Drawn after a mesh behind them, they would
-            // leave that mesh's velocity on top instead, and a moving object
-            // hidden under the ground would drag the ground's TAA history and
-            // motion blur along with it. Drawn first, the mesh behind fails the
-            // depth test and writes nothing. Nothing else changes: the depth
-            // test, not the order, decides what is seen.
+            // Terrain first, then the rest (unlit custom shaders were drawn
+            // before this pass, for the same reason). Terrain has no velocity
+            // of its own: it writes the clear value -- "no velocity", camera
+            // reprojection -- and so does every pixel it covers have to keep.
+            // Drawn after a mesh behind it, that mesh's velocity would be
+            // there already and terrain's write would replace it correctly;
+            // drawn first, the mesh behind fails the depth test and writes
+            // nothing, so the order costs nothing either way and was what
+            // kept the old masked-off velocity right. Nothing else changes:
+            // the depth test, not the order, decides what is seen.
             // Terrain chunks get their own model-buffer slots, starting right
             // after the ones `draw_calls` used above (`opaque`/`transparent`
             // only ever index `0..draw_calls.len().min(MAX_OBJECTS)`), so a
@@ -10593,7 +10660,7 @@ impl WgpuSurface {
             }
             pass.set_bind_group(2, &self.light_bind_group, &[]);
 
-            for &i in &opaque {
+            for &i in opaque.iter().filter(|&&i| !in_unlit_pass[i]) {
                 let (mesh_id, _, tex_id, mat, custom_path) = &draw_calls[i];
                 let Some(mesh) = registry.get(*mesh_id) else {
                     continue;
@@ -10671,68 +10738,26 @@ impl WgpuSurface {
         if !transparent.is_empty() {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("transparent pass"),
-                color_attachments: &[
-                    Some(wgpu::RenderPassColorAttachment {
-                        view: scene_color,
-                        resolve_target: scene_resolve,
-                        depth_slice: None,
-                        ops: wgpu::Operations {
-                            // Load, not Clear, on every attachment. Clearing
-                            // colour would wipe the scene this pass is meant to
-                            // blend into; clearing depth would let glass float
-                            // in front of walls it is behind.
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    }),
-                    // Attached only because this pass shares the opaque pass's
-                    // `fs_main`, which writes two locations. The pipeline masks
-                    // the write off, so what the opaque pass left here survives
-                    // the pass untouched. For the same reason it has no MSAA
-                    // resolve: the opaque pass's resolve already holds these
-                    // normals, and resolving them again would only cost
-                    // bandwidth. (The view still has to be the multisampled
-                    // one, to match the pipeline's sample count.)
-                    Some(wgpu::RenderPassColorAttachment {
-                        view: scene_normal,
-                        resolve_target: None,
-                        depth_slice: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    }),
-                    // The velocity likewise: masked off, attached because the
-                    // shared `fs_main` writes it.
-                    Some(wgpu::RenderPassColorAttachment {
-                        view: scene_velocity,
-                        resolve_target: None,
-                        depth_slice: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    }),
-                    // And the GI albedo and indirect light, for the same reason.
-                    Some(wgpu::RenderPassColorAttachment {
-                        view: scene_gi_indirect,
-                        resolve_target: None,
-                        depth_slice: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    }),
-                    Some(wgpu::RenderPassColorAttachment {
-                        view: scene_gi_albedo,
-                        resolve_target: None,
-                        depth_slice: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    }),
-                ],
+                // The colour and the depth, and nothing else: the
+                // transparent pipelines have one target
+                // (`TRANSPARENT_MESH_TARGETS`, `UNLIT_CUSTOM_TARGETS`). The
+                // normal, velocity and GI targets used to be attached with
+                // their writes masked off, which needs independent blending
+                // (OpenGL ES 3.1 has none) and only kept the opaque pass's
+                // values where they were -- as leaving them out does.
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: scene_color,
+                    resolve_target: scene_resolve,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        // Load, not Clear, on every attachment. Clearing
+                        // colour would wipe the scene this pass is meant to
+                        // blend into; clearing depth would let glass float
+                        // in front of walls it is behind.
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: scene_depth,
                     depth_ops: Some(wgpu::Operations {

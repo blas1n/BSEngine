@@ -289,3 +289,56 @@ fn probes_and_lightmaps_record_the_diffuse_share() {
         "premise: the probes light it"
     );
 }
+
+/// Terrain writes no GI inputs: in front of the square it leaves both
+/// targets at zero, their clear value, where the square had written its
+/// own. Terrain writes every target, the GI ones as zero rather than
+/// masked off -- OpenGL ES 3.1 has no independent blending -- and is drawn
+/// first, so what is behind it fails the depth test either way; this is
+/// what holds the zero to being zero, and not the hidden square's.
+#[test]
+fn terrain_in_front_leaves_the_gi_targets_empty() {
+    let mut h = Harness::new();
+    let cube = white_square(&mut h);
+    let block = h.cube();
+    let grey = h.two_colour_texture([120, 120, 120, 255], [120, 120, 120, 255]);
+    let weight = h.two_colour_texture([255, 0, 0, 255], [255, 0, 0, 255]);
+    let wall = bsengine_rhi_wgpu::TerrainDrawCall::new(
+        block,
+        glam::Mat4::from_scale_rotation_translation(
+            Vec3::new(80.0, 80.0, 0.2),
+            glam::Quat::IDENTITY,
+            Vec3::new(0.0, 0.0, -14.0),
+        ),
+        [grey; 4],
+        weight,
+    );
+
+    h.render(&scene(vec![square(cube)]));
+    let (albedo, _) = h.gi();
+    assert!(
+        (centre(&albedo) - ALBEDO).abs().max_element() < 1e-3,
+        "premise: uncovered, the square writes its reflectance: {}",
+        centre(&albedo)
+    );
+
+    let wall_alone = h.render(&Scene {
+        terrain: vec![wall],
+        ..scene(Vec::new())
+    });
+    let hidden = h.render(&Scene {
+        terrain: vec![wall],
+        ..scene(vec![square(cube)])
+    });
+    assert_eq!(
+        hidden.centre(),
+        wall_alone.centre(),
+        "premise: the wall hides the square -- the centre is as with the wall alone"
+    );
+    let (albedo, indirect) = h.gi();
+    assert_eq!(
+        (centre(&albedo), centre(&indirect)),
+        (Vec3::ZERO, Vec3::ZERO),
+        "terrain gives screen-space GI nothing to work from"
+    );
+}

@@ -281,21 +281,6 @@ mod tests {
         );
     }
 
-    /// Pipelines that still give their colour targets different blend states
-    /// or write masks -- each draws colour only and masks the other targets
-    /// off. GLES 3.1 has no independent blending, so on it these are invalid
-    /// until they get a pass of their own. Like `KNOWN_FAILURES`, an entry
-    /// that stops mixing fails the test, so the list only shrinks.
-    const KNOWN_MIXED_TARGETS: &[&str] = &[
-        "transparent mesh pipeline",
-        "terrain pipeline",
-        "custom pipeline",
-        // A lit custom shader's transparent variant: the transparent mesh
-        // pipeline's descriptor on the game's module. First made here when
-        // the gate began compiling a lit shader, not new in the renderer.
-        "lit custom transparent pipeline",
-    ];
-
     /// No texture the renderer makes for an OpenGL ES 3.1 adapter is one
     /// wgpu's GL backend would make a cube-map array
     /// (`render_caps::gl_makes_cube_array`), a texture type GLES 3.1 does
@@ -348,23 +333,72 @@ mod tests {
     #[test]
     fn no_pipeline_needs_independent_blending() {
         make_every_module();
+        // The premise: a pipeline that does mix its targets is recorded --
+        // `REPLACE` beside `None`, the pair wgpu counts as different. The
+        // renderer's own no longer do (the last four got colour-only passes
+        // or wrote their clear values), so without this one an empty record
+        // would pass whether or not recording worked.
+        // No colon in the label: D3D12's DXC takes a module's label for a
+        // file name, and "error reading '...: ...'" failed Windows CI.
+        const PREMISE: &str = "gles gate premise - mixed targets";
+        let surface = WgpuSurface::offscreen_for_testing(8, 8).expect("offscreen renderer");
+        let device = surface.device_arc();
+        let module = crate::pipeline_cache::create_shader_module(
+            &device,
+            wgpu::ShaderModuleDescriptor {
+                label: Some(PREMISE),
+                source: wgpu::ShaderSource::Wgsl(
+                    "struct Out { @location(0) a: vec4<f32>, @location(1) b: vec4<f32> };\n\
+                     @vertex fn vs_main() -> @builtin(position) vec4<f32> {\n\
+                         return vec4<f32>(0.0, 0.0, 0.0, 1.0);\n\
+                     }\n\
+                     @fragment fn fs_main() -> Out {\n\
+                         return Out(vec4<f32>(1.0), vec4<f32>(1.0));\n\
+                     }\n"
+                    .into(),
+                ),
+            },
+        );
+        let target = |blend| {
+            Some(wgpu::ColorTargetState {
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                blend,
+                write_mask: wgpu::ColorWrites::ALL,
+            })
+        };
+        crate::pipeline_cache::create_render_pipeline(
+            &device,
+            &wgpu::RenderPipelineDescriptor {
+                label: Some(PREMISE),
+                layout: None,
+                vertex: wgpu::VertexState {
+                    module: &module,
+                    entry_point: Some("vs_main"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &module,
+                    entry_point: Some("fs_main"),
+                    targets: &[target(Some(wgpu::BlendState::REPLACE)), target(None)],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            },
+        );
         let mixed = crate::pipeline_cache::MIXED_TARGET_PIPELINES
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
-        // The premise: what this test watches is recorded at all -- the
-        // known ones are made, and do mix.
-        for known in KNOWN_MIXED_TARGETS {
-            assert!(
-                mixed.iter().any(|m| m == known),
-                "{known} is listed as mixing its targets but was not recorded doing so: \
-                 if it no longer does, remove it from KNOWN_MIXED_TARGETS. Recorded: {mixed:?}"
-            );
-        }
-        let unexpected: Vec<_> = mixed
-            .iter()
-            .filter(|m| !KNOWN_MIXED_TARGETS.contains(&m.as_str()))
-            .collect();
+        assert!(
+            mixed.iter().any(|m| m == PREMISE),
+            "premise: a pipeline that mixes its targets is recorded doing so: {mixed:?}"
+        );
+        let unexpected: Vec<_> = mixed.iter().filter(|m| m.as_str() != PREMISE).collect();
         assert!(
             unexpected.is_empty(),
             "pipelines whose colour targets differ in blend or write mask, which GLES \

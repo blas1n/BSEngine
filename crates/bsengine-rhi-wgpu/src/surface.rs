@@ -10471,8 +10471,16 @@ impl WgpuSurface {
                 label: Some("unlit custom pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: scene_color,
-                    // The main pass, which loads this, resolves it.
-                    resolve_target: None,
+                    // Resolved here as well as by the main pass, which loads
+                    // these samples and resolves them again with its own
+                    // draws on top. Without it, a frame whose only opaque
+                    // draws were unlit custom shaders -- a main pass with
+                    // nothing to draw -- came out on macOS CI (Metal) under
+                    // MSAA identical to the same frame without it, edges
+                    // and all (`pixels_msaa::every_geometry_pass_draws_under_msaa`),
+                    // while Vulkan resolved it. The cost is one resolve,
+                    // only in frames with such a draw.
+                    resolve_target: scene_resolve,
                     depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(scene_clear),

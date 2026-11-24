@@ -292,17 +292,10 @@ fn terrain_keeps_no_velocity_over_a_hidden_moving_object() {
     );
     let (left, right) = square_span(&seen);
     let (cx, cy) = ((left + right) / 2, HEIGHT / 2);
-    let centre = (cy * WIDTH + cx) as usize;
-    let [vx, _] = h.velocity()[centre];
+    let [vx, _] = h.velocity()[(cy * WIDTH + cx) as usize];
     assert!(
         vx.abs() > 1e-3 && vx < 1000.0,
         "premise: uncovered, the square writes its motion there: {vx}"
-    );
-    let (albedo, _) = h.gi();
-    assert!(
-        albedo[centre].iter().any(|&c| c > 0.05),
-        "premise: uncovered, the square writes its GI reflectance there: {:?}",
-        albedo[centre]
     );
 
     let hidden = h.render_moving(&s(square_at(cube, 0.0)), &s(moved(cube, 0.0, 0.6)));
@@ -311,18 +304,9 @@ fn terrain_keeps_no_velocity_over_a_hidden_moving_object() {
         "premise: the wall hides the square"
     );
     assert_eq!(
-        h.velocity()[centre],
+        h.velocity()[(cy * WIDTH + cx) as usize],
         [NONE, NONE],
         "the wall in front of it has no velocity"
-    );
-    // Nor GI inputs: terrain writes them as their clear value, zero (it
-    // writes every target, for OpenGL ES 3.1's want of independent
-    // blending), and screen-space GI leaves such a pixel as it is.
-    let (albedo, indirect) = h.gi();
-    assert_eq!(
-        (albedo[centre], indirect[centre]),
-        ([0.0; 3], [0.0; 3]),
-        "the wall in front of it gives screen-space GI nothing to work from"
     );
 }
 

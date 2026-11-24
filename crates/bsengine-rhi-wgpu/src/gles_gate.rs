@@ -338,7 +338,9 @@ mod tests {
         // renderer's own no longer do (the last four got colour-only passes
         // or wrote their clear values), so without this one an empty record
         // would pass whether or not recording worked.
-        const PREMISE: &str = "gles gate premise: mixed targets";
+        // No colon in the label: D3D12's DXC takes a module's label for a
+        // file name, and "error reading '...: ...'" failed Windows CI.
+        const PREMISE: &str = "gles gate premise - mixed targets";
         let surface = WgpuSurface::offscreen_for_testing(8, 8).expect("offscreen renderer");
         let device = surface.device_arc();
         let module = crate::pipeline_cache::create_shader_module(

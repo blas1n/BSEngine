@@ -132,6 +132,128 @@ fn fs_main(in: VertOut) -> SceneOut {
     };
 }
 
+/// Where the mesh shader reads a reflection probe's capture: binding 13 and
+/// the one function that samples it. A macro so [`MESH_WGSL`] can stay a
+/// `concat!` of literals; [`with_reflection_layout`] swaps it, whole, for
+/// [`REFLECTION_FACES_WGSL`] on an adapter without cube-map arrays.
+macro_rules! reflection_cubes_wgsl {
+    () => {
+        r#"
+@group(2) @binding(13) var reflection_cubes: texture_cube_array<f32>;
+// Probe `slot`'s capture toward `dir`, at mip `level` (the roughness's).
+fn reflection_capture(dir: vec3<f32>, slot: i32, level: f32) -> vec3<f32> {
+    return textureSampleLevel(reflection_cubes, ibl_sampler, dir, slot, level).rgb;
+}
+"#
+    };
+}
+
+/// [`reflection_cubes_wgsl`] for an adapter without cube-map arrays (OpenGL
+/// ES 3.1, `RenderCaps::cube_arrays`): the same 24 faces -- probe `slot`'s
+/// at layers `6 * slot ..` in wgpu's cube order, +X, -X, +Y, -Y, +Z, -Z --
+/// bound as a 2D array, and the face and its texel picked here the way the
+/// cube sampler would: the major axis picks the face, the other two divided
+/// by it are the texel. The per-face axes are the inverse of
+/// `ibl::cube_face_direction`, which renders those faces; a wrong sign
+/// mirrors one face and still looks like a reflection, which is why
+/// `pixels_reflection_probe::without_cube_arrays_*` compares every pixel of
+/// a mirror ball with the cube path's.
+///
+/// What it cannot do is filter across a face's edge: a cube sampler blends
+/// the neighbouring face there, a 2D array clamps (`ibl_sampler` is
+/// clamp-to-edge, so it never wraps to the face's far side). It shows only
+/// at the blurred mips a rough surface reads, as a faint seam. Unity's URP
+/// (Forward+) likewise keeps its probes in a 2D atlas, octahedrally
+/// mapped, rather than in a cube array every platform would have to have;
+/// faces kept as they are captured need no remapping pass.
+const REFLECTION_FACES_WGSL: &str = r#"
+@group(2) @binding(13) var reflection_cubes: texture_2d_array<f32>;
+// Probe `slot`'s capture toward `dir`, at mip `level` (the roughness's).
+fn reflection_capture(dir: vec3<f32>, slot: i32, level: f32) -> vec3<f32> {
+    let m = abs(dir);
+    var face = 0;
+    var a = 0.0;
+    var b = 0.0;
+    var major = 1.0;
+    if (m.x >= m.y && m.x >= m.z) {
+        major = m.x;
+        if (dir.x > 0.0) {
+            face = 0;
+            a = -dir.z;
+        } else {
+            face = 1;
+            a = dir.z;
+        }
+        b = -dir.y;
+    } else if (m.y >= m.z) {
+        major = m.y;
+        a = dir.x;
+        if (dir.y > 0.0) {
+            face = 2;
+            b = dir.z;
+        } else {
+            face = 3;
+            b = -dir.z;
+        }
+    } else {
+        major = m.z;
+        b = -dir.y;
+        if (dir.z > 0.0) {
+            face = 4;
+            a = dir.x;
+        } else {
+            face = 5;
+            a = -dir.x;
+        }
+    }
+    let uv = vec2<f32>(a, b) / max(major, 1e-6) * 0.5 + vec2<f32>(0.5);
+    return textureSampleLevel(reflection_cubes, ibl_sampler, uv, slot * 6 + face, level).rgb;
+}
+"#;
+
+/// `wgsl` -- [`MESH_WGSL`], or a lit custom shader built on
+/// [`MESH_LIT_WGSL`] -- for an adapter with or without cube-map arrays
+/// (`RenderCaps::cube_arrays`); see [`REFLECTION_FACES_WGSL`]. The text it
+/// replaces is checked to be there, so a reworded declaration fails loudly
+/// rather than leave a cube array in front of a GLES driver.
+fn with_reflection_layout(wgsl: &str, cube_arrays: bool) -> std::borrow::Cow<'_, str> {
+    if cube_arrays {
+        return std::borrow::Cow::Borrowed(wgsl);
+    }
+    let cubes = reflection_cubes_wgsl!();
+    assert!(
+        wgsl.contains(cubes),
+        "a mesh shader without `reflection_cubes_wgsl!()` cannot take the 2D-array layout"
+    );
+    std::borrow::Cow::Owned(wgsl.replacen(cubes, REFLECTION_FACES_WGSL, 1))
+}
+
+/// The view dimension of the reflection probes' faces as the mesh shader
+/// reads them (binding 13), and of the view the light bind group holds.
+fn reflection_view_dimension(cube_arrays: bool) -> wgpu::TextureViewDimension {
+    if cube_arrays {
+        wgpu::TextureViewDimension::CubeArray
+    } else {
+        wgpu::TextureViewDimension::D2Array
+    }
+}
+
+/// How many layers the reflection probes' texture has: six faces a probe,
+/// and without cube arrays one more. wgpu's OpenGL backend makes any square
+/// 2D texture whose layer count is a multiple of six a cube-map array
+/// (wgpu-hal `gles::Texture::get_info_from_desc`, "detect a cube map"), whatever
+/// it is then viewed as -- which is exactly the texture type OpenGL ES 3.1
+/// lacks, and a 2D-array view of it would not bind. The spare layer keeps
+/// it a plain `GL_TEXTURE_2D_ARRAY`.
+fn reflection_layers(cube_arrays: bool) -> u32 {
+    let faces = (bsengine_core::MAX_REFLECTION_PROBES * 6) as u32;
+    if cube_arrays {
+        faces
+    } else {
+        faces + 1
+    }
+}
+
 /// [`MESH_WGSL`] but for `surface` and the entry points: the bindings, the
 /// vertex stage and all of the lighting.
 macro_rules! mesh_shading_wgsl {
@@ -321,7 +443,9 @@ struct ReflectionProbeUniform {
     entries: array<ReflectionProbeEntry, 4>,
 };
 @group(2) @binding(12) var<uniform> reflection_probes: ReflectionProbeUniform;
-@group(2) @binding(13) var reflection_cubes: texture_cube_array<f32>;
+"#,
+            reflection_cubes_wgsl!(),
+            r#"
 
 struct VertIn {
     @location(0) pos: vec3<f32>,
@@ -867,10 +991,9 @@ fn shade(in: VertOut, s: Surface) -> SceneOut {
             let e = reflection_probes.entries[next];
             let share = reflection_probe_weight(e, in.world_pos) * left;
             let dir = reflection_probe_dir(e, in.world_pos, r);
-            let captured = textureSampleLevel(
-                reflection_cubes, ibl_sampler, dir, next,
-                roughness * reflection_probes.max_mip
-            ).rgb;
+            let captured = reflection_capture(
+                dir, next, roughness * reflection_probes.max_mip
+            );
             reflected = reflected + captured * (f_ibl * brdf.x + brdf.y) * e.intensity * share;
             left = left - share;
             last_volume = next_volume;
@@ -3299,8 +3422,10 @@ fn create_light_bind_group(
 
 /// Group 2's layout: everything the lighting shaders read. A function, not
 /// an inline array, so `every_pipeline_fits_webgpus_sampled_texture_limit`
-/// can count what a pipeline built on it binds.
-fn light_bgl_entries() -> Vec<wgpu::BindGroupLayoutEntry> {
+/// can count what a pipeline built on it binds. `cube_arrays` is
+/// `RenderCaps::cube_arrays`: how binding 13, the reflection probes' faces,
+/// is viewed (`reflection_view_dimension`).
+fn light_bgl_entries(cube_arrays: bool) -> Vec<wgpu::BindGroupLayoutEntry> {
     vec![
         wgpu::BindGroupLayoutEntry {
             binding: 0,
@@ -3437,10 +3562,11 @@ fn light_bgl_entries() -> Vec<wgpu::BindGroupLayoutEntry> {
             count: None,
         },
         // 12 and 13 are the reflection probes: their boxes, and their
-        // prefiltered cubes as one cube array. In this group, like the
-        // light probes at 9, so the capture pipeline -- which shares
-        // the layout but never declares them -- cannot reflect its
-        // own earlier captures back into a new one.
+        // prefiltered cubes as one cube array (or, without cube arrays,
+        // their faces as one 2D array: `REFLECTION_FACES_WGSL`). In this
+        // group, like the light probes at 9, so the capture pipeline --
+        // which shares the layout but never declares them -- cannot
+        // reflect its own earlier captures back into a new one.
         wgpu::BindGroupLayoutEntry {
             binding: 12,
             visibility: wgpu::ShaderStages::FRAGMENT,
@@ -3456,7 +3582,7 @@ fn light_bgl_entries() -> Vec<wgpu::BindGroupLayoutEntry> {
             visibility: wgpu::ShaderStages::FRAGMENT,
             ty: wgpu::BindingType::Texture {
                 sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                view_dimension: wgpu::TextureViewDimension::CubeArray,
+                view_dimension: reflection_view_dimension(cube_arrays),
                 multisampled: false,
             },
             count: None,
@@ -3575,7 +3701,8 @@ const TERRAIN_LIGHT_BINDINGS: [u32; 12] = [0, 1, 2, 4, 10, 14, 15, 17, 18, 19, 2
 /// not use; the bind group built against it takes the same buffers and views
 /// as the full one, filtered the same way (`create_light_bind_group`).
 fn terrain_light_bgl_entries() -> Vec<wgpu::BindGroupLayoutEntry> {
-    light_bgl_entries()
+    // Either `cube_arrays`: the only binding it decides, 13, is cut.
+    light_bgl_entries(true)
         .into_iter()
         .filter(|e| TERRAIN_LIGHT_BINDINGS.contains(&e.binding))
         .collect()
@@ -5877,7 +6004,7 @@ impl WgpuSurface {
         });
         let light_bgl = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("light bgl"),
-            entries: &light_bgl_entries(),
+            entries: &light_bgl_entries(caps.cube_arrays),
         });
         // The terrain's own variant: the same group minus the lightmap array.
         let light_bgl_terrain = device.cached_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -6195,7 +6322,7 @@ impl WgpuSurface {
                 size: wgpu::Extent3d {
                     width: REFLECTION_FACE_SIZE,
                     height: REFLECTION_FACE_SIZE,
-                    depth_or_array_layers: (bsengine_core::MAX_REFLECTION_PROBES * 6) as u32,
+                    depth_or_array_layers: reflection_layers(caps.cube_arrays),
                 },
                 mip_level_count: crate::ibl::PREFILTER_MIP_LEVELS,
                 sample_count: 1,
@@ -6211,7 +6338,10 @@ impl WgpuSurface {
         );
         let reflection_cubes_view = reflection_cubes.create_view(&wgpu::TextureViewDescriptor {
             label: Some("reflection probe cube array view"),
-            dimension: Some(wgpu::TextureViewDimension::CubeArray),
+            dimension: Some(reflection_view_dimension(caps.cube_arrays)),
+            // The faces only: without cube arrays the texture has a layer
+            // more than them (`reflection_layers`), which nothing reads.
+            array_layer_count: Some((bsengine_core::MAX_REFLECTION_PROBES * 6) as u32),
             ..Default::default()
         });
         let reflection_capture_texture = crate::profiler::create_tracked_texture(
@@ -6760,7 +6890,11 @@ impl WgpuSurface {
 
         let shader = device.cached_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("mesh shader"),
-            source: wgpu::ShaderSource::Wgsl(MESH_WGSL.into()),
+            source: wgpu::ShaderSource::Wgsl(
+                with_reflection_layout(MESH_WGSL, caps.cube_arrays)
+                    .into_owned()
+                    .into(),
+            ),
         });
 
         let pipeline_layout = device.cached_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -11948,7 +12082,12 @@ impl WgpuSurface {
     pub fn compile_and_store_shader(&mut self, path: &str, wgsl: &str) -> Result<(), String> {
         let lit = bsengine_shadergraph::is_lit_shader(wgsl);
         let wgsl = if lit {
-            format!("{wgsl}\n{MESH_LIT_WGSL}")
+            // The same layout as the standard mesh shader: both bind the one
+            // light group, whose binding 13 follows `cube_arrays`.
+            format!(
+                "{wgsl}\n{}",
+                with_reflection_layout(MESH_LIT_WGSL, self.caps.cube_arrays)
+            )
         } else {
             wgsl.to_string()
         };
@@ -13064,7 +13203,7 @@ mod tests {
                 .count()
         };
         let limit = wgpu::Limits::default().max_sampled_textures_per_shader_stage as usize;
-        let lighting = textures(&light_bgl_entries());
+        let lighting = textures(&light_bgl_entries(true));
         // The terrain's group 2 keeps only what its shader reads
         // (`terrain_light_bgl_entries`): with all of it the terrain would bind
         // more than the limit allows.

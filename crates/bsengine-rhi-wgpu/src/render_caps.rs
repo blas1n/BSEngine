@@ -31,6 +31,12 @@ pub struct RenderCaps {
     /// thread panicked ("Could not lock adapter context"). Unreal has no
     /// Lumen on its mobile renderer, nor Godot SDFGI on its mobile ones.
     pub realtime_gi: bool,
+    /// Cube-map arrays (`DownlevelFlags::CUBE_ARRAY_TEXTURES`): every
+    /// reflection probe's capture bound as one `texture_cube_array`. OpenGL
+    /// ES has them only from 3.2 (or with `GL_EXT_texture_cube_map_array`),
+    /// so on 3.1 the same 24 faces are bound as a 2D array and the mesh
+    /// shader picks the face and its texel itself (`REFLECTION_FACES_WGSL`).
+    pub cube_arrays: bool,
 }
 
 impl RenderCaps {
@@ -54,6 +60,7 @@ impl RenderCaps {
             }),
             view_formats: flags.contains(wgpu::DownlevelFlags::VIEW_FORMATS),
             realtime_gi: adapter.get_info().backend != wgpu::Backend::Gl,
+            cube_arrays: flags.contains(wgpu::DownlevelFlags::CUBE_ARRAY_TEXTURES),
         }
     }
 }

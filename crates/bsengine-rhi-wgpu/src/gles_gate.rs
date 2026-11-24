@@ -136,12 +136,29 @@ mod tests {
     fn make_every_module() {
         // A renderer built as for an OpenGL ES adapter, too: its fallbacks
         // make shaders and pipelines of their own (the decal shader that
-        // encodes sRGB itself), and those are the ones GLES actually gets.
-        WgpuSurface::offscreen_for_testing_with_caps(64, 64, |caps| {
+        // encodes sRGB itself, the mesh shader that reads the reflection
+        // probes' faces from a 2D array), and those are the ones GLES
+        // actually gets.
+        let mut gles = WgpuSurface::offscreen_for_testing_with_caps(64, 64, |caps| {
             caps.view_formats = false;
             caps.realtime_gi = false;
+            caps.cube_arrays = false;
         })
         .expect("offscreen renderer as for GLES");
+        // A lit custom shader is the mesh shader's lighting under the
+        // game's `surface`, so it binds the same 2D array; its pipeline
+        // against that renderer's layout is the check that it does.
+        gles.compile_and_store_shader(
+            "gles gate lit",
+            "// bsengine: lit\n\
+             fn surface(in: VertOut) -> Surface {\n\
+                 return material_surface(in);\n\
+             }\n",
+        )
+        .expect("the lit custom shader validates");
+        for (path, verdict) in gles.finish_custom_shaders() {
+            verdict.unwrap_or_else(|e| panic!("custom shader {path}: {e}"));
+        }
         let mut surface = WgpuSurface::offscreen_for_testing(64, 64).expect("offscreen renderer");
         surface.make_lazy_pipelines_for_gles_gate();
         surface.set_skybox_from_rgba(1, 1, &[128, 128, 255, 255]);
@@ -273,7 +290,55 @@ mod tests {
         "transparent mesh pipeline",
         "terrain pipeline",
         "custom pipeline",
+        // A lit custom shader's transparent variant: the transparent mesh
+        // pipeline's descriptor on the game's module. First made here when
+        // the gate began compiling a lit shader, not new in the renderer.
+        "lit custom transparent pipeline",
     ];
+
+    /// No texture the renderer makes for an OpenGL ES 3.1 adapter is one
+    /// wgpu's GL backend would make a cube-map array
+    /// (`render_caps::gl_makes_cube_array`), a texture type GLES 3.1 does
+    /// not have. The emulator found three: the reflection probes' faces, the
+    /// point shadow array and the baked probes' capture array.
+    ///
+    /// A renderer *with* cube arrays makes the reflection probes' texture
+    /// in that shape on purpose -- it is bound as a cube array -- and the
+    /// record is per process, so that one label is allowed; the premise is
+    /// that the GLES renderer made it in the other shape as well.
+    #[test]
+    fn no_texture_is_a_cube_map_array_on_gles() {
+        make_every_module();
+        let shapes = crate::profiler::RECORDED_CUBE_ARRAY_SHAPES
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let layers = crate::profiler::RECORDED_LAYERS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let faces = (bsengine_core::MAX_REFLECTION_PROBES * 6) as u32;
+        assert!(
+            layers
+                .iter()
+                .any(|(label, n)| label == "reflection probe cubes" && *n == faces),
+            "premise: a renderer with cube arrays made the probes' cube array (so recording sees the shape at all): {layers:?}"
+        );
+        assert!(
+            layers
+                .iter()
+                .any(|(label, n)| label == "reflection probe cubes" && *n != faces),
+            "premise: the renderer without cube arrays made the probes' faces as a plain 2D array: {layers:?}"
+        );
+        let unexpected: Vec<_> = shapes
+            .iter()
+            .filter(|label| label.as_str() != "reflection probe cubes")
+            .collect();
+        assert!(
+            unexpected.is_empty(),
+            "textures OpenGL would make cube-map arrays, which GLES 3.1 cannot: {unexpected:?} -- give them `render_caps::plain_array_layers`"
+        );
+    }
 
     /// Every render pipeline gives all its colour targets one blend state and
     /// write mask, which is all GLES 3.1 can do (`INDEPENDENT_BLEND` is core

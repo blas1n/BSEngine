@@ -863,3 +863,108 @@ fn a_probe_captures_the_orm_maps_roughness() {
         "roughness 1 times a map's 0.2 is captured as roughness 0.2: {mapped} against {smooth}"
     );
 }
+
+/// A closed room of emissive walls, each in four quadrants of different
+/// colours, and a mirror ball in its middle inside one probe. The ball
+/// reflects nearly every direction, so its pixels read all six of the
+/// probe's faces, each across both of its axes; and a quadrant's colour
+/// differs from both of its neighbours on its own wall, so a face read
+/// mirrored in either axis shows a different colour, not the same one.
+fn quadrant_room(h: &mut Harness) -> Scene {
+    let (cube, ball) = (h.cube(), {
+        let (v, i) = bsengine_rhi_wgpu::sphere_vertices();
+        h.mesh(&v, &i)
+    });
+    let palette = [
+        RED,
+        GREEN,
+        Vec3::new(0.0, 0.0, 1.0),
+        Vec3::new(1.0, 1.0, 0.0),
+        Vec3::new(0.0, 1.0, 1.0),
+        Vec3::new(1.0, 0.0, 1.0),
+    ];
+    const HALF: f32 = 5.0;
+    let mut draws = vec![Draw::new(ball, Vec3::ZERO)
+        .scaled(Vec3::splat(2.0), Vec3::ZERO)
+        .colour(WHITE)
+        .metallic(1.0)
+        .roughness(0.05)];
+    for axis in 0..3 {
+        for (side, sign) in [-1.0f32, 1.0].into_iter().enumerate() {
+            let wall = 2 * axis + side;
+            let (i, j) = ((axis + 1) % 3, (axis + 2) % 3);
+            for qi in 0..2 {
+                for qj in 0..2 {
+                    let mut centre = Vec3::ZERO;
+                    centre[axis] = sign * (HALF + 0.1);
+                    centre[i] = (qi as f32 - 0.5) * HALF;
+                    centre[j] = (qj as f32 - 0.5) * HALF;
+                    let mut size = Vec3::splat(HALF);
+                    size[axis] = 0.2;
+                    draws.push(
+                        Draw::new(cube, Vec3::ZERO)
+                            .scaled(size, centre)
+                            .colour(Vec3::ZERO)
+                            .emissive(palette[(wall + 2 * qi + qj) % 6] * PANEL_RADIANCE),
+                    );
+                }
+            }
+        }
+    }
+    Scene {
+        draws,
+        light: dark(),
+        camera_pos: Vec3::new(0.0, 0.6, 3.2),
+        look_at: Vec3::ZERO,
+        // Captured from above the ball, not from its centre: from inside
+        // it the capture would see only the ball (and the ball then
+        // reflects black, probe or no probe). The box still holds the ball.
+        reflection_probes: vec![probe(
+            Vec3::new(0.0, 2.5, 0.0),
+            Vec3::new(HALF - 0.2, HALF, HALF - 0.2),
+        )],
+        ..Scene::default()
+    }
+}
+
+/// Without cube-map arrays (OpenGL ES 3.1) the probes' faces are bound as a
+/// 2D array and the mesh shader picks each face and texel itself
+/// (`REFLECTION_FACES_WGSL`). That must read what the cube sampler reads:
+/// the mirror ball of [`quadrant_room`] is rendered both ways and compared
+/// pixel by pixel. A face read from the wrong layer, or mirrored in either
+/// axis, puts another quadrant's colour on a whole patch of the ball; what
+/// is allowed to differ is the odd pixel where a cube sampler blends across
+/// a face's edge and the 2D array clamps.
+#[test]
+fn without_cube_arrays_a_mirror_ball_reflects_what_the_cube_array_does() {
+    let mut cubes = Harness::new();
+    let room = quadrant_room(&mut cubes);
+    let with = cubes.render(&room);
+    let mut no_probe = quadrant_room(&mut cubes);
+    no_probe.reflection_probes.clear();
+    let bare = cubes.render(&no_probe);
+
+    let mut faces = Harness::new_with_caps(|caps| caps.cube_arrays = false);
+    assert!(!faces.render_caps().cube_arrays);
+    let room = quadrant_room(&mut faces);
+    let without = faces.render(&room);
+
+    // Premise: the probe is what the ball shows, over a good part of the
+    // frame -- else the comparison below compares two black balls.
+    let reflected = with.differing_pixels(&bare);
+    assert!(
+        reflected > 2000,
+        "premise: the probe should colour the mirror ball; it changed {reflected} pixels"
+    );
+    let differing = with
+        .data
+        .chunks_exact(4)
+        .zip(without.data.chunks_exact(4))
+        .filter(|(a, b)| (0..3).any(|c| a[c].abs_diff(b[c]) > 24))
+        .count();
+    assert!(
+        differing * 50 < reflected,
+        "without cube arrays {differing} of the {reflected} reflecting pixels read \
+         another colour than the cube array gives"
+    );
+}

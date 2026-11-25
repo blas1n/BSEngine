@@ -309,16 +309,17 @@ jobs:
           # on 30 minutes past it): terminate the app too.
           ( sleep 600; xcrun simctl terminate "$udid" "$id"; kill "$pid" ) > /dev/null 2>&1 &
           watchdog=$!
-          # The screenshot once the renderer is up (the app's first launch
-          # takes a while), and a couple of seconds in: 600 frames at the
-          # Simulator's 60 Hz are ten seconds, and 300 were over before a
-          # screenshot five seconds after "ready" (it showed the home screen).
-          for _ in $(seq 120); do
-            grep -q "texture registry ready" "$log" && break
-            sleep 1
+          # Screenshots every five seconds while it runs. Waiting for the
+          # log's "ready" line does not work: simctl hands the console on
+          # late, and the first try saw it only after the app had ended,
+          # photographing the home screen. A debug build runs ~13 frames a
+          # second in the Simulator, so 600 frames give several shots.
+          i=0
+          while kill -0 "$pid" 2>/dev/null; do
+            sleep 5
+            i=$((i + 1))
+            xcrun simctl io "$udid" screenshot "$out/running-$(printf %02d $i).png" > /dev/null 2>&1 || true
           done
-          sleep 2
-          xcrun simctl io "$udid" screenshot "$out/running.png" || true
           wait "$pid" || true
           kill "$watchdog" 2>/dev/null || true
           echo "log: $(wc -l < "$log") lines"
@@ -338,7 +339,7 @@ jobs:
         with:
           name: ios-simulator
           path: |
-            ${{ runner.temp }}/ios/running.png
+            ${{ runner.temp }}/ios/running-*.png
             ${{ runner.temp }}/ios/run.log
           if-no-files-found: ignore
 

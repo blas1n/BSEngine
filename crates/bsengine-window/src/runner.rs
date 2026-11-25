@@ -172,8 +172,15 @@ impl ApplicationHandler for BsWinitApp {
 
         let attrs = winit::window::WindowAttributes::default()
             .with_title(desc.title)
-            .with_inner_size(winit::dpi::LogicalSize::new(desc.width, desc.height))
             .with_resizable(desc.resizable);
+        // `[window]`'s size is a desktop window's. On iOS winit makes it the
+        // UIWindow's frame, in points: the first Simulator runs drew a
+        // 1280x720-point window on a 402x874-point phone -- cut off on the
+        // right, and the bottom sixth of the screen black. Left out there, the
+        // window is the whole screen, as an app's always is. (It still sets
+        // the UI's design resolution, `[ui] scale`.)
+        #[cfg(not(target_os = "ios"))]
+        let attrs = attrs.with_inner_size(winit::dpi::LogicalSize::new(desc.width, desc.height));
         // In a browser the window is a canvas, appended to the page's body.
         #[cfg(target_arch = "wasm32")]
         let attrs = {

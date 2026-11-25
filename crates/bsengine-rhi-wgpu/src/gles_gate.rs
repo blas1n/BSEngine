@@ -412,4 +412,36 @@ mod tests {
              3.1 cannot make (`REPLACE` and `None` count as different): {unexpected:?}"
         );
     }
+
+    /// wgpu-hal is built from `patches/wgpu-hal`, the release with the GLES
+    /// pixel-buffer unbind (`patches/README.md`), not from `vendor/`.
+    ///
+    /// No GPU test can see that defect: it needs a GLES driver without
+    /// `GL_EXT_buffer_storage`, and every desktop GL has it. What can go
+    /// wrong here is the patch quietly stopping applying -- a `[patch]` whose
+    /// version no longer matches what wgpu asks for is unused, with only a
+    /// cargo warning -- and the emulator's glyphs vanishing again with every
+    /// test green. A crate taken from a registry carries a `source` line in
+    /// Cargo.lock; a path patch does not.
+    #[test]
+    fn wgpu_hal_is_the_patched_copy() {
+        let lock = include_str!("../../../Cargo.lock");
+        let entry = lock
+            .split("[[package]]")
+            .find(|p| p.lines().any(|l| l.trim() == "name = \"wgpu-hal\""))
+            .expect("Cargo.lock has wgpu-hal");
+        assert!(
+            !entry.contains("source = "),
+            "wgpu-hal comes from a registry, not from patches/wgpu-hal: the \
+             [patch.crates-io] in Cargo.toml is not applied (its version no longer \
+             matches?). Re-apply the patch to the new release, or drop it if \
+             wgpu fixed the defect upstream (patches/README.md):\n{entry}"
+        );
+        let patched = include_str!("../../../patches/wgpu-hal/src/gles/queue.rs");
+        assert!(
+            patched.contains("BSEngine patch")
+                && patched.contains("gl.bind_buffer(glow::PIXEL_UNPACK_BUFFER, None)"),
+            "patches/wgpu-hal no longer unbinds the pixel buffer after a barrier"
+        );
+    }
 }

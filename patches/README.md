@@ -36,4 +36,5 @@ cannot see it.
 `Cargo.lock` takes wgpu-hal from the registry again: a `[patch]` whose version
 stops matching is ignored with only a warning.
 
-**Upstream.** Present on wgpu's `trunk` as of 2026-11-25.
+**Upstream.** Reported as https://github.com/gfx-rs/wgpu/issues/11115; present on
+wgpu's `trunk` as of 2026-11-25.

@@ -74,13 +74,32 @@ impl Output {
 
     /// The format the post-process chain writes the frame in: the target's
     /// own, except under HDR10, where the frame is scRGB in a texture of its
-    /// own and only `hdr_output::PqOutput` writes the target.
+    /// own and only `hdr_output::PqOutput` writes the target, and for a
+    /// target that cannot encode sRGB, where the frame is sRGB in a texture
+    /// of its own and only `srgb_encode::SrgbEncode` writes the target.
     pub(crate) fn frame_format(&self) -> wgpu::TextureFormat {
         if self.is_pq() {
             crate::hdr_output::PQ_FRAME_FORMAT
+        } else if self.needs_srgb_encode() {
+            crate::srgb_encode::ENCODED_FRAME_FORMAT
         } else {
             self.format()
         }
+    }
+
+    /// Whether the frame has to be sRGB-encoded by a pass of our own: an
+    /// 8-bit target that stores what it is given (`Rgba8Unorm`,
+    /// `Bgra8Unorm`) and is not viewed through its sRGB twin. That is an
+    /// Android GLES surface, which offers no sRGB format and no other view
+    /// format (`WgpuSurface::new`), and the `Rgba8Unorm` offscreen target
+    /// the tests stand in for one with. A WebGPU canvas has the same formats
+    /// but takes an sRGB view, so `format` is already the twin there; float
+    /// and ten-bit targets are HDR output, linear on purpose.
+    pub(crate) fn needs_srgb_encode(&self) -> bool {
+        matches!(
+            self.format(),
+            wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Bgra8Unorm
+        )
     }
 
     /// The format of the target itself.

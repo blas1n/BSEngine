@@ -103,12 +103,21 @@ adb logcat -s bsengine                                 # the game's log
 
 An emulator needs an image whose Vulkan wgpu accepts: android-35
 `google_apis;x86_64` with `-gpu host` draws; android-30 x86 has no Vulkan
-adapter and GLES 3.1 lacks downlevel features the renderer needs, and the
-android-37 16 KB preview image crash-loops its system server. On that
-android-35 image a `--debug` APK dies two seconds in with SIGSEGV inside the
-emulator's driver (`vulkan.ranchu.so`, `vk_common_SetDebugUtilsObjectNameEXT`);
-build without `--debug` there. Drive it with `adb shell input swipe x1 y1 x2 y2
-ms` and `input tap x y`: they arrive as real touches.
+adapter, and the android-37 16 KB preview image crash-loops its system
+server. On that android-35 image a `--debug` APK dies two seconds in with
+SIGSEGV inside the emulator's driver (`vulkan.ranchu.so`,
+`vk_common_SetDebugUtilsObjectNameEXT`); build without `--debug` there. Drive
+it with `adb shell input swipe x1 y1 x2 y2 ms` and `input tap x y`: they
+arrive as real touches.
+
+The renderer runs on OpenGL ES 3.1 too (a device with no Vulkan). To see that
+path, build a copy of the project with `[android] graphics_apis = ["gles"]`
+and start the same image with `-feature GLESDynamicVersion` (how it was
+verified: the translator then reports `OpenGL ES 3.1`); the log's `GPU:` line
+says `(Other, Gl)`.
+Every GLES fallback also runs on any desktop adapter in `cargo test`, by
+turning its `RenderCaps` capability off (`Harness::new_with_caps`) -- the
+emulator is where the driver's own behaviour shows, as no desktop GL does.
 
 The browser build's errors are in the page's console, not a terminal, and
 Chrome reports WebGPU's — a shader it rejects included — as *warnings* while

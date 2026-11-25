@@ -659,6 +659,17 @@ impl Harness {
         )
     }
 
+    /// A harness whose renderer draws into a target of `format`: an
+    /// `Rgba8Unorm` one is what an Android GLES surface gives, a target that
+    /// cannot encode sRGB.
+    #[allow(dead_code)] // only pixels_srgb_encode.rs builds one
+    pub fn new_in_format(format: wgpu::TextureFormat) -> Self {
+        Self::on(
+            WgpuSurface::offscreen_for_testing_in_format(WIDTH, HEIGHT, format)
+                .expect("these tests need an adapter; a skip would look like a pass"),
+        )
+    }
+
     /// What the renderer was built for.
     #[allow(dead_code)] // only the tests of fallbacks read it
     pub fn render_caps(&self) -> bsengine_rhi_wgpu::render_caps::RenderCaps {

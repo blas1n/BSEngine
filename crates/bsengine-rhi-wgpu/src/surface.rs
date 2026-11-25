@@ -4593,6 +4593,10 @@ pub struct WgpuSurface {
     /// the pass that encodes it into the PQ swapchain (`crate::hdr_output`);
     /// `None` under scRGB output, whose swapchain is that frame, and in SDR.
     pq_output: Option<crate::hdr_output::PqOutput>,
+    /// For an output that cannot encode sRGB (`Output::needs_srgb_encode`):
+    /// the sRGB frame every pass draws into and the pass that encodes it into
+    /// the output (`crate::srgb_encode`). `None` for every other output.
+    srgb_encode: Option<crate::srgb_encode::SrgbEncode>,
     /// Under HDR output, where SDR white and the peak are -- the project's
     /// settings filled in from the display (`crate::hdr_output::resolve_hdr_levels`).
     hdr_levels: Option<crate::hdr_output::HdrLevels>,
@@ -4818,10 +4822,11 @@ impl WgpuSurface {
         });
         // A view in another format than the surface's is a downlevel feature:
         // a WebGPU canvas has it, Android's GLES surfaces do not -- and they
-        // offer no sRGB format either, so there the frame is drawn as it is
-        // (darker than it should be: no sRGB encode) rather than not at all.
-        // Surface::configure with a view format the device lacks is a fatal
-        // validation error.
+        // offer no sRGB format either. There the frame is drawn into an sRGB
+        // texture of the renderer's own and encoded into the surface by a
+        // pass at the end (`crate::srgb_encode`; `Output::needs_srgb_encode`
+        // says when). Surface::configure with a view format the device lacks
+        // is a fatal validation error, so it is not asked for.
         let views_allowed = adapter
             .get_downlevel_capabilities()
             .flags
@@ -4830,9 +4835,9 @@ impl WgpuSurface {
             _ if hdr_swapchain.is_some() => Vec::new(),
             Some(view) if views_allowed => vec![view],
             Some(view) => {
-                tracing::warn!(
+                tracing::info!(
                     "the surface has no sRGB format and cannot be viewed as {view:?}: \
-                     colours will be drawn without the sRGB encode (too dark)"
+                     the frame is sRGB-encoded by a pass of its own"
                 );
                 Vec::new()
             }
@@ -5707,6 +5712,43 @@ impl WgpuSurface {
             false,
             caps,
         )
+    }
+
+    /// [`Self::offscreen_for_testing`] into a target of `format` rather than
+    /// the usual `Rgba8UnormSrgb`. `Rgba8Unorm` is what an Android GLES
+    /// surface gives -- a target that stores what it is given and cannot
+    /// encode sRGB -- so a test can run the frame that surface gets
+    /// (`crate::srgb_encode`) on any adapter, and compare it with the usual
+    /// one. [`Self::read_pixels`] reads the target as it is.
+    #[doc(hidden)]
+    pub fn offscreen_for_testing_in_format(
+        width: u32,
+        height: u32,
+        format: wgpu::TextureFormat,
+    ) -> Result<Self, String> {
+        let (device, queue, caps) = Self::shared_test_device().clone();
+        let texture =
+            crate::output::create_offscreen_texture_with_format(&device, width, height, format);
+        Self::build(
+            device,
+            queue,
+            crate::output::Output::Offscreen {
+                texture,
+                width,
+                height,
+                format,
+            },
+            false,
+            caps,
+        )
+    }
+
+    /// Whether this renderer encodes sRGB with a pass of its own
+    /// (`crate::srgb_encode`): what a test of that pass checks first, so it
+    /// cannot pass on a renderer that never took the path.
+    #[doc(hidden)]
+    pub fn encodes_srgb_itself(&self) -> bool {
+        self.srgb_encode.is_some()
     }
 
     /// What this renderer's adapter could do, as it was built for it.
@@ -7103,6 +7145,9 @@ impl WgpuSurface {
             },
         );
 
+        let srgb_encode = output
+            .needs_srgb_encode()
+            .then(|| crate::srgb_encode::SrgbEncode::new(&device, width, height, output.format()));
         let mut surface = Self {
             output,
             device,
@@ -7229,6 +7274,7 @@ impl WgpuSurface {
             hdr_output: None,
             ui_layer: None,
             pq_output: None,
+            srgb_encode,
             hdr_levels: None,
             display_adapter: None,
             msaa_samples: 1,
@@ -9379,7 +9425,15 @@ impl WgpuSurface {
 
         // `presentable` is the swapchain frame to hand back at the end of the
         // function, and is `None` when rendering offscreen.
-        let (view, presentable) = self.output.acquire()?;
+        let (output_view, presentable) = self.output.acquire()?;
+        // Where the frame is drawn: the output itself, or, for an output that
+        // cannot encode sRGB (an Android GLES surface), the sRGB texture
+        // `SrgbEncode` encodes into it at the end of the frame. Every pass
+        // below draws into `view` and never sees the difference.
+        let view = match &self.srgb_encode {
+            Some(encode) => encode.frame_view().clone(),
+            None => output_view.clone(),
+        };
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -11702,6 +11756,11 @@ impl WgpuSurface {
         if let Some(pq) = &self.pq_output {
             pq.encode(&mut encoder, &view, has_ui);
         }
+        // An output that cannot encode sRGB: the finished frame, UI and all,
+        // encoded into it. Last, as the HDR10 encode above is for its signal.
+        if let Some(encode) = &self.srgb_encode {
+            encode.encode(&mut encoder, &output_view);
+        }
 
         // Resolve this frame's GPU timestamps into a buffer the CPU can map.
         // `gpu_pass_index` is the number of timed passes issued above (0
@@ -11861,6 +11920,9 @@ impl WgpuSurface {
             return;
         }
         self.output.resize(&self.device, width, height);
+        if let Some(encode) = &mut self.srgb_encode {
+            encode.resize(&self.device, width, height);
+        }
         let (depth_texture, depth_view) = Self::create_depth_texture(&self.device, width, height);
         self.depth_texture = depth_texture;
         self.depth_view = depth_view;

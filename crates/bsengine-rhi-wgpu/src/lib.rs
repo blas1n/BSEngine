@@ -81,6 +81,8 @@ pub mod skinning;
 mod smaa;
 /// Spot light shadows: one perspective depth map per spot light.
 pub mod spot_shadow;
+/// The sRGB encode for an output that cannot do it (an Android GLES surface).
+mod srgb_encode;
 /// Swapchain/frame lifecycle and the main scene render pass.
 pub mod surface;
 pub mod taa_jitter;

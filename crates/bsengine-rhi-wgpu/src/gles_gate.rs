@@ -159,6 +159,13 @@ mod tests {
         for (path, verdict) in gles.finish_custom_shaders() {
             verdict.unwrap_or_else(|e| panic!("custom shader {path}: {e}"));
         }
+        // A GLES surface's own format, `Rgba8Unorm`: the frame is drawn into
+        // a texture and encoded into the surface by a pass of its own
+        // (`crate::srgb_encode`), which no other target makes.
+        let unorm =
+            WgpuSurface::offscreen_for_testing_in_format(64, 64, wgpu::TextureFormat::Rgba8Unorm)
+                .expect("offscreen renderer into Rgba8Unorm");
+        assert!(unorm.encodes_srgb_itself());
         let mut surface = WgpuSurface::offscreen_for_testing(64, 64).expect("offscreen renderer");
         surface.make_lazy_pipelines_for_gles_gate();
         surface.set_skybox_from_rgba(1, 1, &[128, 128, 255, 255]);

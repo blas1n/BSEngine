@@ -391,6 +391,11 @@ impl ApplicationHandler for BsWinitApp {
                     self.resumed(event_loop);
                 }
 
+                // Not on iOS: there `about_to_wait` asks for the next frame,
+                // and asking here, while winit is processing redraws, only
+                // made it warn "processing non `RedrawRequested` event after
+                // the main event loop" once a frame.
+                #[cfg(not(target_os = "ios"))]
                 if let Some(w) = &self.window {
                     w.request_redraw();
                 }

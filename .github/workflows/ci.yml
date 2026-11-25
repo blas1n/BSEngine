@@ -282,7 +282,7 @@ jobs:
       # The iOS build runs: scripts/build_ios.sh makes cube-evader's .app for
       # the Simulator (the runtime's iOS entry reads the game.pak in the
       # bundle, src/ios.rs), and the app is launched in a booted iPhone
-      # Simulator with `--frames 300` -- the same check a desktop window
+      # Simulator with `--frames 600` -- the same check a desktop window
       # smoke test makes: it must report a GPU, run the frames and draw, with
       # no panic or wgpu validation error. `--frames` ends the process itself
       # on iOS, where an app cannot quit, so `simctl launch --console-pty`
@@ -303,19 +303,21 @@ jobs:
           xcrun simctl bootstatus "$udid" -b
           xcrun simctl install "$udid" "$app"
           log="$out/run.log"
-          xcrun simctl launch --console-pty "$udid" "$id" --frames 300 > "$log" 2>&1 &
+          xcrun simctl launch --console-pty "$udid" "$id" --frames 600 > "$log" 2>&1 &
           pid=$!
           # Killing `simctl` alone leaves the app running (the first run went
           # on 30 minutes past it): terminate the app too.
           ( sleep 600; xcrun simctl terminate "$udid" "$id"; kill "$pid" ) > /dev/null 2>&1 &
           watchdog=$!
           # The screenshot once the renderer is up (the app's first launch
-          # takes a while), and a few frames later.
+          # takes a while), and a couple of seconds in: 600 frames at the
+          # Simulator's 60 Hz are ten seconds, and 300 were over before a
+          # screenshot five seconds after "ready" (it showed the home screen).
           for _ in $(seq 120); do
             grep -q "texture registry ready" "$log" && break
             sleep 1
           done
-          sleep 5
+          sleep 2
           xcrun simctl io "$udid" screenshot "$out/running.png" || true
           wait "$pid" || true
           kill "$watchdog" 2>/dev/null || true
@@ -327,8 +329,8 @@ jobs:
           echo "result: ${line:-none}"
           frames=$(echo "$line" | sed -n 's/^frames=\([0-9]*\).*/\1/p')
           drawn=$(echo "$line" | sed -n 's/.*draw_calls=\([0-9]*\).*/\1/p')
-          [ "${frames:-0}" -eq 300 ] && [ "${drawn:-0}" -gt 0 ] ||
-            { echo "expected frames=300 and draw_calls > 0"; exit 1; }
+          [ "${frames:-0}" -eq 600 ] && [ "${drawn:-0}" -gt 0 ] ||
+            { echo "expected frames=600 and draw_calls > 0"; exit 1; }
 
       - name: Keep the iOS Simulator run's screenshot and log
         if: always() && matrix.os == 'macos-latest'

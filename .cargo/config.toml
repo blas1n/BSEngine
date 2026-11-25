@@ -58,3 +58,12 @@ rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
 # "thread 'rustc' has overflowed its stack" on Windows, SIGSEGV on Linux --
 # where 1.97 did not. 16 MiB was the smallest power of two that compiles it.
 RUST_MIN_STACK = "16777216"
+
+# The oldest iOS a game runs on (user decision 2026-11-25: iOS 15, as Unreal 5;
+# Unity 6 says 13, Godot 4 says 12). One value for everything an iOS build
+# compiles: rustc links for it, and cc-rs compiles the C dependencies (QuickJS,
+# blake3) for it. Unset, the two disagreed -- rustc's default is 10.0, cc took
+# the SDK's (26.5) -- and the device link failed on `___chkstk_darwin`, which
+# QuickJS's objects referenced and iOS 10 does not have. Only Apple's iOS
+# targets read it. Not `force`, so `IPHONEOS_DEPLOYMENT_TARGET=…` overrides it.
+IPHONEOS_DEPLOYMENT_TARGET = "15.0"

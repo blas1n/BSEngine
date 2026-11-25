@@ -257,6 +257,28 @@ jobs:
       - name: Component catalogue check
         run: cargo run -p bsengine-catalog --bin catalog -- --check
 
+      # The iOS build: the runtime -- engine, QuickJS scripting (rquickjs
+      # generates its bindings here with Xcode's libclang: it ships none for
+      # iOS) and the executable's link -- for a device and for the Simulator
+      # on Apple Silicon. Only a macOS host has the iOS SDK, so only this job
+      # can; it is the first iOS step, so it runs before the long ones and
+      # fails fast. Running in the Simulator comes after (see the iOS design).
+      - name: iOS build (device and Simulator)
+        if: matrix.os == 'macos-latest'
+        run: |
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+          for t in aarch64-apple-ios aarch64-apple-ios-sim; do
+            cargo build -p bsengine-runtime --target "$t"
+            exe="target/$t/debug/bsengine-runtime"
+            file "$exe"
+            # Built for the oldest iOS the games support, the value
+            # .cargo/config.toml sets (IPHONEOS_DEPLOYMENT_TARGET): a mismatch
+            # between rustc's and cc's targets is what broke the first link.
+            minos=$(otool -l "$exe" | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')
+            echo "$t: minos $minos"
+            [ "$minos" = "15.0" ] || { echo "expected minos 15.0 (IPHONEOS_DEPLOYMENT_TARGET)"; exit 1; }
+          done
+
       # The browser build: the engine must keep compiling for wasm32,
       # scripting included (its ops bind to the browser's JS engine there
       # instead of V8 -- see bsengine-scripting-macros). Ubuntu only -- a

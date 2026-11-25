@@ -38,7 +38,6 @@ mod android_settings;
 mod audio_occlusion;
 #[cfg(not(target_arch = "wasm32"))]
 mod bake;
-#[cfg(not(target_arch = "wasm32"))]
 mod ios_settings;
 mod scene_systems;
 #[cfg(not(target_arch = "wasm32"))]

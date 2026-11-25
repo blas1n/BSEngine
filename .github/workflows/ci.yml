@@ -269,7 +269,14 @@ jobs:
           rustup target add aarch64-apple-ios aarch64-apple-ios-sim
           for t in aarch64-apple-ios aarch64-apple-ios-sim; do
             cargo build -p bsengine-runtime --target "$t"
-            file "target/$t/debug/bsengine-runtime"
+            exe="target/$t/debug/bsengine-runtime"
+            file "$exe"
+            # Built for the oldest iOS the games support, the value
+            # .cargo/config.toml sets (IPHONEOS_DEPLOYMENT_TARGET): a mismatch
+            # between rustc's and cc's targets is what broke the first link.
+            minos=$(otool -l "$exe" | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')
+            echo "$t: minos $minos"
+            [ "$minos" = "15.0" ] || { echo "expected minos 15.0 (IPHONEOS_DEPLOYMENT_TARGET)"; exit 1; }
           done
 
       # The browser build: the engine must keep compiling for wasm32,

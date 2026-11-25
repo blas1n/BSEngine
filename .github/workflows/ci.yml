@@ -266,6 +266,7 @@ jobs:
       - name: iOS build (device and Simulator)
         if: matrix.os == 'macos-latest'
         run: |
+          export IPHONEOS_DEPLOYMENT_TARGET=16.0 # MUTATION
           rustup target add aarch64-apple-ios aarch64-apple-ios-sim
           for t in aarch64-apple-ios aarch64-apple-ios-sim; do
             cargo build -p bsengine-runtime --target "$t"

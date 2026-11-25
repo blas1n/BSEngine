@@ -279,6 +279,58 @@ jobs:
             [ "$minos" = "15.0" ] || { echo "expected minos 15.0 (IPHONEOS_DEPLOYMENT_TARGET)"; exit 1; }
           done
 
+      # The iOS build runs: scripts/build_ios.sh makes cube-evader's .app for
+      # the Simulator (the runtime's iOS entry reads the game.pak in the
+      # bundle, src/ios.rs), and the app is launched in a booted iPhone
+      # Simulator with `--frames 300` -- the same check a desktop window
+      # smoke test makes: it must report a GPU, run the frames and draw, with
+      # no panic or wgpu validation error. `--frames` ends the process itself
+      # on iOS, where an app cannot quit, so `simctl launch --console-pty`
+      # returns; a watchdog kills it if it never does. A screenshot taken
+      # while it runs and the log are kept as an artifact.
+      - name: iOS Simulator run (cube-evader)
+        if: matrix.os == 'macos-latest'
+        run: |
+          out="$RUNNER_TEMP/ios"
+          bash scripts/build_ios.sh games/cube-evader "$out" --sim --debug
+          app=$(ls -d "$out"/*.app)
+          id=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist")
+          udid=$(xcrun simctl list devices available -j |
+            jq -r '[.devices | to_entries[] | select(.key | test("iOS")) | .value[]
+                    | select(.name | test("^iPhone"))][0].udid')
+          [ -n "$udid" ] && [ "$udid" != null ] || { xcrun simctl list devices available; exit 1; }
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid" -b
+          xcrun simctl install "$udid" "$app"
+          log="$out/run.log"
+          xcrun simctl launch --console-pty "$udid" "$id" --frames 300 > "$log" 2>&1 &
+          pid=$!
+          ( sleep 600; kill "$pid" 2>/dev/null ) &
+          watchdog=$!
+          sleep 25
+          xcrun simctl io "$udid" screenshot "$out/running.png" || true
+          wait "$pid" || true
+          kill "$watchdog" 2>/dev/null || true
+          cat "$log"
+          grep -q "GPU:" "$log" || { echo "no GPU line: the renderer never started"; exit 1; }
+          if grep -Eiq "panicked|validation error" "$log"; then echo "a panic or a wgpu validation error"; exit 1; fi
+          line=$(grep -E "^frames=[0-9]+ draw_calls=[0-9]+" "$log" | tail -1)
+          echo "result: ${line:-none}"
+          frames=$(echo "$line" | sed -n 's/^frames=\([0-9]*\).*/\1/p')
+          drawn=$(echo "$line" | sed -n 's/.*draw_calls=\([0-9]*\).*/\1/p')
+          [ "${frames:-0}" -eq 300 ] && [ "${drawn:-0}" -gt 0 ] ||
+            { echo "expected frames=300 and draw_calls > 0"; exit 1; }
+
+      - name: Keep the iOS Simulator run's screenshot and log
+        if: always() && matrix.os == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator
+          path: |
+            ${{ runner.temp }}/ios/running.png
+            ${{ runner.temp }}/ios/run.log
+          if-no-files-found: ignore
+
       # The browser build: the engine must keep compiling for wasm32,
       # scripting included (its ops bind to the browser's JS engine there
       # instead of V8 -- see bsengine-scripting-macros). Ubuntu only -- a

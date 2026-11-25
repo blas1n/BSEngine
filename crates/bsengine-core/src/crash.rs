@@ -48,17 +48,27 @@ pub struct UserPaths {
 }
 
 /// The per-user directory for a project: `%LOCALAPPDATA%\<name>` on Windows,
-/// `~/Library/Application Support/<name>` on macOS, `$XDG_DATA_HOME/<name>`
-/// (or `~/.local/share/<name>`) elsewhere -- or [`USER_DIR_ENV`] when set.
+/// `~/Library/Application Support/<name>` on macOS, `~/Documents/<name>` on
+/// iOS, `$XDG_DATA_HOME/<name>` (or `~/.local/share/<name>`) elsewhere -- or
+/// [`USER_DIR_ENV`] when set.
+///
+/// On iOS `HOME` is the app's own container, and its `Documents` is where
+/// Unity's `persistentDataPath`, Godot's `user://` and Unreal's saves all go
+/// there: private to the app (unless it opts into file sharing), kept across
+/// updates and backed up. The `.local/share` the fallback below would give is
+/// a Linux convention no iOS tool looks in.
 pub fn user_data_dir(project_name: &str) -> PathBuf {
+    let home = |sub: &str| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(sub));
     let base = if cfg!(windows) {
         std::env::var_os("LOCALAPPDATA").map(PathBuf::from)
     } else if cfg!(target_os = "macos") {
-        std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Library/Application Support"))
+        home("Library/Application Support")
+    } else if cfg!(target_os = "ios") {
+        home("Documents")
     } else {
         std::env::var_os("XDG_DATA_HOME")
             .map(PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
+            .or_else(|| home(".local/share"))
     };
     user_data_dir_from(
         std::env::var(USER_DIR_ENV).ok().as_deref(),

@@ -139,6 +139,22 @@ impl BsWinitApp {
 }
 
 impl ApplicationHandler for BsWinitApp {
+    /// On iOS, where the next frame is asked for: once the loop has handled
+    /// what came in, as winit's own examples and Bevy do there. The
+    /// `request_redraw` at the end of `RedrawRequested` -- what keeps every
+    /// other platform going -- is made while winit's iOS loop is processing
+    /// redraws, and does not bring another: the first Simulator run drew a
+    /// handful of frames and then nothing, its log silent until the watchdog.
+    #[cfg(target_os = "ios")]
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        if self.suspended {
+            return;
+        }
+        if let Some(w) = &self.window {
+            w.request_redraw();
+        }
+    }
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         // Android sends this again each time the app returns from the
         // background, with the window it had and a new native surface under
@@ -156,8 +172,15 @@ impl ApplicationHandler for BsWinitApp {
 
         let attrs = winit::window::WindowAttributes::default()
             .with_title(desc.title)
-            .with_inner_size(winit::dpi::LogicalSize::new(desc.width, desc.height))
             .with_resizable(desc.resizable);
+        // `[window]`'s size is a desktop window's. On iOS winit makes it the
+        // UIWindow's frame, in points: the first Simulator runs drew a
+        // 1280x720-point window on a 402x874-point phone -- cut off on the
+        // right, and the bottom sixth of the screen black. Left out there, the
+        // window is the whole screen, as an app's always is. (It still sets
+        // the UI's design resolution, `[ui] scale`.)
+        #[cfg(not(target_os = "ios"))]
+        let attrs = attrs.with_inner_size(winit::dpi::LogicalSize::new(desc.width, desc.height));
         // In a browser the window is a canvas, appended to the page's body.
         #[cfg(target_arch = "wasm32")]
         let attrs = {
@@ -375,6 +398,11 @@ impl ApplicationHandler for BsWinitApp {
                     self.resumed(event_loop);
                 }
 
+                // Not on iOS: there `about_to_wait` asks for the next frame,
+                // and asking here, while winit is processing redraws, only
+                // made it warn "processing non `RedrawRequested` event after
+                // the main event loop" once a frame.
+                #[cfg(not(target_os = "ios"))]
                 if let Some(w) = &self.window {
                     w.request_redraw();
                 }
@@ -417,6 +445,17 @@ pub fn winit_runner(app: App) -> AppExit {
             .build()
             .expect("Failed to create event loop")
     };
+    // On iOS frames come from the display: winit drives `RedrawRequested`
+    // from a CADisplayLink, and the `request_redraw` at the end of each frame
+    // (`RedrawRequested` above) asks for the next one, so the game runs at the
+    // screen's rate with `Wait` as on every other platform with `Poll`. `Poll`
+    // there made winit spin `AboutToWait` between display ticks, warning
+    // "processing non `RedrawRequested` event after the main event loop" each
+    // time: 6.4 million lines in the first Simulator run, which reached the
+    // game's first frames and never its 300th.
+    #[cfg(target_os = "ios")]
+    event_loop.set_control_flow(ControlFlow::Wait);
+    #[cfg(not(target_os = "ios"))]
     event_loop.set_control_flow(ControlFlow::Poll);
 
     let winit_app = BsWinitApp {

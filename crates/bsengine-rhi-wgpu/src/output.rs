@@ -262,7 +262,7 @@ impl Output {
         // The window may have changed size while it was away (rotated in the
         // background); a zero size is a window not laid out yet, which keeps
         // the last one rather than configuring an empty swapchain.
-        let size = window.inner_size();
+        let size = surface_size(window);
         if size.width > 0 && size.height > 0 {
             config.width = size.width;
             config.height = size.height;
@@ -416,4 +416,19 @@ pub(crate) fn create_offscreen_texture_with_format(
             view_formats: &[],
         },
     )
+}
+
+/// The size, in pixels, of what a window's surface covers: the whole view.
+///
+/// `inner_size` everywhere but iOS, where winit makes `inner_size` the *safe
+/// area* -- the view less the notch, the status bar and the home indicator --
+/// while the Metal layer the surface presents to covers the whole view, and
+/// `WindowEvent::Resized` reports the whole view. A surface configured at
+/// `inner_size` there was smaller than its layer: the first Simulator frame
+/// filled only part of the screen. `outer_size` is the whole view.
+pub(crate) fn surface_size(window: &winit::window::Window) -> winit::dpi::PhysicalSize<u32> {
+    #[cfg(target_os = "ios")]
+    return window.outer_size();
+    #[cfg(not(target_os = "ios"))]
+    window.inner_size()
 }

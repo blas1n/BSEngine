@@ -4804,7 +4804,7 @@ impl WgpuSurface {
         let (instance, surface, parts) = Self::android_device(&window, apis).await?;
         let (adapter, device, queue, render_caps) = parts;
 
-        let size = window.inner_size();
+        let size = crate::output::surface_size(&window);
         let caps = surface.get_capabilities(&adapter);
         // Here, on the thread that runs `Startup`'s exclusive systems -- the
         // main one, which Metal needs for this (see `refresh_hdr_levels`).

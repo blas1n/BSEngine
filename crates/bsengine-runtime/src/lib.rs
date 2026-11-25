@@ -38,6 +38,7 @@ mod android_settings;
 mod audio_occlusion;
 #[cfg(not(target_arch = "wasm32"))]
 mod bake;
+mod ios_settings;
 mod scene_systems;
 #[cfg(not(target_arch = "wasm32"))]
 mod test_mode;
@@ -54,6 +55,8 @@ mod web_saves;
 
 #[cfg(target_os = "android")]
 mod android;
+#[cfg(target_os = "ios")]
+mod ios;
 
 /// The browser build's entry: the page has started the module.
 #[cfg(target_arch = "wasm32")]
@@ -72,6 +75,13 @@ pub fn run() {
     // process when the argument says so (`bsengine_core::native_crash`).
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     if bsengine_core::native_crash::run_monitor_if_asked() {
+        return;
+    }
+    // An iOS app is launched with no project argument and `/` as its
+    // working directory; its game is the archive in its bundle (`ios.rs`).
+    #[cfg(target_os = "ios")]
+    if ios::is_app_launch() {
+        ios::run();
         return;
     }
     let mut args = env::args().skip(1);
@@ -172,7 +182,7 @@ pub fn run() {
                 }
                 "--mode" => {
                     let value = args.next().unwrap_or_else(|| {
-                        panic!("--mode requires loose, pak, single, web or android")
+                        panic!("--mode requires loose, pak, single, web, android or ios")
                     });
                     mode = Some(match value.as_str() {
                         "loose" => bsengine_asset::cook::PackageMode::Loose,
@@ -180,8 +190,9 @@ pub fn run() {
                         "single" => bsengine_asset::cook::PackageMode::Single,
                         "web" => bsengine_asset::cook::PackageMode::Web,
                         "android" => bsengine_asset::cook::PackageMode::Android,
+                        "ios" => bsengine_asset::cook::PackageMode::Ios,
                         other => panic!(
-                            "unknown --mode {other}; expected loose, pak, single, web or android"
+                            "unknown --mode {other}; expected loose, pak, single, web, android or ios"
                         ),
                     });
                 }
@@ -406,6 +417,9 @@ fn run_package(
     // says what this one invocation should.
     let mode = mode_override.unwrap_or(manifest.package.mode);
     let android_mode = mode == bsengine_asset::cook::PackageMode::Android;
+    // A phone's build, Android's or iOS's: its textures are precooked in the
+    // family a phone GPU takes (below).
+    let phone_mode = android_mode || mode == bsengine_asset::cook::PackageMode::Ios;
     // Checked in every mode: a wrong application id or version is found at
     // the first desktop build, not at the first upload.
     let android = match manifest.android.resolve(
@@ -434,7 +448,7 @@ fn run_package(
     // phone, which has no BC and whose runtime has no ASTC encoder, so what
     // is not made here uploads uncompressed there. One family per build, as
     // Unity and Unreal cook per target platform.
-    let family = if android_mode {
+    let family = if phone_mode {
         bsengine_rhi_wgpu::CompressionFamily::Astc
     } else {
         bsengine_rhi_wgpu::CompressionFamily::Bc
@@ -481,6 +495,15 @@ fn run_package(
             cooked.problems.len()
         );
         return 1;
+    }
+
+    // What `scripts/build_ios.sh` names the app by (`ios_settings.rs`).
+    if mode == bsengine_asset::cook::PackageMode::Ios {
+        let path = std::path::Path::new(out_dir).join("ios.properties");
+        if let Err(e) = std::fs::write(&path, ios_settings::properties(&manifest.project.name)) {
+            eprintln!("package: cannot write {} ({e})", path.display());
+            return 1;
+        }
     }
 
     // What `scripts/build_android.sh` names, versions and signs the APK by.
@@ -840,6 +863,18 @@ fn quit_after_frames(app: &mut bevy_app::App, frames: u32, suspend_after: Option
                     );
                 }
                 exit.write(bevy_app::AppExit::Success);
+                // iOS does not let an app quit: winit ignores the event
+                // loop's exit there (Apple's QA1561), so the run would go on
+                // and `simctl launch --console-pty`, which returns when the
+                // app does, would never return. `--frames` is a test flag,
+                // never a shipped game's, so ending the process outright is
+                // what it asks for.
+                #[cfg(target_os = "ios")]
+                {
+                    use std::io::Write;
+                    let _ = std::io::stdout().flush();
+                    std::process::exit(0);
+                }
             }
         },
     );

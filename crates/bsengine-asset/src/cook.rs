@@ -501,6 +501,12 @@ pub enum PackageMode {
     /// No executable and no page: the engine is a shared library in the APK,
     /// and `scripts/build_android.sh` puts the two together.
     Android,
+    /// The iOS build's data: the same archive as [`Self::Android`]'s, the
+    /// manifest inside it, and nothing else. `scripts/build_ios.sh` puts it at
+    /// the root of the `.app` beside the executable it builds for the target
+    /// (this runtime is the host's, not one a phone runs), where the runtime
+    /// reads it (`bsengine-runtime/src/ios.rs`).
+    Ios,
 }
 
 /// The page a web build is opened through.
@@ -624,7 +630,7 @@ pub fn package_with_precook(
     // reads first.
     if !matches!(
         mode,
-        PackageMode::Single | PackageMode::Web | PackageMode::Android
+        PackageMode::Single | PackageMode::Web | PackageMode::Android | PackageMode::Ios
     ) {
         copy(&project_dir.join(MANIFEST), &out_dir.join(MANIFEST))?;
     }
@@ -694,7 +700,7 @@ pub fn package_with_precook(
             crate::pak::write_pak(out_dir.join(PAK_FILE_NAME), &entries)?;
             std::fs::write(out_dir.join(WEB_PAGE_FILE_NAME), WEB_PAGE)?;
         }
-        PackageMode::Android => {
+        PackageMode::Android | PackageMode::Ios => {
             let mut entries = archive_entries(project_dir, &cooked)?;
             entries.extend(precooked);
             entries.push((
@@ -1727,6 +1733,7 @@ mod tests {
             PackageMode::Single,
             PackageMode::Web,
             PackageMode::Android,
+            PackageMode::Ios,
         ] {
             let probe = Probe::create();
             probe.write(
@@ -1782,7 +1789,7 @@ mod tests {
             assert_eq!(cooked.precooked_mips, vec![shipped.clone()], "{mode:?}");
             let bytes = match mode {
                 PackageMode::Loose => std::fs::read(out.join(&shipped)).ok(),
-                PackageMode::Pak | PackageMode::Web | PackageMode::Android => {
+                PackageMode::Pak | PackageMode::Web | PackageMode::Android | PackageMode::Ios => {
                     crate::pak::Pak::open(out.join(PAK_FILE_NAME))
                         .expect("open the archive")
                         .get(&shipped)
@@ -1848,37 +1855,38 @@ mod tests {
     /// An Android build is the archive alone, with the manifest inside it:
     /// no executable, no page and no loose manifest -- the app reads only
     /// `assets/game.pak` from its APK. Without the manifest inside, the app
-    /// stopped at "Cannot read game/project.toml" on its first run.
+    /// stopped at "Cannot read game/project.toml" on its first run. An iOS
+    /// build is the same archive: the `.app` holds it beside the executable,
+    /// and the runtime reads it the same way (`bsengine-runtime/src/ios.rs`).
     #[test]
-    fn an_android_build_is_one_archive_carrying_its_manifest() {
-        let probe = Probe::create();
-        let manifest = "[project]
+    fn an_android_or_ios_build_is_one_archive_carrying_its_manifest() {
+        for mode in [PackageMode::Android, PackageMode::Ios] {
+            let probe = Probe::create();
+            let manifest = "[project]
 name = \"P\"
 entry_scene = \"assets/scenes/main.ron\"
 ";
-        probe.write("project.toml", manifest);
-        probe.write("assets/scenes/main.ron", "(entities: [])");
-        let exe = probe.fake_runtime();
-        let out = probe.0.join("dist");
-        let cooked = package(
-            &probe.0,
-            "assets/scenes/main.ron",
-            &[],
-            PackageMode::Android,
-            &exe,
-            &out,
-        )
-        .expect("package");
-        assert!(cooked.is_ok(), "{:?}", cooked.missing);
+            probe.write("project.toml", manifest);
+            probe.write("assets/scenes/main.ron", "(entities: [])");
+            let exe = probe.fake_runtime();
+            let out = probe.0.join("dist");
+            let cooked = package(&probe.0, "assets/scenes/main.ron", &[], mode, &exe, &out)
+                .expect("package");
+            assert!(cooked.is_ok(), "{:?}", cooked.missing);
 
-        let files: Vec<String> = std::fs::read_dir(&out)
-            .expect("read the output")
-            .map(|e| e.expect("entry").file_name().to_string_lossy().into_owned())
-            .collect();
-        assert_eq!(files, vec![PAK_FILE_NAME.to_string()], "only the archive");
-        let pak = crate::pak::Pak::open(out.join(PAK_FILE_NAME)).expect("open the archive");
-        assert_eq!(pak.get(MANIFEST_ENTRY), Some(manifest.as_bytes()));
-        assert!(pak.get("assets/scenes/main.ron").is_some(), "and the scene");
+            let files: Vec<String> = std::fs::read_dir(&out)
+                .expect("read the output")
+                .map(|e| e.expect("entry").file_name().to_string_lossy().into_owned())
+                .collect();
+            assert_eq!(
+                files,
+                vec![PAK_FILE_NAME.to_string()],
+                "{mode:?}: only the archive"
+            );
+            let pak = crate::pak::Pak::open(out.join(PAK_FILE_NAME)).expect("open the archive");
+            assert_eq!(pak.get(MANIFEST_ENTRY), Some(manifest.as_bytes()));
+            assert!(pak.get("assets/scenes/main.ron").is_some(), "and the scene");
+        }
     }
 
     /// The archive holds exactly the collected set — the same set loose mode

@@ -573,13 +573,13 @@ fn a_pak_build_carries_its_string_tables_and_translates_from_them() {
 }
 
 /// A compressed texture is precooked in the block family of the build's
-/// players: BC for a desktop build, ASTC for an Android one -- whose GPU has
-/// no BC and whose runtime cannot encode ASTC, so a BC file there would
-/// leave every compressed texture uncompressed on the phone. Read from the
+/// players: BC for a desktop build, ASTC for an Android or iOS one -- whose
+/// GPU has no BC and whose runtime cannot encode ASTC, so a BC file there
+/// would leave every compressed texture uncompressed on the phone. Read from the
 /// packages the real binary writes: the encoding tag in each shipped file's
 /// header (bytes 12..16; 1 = BC1, 41 = ASTC 4x4 sRGB).
 #[test]
-fn an_android_build_precooks_astc_and_a_desktop_build_bc() {
+fn a_phone_build_precooks_astc_and_a_desktop_build_bc() {
     use bsengine_core::{ImportSettings, TextureCompression, TextureImportSettings};
     let project = Output::new();
     std::fs::create_dir_all(project.0.join("assets/scenes")).unwrap();
@@ -640,19 +640,72 @@ fn an_android_build_precooks_astc_and_a_desktop_build_bc() {
     let desktop = std::fs::read(&files[0]).unwrap();
     assert_eq!(tag(&desktop), 1, "a desktop build ships BC1");
 
-    let android = package("android");
-    let pak = bsengine_asset::pak::Pak::open(android.0.join("game.pak")).expect("the archive");
-    let shipped: Vec<&str> = pak.paths().filter(|p| p.starts_with(shipped_dir)).collect();
-    assert_eq!(
-        shipped.len(),
-        1,
-        "an Android build ships one precooked file: {shipped:?}"
+    for mode in ["android", "ios"] {
+        let phone_build = package(mode);
+        let pak =
+            bsengine_asset::pak::Pak::open(phone_build.0.join("game.pak")).expect("the archive");
+        let shipped: Vec<&str> = pak.paths().filter(|p| p.starts_with(shipped_dir)).collect();
+        assert_eq!(
+            shipped.len(),
+            1,
+            "{mode}: a phone build ships one precooked file: {shipped:?}"
+        );
+        let phone = pak.get(shipped[0]).unwrap();
+        assert_eq!(tag(phone), 41, "{mode}: a phone build ships ASTC 4x4 sRGB");
+        assert_ne!(
+            files[0].file_name().unwrap().to_str().unwrap(),
+            shipped[0].rsplit('/').next().unwrap(),
+            "the two files are named for their encodings"
+        );
+    }
+}
+
+/// An iOS build is the archive and the `ios.properties` `scripts/build_ios.sh`
+/// names the app by -- a bundle id iOS accepts (no `_`, unlike Android's) and
+/// the name, escaped for `Info.plist` -- and nothing else: no executable, the
+/// script builds that for the target.
+#[test]
+fn an_ios_build_is_the_archive_and_its_properties() {
+    let project = Output::new();
+    std::fs::create_dir_all(project.0.join("assets/scenes")).unwrap();
+    std::fs::write(
+        project.0.join("assets/scenes/main.ron"),
+        r#"SceneDescriptor(entities: [EntityDescriptor(name: "Only")])"#,
+    )
+    .unwrap();
+    std::fs::write(
+        project.0.join("project.toml"),
+        "[project]\nname = \"Mini & Arena\"\nentry_scene = \"assets/scenes/main.ron\"\n",
+    )
+    .unwrap();
+    let out = Output::new();
+    let run = Command::new(env!("CARGO_BIN_EXE_bsengine-runtime"))
+        .arg("--package")
+        .arg(&project.0)
+        .arg("--out")
+        .arg(&out.0)
+        .arg("--mode")
+        .arg("ios")
+        .output()
+        .expect("run --package");
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
     );
-    let phone = pak.get(shipped[0]).unwrap();
-    assert_eq!(tag(phone), 41, "an Android build ships ASTC 4x4 sRGB");
-    assert_ne!(
-        files[0].file_name().unwrap().to_str().unwrap(),
-        shipped[0].rsplit('/').next().unwrap(),
-        "the two files are named for their encodings"
+    let mut files: Vec<String> = std::fs::read_dir(&out.0)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    files.sort();
+    assert_eq!(files, ["game.pak", "ios.properties"]);
+    assert_eq!(
+        std::fs::read_to_string(out.0.join("ios.properties")).unwrap(),
+        "bundle_id=com.bsengine.mini-arena\nname_xml=Mini &amp; Arena\n"
+    );
+    let pak = bsengine_asset::pak::Pak::open(out.0.join("game.pak")).expect("the archive");
+    assert!(
+        pak.get(bsengine_asset::cook::MANIFEST_ENTRY).is_some(),
+        "the manifest travels inside the archive"
     );
 }

@@ -43,3 +43,4 @@
 # eol=lf` above, or a Windows checkout's autocrlf, would rewrite those and
 # every build would fail its checksum.
 vendor/** -text
+patches/** -text

@@ -305,13 +305,22 @@ jobs:
           log="$out/run.log"
           xcrun simctl launch --console-pty "$udid" "$id" --frames 300 > "$log" 2>&1 &
           pid=$!
-          ( sleep 600; kill "$pid" 2>/dev/null ) &
+          # Killing `simctl` alone leaves the app running (the first run went
+          # on 30 minutes past it): terminate the app too.
+          ( sleep 600; xcrun simctl terminate "$udid" "$id"; kill "$pid" ) > /dev/null 2>&1 &
           watchdog=$!
-          sleep 25
+          # The screenshot once the renderer is up (the app's first launch
+          # takes a while), and a few frames later.
+          for _ in $(seq 120); do
+            grep -q "texture registry ready" "$log" && break
+            sleep 1
+          done
+          sleep 5
           xcrun simctl io "$udid" screenshot "$out/running.png" || true
           wait "$pid" || true
           kill "$watchdog" 2>/dev/null || true
-          cat "$log"
+          echo "log: $(wc -l < "$log") lines"
+          head -c 200000 "$log"
           grep -q "GPU:" "$log" || { echo "no GPU line: the renderer never started"; exit 1; }
           if grep -Eiq "panicked|validation error" "$log"; then echo "a panic or a wgpu validation error"; exit 1; fi
           line=$(grep -E "^frames=[0-9]+ draw_calls=[0-9]+" "$log" | tail -1)

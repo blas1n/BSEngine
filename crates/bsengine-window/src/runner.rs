@@ -417,6 +417,17 @@ pub fn winit_runner(app: App) -> AppExit {
             .build()
             .expect("Failed to create event loop")
     };
+    // On iOS frames come from the display: winit drives `RedrawRequested`
+    // from a CADisplayLink, and the `request_redraw` at the end of each frame
+    // (`RedrawRequested` above) asks for the next one, so the game runs at the
+    // screen's rate with `Wait` as on every other platform with `Poll`. `Poll`
+    // there made winit spin `AboutToWait` between display ticks, warning
+    // "processing non `RedrawRequested` event after the main event loop" each
+    // time: 6.4 million lines in the first Simulator run, which reached the
+    // game's first frames and never its 300th.
+    #[cfg(target_os = "ios")]
+    event_loop.set_control_flow(ControlFlow::Wait);
+    #[cfg(not(target_os = "ios"))]
     event_loop.set_control_flow(ControlFlow::Poll);
 
     let winit_app = BsWinitApp {

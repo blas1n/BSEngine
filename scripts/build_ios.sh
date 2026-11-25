@@ -84,7 +84,7 @@ app=$out/$app_name.app
 rm -rf "$app"
 mkdir -p "$app"
 cp "$exe" "$app/bsengine-runtime"
-cp "$stage/pak/game.pak" "$app/game.pak"
+# MUTATION: no game.pak in the bundle
 
 # `UILaunchScreen` (even empty) is what makes iOS give the app the whole
 # screen: without a launch screen an app runs letterboxed at an old iPhone's

@@ -139,6 +139,22 @@ impl BsWinitApp {
 }
 
 impl ApplicationHandler for BsWinitApp {
+    /// On iOS, where the next frame is asked for: once the loop has handled
+    /// what came in, as winit's own examples and Bevy do there. The
+    /// `request_redraw` at the end of `RedrawRequested` -- what keeps every
+    /// other platform going -- is made while winit's iOS loop is processing
+    /// redraws, and does not bring another: the first Simulator run drew a
+    /// handful of frames and then nothing, its log silent until the watchdog.
+    #[cfg(target_os = "ios")]
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        if self.suspended {
+            return;
+        }
+        if let Some(w) = &self.window {
+            w.request_redraw();
+        }
+    }
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         // Android sends this again each time the app returns from the
         // background, with the window it had and a new native surface under

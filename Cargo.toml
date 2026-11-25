@@ -1,5 +1,9 @@
 [workspace]
 resolver = "2"
+# A patched dependency lives in `patches/` (see `[patch.crates-io]` below);
+# a path dependency under the workspace would otherwise become a member, and
+# `cargo test --workspace` / `clippy --all-targets` would run on it.
+exclude = ["patches"]
 members = [
     "crates/bsengine-core",
     "crates/bsengine-ecs",
@@ -164,3 +168,11 @@ syn               = { version = "2", features = ["full", "extra-traits", "visit"
 proc-macro2       = "1"
 walkdir           = "2"
 quote             = "1"
+
+# Crates built from a patched copy instead of the vendored release. Each is
+# the crates.io source of the version Cargo.lock names, with the change marked
+# "BSEngine patch" -- patches/README.md says what and why, and when it can go.
+# A [patch] whose version no longer matches is silently unused (cargo only
+# warns), so `wgpu_hal_is_the_patched_copy` checks Cargo.lock for it.
+[patch.crates-io]
+wgpu-hal = { path = "patches/wgpu-hal" }

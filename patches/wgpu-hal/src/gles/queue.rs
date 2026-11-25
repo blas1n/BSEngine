@@ -1288,6 +1288,21 @@ impl super::Queue {
                     flags |= glow::SHADER_STORAGE_BARRIER_BIT;
                 }
                 unsafe { gl.memory_barrier(flags) };
+                // BSEngine patch (see patches/README.md): the binds above are
+                // left in place, and a pixel buffer still bound turns the next
+                // upload or readback from client memory -- every staging
+                // buffer on a device without GL_EXT_buffer_storage, whose
+                // buffers are emulated (`raw: None`) -- into one at that
+                // pointer's value as an offset *into this buffer*. On the
+                // Android emulator's GLES 3.1 every uncompressed texture
+                // written after the first such barrier was lost (egui's
+                // glyphs added after start-up never appeared).
+                if usage.contains(wgt::BufferUses::COPY_SRC) {
+                    unsafe { gl.bind_buffer(glow::PIXEL_UNPACK_BUFFER, None) };
+                }
+                if usage.contains(wgt::BufferUses::COPY_DST) {
+                    unsafe { gl.bind_buffer(glow::PIXEL_PACK_BUFFER, None) };
+                }
             }
             // because `STORAGE_WRITE_ONLY` and `STORAGE_READ_WRITE` are only states
             // we can transit from due OpenGL memory barriers are used to make _subsequent_

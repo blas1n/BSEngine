@@ -336,7 +336,9 @@ jobs:
           cp "$(game_log)" "$out/game.log" 2>/dev/null || true
           echo "log: $(wc -l < "$log") lines"
           head -c 200000 "$log"
-          fail() { echo "$1"; exit 1; }
+          # Every check reports before the step fails, so one run shows all that broke.
+          failed=0
+          fail() { echo "FAIL: $1"; failed=1; }
           grep -q "GPU:" "$log" || fail "no GPU line: the renderer never started"
           if grep -Eiq "panicked|validation error" "$log"; then fail "a panic or a wgpu validation error"; fi
           # winit warns about its own iOS loop once a frame; the engine's
@@ -346,8 +348,8 @@ jobs:
             fail "the game did not start exactly once: coming back relaunched it"
           # A portrait iPhone has its status bar or Dynamic Island over the
           # top and its home indicator under the bottom.
-          insets=$(grep -o "safe area: insets left [0-9.]*, top [0-9.]*, right [0-9.]*, bottom [0-9.]*" "$log" | head -1)
-          echo "safe area: ${insets:-none}"
+          insets=$(grep -o "safe area: insets left [0-9.]*, top [0-9.]*, right [0-9.]*, bottom [0-9.]*" "$log" | head -1) || true
+          echo "${insets:-safe area: none}"
           top=$(echo "$insets" | sed -n 's/.*top \([0-9]*\).*/\1/p')
           bottom=$(echo "$insets" | sed -n 's/.*bottom \([0-9]*\).*/\1/p')
           [ "${top:-0}" -gt 0 ] && [ "${bottom:-0}" -gt 0 ] || fail "no safe area at the top and bottom"
@@ -355,12 +357,13 @@ jobs:
           grep -q "\[audio\] paused" "$log" || fail "the audio did not pause in the background"
           grep -q "back from the background" "$log" || fail "the app never came back"
           grep -q "\[audio\] resumed" "$log" || fail "the audio did not resume"
-          line=$(grep -E "^frames=[0-9]+ draw_calls=[0-9]+" "$log" | tail -1)
+          line=$(grep -E "^frames=[0-9]+ draw_calls=[0-9]+" "$log" | tail -1) || true
           echo "result: ${line:-none}"
           frames=$(echo "$line" | sed -n 's/^frames=\([0-9]*\).*/\1/p')
           drawn=$(echo "$line" | sed -n 's/.*draw_calls=\([0-9]*\).*/\1/p')
           [ "${frames:-0}" -eq 900 ] && [ "${drawn:-0}" -gt 0 ] ||
             fail "expected frames=900 and draw_calls > 0"
+          [ "$failed" -eq 0 ]
 
       - name: Keep the iOS Simulator run's screenshot and log
         if: always() && matrix.os == 'macos-latest'

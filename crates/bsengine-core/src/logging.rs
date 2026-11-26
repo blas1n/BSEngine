@@ -15,7 +15,7 @@ const DEFAULT_FILTER: &str = "bsengine=debug,warn";
 /// The module's only other warning names an API older than iOS 11, which a
 /// build for iOS 15 (`IPHONEOS_DEPLOYMENT_TARGET`) never runs without.
 #[cfg(target_os = "ios")]
-const DEFAULT_FILTER: &str = "bsengine=debug,warn";
+const DEFAULT_FILTER: &str = "bsengine=debug,warn,winit::platform_impl::ios::app_state=error";
 
 /// Initializes the global `tracing` subscriber for the engine, writing to
 /// stderr with a [`DEFAULT_FILTER`] default filter (overridable via the

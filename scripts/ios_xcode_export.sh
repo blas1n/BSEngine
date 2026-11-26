@@ -22,12 +22,16 @@ mkdir -p "$proj/App"
 libs=()
 for t in aarch64-apple-ios aarch64-apple-ios-sim; do
   touch crates/bsengine-runtime/src/lib.rs
-  cargo rustc $flag -p bsengine-runtime --lib --target "$t" --crate-type staticlib \
+  cargo rustc $flag --color never -p bsengine-runtime --lib --target "$t" --crate-type staticlib \
     -- --print native-static-libs 2> "$stage/rustc-$t.log" ||
     { cat "$stage/rustc-$t.log" >&2; fail "the static library for $t did not build"; }
   libs+=(-library "target/$t/$profile/libbsengine_runtime.a")
 done
-native=$(sed -n 's/.*native-static-libs: //p' "$stage/rustc-aarch64-apple-ios.log" | tail -1)
+# Plain text: under CI's CARGO_TERM_COLOR the line ended in a colour reset,
+# and the last word linked was "-lm\e[0m" ("library 'm' not found"). Hence
+# `--color never` above, and any escape left stripped here.
+native=$(sed -n 's/.*native-static-libs: //p' "$stage/rustc-aarch64-apple-ios.log" |
+  tail -1 | sed "s/$(printf '\033')\[[0-9;]*m//g")
 [[ -n $native ]] || fail "rustc printed no native-static-libs for the device library"
 xcodebuild -create-xcframework "${libs[@]}" -output "$proj/BSEngine.xcframework" > /dev/null
 
@@ -113,13 +117,9 @@ png = (b"\x89PNG\r\n\x1a\n"
 open(sys.argv[1], "wb").write(png)
 PY
 
-# Linker flags: what rustc listed, one word each as Xcode wants -- less the
-# C library, the maths library and libSystem itself, which on iOS are all
-# libSystem, linked into every app. The iPhoneOS SDK has no separate `libm`:
-# the first export, linking rustc's `-lm`, failed with "library 'm' not found".
+# Linker flags: what rustc listed, one word each as Xcode wants.
 ldflags='"$(inherited)"'
 for word in $native; do
-  case $word in -lc | -lm | -lSystem) continue ;; esac
   ldflags+=", \"$word\""
 done
 

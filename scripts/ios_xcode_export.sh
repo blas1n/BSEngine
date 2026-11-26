@@ -135,7 +135,7 @@ target_settings() {
 				EXCLUDED_ARCHS = x86_64;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = $min_ios;
-				MARKETING_VERSION = "1.0"; // MUTATION
+				MARKETING_VERSION = "$version";
 				OTHER_LDFLAGS = ($ldflags);
 				PRODUCT_BUNDLE_IDENTIFIER = "$bundle_id";
 				PRODUCT_NAME = "$app_name";
@@ -265,6 +265,7 @@ cat > "$proj/$app_name.xcodeproj/project.pbxproj" <<PBX
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B5E0000000000000000000A2 /* game.pak in Resources */,
 				B5E0000000000000000000A3 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

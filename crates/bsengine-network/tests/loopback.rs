@@ -19,7 +19,9 @@
 use bevy_app::App;
 use bevy_ecs::prelude::*;
 use bsengine_core::{NetworkAuthority, NetworkId, RpcCall, RpcQueues, RpcTarget, Transform};
-use bsengine_network::{AppliedInputs, NetworkConfig, NetworkPlugin, NetworkSession};
+use bsengine_network::{
+    AppliedInputs, NetworkConfig, NetworkPlugin, NetworkSession, SnapshotBuffers,
+};
 use glam::Vec3;
 use std::time::{Duration, Instant};
 
@@ -188,6 +190,17 @@ impl Pair {
         into.extend(app.world_mut().resource_mut::<RpcQueues>().take_incoming());
     }
 
+    /// The ticks of the snapshots the client holds for `net_id`, oldest first:
+    /// a change from one frame to the next is a snapshot that arrived.
+    fn client_snapshot_ticks(&self, net_id: u64) -> Vec<u32> {
+        self.client
+            .world()
+            .resource::<SnapshotBuffers>()
+            .get(net_id)
+            .map(|buffer| buffer.iter().map(|(tick, _)| *tick).collect())
+            .unwrap_or_default()
+    }
+
     fn client_position(&self, entity: Entity) -> Vec3 {
         self.client
             .world()
@@ -247,9 +260,18 @@ fn a_remote_entity_tracks_the_server_under_packet_loss() {
 
 /// The difference between interpolating and merely applying what arrived.
 ///
-/// With half the packets dropped, a client that only applied received snapshots
-/// would hold still on every dropped frame. This asserts it advanced on more
-/// frames than it received.
+/// A client that only applied received snapshots would hold still on every
+/// frame where none arrived. This counts exactly those frames -- nothing
+/// arrived, yet the rendered position moved -- by reading what the client
+/// actually received (its snapshot buffer), not by guessing from the loss
+/// rate.
+///
+/// It used to assert "advanced on more than 25 of 40 frames", reasoning that
+/// half the packets were dropped. But these are real UDP sockets, stepped
+/// without waiting: whether a snapshot lands in the client's frame or the next
+/// is up to the OS, and a busy macOS CI runner once made it 24 (#2093's merge
+/// run) with nothing wrong. Which frames receive is timing; whether the client
+/// moves on a frame that received nothing is the interpolator.
 #[test]
 fn the_client_advances_on_frames_where_nothing_arrived() {
     let mut pair = Pair::connect(NetworkConfig {
@@ -260,23 +282,44 @@ fn the_client_advances_on_frames_where_nothing_arrived() {
     });
     let (on_server, on_client) = pair.spawn_replicated(1, Vec3::ZERO);
 
-    let mut advanced_on = 0;
+    let mut frames_without_arrival = 0;
+    let mut advanced_without_arrival = 0;
     let mut previous = pair.client_position(on_client).x;
+    let mut previous_ticks = pair.client_snapshot_ticks(1);
     for frame in 1..=40 {
         pair.move_server_entity(on_server, Vec3::new(frame as f32, 0.0, 0.0));
         pair.step();
         let now = pair.client_position(on_client).x;
-        if now > previous + 1e-4 {
-            advanced_on += 1;
+        let ticks = pair.client_snapshot_ticks(1);
+        if ticks == previous_ticks {
+            frames_without_arrival += 1;
+            if now > previous + 1e-4 {
+                advanced_without_arrival += 1;
+            }
         }
         previous = now;
+        previous_ticks = ticks;
     }
 
+    // The premise: the loss left frames with nothing to apply. Without them
+    // a client that only applied what arrived would pass.
     assert!(
-        advanced_on > 25,
-        "with half the packets dropped, a client that only applied what arrived \
-         would advance on about half of 40 frames; interpolation should carry it \
-         through the gaps. Advanced on {advanced_on}"
+        frames_without_arrival >= 10,
+        "half the packets dropped should leave many frames with nothing new; \
+         only {frames_without_arrival} of 40 had none"
+    );
+    // And the snapshots that did arrive got the client somewhere.
+    let final_x = pair.client_position(on_client).x;
+    assert!(
+        final_x > 10.0,
+        "the client should have followed the server down the line; x={final_x}"
+    );
+    assert!(
+        advanced_without_arrival >= 3,
+        "a client that only applied what arrived holds still when nothing does; \
+         interpolation should carry it through the gaps. It moved on \
+         {advanced_without_arrival} of the {frames_without_arrival} frames where \
+         nothing arrived"
     );
 }
 

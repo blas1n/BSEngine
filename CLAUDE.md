@@ -99,7 +99,27 @@ adb logcat -s bsengine                                 # the game's log
 # --bundle makes the .aab Google Play takes instead (bundletool, pinned and
 # fetched into target/; BUNDLETOOL_JAR overrides), jarsigner-signed by the same
 # rule. Install one locally with the build-apks/install-apks lines it prints.
+
+# On iOS (macOS with Xcode only; there is no Mac here, so every iOS build
+# and run is CI's macOS job). Scripts are QuickJS, as on Android. The minimum
+# iOS is .cargo/config.toml's IPHONEOS_DEPLOYMENT_TARGET (15.0).
+scripts/build_ios.sh games/mini-arena [out-dir] [--sim|--device] [--debug]  # a .app
+scripts/build_ios.sh games/mini-arena [out-dir] --xcode [--debug]  # an Xcode project
+# `[ios]` in project.toml: bundle_id, version, build, team_id (checked by every
+# --package). For a device, open the .xcodeproj, pick a Team (or set team_id),
+# and Run -- signing is Xcode's, as in Unity's/Unreal's/Godot's exports.
+# Never verified here: a real Apple GPU, signing with a team, TestFlight.
 ```
+
+The iOS Simulator in CI (`simctl`) has traps that cost a run each:
+`simctl` calls stall for about two minutes while a debug app starts, so
+time things from the app's own `Documents/<name>/logs/game.log`, not from
+the console or from launch; the first frame blocks the main thread ~16 s
+compiling pipelines, and a background/foreground sent then is never seen;
+`simctl launch` of a running app brings the *same* process forward, of an
+ended one starts a new one (compare PIDs); and Actions' bash is
+`-eo pipefail`, so `x=$(grep … | head -1)` that matches nothing ends the
+step. `simctl` cannot inject touches.
 
 An emulator needs an image whose Vulkan wgpu accepts: android-35
 `google_apis;x86_64` with `-gpu host` draws; android-30 x86 has no Vulkan

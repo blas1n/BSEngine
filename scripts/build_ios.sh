@@ -9,15 +9,26 @@
 # all a Simulator asks -- or for a device (`--device`), unsigned: an app for a
 # phone has to be signed with an Apple team's certificate and profile, which
 # this script does not hold. Signing for a device is Xcode's job, as it is for
-# Unity's, Unreal's and Godot's iOS exports; an Xcode project export comes
-# after this (see the iOS design).
+# Unity's, Unreal's and Godot's iOS exports -- which is what `--xcode` makes:
+#
+#   <out>/<Name>/<Name>.xcodeproj   the project: open it, pick a Team, Run
+#   <out>/<Name>/BSEngine.xcframework  the engine, a static library for
+#                                   devices and for the Simulator
+#   <out>/<Name>/App/main.m         `return bsengine_ios_main();`
+#   <out>/<Name>/App/game.pak       the game's data, a bundle resource
+#   <out>/<Name>/App/Info.plist     filled in by Xcode's build settings
+#   <out>/<Name>/App/Assets.xcassets   a plain default app icon to replace
+#
+# The `[ios]` table becomes the project's build settings: bundle id, version
+# (MARKETING_VERSION), build (CURRENT_PROJECT_VERSION) and team_id
+# (DEVELOPMENT_TEAM; without it Xcode asks for a team before a device build).
 #
 # The bundle id, version and build are `project.toml`'s `[ios]` table, or
 # `com.bsengine.<name>`, "1.0" and "1" without one (`ios_settings.rs` in
 # bsengine-runtime resolves and checks them). The oldest iOS it runs on is
 # IPHONEOS_DEPLOYMENT_TARGET from .cargo/config.toml (iOS 15).
 #
-# usage: scripts/build_ios.sh <project-dir> [out-dir] [--sim|--device] [--debug]
+# usage: scripts/build_ios.sh <project-dir> [out-dir] [--sim|--device|--xcode] [--debug]
 #   out-dir defaults to <project-dir>/dist-ios
 #
 # Needs: macOS with Xcode (the iOS SDK, its clang and libclang -- QuickJS's
@@ -37,6 +48,7 @@ while [[ $# -gt 0 ]]; do
     --debug) profile=debug ;;
     --sim) dest=sim ;;
     --device) dest=device ;;
+    --xcode) dest=xcode ;;
     *) args+=("$1") ;;
   esac
   shift
@@ -53,11 +65,14 @@ fail() { echo "build_ios: $*" >&2; exit 1; }
 [[ -f $project/project.toml ]] || fail "$project has no project.toml"
 
 case $dest in
-  sim) triple=aarch64-apple-ios-sim; platform=iPhoneSimulator ;;
-  device) triple=aarch64-apple-ios; platform=iPhoneOS ;;
+  sim) triples=(aarch64-apple-ios-sim); platform=iPhoneSimulator ;;
+  device) triples=(aarch64-apple-ios); platform=iPhoneOS ;;
+  xcode) triples=(aarch64-apple-ios aarch64-apple-ios-sim) ;;
 esac
-rustup target list --installed | grep -qx "$triple" ||
-  fail "the Rust target is missing: rustup target add $triple"
+for t in "${triples[@]}"; do
+  rustup target list --installed | grep -qx "$t" ||
+    fail "the Rust target is missing: rustup target add $t"
+done
 
 flag=
 [[ $profile == release ]] && flag=--release
@@ -75,14 +90,22 @@ build=$(prop build)
 [[ -n $bundle_id && -n $version && -n $build ]] ||
   fail "--mode ios wrote no bundle id, version or build"
 
-cargo build $flag -p bsengine-runtime --target "$triple"
-exe=target/$triple/$profile/bsengine-runtime
+team_id=$(prop team_id)
 min_ios=$(sed -n 's/^IPHONEOS_DEPLOYMENT_TARGET *= *"\(.*\)"/\1/p' .cargo/config.toml)
 [[ -n $min_ios ]] || fail ".cargo/config.toml sets no IPHONEOS_DEPLOYMENT_TARGET"
 
 # The bundle's directory name is the project's folder name: a file name, which
 # the display name (with spaces, `&`, ...) need not be.
 app_name=$(basename "$(cd "$project" && pwd)")
+
+if [[ $dest == xcode ]]; then
+  source "$(dirname "$0")/ios_xcode_export.sh"
+  exit 0
+fi
+
+triple=${triples[0]}
+cargo build $flag -p bsengine-runtime --target "$triple"
+exe=target/$triple/$profile/bsengine-runtime
 app=$out/$app_name.app
 rm -rf "$app"
 mkdir -p "$app"

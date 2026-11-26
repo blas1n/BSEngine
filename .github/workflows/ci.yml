@@ -398,6 +398,61 @@ jobs:
             ${{ runner.temp }}/ios/game.log
           if-no-files-found: ignore
 
+      # The Xcode project export (`build_ios.sh --xcode`): what a game is
+      # shipped from, as Unity's, Unreal's and Godot's iOS exports are. A copy
+      # of cube-evader with an `[ios]` table is exported, built by `xcodebuild`
+      # for a device (compiled and linked; signing needs an Apple team, which
+      # CI has not) and for the Simulator, and the Simulator app is checked to
+      # carry the table's id, version and build and then run like the step
+      # above. The Simulator booted there is still up.
+      - name: iOS Xcode export (built by xcodebuild, run in the Simulator)
+        if: matrix.os == 'macos-latest'
+        run: |
+          out="$RUNNER_TEMP/ios-xcode"
+          game="$RUNNER_TEMP/xcode-game"
+          rm -rf "$game"
+          cp -R games/cube-evader "$game"
+          printf '\n[ios]\nbundle_id = "com.bsengine.xcode-check"\nversion = "2.3"\nbuild = "45"\n' >> "$game/project.toml"
+          bash scripts/build_ios.sh "$game" "$out" --xcode --debug
+          proj="$out/xcode-game/xcode-game.xcodeproj"
+          xcodebuild -project "$proj" -target App -configuration Debug -sdk iphoneos \
+            SYMROOT="$out/build" CODE_SIGNING_ALLOWED=NO build -quiet
+          xcodebuild -project "$proj" -target App -configuration Debug -sdk iphonesimulator \
+            SYMROOT="$out/build" CODE_SIGNING_ALLOWED=NO build -quiet
+          app="$out/build/Debug-iphonesimulator/xcode-game.app"
+          # Unsigned by xcodebuild here; a Simulator takes an ad-hoc signature,
+          # as build_ios.sh gives its own .app.
+          codesign --force --sign - "$app"
+          failed=0
+          fail() { echo "FAIL: $1"; failed=1; }
+          plist() { /usr/libexec/PlistBuddy -c "Print $1" "$app/Info.plist" 2>/dev/null || true; }
+          id=$(plist CFBundleIdentifier)
+          echo "built: $id $(plist CFBundleShortVersionString) ($(plist CFBundleVersion))"
+          [ "$id" = com.bsengine.xcode-check ] || fail "the bundle id is not the [ios] table's"
+          [ "$(plist CFBundleShortVersionString)" = 2.3 ] || fail "the version is not the [ios] table's"
+          [ "$(plist CFBundleVersion)" = 45 ] || fail "the build is not the [ios] table's"
+          [ -f "$app/game.pak" ] || fail "game.pak is not in the bundle"
+          [ -f "$out/build/Debug-iphoneos/xcode-game.app/xcode-game" ] || fail "no device build"
+          udid=$(xcrun simctl list devices booted -j | jq -r '[.devices[][]][0].udid')
+          xcrun simctl install "$udid" "$app"
+          log="$out/run.log"
+          xcrun simctl launch --console-pty "$udid" "$id" --frames 300 > "$log" 2>&1 &
+          pid=$!
+          ( sleep 600; xcrun simctl terminate "$udid" "$id"; kill "$pid" ) > /dev/null 2>&1 &
+          watchdog=$!
+          wait "$pid" || true
+          kill "$watchdog" 2>/dev/null || true
+          head -c 100000 "$log"
+          grep -q "GPU:" "$log" || fail "no GPU line: the renderer never started"
+          if grep -Eiq "panicked|validation error" "$log"; then fail "a panic or a wgpu validation error"; fi
+          line=$(grep -E "^frames=[0-9]+ draw_calls=[0-9]+" "$log" | tail -1) || true
+          echo "result: ${line:-none}"
+          frames=$(echo "$line" | sed -n 's/^frames=\([0-9]*\).*/\1/p')
+          drawn=$(echo "$line" | sed -n 's/.*draw_calls=\([0-9]*\).*/\1/p')
+          [ "${frames:-0}" -eq 300 ] && [ "${drawn:-0}" -gt 0 ] ||
+            fail "expected frames=300 and draw_calls > 0"
+          [ "$failed" -eq 0 ]
+
       # The browser build: the engine must keep compiling for wasm32,
       # scripting included (its ops bind to the browser's JS engine there
       # instead of V8 -- see bsengine-scripting-macros). Ubuntu only -- a

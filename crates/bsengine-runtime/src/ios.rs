@@ -48,6 +48,21 @@ pub(crate) fn run() {
     }
 }
 
+/// The entry an Xcode project calls: the exported project's `main.m` is
+/// `return bsengine_ios_main();` and links this crate as a static library
+/// (`scripts/build_ios.sh --xcode`), as Unity's exported `main.mm` calls into
+/// `UnityFramework` and Godot's into its prebuilt library. The game is the
+/// archive in the bundle, exactly as for the `.app` the script assembles
+/// itself; the command line is not consulted for a mode (only `--frames`).
+///
+/// Returns only if the game could not start (after printing why); winit
+/// never returns from a running iOS event loop.
+#[no_mangle]
+pub extern "C" fn bsengine_ios_main() -> std::os::raw::c_int {
+    run();
+    0
+}
+
 /// `--frames <n>` from the arguments, if given; anything else is ignored
 /// (iOS passes none of its own, but a debugger may).
 fn frames_arg(mut args: impl Iterator<Item = String>) -> Option<u32> {

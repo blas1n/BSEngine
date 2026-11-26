@@ -433,6 +433,14 @@ fn run_package(
             return 1;
         }
     };
+    // `[ios]` likewise, in every mode.
+    let ios = match manifest.ios.resolve(&manifest.project.name) {
+        Ok(ios) => ios,
+        Err(e) => {
+            eprintln!("package: {manifest_path} [ios]:\n{e}");
+            return 1;
+        }
+    };
 
     let exe = match std::env::current_exe() {
         Ok(exe) => exe,
@@ -497,10 +505,11 @@ fn run_package(
         return 1;
     }
 
-    // What `scripts/build_ios.sh` names the app by (`ios_settings.rs`).
+    // What `scripts/build_ios.sh` names, versions and signs the app by
+    // (`ios_settings.rs`).
     if mode == bsengine_asset::cook::PackageMode::Ios {
         let path = std::path::Path::new(out_dir).join("ios.properties");
-        if let Err(e) = std::fs::write(&path, ios_settings::properties(&manifest.project.name)) {
+        if let Err(e) = std::fs::write(&path, ios.properties(&manifest.project.name)) {
             eprintln!("package: cannot write {} ({e})", path.display());
             return 1;
         }

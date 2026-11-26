@@ -39,6 +39,9 @@ pub struct ProjectManifest {
     /// `[android]`: application id, version and release key.
     #[serde(default)]
     pub android: crate::android_settings::AndroidSection,
+    /// `[ios]`: bundle id, version, build and signing team.
+    #[serde(default)]
+    pub ios: crate::ios_settings::IosSection,
 }
 
 /// `project.toml`'s `[ui]` table.

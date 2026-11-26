@@ -701,11 +701,80 @@ fn an_ios_build_is_the_archive_and_its_properties() {
     assert_eq!(files, ["game.pak", "ios.properties"]);
     assert_eq!(
         std::fs::read_to_string(out.0.join("ios.properties")).unwrap(),
-        "bundle_id=com.bsengine.mini-arena\nname_xml=Mini &amp; Arena\n"
+        "bundle_id=com.bsengine.mini-arena\nversion=1.0\nbuild=1\nname_xml=Mini &amp; Arena\n"
     );
     let pak = bsengine_asset::pak::Pak::open(out.0.join("game.pak")).expect("the archive");
     assert!(
         pak.get(bsengine_asset::cook::MANIFEST_ENTRY).is_some(),
         "the manifest travels inside the archive"
+    );
+}
+
+/// `[ios]` through `--package`, as `[android]` is above: checked in every
+/// mode, so a bundle id the App Store would refuse fails a *loose desktop*
+/// build; and written out, resolved, by `--mode ios` only, as the
+/// `ios.properties` `scripts/build_ios.sh` names, versions and signs the app
+/// by.
+#[test]
+fn ios_settings_are_checked_in_every_build_and_handed_to_the_ios_one() {
+    let project = Output::new();
+    std::fs::create_dir_all(project.0.join("assets/scenes")).unwrap();
+    std::fs::write(
+        project.0.join("assets/scenes/main.ron"),
+        r#"SceneDescriptor(entities: [EntityDescriptor(name: "Only")])"#,
+    )
+    .unwrap();
+    let package = |ios: &str, mode: &str| {
+        std::fs::write(
+            project.0.join("project.toml"),
+            format!(
+                "[project]\nname = \"Signed Game\"\nentry_scene = \"assets/scenes/main.ron\"\n\n\
+                 [ios]\n{ios}"
+            ),
+        )
+        .unwrap();
+        let out = Output::new();
+        let run = Command::new(env!("CARGO_BIN_EXE_bsengine-runtime"))
+            .arg("--package")
+            .arg(&project.0)
+            .arg("--out")
+            .arg(&out.0)
+            .arg("--mode")
+            .arg(mode)
+            .output()
+            .expect("run --package");
+        let props = std::fs::read_to_string(out.0.join("ios.properties")).ok();
+        (run, props)
+    };
+    let table = "bundle_id = \"com.studio.signed\"\nversion = \"2.1\"\nbuild = \"14\"\n\
+                 team_id = \"AB12CD34EF\"\n";
+
+    let (loose, loose_props) = package(table, "loose");
+    assert!(
+        loose.status.success(),
+        "{}",
+        String::from_utf8_lossy(&loose.stderr)
+    );
+    assert_eq!(loose_props, None, "a desktop build wrote ios.properties");
+
+    let (ios, props) = package(table, "ios");
+    assert!(
+        ios.status.success(),
+        "{}",
+        String::from_utf8_lossy(&ios.stderr)
+    );
+    assert_eq!(
+        props.expect("an iOS build writes ios.properties"),
+        "bundle_id=com.studio.signed\nversion=2.1\nbuild=14\nname_xml=Signed Game\n\
+         team_id=AB12CD34EF\n"
+    );
+
+    // A bundle id with Android's `_` fails even the desktop build.
+    let (bad, _) = package("bundle_id = \"com.studio.signed_game\"\n", "loose");
+    assert!(!bad.status.success(), "a bundle id with '_' packaged");
+    let stderr = String::from_utf8_lossy(&bad.stderr);
+    assert!(
+        stderr.contains("[ios]") && stderr.contains("bundle_id"),
+        "the failure names the table and the key: {stderr}"
     );
 }

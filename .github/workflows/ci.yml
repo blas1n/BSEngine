@@ -303,11 +303,11 @@ jobs:
           xcrun simctl bootstatus "$udid" -b
           xcrun simctl install "$udid" "$app"
           log="$out/run.log"
-          xcrun simctl launch --console-pty "$udid" "$id" --frames 900 > "$log" 2>&1 &
+          xcrun simctl launch --console-pty "$udid" "$id" --frames 3000 > "$log" 2>&1 &
           pid=$!
           # Killing `simctl` alone leaves the app running (the first run went
           # on 30 minutes past it): terminate the app too.
-          ( sleep 600; xcrun simctl terminate "$udid" "$id"; kill "$pid" ) > /dev/null 2>&1 &
+          ( sleep 900; xcrun simctl terminate "$udid" "$id"; kill "$pid" ) > /dev/null 2>&1 &
           watchdog=$!
           # The app's own log file, `Documents/<name>/logs/game.log`, is what
           # shows how far it has got: simctl hands the console on late (the
@@ -331,6 +331,7 @@ jobs:
           ready=""
           for _ in $(seq 150); do
             f=$(game_log)
+            echo "$(date -u +%T) app log: ${f:-not yet} ($( [ -n "$f" ] && wc -l < "$f" || echo 0) lines)"
             if [ -n "$f" ] && grep -q "texture registry ready" "$f"; then ready=$f; break; fi
             kill -0 "$pid" 2>/dev/null || break
             sleep 2
@@ -382,8 +383,8 @@ jobs:
           echo "result: ${line:-none}"
           frames=$(echo "$line" | sed -n 's/^frames=\([0-9]*\).*/\1/p')
           drawn=$(echo "$line" | sed -n 's/.*draw_calls=\([0-9]*\).*/\1/p')
-          [ "${frames:-0}" -eq 900 ] && [ "${drawn:-0}" -gt 0 ] ||
-            fail "expected frames=900 and draw_calls > 0"
+          [ "${frames:-0}" -eq 3000 ] && [ "${drawn:-0}" -gt 0 ] ||
+            fail "expected frames=3000 and draw_calls > 0"
           [ "$failed" -eq 0 ]
 
       - name: Keep the iOS Simulator run's screenshot and log

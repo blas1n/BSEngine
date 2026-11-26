@@ -288,11 +288,11 @@ jobs:
       # on iOS, where an app cannot quit, so `simctl launch --console-pty`
       # returns; a watchdog kills it if it never does. A screenshot taken
       # while it runs and the log are kept as an artifact.
-      - name: iOS Simulator run (cube-evader)
+      - name: iOS Simulator run (mini-arena, background and back)
         if: matrix.os == 'macos-latest'
         run: |
           out="$RUNNER_TEMP/ios"
-          bash scripts/build_ios.sh games/cube-evader "$out" --sim --debug
+          bash scripts/build_ios.sh games/mini-arena "$out" --sim --debug
           app=$(ls -d "$out"/*.app)
           id=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist")
           udid=$(xcrun simctl list devices available -j |
@@ -303,35 +303,89 @@ jobs:
           xcrun simctl bootstatus "$udid" -b
           xcrun simctl install "$udid" "$app"
           log="$out/run.log"
-          xcrun simctl launch --console-pty "$udid" "$id" --frames 600 > "$log" 2>&1 &
+          xcrun simctl launch --console-pty "$udid" "$id" --frames 3000 > "$log" 2>&1 &
           pid=$!
           # Killing `simctl` alone leaves the app running (the first run went
           # on 30 minutes past it): terminate the app too.
-          ( sleep 600; xcrun simctl terminate "$udid" "$id"; kill "$pid" ) > /dev/null 2>&1 &
+          ( sleep 900; xcrun simctl terminate "$udid" "$id"; kill "$pid" ) > /dev/null 2>&1 &
           watchdog=$!
-          # Screenshots every five seconds while it runs. Waiting for the
-          # log's "ready" line does not work: simctl hands the console on
-          # late, and the first try saw it only after the app had ended,
-          # photographing the home screen. A debug build runs ~13 frames a
-          # second in the Simulator, so 600 frames give several shots.
-          i=0
-          while kill -0 "$pid" 2>/dev/null; do
-            sleep 5
-            i=$((i + 1))
-            xcrun simctl io "$udid" screenshot "$out/running-$(printf %02d $i).png" > /dev/null 2>&1 || true
+          # The app's own log file, `Documents/<name>/logs/game.log`, is what
+          # shows how far it has got: simctl hands the console on late (the
+          # first try at timing a screenshot from it saw the "ready" line only
+          # once the app had ended). The container is looked up once the app
+          # runs: the path asked for before launch never had the log in it.
+          game_log() {
+            local data
+            data=$(xcrun simctl get_app_container "$udid" "$id" data 2>/dev/null) || return 0
+            find "$data/Documents" -name game.log 2>/dev/null | head -1
+          }
+          # The app's process id, from the Simulator's launchd.
+          app_pid() {
+            xcrun simctl spawn "$udid" launchctl list 2>/dev/null |
+              awk -v label="UIKitApplication:$id[" 'index($3, label) == 1 { print $1 }' || true
+          }
+          # Ready means the renderer is up: the first frame makes it, and
+          # spends most of a debug build's start-up (~16 s) compiling
+          # pipelines with the main thread blocked. Sent away then, the app
+          # saw neither leaving nor coming back.
+          ready=""
+          for _ in $(seq 150); do
+            f=$(game_log)
+            echo "$(date -u +%T) app log: ${f:-not yet} ($( [ -n "$f" ] && wc -l < "$f" || echo 0) lines)"
+            if [ -n "$f" ] && grep -q "texture registry ready" "$f"; then ready=$f; break; fi
+            kill -0 "$pid" 2>/dev/null || break
+            sleep 2
           done
+          echo "the app's log: ${ready:-never ready}"
+          if [ -n "$ready" ]; then
+            sleep 8
+            xcrun simctl io "$udid" screenshot "$out/1-running.png" > /dev/null 2>&1 || true
+            # Into the background the way a player goes there -- another app
+            # comes to the front -- and back by launching the game again, which
+            # brings the running process forward (no `--terminate-running-process`).
+            before=$(app_pid)
+            xcrun simctl launch "$udid" com.apple.Preferences > /dev/null
+            sleep 6
+            xcrun simctl io "$udid" screenshot "$out/2-background.png" > /dev/null 2>&1 || true
+            back=$(xcrun simctl launch "$udid" "$id") || true
+            echo "process before: ${before:-none}, brought back: ${back##*: }"
+            sleep 8
+            xcrun simctl io "$udid" screenshot "$out/3-back.png" > /dev/null 2>&1 || true
+          fi
           wait "$pid" || true
           kill "$watchdog" 2>/dev/null || true
+          cp "$(game_log)" "$out/game.log" 2>/dev/null || true
           echo "log: $(wc -l < "$log") lines"
           head -c 200000 "$log"
-          grep -q "GPU:" "$log" || { echo "no GPU line: the renderer never started"; exit 1; }
-          if grep -Eiq "panicked|validation error" "$log"; then echo "a panic or a wgpu validation error"; exit 1; fi
-          line=$(grep -E "^frames=[0-9]+ draw_calls=[0-9]+" "$log" | tail -1)
+          # Every check reports before the step fails, so one run shows all that broke.
+          failed=0
+          fail() { echo "FAIL: $1"; failed=1; }
+          grep -q "GPU:" "$log" || fail "no GPU line: the renderer never started"
+          if grep -Eiq "panicked|validation error" "$log"; then fail "a panic or a wgpu validation error"; fi
+          # winit warns about its own iOS loop once a frame; the engine's
+          # default log filter leaves that module out (bsengine-core logging.rs).
+          if grep -q "processing non" "$log"; then fail "winit's once-a-frame AboutToWait warning is back"; fi
+          [ -n "$ready" ] || fail "the app's log never said the renderer was ready"
+          [ -n "${before:-}" ] && [ "${before:-}" = "${back##*: }" ] ||
+            fail "coming back did not bring the same process forward"
+          # A portrait iPhone has its status bar or Dynamic Island over the
+          # top and its home indicator under the bottom.
+          insets=$(grep -o "safe area: insets left [0-9.]*, top [0-9.]*, right [0-9.]*, bottom [0-9.]*" "$log" | head -1) || true
+          echo "${insets:-safe area: none}"
+          top=$(echo "$insets" | sed -n 's/.*top \([0-9]*\).*/\1/p')
+          bottom=$(echo "$insets" | sed -n 's/.*bottom \([0-9]*\).*/\1/p')
+          [ "${top:-0}" -gt 0 ] && [ "${bottom:-0}" -gt 0 ] || fail "no safe area at the top and bottom"
+          grep -q "in the background: the window's surface is released" "$log" || fail "the app never went to the background"
+          grep -q "\[audio\] paused" "$log" || fail "the audio did not pause in the background"
+          grep -q "back from the background" "$log" || fail "the app never came back"
+          grep -q "\[audio\] resumed" "$log" || fail "the audio did not resume"
+          line=$(grep -E "^frames=[0-9]+ draw_calls=[0-9]+" "$log" | tail -1) || true
           echo "result: ${line:-none}"
           frames=$(echo "$line" | sed -n 's/^frames=\([0-9]*\).*/\1/p')
           drawn=$(echo "$line" | sed -n 's/.*draw_calls=\([0-9]*\).*/\1/p')
-          [ "${frames:-0}" -eq 600 ] && [ "${drawn:-0}" -gt 0 ] ||
-            { echo "expected frames=600 and draw_calls > 0"; exit 1; }
+          [ "${frames:-0}" -eq 3000 ] && [ "${drawn:-0}" -gt 0 ] ||
+            fail "expected frames=3000 and draw_calls > 0"
+          [ "$failed" -eq 0 ]
 
       - name: Keep the iOS Simulator run's screenshot and log
         if: always() && matrix.os == 'macos-latest'
@@ -339,8 +393,9 @@ jobs:
         with:
           name: ios-simulator
           path: |
-            ${{ runner.temp }}/ios/running-*.png
+            ${{ runner.temp }}/ios/*.png
             ${{ runner.temp }}/ios/run.log
+            ${{ runner.temp }}/ios/game.log
           if-no-files-found: ignore
 
       # The browser build: the engine must keep compiling for wasm32,

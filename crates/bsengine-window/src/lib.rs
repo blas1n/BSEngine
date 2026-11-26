@@ -12,6 +12,9 @@ pub mod android;
 pub mod plugin;
 /// The `winit` event loop runner that drives the ECS app per frame.
 pub mod runner;
+/// The safe area's insets from the window and safe-area rectangles winit
+/// reports on iOS.
+pub mod safe_insets;
 /// Window-related resources and events (handle, descriptor, resize/create/close).
 pub mod types;
 

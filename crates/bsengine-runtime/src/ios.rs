@@ -32,12 +32,17 @@ pub(crate) fn is_app_launch() -> bool {
 /// Called by `crate::run` on iOS for an app launch, in place of the desktop
 /// command line.
 pub(crate) fn run() {
-    bsengine_core::logging::init_logging();
+    // No `init_logging` here: `build_player_app` sets logging up with the
+    // project's log file (`Documents/<name>/logs/game.log`) beside stderr,
+    // and the first set-up wins. Calling it here first, as Android does for
+    // logcat, left every iOS run with "no log file this run" -- and CI
+    // without the one copy of the log it can read while the app runs
+    // (`simctl --console-pty` passes the console on late).
     let frames = frames_arg(std::env::args().skip(1));
     if let Err(e) = start(frames) {
-        // Stdout and stderr reach the console `simctl launch --console-pty`
-        // attaches, and Xcode's; nothing else would show why the app ended.
-        tracing::error!("the game could not start: {e}");
+        // Stderr reaches the console `simctl launch --console-pty` attaches,
+        // and Xcode's; nothing else would show why the app ended. (Not
+        // `tracing`: these failures come before logging is set up.)
         eprintln!("the game could not start: {e}");
         std::process::exit(1);
     }
@@ -64,13 +69,12 @@ fn start(frames: Option<u32>) -> Result<(), String> {
         .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
     let pak = Arc::new(pak);
     bsengine_asset::pak_source::install(pak.clone(), PROJECT_DIR);
-    tracing::info!(
-        "starting {}",
-        crate::read_manifest(PROJECT_DIR, Some(pak.as_ref()))
-            .project
-            .name
-    );
+    let name = crate::read_manifest(PROJECT_DIR, Some(pak.as_ref()))
+        .project
+        .name;
     let mut app = crate::build_player_app(PROJECT_DIR, Some(pak));
+    // After the app is built: logging starts there.
+    tracing::info!("starting {name}");
     if let Some(frames) = frames {
         crate::quit_after_frames(&mut app, frames, None);
     }

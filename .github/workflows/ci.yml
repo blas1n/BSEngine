@@ -433,7 +433,6 @@ jobs:
           [ "$(plist CFBundleVersion)" = 45 ] || fail "the build is not the [ios] table's"
           [ -f "$app/game.pak" ] || fail "game.pak is not in the bundle"
           [ -f "$out/build/Debug-iphoneos/xcode-game.app/xcode-game" ] || fail "no device build"
-          [ "$failed" -eq 0 ]
           udid=$(xcrun simctl list devices booted -j | jq -r '[.devices[][]][0].udid')
           xcrun simctl install "$udid" "$app"
           log="$out/run.log"

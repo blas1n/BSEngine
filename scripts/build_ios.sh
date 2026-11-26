@@ -12,9 +12,9 @@
 # Unity's, Unreal's and Godot's iOS exports; an Xcode project export comes
 # after this (see the iOS design).
 #
-# The bundle id is `com.bsengine.<name>` and the version 1 / "1.0", as an
-# Android build's were before its `[android]` table (`ios_settings.rs` in
-# bsengine-runtime works them out). The oldest iOS it runs on is
+# The bundle id, version and build are `project.toml`'s `[ios]` table, or
+# `com.bsengine.<name>`, "1.0" and "1" without one (`ios_settings.rs` in
+# bsengine-runtime resolves and checks them). The oldest iOS it runs on is
 # IPHONEOS_DEPLOYMENT_TARGET from .cargo/config.toml (iOS 15).
 #
 # usage: scripts/build_ios.sh <project-dir> [out-dir] [--sim|--device] [--debug]
@@ -70,7 +70,10 @@ cargo run $flag -p bsengine-runtime -- --package "$project" --mode ios --out "$s
 prop() { sed -n "s/^$1=//p" "$stage/pak/ios.properties"; }
 bundle_id=$(prop bundle_id)
 name_xml=$(prop name_xml)
-[[ -n $bundle_id ]] || fail "--mode ios wrote no bundle id"
+version=$(prop version)
+build=$(prop build)
+[[ -n $bundle_id && -n $version && -n $build ]] ||
+  fail "--mode ios wrote no bundle id, version or build"
 
 cargo build $flag -p bsengine-runtime --target "$triple"
 exe=target/$triple/$profile/bsengine-runtime
@@ -101,8 +104,8 @@ cat > "$app/Info.plist" <<PLIST
   <key>CFBundleName</key><string>$name_xml</string>
   <key>CFBundleDisplayName</key><string>$name_xml</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.0</string>
-  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleShortVersionString</key><string>$version</string>
+  <key>CFBundleVersion</key><string>$build</string>
   <key>CFBundleSupportedPlatforms</key><array><string>$platform</string></array>
   <key>MinimumOSVersion</key><string>$min_ios</string>
   <key>LSRequiresIPhoneOS</key><true/>
@@ -131,7 +134,7 @@ if [[ $dest == sim ]]; then
   codesign --force --sign - "$app"
 fi
 
-echo "ios build: $app ($bundle_id, $triple, $profile, iOS $min_ios+)"
+echo "ios build: $app ($bundle_id $version ($build), $triple, $profile, iOS $min_ios+)"
 if [[ $dest == sim ]]; then
   echo "  xcrun simctl install booted \"$app\" && xcrun simctl launch --console-pty booted $bundle_id"
 else

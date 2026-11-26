@@ -29,8 +29,10 @@ struct BsWinitApp {
     /// Whether the safe area must be read again: set when the window appears
     /// or is resized (a rotation moves the bars), cleared once the system
     /// answers. Android only reports insets once the window's view is
-    /// attached, which can be a few frames after the window exists.
-    #[cfg(target_os = "android")]
+    /// attached, which can be a few frames after the window exists. iOS
+    /// answers at once, and lays the view out again -- a `Resized` -- each
+    /// time its safe area changes.
+    #[cfg(any(target_os = "android", target_os = "ios"))]
     safe_area_pending: bool,
 }
 
@@ -38,13 +40,32 @@ impl BsWinitApp {
     /// Reads the safe area if it is pending, into [`bsengine_core::SafeArea`]
     /// -- the insets only: whether UI follows them is the project's setting,
     /// which this keeps.
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_os = "ios"))]
     fn refresh_safe_area(&mut self) {
         if !self.safe_area_pending {
             return;
         }
+        #[cfg(target_os = "android")]
         let Some((left, top, right, bottom)) = crate::android::safe_area_insets() else {
             return;
+        };
+        // winit's inner rectangle on iOS is the window less the UIWindow's
+        // `safeAreaInsets`; see `safe_insets`. Before this the safe area was
+        // zero there, and a HUD line at the top sat under the Dynamic Island.
+        #[cfg(target_os = "ios")]
+        let (left, top, right, bottom) = {
+            let Some(w) = &self.window else {
+                return;
+            };
+            let frame = |pos: Result<winit::dpi::PhysicalPosition<i32>, _>,
+                         size: winit::dpi::PhysicalSize<u32>| {
+                let pos = pos.unwrap_or_default();
+                ((pos.x, pos.y), (size.width, size.height))
+            };
+            crate::safe_insets::between(
+                frame(w.outer_position(), w.outer_size()),
+                frame(w.inner_position(), w.inner_size()),
+            )
         };
         self.safe_area_pending = false;
         if let Some(mut area) = self
@@ -112,7 +133,7 @@ impl BsWinitApp {
         }
         self.run_lifecycle_hooks(true);
         // A rotation in the background moves the bars too.
-        #[cfg(target_os = "android")]
+        #[cfg(any(target_os = "android", target_os = "ios"))]
         {
             self.safe_area_pending = true;
         }
@@ -194,7 +215,7 @@ impl ApplicationHandler for BsWinitApp {
                 .expect("Failed to create window"),
         );
         self.window = Some(window.clone());
-        #[cfg(target_os = "android")]
+        #[cfg(any(target_os = "android", target_os = "ios"))]
         {
             self.safe_area_pending = true;
         }
@@ -256,7 +277,7 @@ impl ApplicationHandler for BsWinitApp {
                     ss.width = size.width;
                     ss.height = size.height;
                 }
-                #[cfg(target_os = "android")]
+                #[cfg(any(target_os = "android", target_os = "ios"))]
                 {
                     self.safe_area_pending = true;
                 }
@@ -369,7 +390,7 @@ impl ApplicationHandler for BsWinitApp {
                     }
                     return;
                 }
-                #[cfg(target_os = "android")]
+                #[cfg(any(target_os = "android", target_os = "ios"))]
                 self.refresh_safe_area();
                 self.ecs_app.update();
 
@@ -446,9 +467,9 @@ pub fn winit_runner(app: App) -> AppExit {
             .expect("Failed to create event loop")
     };
     // On iOS frames come from the display: winit drives `RedrawRequested`
-    // from a CADisplayLink, and the `request_redraw` at the end of each frame
-    // (`RedrawRequested` above) asks for the next one, so the game runs at the
-    // screen's rate with `Wait` as on every other platform with `Poll`. `Poll`
+    // from a CADisplayLink, and `about_to_wait` (above) asks for the next
+    // one, so the game runs at the screen's rate with `Wait` as on every
+    // other platform with `Poll`. `Poll`
     // there made winit spin `AboutToWait` between display ticks, warning
     // "processing non `RedrawRequested` event after the main event loop" each
     // time: 6.4 million lines in the first Simulator run, which reached the
@@ -464,7 +485,7 @@ pub fn winit_runner(app: App) -> AppExit {
         started: false,
         exit: AppExit::Success,
         suspended: false,
-        #[cfg(target_os = "android")]
+        #[cfg(any(target_os = "android", target_os = "ios"))]
         safe_area_pending: false,
     };
 

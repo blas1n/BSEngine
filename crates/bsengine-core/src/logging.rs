@@ -2,8 +2,23 @@ use std::sync::OnceLock;
 
 static LOGGING_INIT: OnceLock<()> = OnceLock::new();
 
+/// The filter a run logs with when `RUST_LOG` does not say otherwise: the
+/// engine's own lines from `debug` up, everyone else's from `warn`.
+#[cfg(not(target_os = "ios"))]
+const DEFAULT_FILTER: &str = "bsengine=debug,warn";
+
+/// On iOS, less one module of winit's. winit 0.30's iOS loop hands every
+/// frame's `AboutToWait` to the app *after* that frame's redraws, while it
+/// still counts itself as processing them, and so warns "processing non
+/// `RedrawRequested` event after the main event loop" about itself once a
+/// frame -- ~700 lines in a 600-frame Simulator run, whatever the app does.
+/// The module's only other warning names an API older than iOS 11, which a
+/// build for iOS 15 (`IPHONEOS_DEPLOYMENT_TARGET`) never runs without.
+#[cfg(target_os = "ios")]
+const DEFAULT_FILTER: &str = "bsengine=debug,warn,winit::platform_impl::ios::app_state=error";
+
 /// Initializes the global `tracing` subscriber for the engine, writing to
-/// stderr with a `bsengine=debug,warn` default filter (overridable via the
+/// stderr with a [`DEFAULT_FILTER`] default filter (overridable via the
 /// standard `RUST_LOG` env var). Safe to call more than once; only the first
 /// call takes effect.
 pub fn init_logging() {
@@ -17,7 +32,7 @@ pub fn init_logging() {
         {
             use tracing_subscriber::{fmt, EnvFilter};
             fmt()
-                .with_env_filter(EnvFilter::new("bsengine=debug,warn"))
+                .with_env_filter(EnvFilter::new(DEFAULT_FILTER))
                 .with_ansi(false)
                 .without_time()
                 .with_writer(logcat::Writer::default)
@@ -29,7 +44,7 @@ pub fn init_logging() {
             fmt()
                 .with_env_filter(
                     EnvFilter::try_from_default_env()
-                        .unwrap_or_else(|_| EnvFilter::new("bsengine=debug,warn")),
+                        .unwrap_or_else(|_| EnvFilter::new(DEFAULT_FILTER)),
                 )
                 .with_writer(std::io::stderr)
                 .init();
@@ -66,7 +81,7 @@ pub fn init_logging_with_file(log_path: &std::path::Path) -> std::io::Result<boo
         tracing_subscriber::registry()
             .with(
                 EnvFilter::try_from_default_env()
-                    .unwrap_or_else(|_| EnvFilter::new("bsengine=debug,warn")),
+                    .unwrap_or_else(|_| EnvFilter::new(DEFAULT_FILTER)),
             )
             .with(fmt::layer().with_writer(std::io::stderr))
             .with(

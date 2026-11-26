@@ -135,7 +135,7 @@ target_settings() {
 				EXCLUDED_ARCHS = x86_64;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = $min_ios;
-				MARKETING_VERSION = "1.0";
+				MARKETING_VERSION = "1.0"; // MUTATION
 				OTHER_LDFLAGS = ($ldflags);
 				PRODUCT_BUNDLE_IDENTIFIER = "$bundle_id";
 				PRODUCT_NAME = "$app_name";

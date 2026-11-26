@@ -64,7 +64,7 @@ impl BsWinitApp {
             };
             crate::safe_insets::between(
                 frame(w.outer_position(), w.outer_size()),
-                frame(w.inner_position(), w.inner_size()),
+                frame(w.outer_position(), w.outer_size()), // MUTATION
             )
         };
         self.safe_area_pending = false;
@@ -247,6 +247,9 @@ impl ApplicationHandler for BsWinitApp {
     }
 
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        #[cfg(target_os = "ios")]
+        return; // MUTATION
+        #[allow(unreachable_code)]
         self.go_to_background();
     }
 

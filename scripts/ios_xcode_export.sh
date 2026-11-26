@@ -113,9 +113,13 @@ png = (b"\x89PNG\r\n\x1a\n"
 open(sys.argv[1], "wb").write(png)
 PY
 
-# Linker flags: the frameworks rustc listed, one word each as Xcode wants.
+# Linker flags: what rustc listed, one word each as Xcode wants -- less the
+# C library, the maths library and libSystem itself, which on iOS are all
+# libSystem, linked into every app. The iPhoneOS SDK has no separate `libm`:
+# the first export, linking rustc's `-lm`, failed with "library 'm' not found".
 ldflags='"$(inherited)"'
 for word in $native; do
+  case $word in -lc | -lm | -lSystem) continue ;; esac
   ldflags+=", \"$word\""
 done
 

@@ -38,9 +38,29 @@
 //! direction and no noise to average, and nothing of last frame is kept for
 //! it -- or a moving thing's reflection in it would trail.
 //!
-//! So three passes: the trace, into a target of its own; the temporal blend,
-//! into one of the two histories (each frame writes the other); and the
-//! composite, under the screen's reflection.
+//! What the history leaves -- ten-odd samples' worth -- is still grain, and
+//! a spatial filter takes it out: each pixel the weighted mean of its 5 x 5
+//! neighbours, weighted by distance -- over a radius that grows with
+//! roughness, none for a mirror -- and by how alike the neighbour's surface
+//! is (its depth, its normal), so one surface's reflection does not spill
+//! onto another across an edge, as HDRP's and Unreal's reflection denoisers
+//! weigh them.
+//!
+//! # Half resolution
+//!
+//! By default the trace, the history and the filter run at half the screen
+//! each way, as the screen-space GI's do (and HDRP's ray-traced reflections
+//! out of "Full Resolution"): a quarter of the rays. Each trace pixel samples
+//! the first pixel of its 2 x 2 block, always the same one -- turning it
+//! through the block would, on an edge, put it on one surface and then the
+//! other, and the history would start over every frame there. The composite
+//! brings the light back up to every pixel from the four traces around it,
+//! weighted by how near their depths are to its own (a joint bilateral
+//! upsample), and where none is near it -- something thinner than a trace
+//! pixel -- gives it nothing rather than another surface's reflection.
+//!
+//! So five passes: trace, temporal (into one of two histories, each frame
+//! the other), spatial, and the composite under the screen's reflection.
 //!
 //! # What it needs
 //!
@@ -74,10 +94,16 @@ pub(crate) struct RtParams {
     /// Set by [`RtReflections::encode`]: 1 when the history holds the frame
     /// before this one, at this size.
     pub history_valid: u32,
-    pub _pad: [u32; 3],
+    /// Screen pixels per trace pixel each way: 1, or 2 at half resolution.
+    pub scale: u32,
+    /// 1 when the spatial filter runs: always, but for the test that
+    /// measures what it takes away.
+    pub spatial: u32,
+    pub _pad: u32,
 }
 
-/// The params, as each shader declares them.
+/// The params, as each shader declares them, and what every pass computes
+/// from them.
 const PARAMS_WGSL: &str = r#"
 struct RtParams {
     inv_view_proj: mat4x4<f32>,
@@ -89,9 +115,9 @@ struct RtParams {
     instance_count: u32,
     frame: u32,
     history_valid: u32,
-    _pad0: u32,
-    _pad1: u32,
-    _pad2: u32,
+    scale: u32,
+    spatial: u32,
+    _pad: u32,
 };
 
 @vertex
@@ -103,10 +129,28 @@ fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32>
     );
     return vec4<f32>(p[vi], 0.0, 1.0);
 }
+
+// The screen pixel a trace pixel stands for: itself at full resolution; at
+// half, the first of its 2 x 2 block -- the same one every frame (see the
+// module's "Half resolution").
+fn sample_coord(h: vec2<i32>, full: vec2<i32>) -> vec2<i32> {
+    if rt.scale < 2u {
+        return h;
+    }
+    return min(h * 2, full - vec2<i32>(1));
+}
+
+// The world position drawn at screen pixel `coord`, from its depth.
+fn world_at(coord: vec2<i32>, depth: f32, dims: vec2<f32>) -> vec3<f32> {
+    let uv = (vec2<f32>(coord) + vec2<f32>(0.5)) / dims;
+    let ndc = vec4<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth, 1.0);
+    let w = rt.inv_view_proj * ndc;
+    return w.xyz / w.w;
+}
 "#;
 
-/// The trace: a fullscreen triangle whose fragments each trace one
-/// direction of their reflection's lobe. Compiled after `TRACE_WGSL`, the
+/// The trace: a fullscreen triangle over the trace's pixels, each tracing
+/// one direction of its reflection's lobe. Compiled after `TRACE_WGSL`, the
 /// probe grid, `INSTANCES_WGSL` and [`PARAMS_WGSL`].
 const TRACE_PASS_WGSL: &str = r#"
 // The GI's scene, as its update binds it -- but the probes read-only, and
@@ -153,8 +197,9 @@ fn sample_vndf(v: vec3<f32>, alpha: f32, u: vec2<f32>) -> vec3<f32> {
 
 @fragment
 fn fs_trace(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
-    let coord = vec2<i32>(frag.xy);
-    let dims = vec2<f32>(textureDimensions(depth_tex, 0));
+    let full = vec2<i32>(textureDimensions(depth_tex, 0));
+    let dims = vec2<f32>(full);
+    let coord = sample_coord(vec2<i32>(frag.xy), full);
     let depth = textureLoad(depth_tex, coord, 0).x;
     let nr = textureLoad(normal_tex, coord, 0);
     // The normal target clears to zero, which is no unit vector: nothing
@@ -170,9 +215,7 @@ fn fs_trace(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     if share <= 0.0 {
         return vec4<f32>(0.0);
     }
-    let uv = frag.xy / dims;
-    let clip = rt.inv_view_proj * vec4<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth, 1.0);
-    let world = clip.xyz / clip.w;
+    let world = world_at(coord, depth, dims);
     let n = normalize(nr.xyz);
     let to_surface = world - rt.cam_pos.xyz;
     let v = -normalize(to_surface);
@@ -211,8 +254,9 @@ fn fs_trace(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
 }
 "#;
 
-/// The temporal blend: this frame's trace into the history of where the
-/// same surface was last frame. Compiled after [`PARAMS_WGSL`].
+/// The temporal blend, over the trace's pixels: this frame's trace into the
+/// history of where the same surface was last frame. Compiled after
+/// [`PARAMS_WGSL`].
 const TEMPORAL_PASS_WGSL: &str = r#"
 @group(0) @binding(0) var current_tex: texture_2d<f32>;
 @group(0) @binding(1) var history_tex: texture_2d<f32>;
@@ -237,9 +281,12 @@ const HISTORY_BLEND: f32 = 0.1;
 
 @fragment
 fn fs_temporal(@builtin(position) frag: vec4<f32>) -> TemporalOut {
-    let coord = vec2<i32>(frag.xy);
-    let dims = vec2<f32>(textureDimensions(depth_tex, 0));
-    let current = textureLoad(current_tex, coord, 0);
+    let full = vec2<i32>(textureDimensions(depth_tex, 0));
+    let dims = vec2<f32>(full);
+    // This trace pixel's own value, and the screen pixel it was traced
+    // from: its depth, its velocity, its place.
+    let current = textureLoad(current_tex, vec2<i32>(frag.xy), 0);
+    let coord = sample_coord(vec2<i32>(frag.xy), full);
     let depth = textureLoad(depth_tex, coord, 0).x;
     var out: TemporalOut;
     out.light = current;
@@ -248,10 +295,9 @@ fn fs_temporal(@builtin(position) frag: vec4<f32>) -> TemporalOut {
         return out;
     }
     let uv = (vec2<f32>(coord) + vec2<f32>(0.5)) / dims;
-    let ndc = vec4<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth, 1.0);
-    let world_h = rt.inv_view_proj * ndc;
-    let world = world_h.xyz / world_h.w;
-    // The view depth, as clip w: what the history records of this pixel.
+    let world = world_at(coord, depth, dims);
+    // The view depth, as clip w: what the history records of this pixel,
+    // and what the filter and the composite weigh neighbours by.
     let w_now = (rt.view_proj * vec4<f32>(world, 1.0)).w;
     out.depth = vec4<f32>(w_now, 0.0, 0.0, 0.0);
     if rt.history_valid == 0u {
@@ -277,28 +323,134 @@ fn fs_temporal(@builtin(position) frag: vec4<f32>) -> TemporalOut {
     if any(prev_uv < vec2<f32>(0.0)) || any(prev_uv > vec2<f32>(1.0)) {
         return out;
     }
+    // Where that is among the history's own pixels, whose samples stand at
+    // the first screen pixel of each block: screen position `p` is trace
+    // position `(p - 0.5) / scale + 0.5`. Not `prev_uv` itself, which at
+    // half resolution is a quarter of a pixel off each sample's centre --
+    // the screen-space GI's history once mixed a neighbour's light across
+    // an edge that way (`SSGI_TEMPORAL_WGSL`).
+    let scale = f32(max(rt.scale, 1u));
+    let history_size = vec2<f32>(textureDimensions(history_tex, 0));
+    let history_uv = ((prev_uv * dims - vec2<f32>(0.5)) / scale + vec2<f32>(0.5)) / history_size;
     // The same surface last frame stood where the previous camera saw it at
     // `prev_clip.w`; a history that recorded something else there is
     // another surface's -- the one this pixel's surface was hidden behind --
     // and is not this one's past.
-    let recorded = textureSampleLevel(history_depth_tex, history_samp, prev_uv, 0.0).r;
+    let recorded = textureSampleLevel(history_depth_tex, history_samp, history_uv, 0.0).r;
     if recorded <= 0.0 || abs(recorded - prev_clip.w) > 0.05 * prev_clip.w {
         return out;
     }
-    let history = textureSampleLevel(history_tex, history_samp, prev_uv, 0.0);
+    let history = textureSampleLevel(history_tex, history_samp, history_uv, 0.0);
     out.light = mix(history, current, blend);
     return out;
 }
 "#;
 
-/// The composite: the history this frame wrote, under the screen's
-/// reflection. Compiled after [`PARAMS_WGSL`].
+/// The spatial filter, over the trace's pixels: what the history leaves,
+/// averaged over the neighbours that are the same surface. Compiled after
+/// [`PARAMS_WGSL`].
+const SPATIAL_PASS_WGSL: &str = r#"
+@group(0) @binding(0) var light_tex: texture_2d<f32>;
+@group(0) @binding(1) var trace_depth_tex: texture_2d<f32>;
+@group(0) @binding(2) var<uniform> rt: RtParams;
+@group(1) @binding(0) var depth_tex: texture_2d<f32>;
+@group(2) @binding(0) var normal_tex: texture_2d<f32>;
+
+@fragment
+fn fs_spatial(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
+    let coord = vec2<i32>(frag.xy);
+    let centre = textureLoad(light_tex, coord, 0);
+    if rt.spatial == 0u {
+        return centre;
+    }
+    let full = vec2<i32>(textureDimensions(depth_tex, 0));
+    let size = vec2<i32>(textureDimensions(light_tex, 0));
+    let d0 = textureLoad(trace_depth_tex, coord, 0).r;
+    if d0 <= 0.0 {
+        return centre;
+    }
+    let nr0 = textureLoad(normal_tex, sample_coord(coord, full), 0);
+    // How far the reflection spreads in trace pixels: none for a mirror,
+    // whose reflection is as sharp as the trace; two at roughness 0.3 and
+    // beyond, the 5 x 5 the screen-space GI filters over.
+    let sigma = 2.0 * clamp((nr0.w - 0.05) / 0.25, 0.0, 1.0);
+    if sigma < 0.1 {
+        return centre;
+    }
+    let n0 = nr0.xyz;
+    var sum = vec4<f32>(0.0);
+    var weight = 0.0;
+    for (var dy = -2; dy <= 2; dy++) {
+        for (var dx = -2; dx <= 2; dx++) {
+            let q = clamp(coord + vec2<i32>(dx, dy), vec2<i32>(0), size - vec2<i32>(1));
+            let dq = textureLoad(trace_depth_tex, q, 0).r;
+            if dq <= 0.0 {
+                continue;
+            }
+            let nq = textureLoad(normal_tex, sample_coord(q, full), 0).xyz;
+            let spatial = exp(-f32(dx * dx + dy * dy) / (2.0 * sigma * sigma));
+            let depth_w = exp(-abs(dq - d0) / (0.02 * d0));
+            let normal_w = pow(max(dot(n0, nq), 0.0), 16.0);
+            let w = spatial * depth_w * normal_w;
+            sum += textureLoad(light_tex, q, 0) * w;
+            weight += w;
+        }
+    }
+    return sum / max(weight, 1e-6);
+}
+"#;
+
+/// The composite, over the screen: the filtered light brought up to every
+/// pixel, under the screen's reflection. Compiled after [`PARAMS_WGSL`].
 const COMPOSITE_PASS_WGSL: &str = r#"
 @group(0) @binding(0) var light_tex: texture_2d<f32>;
+@group(0) @binding(1) var trace_depth_tex: texture_2d<f32>;
+@group(0) @binding(2) var<uniform> rt: RtParams;
+@group(1) @binding(0) var depth_tex: texture_2d<f32>;
 
 @fragment
 fn fs_composite(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
-    return textureLoad(light_tex, vec2<i32>(frag.xy), 0);
+    let coord = vec2<i32>(frag.xy);
+    if rt.scale < 2u {
+        return textureLoad(light_tex, coord, 0);
+    }
+    let depth = textureLoad(depth_tex, coord, 0).x;
+    if depth >= 1.0 {
+        return vec4<f32>(0.0);
+    }
+    let full = vec2<i32>(textureDimensions(depth_tex, 0));
+    let world = world_at(coord, depth, vec2<f32>(full));
+    let w0 = (rt.view_proj * vec4<f32>(world, 1.0)).w;
+    let size = vec2<i32>(textureDimensions(light_tex, 0));
+    // This pixel among the trace pixels, which stand at the first pixel of
+    // each block: a traced pixel is its own trace exactly, the others
+    // between the traces around them -- each weighed by how near its depth
+    // is to this pixel's, so a pillar's edge does not take the wall's light.
+    let f = vec2<f32>(coord) / 2.0;
+    let base = vec2<i32>(floor(f));
+    let t = f - floor(f);
+    var sum = vec4<f32>(0.0);
+    var weight = 0.0;
+    for (var dy = 0; dy <= 1; dy++) {
+        for (var dx = 0; dx <= 1; dx++) {
+            let q = clamp(base + vec2<i32>(dx, dy), vec2<i32>(0), size - vec2<i32>(1));
+            let dq = textureLoad(trace_depth_tex, q, 0).r;
+            if dq <= 0.0 {
+                continue;
+            }
+            let bx = select(1.0 - t.x, t.x, dx == 1);
+            let by = select(1.0 - t.y, t.y, dy == 1);
+            let w = bx * by * exp(-abs(dq - w0) / (0.02 * w0));
+            sum += textureLoad(light_tex, q, 0) * w;
+            weight += w;
+        }
+    }
+    // None of the four is this surface (it is thinner than a trace pixel):
+    // nothing, rather than the reflection of what is behind it.
+    if weight > 1e-4 {
+        return sum / weight;
+    }
+    return vec4<f32>(0.0);
 }
 "#;
 
@@ -306,10 +458,11 @@ fn fs_composite(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
 /// compares at (as the screen-space GI's), and filterable.
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg16Float;
 
-/// The three passes' pipelines.
+/// The passes' pipelines.
 pub(crate) struct Pipelines {
     trace: wgpu::RenderPipeline,
     temporal: wgpu::RenderPipeline,
+    spatial: wgpu::RenderPipeline,
     composite: wgpu::RenderPipeline,
 }
 
@@ -318,7 +471,9 @@ pub(crate) struct Pipelines {
 struct Layouts {
     scene: wgpu::BindGroupLayout,
     temporal: wgpu::BindGroupLayout,
-    composite: wgpu::BindGroupLayout,
+    /// The spatial filter's and the composite's: a light, the trace's view
+    /// depths, the params.
+    filtered: wgpu::BindGroupLayout,
 }
 
 enum State {
@@ -385,9 +540,13 @@ fn make_layouts(device: &wgpu::Device) -> Layouts {
                 uniform_layout_entry(4, fragment),
             ],
         }),
-        composite: device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("rt reflections composite bgl"),
-            entries: &[texture_entry(0, false)],
+        filtered: device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("rt reflections filtered bgl"),
+            entries: &[
+                texture_entry(0, false),
+                texture_entry(1, false),
+                uniform_layout_entry(2, fragment),
+            ],
         }),
     }
 }
@@ -463,20 +622,18 @@ fn build_pipelines(
             },
         )
     };
-    let temporal_module = crate::pipeline_cache::create_shader_module(
-        device,
-        wgpu::ShaderModuleDescriptor {
-            label: Some("rt reflections temporal"),
-            source: wgpu::ShaderSource::Wgsl(format!("{PARAMS_WGSL}{TEMPORAL_PASS_WGSL}").into()),
-        },
-    );
-    let composite_module = crate::pipeline_cache::create_shader_module(
-        device,
-        wgpu::ShaderModuleDescriptor {
-            label: Some("rt reflections composite"),
-            source: wgpu::ShaderSource::Wgsl(format!("{PARAMS_WGSL}{COMPOSITE_PASS_WGSL}").into()),
-        },
-    );
+    let module = |label: &'static str, pass: &str| {
+        crate::pipeline_cache::create_shader_module(
+            device,
+            wgpu::ShaderModuleDescriptor {
+                label: Some(label),
+                source: wgpu::ShaderSource::Wgsl(format!("{PARAMS_WGSL}{pass}").into()),
+            },
+        )
+    };
+    let temporal_module = module("rt reflections temporal", TEMPORAL_PASS_WGSL);
+    let spatial_module = module("rt reflections spatial", SPATIAL_PASS_WGSL);
+    let composite_module = module("rt reflections composite", COMPOSITE_PASS_WGSL);
     let hdr = |blend| {
         Some(wgpu::ColorTargetState {
             format: crate::post_process::HDR_FORMAT,
@@ -514,12 +671,20 @@ fn build_pipelines(
                 }),
             ],
         ),
+        spatial: fullscreen(
+            device,
+            "rt reflections spatial",
+            &spatial_module,
+            "fs_spatial",
+            &[&layouts.filtered, depth, normals],
+            &[hdr(None)],
+        ),
         composite: fullscreen(
             device,
             "rt reflections composite",
             &composite_module,
             "fs_composite",
-            &[&layouts.composite],
+            &[&layouts.filtered, depth],
             &[hdr(Some(wgpu::BlendState {
                 color: under,
                 alpha: under,
@@ -591,11 +756,17 @@ struct History {
     _textures: [wgpu::Texture; 2],
 }
 
-/// The targets at the screen's size: this frame's trace, and the histories.
+/// The targets at the trace's size: this frame's trace, the histories, and
+/// the filtered light.
 struct Targets {
+    /// The screen's size and the scale they were made for.
+    screen: (u32, u32),
+    scale: u32,
+    /// Their own size, in trace pixels.
     size: (u32, u32),
     current: wgpu::TextureView,
-    _current: wgpu::Texture,
+    filtered: wgpu::TextureView,
+    _textures: [wgpu::Texture; 2],
     histories: [History; 2],
 }
 
@@ -624,9 +795,13 @@ fn target(
 }
 
 impl Targets {
-    fn new(device: &wgpu::Device, size: (u32, u32)) -> Self {
+    fn new(device: &wgpu::Device, screen: (u32, u32), scale: u32) -> Self {
+        // Every screen pixel's block has its trace pixel, the last row and
+        // column too on an odd size.
+        let size = (screen.0.div_ceil(scale), screen.1.div_ceil(scale));
         let hdr = crate::post_process::HDR_FORMAT;
         let (current_texture, current) = target(device, "rt reflections trace", size, hdr);
+        let (filtered_texture, filtered) = target(device, "rt reflections filtered", size, hdr);
         let history = |i: usize| {
             let (lt, light) = target(device, &format!("rt reflections history {i}"), size, hdr);
             let (dt, depth) = target(
@@ -642,9 +817,12 @@ impl Targets {
             }
         };
         Self {
+            screen,
+            scale,
             size,
             current,
-            _current: current_texture,
+            filtered,
+            _textures: [current_texture, filtered_texture],
             histories: [history(0), history(1)],
         }
     }
@@ -670,11 +848,15 @@ pub(crate) struct RtReflections {
     /// The history last written (0 or 1): next frame's to read.
     current: usize,
     /// Whether that history holds the frame before the next one: false at
-    /// first, after a resize, and after a frame without the pass.
+    /// first, after a resize or a change of resolution, and after a frame
+    /// without the passes.
     history_valid: bool,
     /// Whether frames are blended into the history at all: always, but for
     /// the test that measures what the blend takes away.
     pub(crate) history_enabled: bool,
+    /// Whether the spatial filter runs: always, but for the test that
+    /// measures what it takes away.
+    pub(crate) spatial_enabled: bool,
     /// Frames the passes ran, for the tests that wait for them, and the seed
     /// that turns each frame's samples.
     pub(crate) frames_traced: u32,
@@ -710,6 +892,7 @@ impl RtReflections {
             current: 0,
             history_valid: false,
             history_enabled: true,
+            spatial_enabled: true,
             frames_traced: 0,
         }
     }
@@ -744,9 +927,16 @@ impl RtReflections {
         self.history_valid = false;
     }
 
-    /// Encodes the three passes: the trace into this frame's target, the
-    /// temporal blend into the history the last frame did not write, and
-    /// that history under the screen's reflection.
+    /// The size the passes last traced at, in trace pixels, for the tests
+    /// that check the resolution.
+    pub(crate) fn trace_size(&self) -> Option<(u32, u32)> {
+        self.targets.as_ref().map(|t| t.size)
+    }
+
+    /// Encodes the passes: the trace into this frame's target, the temporal
+    /// blend into the history the last frame did not write, the spatial
+    /// filter over that, and the result under the screen's reflection.
+    /// `params.scale` is the resolution to trace at.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn encode(
         &mut self,
@@ -759,16 +949,26 @@ impl RtReflections {
         screen: ScreenInputs<'_>,
         mut params: RtParams,
     ) {
-        if self.targets.as_ref().is_none_or(|t| t.size != screen.size) {
-            self.targets = Some(Targets::new(device, screen.size));
+        let scale = params.scale.max(1);
+        if self
+            .targets
+            .as_ref()
+            .is_none_or(|t| t.screen != screen.size || t.scale != scale)
+        {
+            self.targets = Some(Targets::new(device, screen.size, scale));
             self.history_valid = false;
         }
         let targets = self.targets.as_ref().expect("made above");
+        params.scale = scale;
         params.instance_count = scene.instance_count;
         params.frame = self.frames_traced;
         params.history_valid = u32::from(self.history_valid && self.history_enabled);
+        params.spatial = u32::from(self.spatial_enabled);
         queue.write_buffer(&self.params, 0, bytemuck::bytes_of(&params));
 
+        fn view(v: &wgpu::TextureView) -> wgpu::BindingResource<'_> {
+            wgpu::BindingResource::TextureView(v)
+        }
         let sky = scene.sky.create_view(&Default::default());
         let scene_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("rt reflections bg"),
@@ -792,7 +992,7 @@ impl RtReflections {
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
-                    resource: wgpu::BindingResource::TextureView(&sky),
+                    resource: view(&sky),
                 },
                 wgpu::BindGroupEntry {
                     binding: 5,
@@ -812,15 +1012,15 @@ impl RtReflections {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&targets.current),
+                    resource: view(&targets.current),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&read.light),
+                    resource: view(&read.light),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&read.depth),
+                    resource: view(&read.depth),
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
@@ -832,14 +1032,28 @@ impl RtReflections {
                 },
             ],
         });
-        let composite_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("rt reflections composite bg"),
-            layout: &self.layouts.composite,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&write.light),
-            }],
-        });
+        let filtered_bg = |light: &wgpu::TextureView| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("rt reflections filtered bg"),
+                layout: &self.layouts.filtered,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: view(light),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: view(&write.depth),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: self.params.as_entire_binding(),
+                    },
+                ],
+            })
+        };
+        let spatial_bg = filtered_bg(&write.light);
+        let composite_bg = filtered_bg(&targets.filtered);
         let attachment = |view, load| {
             Some(wgpu::RenderPassColorAttachment {
                 view,
@@ -881,12 +1095,25 @@ impl RtReflections {
         }
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("rt reflections spatial"),
+                color_attachments: &[attachment(&targets.filtered, clear)],
+                ..Default::default()
+            });
+            pass.set_pipeline(&pipelines.spatial);
+            pass.set_bind_group(0, &spatial_bg, &[]);
+            pass.set_bind_group(1, screen.depth, &[]);
+            pass.set_bind_group(2, screen.normals, &[]);
+            pass.draw(0..3, 0..1);
+        }
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("rt reflections composite"),
                 color_attachments: &[attachment(screen.target, wgpu::LoadOp::Load)],
                 ..Default::default()
             });
             pass.set_pipeline(&pipelines.composite);
             pass.set_bind_group(0, &composite_bg, &[]);
+            pass.set_bind_group(1, screen.depth, &[]);
             pass.draw(0..3, 0..1);
         }
         self.current = 1 - self.current;

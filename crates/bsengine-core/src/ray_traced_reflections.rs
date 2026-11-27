@@ -46,6 +46,11 @@ pub struct RayTracedReflections {
     /// How far a ray looks, in world units. A ray that hits nothing within
     /// it leaves the surface to the reflection probes and the sky.
     pub max_distance: f32,
+    /// Trace every pixel, rather than one in each 2 x 2 block brought back
+    /// up by depth -- four times the rays. Off by default, as HDRP's
+    /// ray-traced reflections and this engine's screen-space GI
+    /// (`ScreenSpaceGlobalIllumination::full_resolution`) are.
+    pub full_resolution: bool,
 }
 
 impl Default for RayTracedReflections {
@@ -56,6 +61,7 @@ impl Default for RayTracedReflections {
             max_roughness: 0.4,
             // HDRP's ray-traced reflections' default ray length.
             max_distance: 50.0,
+            full_resolution: false,
         }
     }
 }
@@ -70,6 +76,7 @@ impl RayTracedReflections {
             intensity: self.intensity.clamp(0.0, 1.0),
             max_roughness: self.max_roughness.clamp(0.0, 1.0),
             max_distance: self.max_distance.max(1e-3),
+            full_resolution: self.full_resolution,
         }
     }
 
@@ -106,6 +113,7 @@ mod tests {
             intensity: 3.0,
             max_roughness: -1.0,
             max_distance: 0.0,
+            full_resolution: false,
         }
         .clamped();
         assert_eq!(c.intensity, 1.0);

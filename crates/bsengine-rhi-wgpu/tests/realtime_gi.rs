@@ -3417,3 +3417,116 @@ fn a_surface_uncovered_does_not_take_the_history_of_what_was_there() {
          {after:?} against {reference:?}"
     );
 }
+
+/// By default the reflections trace one pixel in each 2 x 2 block -- a
+/// quarter of the rays -- and every pixel with `full_resolution`.
+#[test]
+fn reflections_trace_at_half_resolution_unless_asked_for_full() {
+    let size = |full: bool| {
+        let mut room = MirrorRoom::new(Behind::Red, false, false);
+        room.s.scene.surface.set_ray_traced_reflections(Some(
+            bsengine_core::RayTracedReflections {
+                full_resolution: full,
+                ..Default::default()
+            },
+        ));
+        let input = room.input();
+        room.s.run(&input, 2);
+        room.s.run_reflected(&input, 1);
+        room.s.scene.surface.rt_reflection_trace_size()
+    };
+    assert_eq!(size(false), Some((32, 32)));
+    assert_eq!(size(true), Some((64, 64)));
+}
+
+/// The grain of a row over the plainly red part of a glossy mirror (columns
+/// 34 to 46, inside the card's reflection): the mean size of the green and
+/// blue's second difference from pixel to pixel. A second difference, not a
+/// spread: the blur's own gradient across those columns -- the blue of the
+/// wall beyond the card, fading in -- is a slope, which this does not count.
+/// Not the red, which is all but saturated there.
+fn grain(row: &[[u8; 3]]) -> f32 {
+    let v: Vec<f32> = row[34..46]
+        .iter()
+        .map(|p| f32::from(p[1]) + f32::from(p[2]))
+        .collect();
+    let d: Vec<f32> = v
+        .windows(3)
+        .map(|w| (w[0] - 2.0 * w[1] + w[2]).abs())
+        .collect();
+    d.iter().sum::<f32>() / d.len() as f32
+}
+
+/// The spatial filter takes out the grain the history leaves: over the
+/// plainly red part of a glossy mirror, the red's spread along the row is
+/// well under what it is without the filter (the premise: without it,
+/// there is grain to take out).
+///
+/// Measured: 1.7 with the filter, 8.7 without.
+#[test]
+fn the_spatial_filter_takes_out_the_grain() {
+    let measure = |spatial: bool| {
+        let mut room = MirrorRoom::new(Behind::Split, false, false);
+        room.mirror_roughness(0.4);
+        room.middle_row(1);
+        room.s
+            .scene
+            .surface
+            .set_rt_reflection_spatial_for_testing(spatial);
+        grain(&room.middle_row(40))
+    };
+    let (with, without) = (measure(true), measure(false));
+    assert!(without > 8.0, "premise: there is grain: {without:.1}");
+    assert!(
+        with * 2.0 < without,
+        "the filter takes it out: {with:.1} against {without:.1}"
+    );
+}
+
+/// Neither the filter nor the upsample carries one surface's reflection
+/// onto another across an edge: a narrow rough panel in front of a glossy
+/// mirror reflecting red is, at its edges, what it is in its middle --
+/// its depth is not the mirror's, and the mirror's neighbours are weighed
+/// out. (The panel is rough enough to trace nothing; what it shows of the
+/// red is the probes' stand-in for the sky, the same all across it.)
+///
+/// Measured: the mirror beside it `[237, 24, 70]`, the panel `[204, 6, 25]`
+/// from edge to edge.
+#[test]
+fn a_reflection_does_not_spill_across_an_edge() {
+    let mut room = MirrorRoom::new(Behind::Red, false, false);
+    room.mirror_roughness(0.3);
+    // x from -0.3 to 0.3 at z = 0, two metres from the camera: columns 24
+    // to 40 of the row.
+    room.s.scene.push_quad(
+        [
+            Vec3::new(-0.3, 0.5, 0.0),
+            Vec3::new(0.3, 0.5, 0.0),
+            Vec3::new(0.3, 2.5, 0.0),
+            Vec3::new(-0.3, 2.5, 0.0),
+        ],
+        Vec3::ZERO,
+    );
+    let i = room.s.scene.draw_calls.len() - 1;
+    room.s.scene.draw_calls[i].3.base_color = Vec3::ONE;
+    room.s.scene.draw_calls[i].3.metallic = 1.0;
+    room.s.scene.draw_calls[i].3.roughness = 0.9;
+    let row = room.middle_row(30);
+    // Told apart by their blue: both are red, the panel by the probes.
+    let middle = row[32][2] as i32;
+    assert!(
+        row[20][2] as i32 > middle + 30,
+        "premise: the mirror beside the panel is another colour: {:?} against {:?}",
+        row[20],
+        row[32]
+    );
+    let worst = (25..40)
+        .map(|c| (row[c][2] as i32 - middle).abs())
+        .max()
+        .unwrap();
+    assert!(
+        worst <= 8,
+        "the panel's edges are its middle, not the mirror's red: {worst} ({:?})",
+        &row[24..41]
+    );
+}

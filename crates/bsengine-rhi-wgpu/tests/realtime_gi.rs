@@ -1529,9 +1529,15 @@ fn whole_back_wall(relocation: bool) -> Vec<f32> {
     // The wall's pixels by distance from its edge, in pixels: the mean of
     // each ring, 1 to 8 pixels in, and of everything further in.
     let at = |x: usize, y: usize| pixels[(y * 64 + x) * 4];
+    // The back wall is the only face drawn with an albedo; the other five
+    // are black and show only the probes' specular sheen, a few levels that
+    // vary with the view angle -- so "brighter than them by a margin", not
+    // "different from the corner pixel", which counted the side walls as
+    // back wall once that sheen existed.
     let bg = at(0, 0);
-    let rows: Vec<usize> = (0..64).filter(|&y| at(32, y) != bg).collect();
-    let cols: Vec<usize> = (0..64).filter(|&x| at(x, 32) != bg).collect();
+    let wall = |v: u8| v as i32 > bg as i32 + 40;
+    let rows: Vec<usize> = (0..64).filter(|&y| wall(at(32, y))).collect();
+    let cols: Vec<usize> = (0..64).filter(|&x| wall(at(x, 32))).collect();
     let (x0, x1, y0, y1) = (cols[0], cols[cols.len() - 1], rows[0], rows[rows.len() - 1]);
     let mut sums = [(0u32, 0u32); 10];
     for y in y0..=y1 {
@@ -2521,5 +2527,222 @@ fn a_skinned_renderer_is_traced_as_its_folded_vertices_are() {
         most(&skinned, &rigid) < 0.01,
         "the skinned grid is traced as its folded vertices: off by {}",
         most(&skinned, &rigid)
+    );
+}
+
+/// A closed grey room under a blue sky, lit only by a warm point lamp the
+/// probes trace, with a white metal floor the camera looks down at --
+/// metallic, so the floor has no diffuse term and everything it shows is
+/// its specular environment. Returns the floor's centre pixel: before any
+/// GI update (`gi_updates` 0 -- the frame shades as if no volume existed,
+/// so its specular is the sky's), or after that many.
+///
+/// The sky is a skybox for the mesh shader (its reflection and its
+/// irradiance) and nothing to the probes inside a closed room. Every face of
+/// the room is drawn black but the floor, and the harness sun is off, so no
+/// direct light reaches the floor at all.
+fn covered_metal_floor(roughness: f32, lamp: bool, volume: Option<ProbeVolumeParams>) -> [u8; 3] {
+    covered_metal_floor_glowing(roughness, lamp, Vec3::ZERO, volume)
+}
+
+/// [`covered_metal_floor`] with the back wall -- the one the floor's
+/// centre pixel reflects -- glowing `back`.
+fn covered_metal_floor_glowing(
+    roughness: f32,
+    lamp: bool,
+    back: Vec3,
+    volume: Option<ProbeVolumeParams>,
+) -> [u8; 3] {
+    let mut s = GiScene::new(Vec3::new(0.1, 0.3, 1.0));
+    let (lo, hi) = (Vec3::new(-3.0, 0.0, -3.0), Vec3::new(3.0, 3.0, 3.0));
+    let size = hi - lo;
+    let grey = Vec3::splat(0.6);
+    // The floor first, facing up.
+    s.add(
+        quad_corners(
+            Vec3::new(lo.x, lo.y, hi.z),
+            Vec3::X * size.x,
+            Vec3::NEG_Z * size.z,
+        ),
+        grey,
+        Vec3::ZERO,
+    );
+    let floor = s.scene.draw_calls.len() - 1;
+    s.scene.draw_calls[floor].3.base_color = Vec3::ONE;
+    s.scene.draw_calls[floor].3.metallic = 1.0;
+    s.scene.draw_calls[floor].3.roughness = roughness;
+    for (min, u, v) in [
+        // Ceiling, facing down.
+        (
+            Vec3::new(lo.x, hi.y, lo.z),
+            Vec3::X * size.x,
+            Vec3::Z * size.z,
+        ),
+        // Back (+z), front (-z), left (+x), right (-x).
+        (lo, Vec3::X * size.x, Vec3::Y * size.y),
+        (
+            Vec3::new(hi.x, lo.y, hi.z),
+            Vec3::NEG_X * size.x,
+            Vec3::Y * size.y,
+        ),
+        (lo, Vec3::Y * size.y, Vec3::Z * size.z),
+        (
+            Vec3::new(hi.x, lo.y, hi.z),
+            Vec3::Y * size.y,
+            Vec3::NEG_Z * size.z,
+        ),
+    ] {
+        s.add(quad_corners(min, u, v), grey, Vec3::ZERO);
+    }
+    // The back wall: the second of the five above.
+    let back_wall = s.statics.len() - 4;
+    s.statics[back_wall].emissive = back;
+    if lamp {
+        s.lights = vec![bsengine_bake::BakeLight::Point {
+            position: Vec3::new(0.0, 2.5, 0.0),
+            color: Vec3::new(1.0, 0.55, 0.25),
+            intensity: 1.0,
+            range: 10.0,
+            contribution: bsengine_bake::Contribution::Indirect,
+        }];
+    }
+    s.scene.sun = Some((Vec3::ZERO, Vec3::ZERO));
+    s.scene
+        .surface
+        .set_skybox_from_rgba(1, 1, &[40, 100, 255, 255]);
+    let eye = Vec3::new(0.0, 1.2, 2.5);
+    s.scene.camera = (
+        Mat4::perspective_rh(1.2, 1.0, 0.05, 50.0)
+            * Mat4::look_at_rh(eye, Vec3::new(0.0, 0.0, -0.5), Vec3::Y),
+        eye,
+    );
+    match volume {
+        None => s.scene.render(None).expect("the frame renders"),
+        Some(volume) => {
+            let input = s.input(volume, 0.5, 1 << 20);
+            s.run(&input, 16);
+        }
+    }
+    let pixels = s.scene.surface.read_pixels().expect("offscreen readback");
+    let at = (32 * 64 + 32) * 4;
+    [pixels[at], pixels[at + 1], pixels[at + 2]]
+}
+
+/// The room's volume: probes from just outside its faces, as in
+/// games/gi-demo, relocated in front of them.
+fn room_volume() -> ProbeVolumeParams {
+    ProbeVolumeParams {
+        origin: Vec3::new(-3.1, -0.1, -3.1),
+        extent: Vec3::new(6.2, 3.2, 6.2),
+        resolution: [6, 4, 6],
+    }
+}
+
+fn blue_bias(p: [u8; 3]) -> i32 {
+    p[2] as i32 - p[0] as i32
+}
+
+/// The pixel's light, summed over its channels, decoded from sRGB.
+fn linear_sum(p: [u8; 3]) -> f32 {
+    p.iter().map(|&c| linear(c)).sum()
+}
+
+/// Inside a probe volume the probes stand in for the sky's specular where
+/// nothing sharper answers (`MESH_WGSL`, "Inside a light probe volume the
+/// probes also stand in for the sky's specular"). A rough metal floor in a
+/// closed room reflected the blue sky it cannot see -- the premise, from
+/// the frame without the volume -- and with it reflects the lamp-lit room:
+/// warm, not blue. With the lamp off it goes dark, which a reflection of
+/// the sky never did.
+///
+/// Measured: sky `[13, 72, 207]`, lamp-lit room `[78, 55, 52]`, lamp off
+/// `[2, 9, 33]` -- not black: the probes on the volume's faces start
+/// outside the room's one-sided walls and see some sky before they are
+/// moved in, so the dark room keeps a faint blue. An eighth of the lit
+/// room's light, against the sky's four and a half times it.
+#[test]
+fn a_rough_metal_floor_in_a_closed_room_reflects_the_room_not_the_sky() {
+    let sky = covered_metal_floor(0.9, true, None);
+    let room = covered_metal_floor(0.9, true, Some(room_volume()));
+    let dark = covered_metal_floor(0.9, false, Some(room_volume()));
+    assert!(
+        blue_bias(sky) > 40,
+        "premise: without the volume the floor reflects the blue sky: {sky:?}"
+    );
+    assert!(
+        room.iter().any(|&c| c > 30),
+        "premise: the room's light is there to see: {room:?}"
+    );
+    assert!(
+        blue_bias(room) < 0,
+        "with the volume it reflects the lamp's warm light: {sky:?} -> {room:?}"
+    );
+    assert!(
+        linear_sum(dark) < 0.3 * linear_sum(room),
+        "with the lamp off the room, and so its reflection, is dark: \
+         {room:?} -> {dark:?}"
+    );
+}
+
+/// A smooth metal floor keeps the sky's reflection -- the probes have no
+/// picture of it to give -- but only as much of it as the probes say
+/// arrives from the reflected direction (HDRP's APV reflection
+/// normalization): in a closed room, darker, and still blue. Replacing it
+/// with the probes' light, as for a rough floor, would have turned it warm
+/// (`[78, 55, 52]` for the same room, rough); not scaling it would have left
+/// it the sky's.
+///
+/// Measured: sky `[27, 115, 231]`, lamp-lit room `[16, 81, 213]` (the
+/// room's light is about the sky's, so only a little is taken), lamp off
+/// `[2, 15, 94]`.
+#[test]
+fn a_smooth_metal_floor_in_a_closed_room_keeps_a_dimmed_sky() {
+    let sky = covered_metal_floor(0.1, true, None);
+    let room = covered_metal_floor(0.1, true, Some(room_volume()));
+    let dark = covered_metal_floor(0.1, false, Some(room_volume()));
+    assert!(
+        blue_bias(sky) > 40,
+        "premise: without the volume the floor reflects the blue sky: {sky:?}"
+    );
+    assert!(
+        blue_bias(room) > 40,
+        "with the volume it is still the sky's colour, not the room's: {room:?}"
+    );
+    assert!(
+        linear_sum(room) < 0.9 * linear_sum(sky),
+        "the hidden sky's reflection is dimmed: {sky:?} -> {room:?}"
+    );
+    assert!(
+        linear_sum(dark) < 0.3 * linear_sum(sky),
+        "and with the lamp off, by most of it: {sky:?} -> {dark:?}"
+    );
+}
+
+/// Outside the volume nothing changes: a volume that does not hold the
+/// floor's pixel leaves it what the frame without one draws.
+#[test]
+fn a_metal_floor_outside_the_volume_keeps_the_sky() {
+    let sky = covered_metal_floor(0.9, true, None);
+    let beside = ProbeVolumeParams {
+        origin: Vec3::new(-3.1, 1.0, -3.1),
+        ..room_volume()
+    };
+    let outside = covered_metal_floor(0.9, true, Some(beside));
+    assert_eq!(outside, sky, "the floor is below the volume");
+}
+
+/// The probes' specular is read facing the reflection, not the normal: a
+/// rough metal floor whose reflection runs to a glowing green back wall is
+/// green, where the light from straight above it -- the grey ceiling, the
+/// warm lamp -- is not.
+#[test]
+fn the_probes_specular_faces_the_reflection() {
+    let green =
+        covered_metal_floor_glowing(0.9, true, Vec3::new(0.0, 0.6, 0.0), Some(room_volume()));
+    let plain = covered_metal_floor(0.9, true, Some(room_volume()));
+    let green_bias = |p: [u8; 3]| p[1] as i32 - (p[0] as i32 + p[2] as i32) / 2;
+    assert!(
+        green_bias(green) > green_bias(plain) + 20,
+        "the floor reflects the wall in front of it: {plain:?} -> {green:?}"
     );
 }

@@ -321,7 +321,9 @@ fn probe_grid_coord(world_pos: vec3<f32>) -> vec3<f32> {
 // inside geometry, whose rays all met back faces. The weights are then
 // renormalised, so what is left is an interpolation between the probes that
 // can see the point.
-fn eval_probe_sh_at(world_pos: vec3<f32>, n: vec3<f32>, offset: u32, visibility: bool) -> vec3<f32> {
+fn eval_probe_sh_pair_at(
+    world_pos: vec3<f32>, n: vec3<f32>, dir: vec3<f32>, offset: u32, visibility: bool,
+) -> ProbeShPair {
     // The cell around the point: a grid's, or the brick's it is in -- whose
     // spacing is its level's, so the bias and the weights below are the
     // same rule at every level.
@@ -403,28 +405,53 @@ fn eval_probe_sh_at(world_pos: vec3<f32>, n: vec3<f32>, offset: u32, visibility:
         }
     }
 
-    // Cosine-lobe convolution constants: the per-band factors that turn a
-    // radiance expansion into the irradiance a Lambertian surface receives.
-    // Identical to `ShL2::eval_irradiance` in sh.rs, which asserts them.
+    return ProbeShPair(sh_irradiance(&blended, n), sh_irradiance(&blended, dir));
+}
+// The blend's irradiance for a surface facing `d`, as E / PI.
+//
+// Cosine-lobe convolution constants: the per-band factors that turn a
+// radiance expansion into the irradiance a Lambertian surface receives.
+// Identical to `ShL2::eval_irradiance` in sh.rs, which asserts them.
+fn sh_irradiance(blended: ptr<function, array<vec4<f32>, 9>>, d: vec3<f32>) -> vec3<f32> {
     let a0 = 3.141593;
     let a1 = 2.094395;
     let a2 = 0.785398;
-    var e = blended[0].rgb * (0.282095 * a0);
-    e = e + blended[1].rgb * (0.488603 * n.y * a1);
-    e = e + blended[2].rgb * (0.488603 * n.z * a1);
-    e = e + blended[3].rgb * (0.488603 * n.x * a1);
-    e = e + blended[4].rgb * (1.092548 * n.x * n.y * a2);
-    e = e + blended[5].rgb * (1.092548 * n.y * n.z * a2);
-    e = e + blended[6].rgb * (0.315392 * (3.0 * n.z * n.z - 1.0) * a2);
-    e = e + blended[7].rgb * (1.092548 * n.x * n.z * a2);
-    e = e + blended[8].rgb * (0.546274 * (n.x * n.x - n.y * n.y) * a2);
+    var e = (*blended)[0].rgb * (0.282095 * a0);
+    e = e + (*blended)[1].rgb * (0.488603 * d.y * a1);
+    e = e + (*blended)[2].rgb * (0.488603 * d.z * a1);
+    e = e + (*blended)[3].rgb * (0.488603 * d.x * a1);
+    e = e + (*blended)[4].rgb * (1.092548 * d.x * d.y * a2);
+    e = e + (*blended)[5].rgb * (1.092548 * d.y * d.z * a2);
+    e = e + (*blended)[6].rgb * (0.315392 * (3.0 * d.z * d.z - 1.0) * a2);
+    e = e + (*blended)[7].rgb * (1.092548 * d.x * d.z * a2);
+    e = e + (*blended)[8].rgb * (0.546274 * (d.x * d.x - d.y * d.y) * a2);
     // Ringing in a truncated expansion can drive irradiance below zero, which
     // would darken a surface rather than light it.
     return max(e, vec3<f32>(0.0, 0.0, 0.0)) / PI;
 }
+// What `eval_probe_sh_pair_at` returns: the irradiance facing the surface's
+// normal (its diffuse light) and facing a second direction -- the
+// reflection, for the specular the probes stand in for where nothing sharper
+// answers (`MESH_WGSL`'s GI specular). One blend for both: the weights --
+// visibility, wrap, the normal bias -- are the surface's whichever direction
+// the blend is then read in, and they are most of the cost.
+struct ProbeShPair {
+    along_n: vec3<f32>,
+    along_dir: vec3<f32>,
+};
+// The probe grid's irradiance at `world_pos` for a surface facing `n`, read
+// from the half at probe `offset`.
+fn eval_probe_sh_at(world_pos: vec3<f32>, n: vec3<f32>, offset: u32, visibility: bool) -> vec3<f32> {
+    return eval_probe_sh_pair_at(world_pos, n, n, offset, visibility).along_n;
+}
 // The grid as shading reads it: the half the header names.
 fn eval_probe_sh(world_pos: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
     return eval_probe_sh_at(world_pos, n, probes.coeff_offset, (probes.flags & 1u) != 0u);
+}
+fn eval_probe_sh_pair(world_pos: vec3<f32>, n: vec3<f32>, dir: vec3<f32>) -> ProbeShPair {
+    return eval_probe_sh_pair_at(
+        world_pos, n, dir, probes.coeff_offset, (probes.flags & 1u) != 0u
+    );
 }
 "#
     };

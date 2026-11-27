@@ -196,34 +196,37 @@ fn build_pipeline(
         dst_factor: wgpu::BlendFactor::One,
         operation: wgpu::BlendOperation::Add,
     };
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("rt reflections pipeline"),
-        layout: Some(&layout),
-        vertex: wgpu::VertexState {
-            module: &module,
-            entry_point: Some("vs_fullscreen"),
-            buffers: &[],
-            compilation_options: Default::default(),
+    crate::pipeline_cache::create_render_pipeline(
+        device,
+        &wgpu::RenderPipelineDescriptor {
+            label: Some("rt reflections pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &module,
+                entry_point: Some("vs_fullscreen"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &module,
+                entry_point: Some("fs_rt"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: crate::post_process::HDR_FORMAT,
+                    blend: Some(wgpu::BlendState {
+                        color: under,
+                        alpha: under,
+                    }),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
         },
-        fragment: Some(wgpu::FragmentState {
-            module: &module,
-            entry_point: Some("fs_rt"),
-            targets: &[Some(wgpu::ColorTargetState {
-                format: crate::post_process::HDR_FORMAT,
-                blend: Some(wgpu::BlendState {
-                    color: under,
-                    alpha: under,
-                }),
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
-            compilation_options: Default::default(),
-        }),
-        primitive: wgpu::PrimitiveState::default(),
-        depth_stencil: None,
-        multisample: wgpu::MultisampleState::default(),
-        multiview_mask: None,
-        cache: None,
-    })
+    )
 }
 
 /// `device`'s layout and pipeline state, starting the build on the first ask.

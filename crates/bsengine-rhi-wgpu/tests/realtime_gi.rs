@@ -2851,6 +2851,11 @@ enum Behind {
     Red,
     /// Grey, lit (or not) by the room's lamp.
     Grey,
+    /// Glowing blue, with a red card in front of it for x > 0: an edge for
+    /// a reflection to blur, reflected down the middle of the mirror. A
+    /// card in front, not two halves side by side: a ray down the seam
+    /// between two quads can slip through it.
+    Split,
 }
 
 /// A closed room whose back wall is a mirror -- white metal, nearly smooth --
@@ -2862,6 +2867,8 @@ enum Behind {
 /// black, the sun is off, and the sky -- a blue skybox -- is outside.
 struct MirrorRoom {
     s: GiScene,
+    /// The mirror's draw.
+    mirror: usize,
     /// A moving red panel hung in front of the wall behind the camera, if
     /// the test asked for one.
     panel: Option<usize>,
@@ -2898,14 +2905,24 @@ impl MirrorRoom {
                 Vec3::NEG_Z * size.z,
             ),
         ];
+        let mut mirror = 0;
         for (i, (min, u, v)) in walls.into_iter().enumerate() {
+            if i == 3 && matches!(behind, Behind::Split) {
+                s.add(quad_corners(min, u, v), grey, Vec3::new(0.0, 0.0, 2.0));
+                s.add(
+                    quad_corners(min + Vec3::new(0.0, 0.0, -0.05), u * 0.5, v),
+                    grey,
+                    Vec3::new(2.0, 0.0, 0.0),
+                );
+                continue;
+            }
             let emissive = match (i, behind) {
                 (3, Behind::Red) => Vec3::new(2.0, 0.0, 0.0),
                 _ => Vec3::ZERO,
             };
             s.add(quad_corners(min, u, v), grey, emissive);
             if i == 2 {
-                let mirror = s.scene.draw_calls.len() - 1;
+                mirror = s.scene.draw_calls.len() - 1;
                 s.scene.draw_calls[mirror].3.base_color = Vec3::ONE;
                 s.scene.draw_calls[mirror].3.metallic = 1.0;
                 s.scene.draw_calls[mirror].3.roughness = 0.05;
@@ -2940,7 +2957,7 @@ impl MirrorRoom {
                 * Mat4::look_at_rh(eye, Vec3::new(0.0, 1.5, -3.0), Vec3::Y),
             eye,
         );
-        Self { s, panel }
+        Self { s, mirror, panel }
     }
 
     /// The room's volume input.
@@ -3228,5 +3245,178 @@ fn a_reflection_shows_the_shadow_on_what_it_reflects() {
     assert!(
         linear_sum(shadowed) < 0.75 * linear_sum(lit),
         "the card's shadow is in the mirror: {lit:?} -> {shadowed:?}"
+    );
+}
+
+impl MirrorRoom {
+    /// The mirror's roughness.
+    fn mirror_roughness(&mut self, r: f32) {
+        self.s.scene.draw_calls[self.mirror].3.roughness = r;
+    }
+
+    /// Settles the probes, then runs the reflections `frames` frames, and
+    /// returns the middle row of the last.
+    fn middle_row(&mut self, frames: u32) -> Vec<[u8; 3]> {
+        let rt = Some(bsengine_core::RayTracedReflections::default());
+        self.s.scene.surface.set_ray_traced_reflections(rt);
+        let input = self.input();
+        self.s.run(&input, 6);
+        self.s.run_reflected(&input, frames);
+        self.row()
+    }
+
+    /// The middle row of the last frame.
+    fn row(&self) -> Vec<[u8; 3]> {
+        let pixels = self
+            .s
+            .scene
+            .surface
+            .read_pixels()
+            .expect("offscreen readback");
+        (0..64)
+            .map(|x| {
+                let at = (32 * 64 + x) * 4;
+                [pixels[at], pixels[at + 1], pixels[at + 2]]
+            })
+            .collect()
+    }
+}
+
+/// How many of the pixels the wall behind the camera fills in the mirror
+/// (the middle columns: the mirror image is twice as far as the mirror, and
+/// the side walls show beyond them) are neither plainly red nor plainly blue
+/// -- one channel over the other by 100 levels: the width of the edge
+/// between them. Not a ratio of the two: the probes carry each glow onto
+/// the other half, and the mirror's plain blue reads `[87, 10, 246]`, its
+/// plain red `[246, 8, 106]`.
+fn edge_width(row: &[[u8; 3]]) -> usize {
+    row[20..44]
+        .iter()
+        .filter(|p| (p[0] as i32 - p[2] as i32).abs() < 100)
+        .count()
+}
+
+/// A glossy surface reflects a lobe, not a line: the edge between the red
+/// and the blue halves of the wall behind the camera is sharp in a mirror
+/// and spread in a surface of roughness 0.4 -- each frame one direction of
+/// its GGX lobe, the frames blended. With one mirror ray a pixel (the rays
+/// before the lobe was sampled) the two widths were the same.
+///
+/// Measured: 0 pixels of the 24 in the mirror, 23 at roughness 0.4 -- one
+/// sample a frame, ten-odd frames' worth in the history, still grainy
+/// (the spatial filter is the next step's).
+#[test]
+fn a_glossy_surface_blurs_what_it_reflects() {
+    let mut sharp = MirrorRoom::new(Behind::Split, false, false);
+    let mirror = sharp.middle_row(2);
+    let mut glossy = MirrorRoom::new(Behind::Split, false, false);
+    glossy.mirror_roughness(0.4);
+    let blurred = glossy.middle_row(40);
+    let (sharp_w, glossy_w) = (edge_width(&mirror), edge_width(&blurred));
+    assert!(
+        mirror[20..44]
+            .iter()
+            .any(|p| p[0] as i32 > p[2] as i32 + 100)
+            && mirror[20..44]
+                .iter()
+                .any(|p| p[2] as i32 > p[0] as i32 + 100),
+        "premise: the mirror shows the edge, red one side and blue the other: {mirror:?}"
+    );
+    assert!(sharp_w <= 2, "a mirror keeps the edge sharp: {sharp_w}");
+    assert!(
+        glossy_w >= sharp_w + 4,
+        "a glossy surface spreads it: {glossy_w} pixels against {sharp_w}"
+    );
+}
+
+/// The frames are blended: one sample of the lobe a frame is noise, and
+/// the history settles it. Two frames in a row of the glossy edge differ
+/// by little with the blend, and by a lot without it (the premise -- the
+/// single samples do flicker).
+///
+/// Measured: the mean over the wall's columns of each pixel's largest
+/// change of a channel, 21.5 with the history and 86.1 without (Vulkan,
+/// RTX 3060). Not the largest change along the row, which one pixel
+/// decides: 56 against 199 here, but 79 against 199 on CI's llvmpipe,
+/// over the third the test first asked for.
+#[test]
+fn a_glossy_reflection_settles_over_frames() {
+    let flicker = |history: bool| {
+        let mut room = MirrorRoom::new(Behind::Split, false, false);
+        room.mirror_roughness(0.4);
+        room.middle_row(1);
+        room.s
+            .scene
+            .surface
+            .set_rt_reflection_history_for_testing(history);
+        let a = room.middle_row(40);
+        let b = room.middle_row(1);
+        let changes: Vec<f32> = a[20..44]
+            .iter()
+            .zip(&b[20..44])
+            .map(|(p, q)| {
+                (0..3)
+                    .map(|c| (p[c] as f32 - q[c] as f32).abs())
+                    .fold(0.0, f32::max)
+            })
+            .collect();
+        changes.iter().sum::<f32>() / changes.len() as f32
+    };
+    let (with, without) = (flicker(true), flicker(false));
+    assert!(
+        without > 20.0,
+        "premise: one sample a frame flickers: {without:.1}"
+    );
+    assert!(
+        with * 2.0 < without,
+        "the history settles it: {with:.1} against {without:.1}"
+    );
+}
+
+/// The history is thrown away where the surface is not the one it recorded:
+/// a panel brought in front of a glossy mirror that has been reflecting the
+/// red wall for frames is, the first frame it is there, what it is in a
+/// room where it always was -- not that plus the mirror's history, which
+/// its depth says belongs to something else. (Not "not red": the panel is
+/// rough metal facing the red wall, and the probes' stand-in for the sky
+/// makes it red of its own accord.)
+///
+/// Measured: the mirror `[241, 11, 39]`; the panel brought in `[234, 45,
+/// 164]`, and always there `[230, 45, 164]`.
+#[test]
+fn a_surface_uncovered_does_not_take_the_history_of_what_was_there() {
+    let panel = |room: &mut MirrorRoom| {
+        room.s.scene.push_quad(
+            [
+                Vec3::new(-1.0, 0.5, 0.0),
+                Vec3::new(1.0, 0.5, 0.0),
+                Vec3::new(1.0, 2.5, 0.0),
+                Vec3::new(-1.0, 2.5, 0.0),
+            ],
+            Vec3::ZERO,
+        );
+        let i = room.s.scene.draw_calls.len() - 1;
+        room.s.scene.draw_calls[i].3.base_color = Vec3::ONE;
+        room.s.scene.draw_calls[i].3.metallic = 1.0;
+        room.s.scene.draw_calls[i].3.roughness = 0.5;
+    };
+    let mut room = MirrorRoom::new(Behind::Red, false, false);
+    room.mirror_roughness(0.3);
+    let before = room.middle_row(30)[32];
+    panel(&mut room);
+    let after = room.middle_row(1)[32];
+    let mut always = MirrorRoom::new(Behind::Red, false, false);
+    always.mirror_roughness(0.3);
+    panel(&mut always);
+    always.middle_row(30);
+    let reference = always.middle_row(1)[32];
+    assert!(
+        red_bias(before) > 60,
+        "premise: the mirror was red: {before:?}"
+    );
+    assert!(
+        (0..3).all(|c| (after[c] as i32 - reference[c] as i32).abs() <= 6),
+        "the panel is what it would have been, not the mirror's history: \
+         {after:?} against {reference:?}"
     );
 }

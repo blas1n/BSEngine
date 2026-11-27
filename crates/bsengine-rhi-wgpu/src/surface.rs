@@ -8593,6 +8593,16 @@ impl WgpuSurface {
         self.ray_traced_reflections = reflections;
     }
 
+    /// Switches the ray-traced reflections' temporal blend, for the test that
+    /// measures what it takes away. Takes effect once the reflections have
+    /// run a frame (they are made then).
+    #[doc(hidden)]
+    pub fn set_rt_reflection_history_for_testing(&mut self, on: bool) {
+        if let Some(rt) = &mut self.rt_reflections {
+            rt.history_enabled = on;
+        }
+    }
+
     /// Frames the ray-traced reflections' pass has run: what a test waits
     /// for, since the pass needs the realtime GI's scene and its own
     /// pipeline (built on a thread), and draws nothing before both.
@@ -8601,55 +8611,77 @@ impl WgpuSurface {
         self.rt_reflections.as_ref().map_or(0, |r| r.frames_traced)
     }
 
-    /// This frame's ray-traced reflections pass -- its pipeline and scene --
-    /// when the camera asks for them, a realtime volume has given them a
-    /// scene to trace, and the pipeline is built; `None` otherwise, and the
-    /// frame reflects as if they were off.
-    fn rt_reflections_pass(
+    /// Whether this frame runs the ray-traced reflections' passes, and their
+    /// pipelines and parameters if so: when the camera asks for them, a
+    /// realtime volume has given them a scene to trace, and the pipelines
+    /// are built. `None` otherwise, and the frame reflects as if they were
+    /// off -- with their history forgotten, since this frame is not in it.
+    fn rt_reflections_frame(
         &mut self,
         view_proj: Mat4,
         cam_pos: Vec3,
-    ) -> Option<(Arc<wgpu::RenderPipeline>, wgpu::BindGroup)> {
+    ) -> Option<(
+        Arc<crate::rt_reflections::Pipelines>,
+        crate::rt_reflections::RtParams,
+    )> {
+        let frame = self.rt_reflections_frame_inner(view_proj, cam_pos);
+        if frame.is_none() {
+            if let Some(rt) = &mut self.rt_reflections {
+                rt.skip_frame();
+            }
+        }
+        frame
+    }
+
+    fn rt_reflections_frame_inner(
+        &mut self,
+        view_proj: Mat4,
+        cam_pos: Vec3,
+    ) -> Option<(
+        Arc<crate::rt_reflections::Pipelines>,
+        crate::rt_reflections::RtParams,
+    )> {
         let settings = self.ray_traced_reflections?.clamped();
         let intensity = self.ray_traced_reflections?.effective_intensity();
         if intensity <= 0.0 || self.fast_render {
             return None;
         }
-        let scene = self
-            .realtime_gi
-            .as_ref()
-            .filter(|_| self.realtime_gi_active)
-            .and_then(|gi| gi.trace_scene());
-        let Some(scene) = scene else {
+        let has_scene = self.realtime_gi_active
+            && self
+                .realtime_gi
+                .as_ref()
+                .is_some_and(|gi| gi.trace_scene().is_some());
+        if !has_scene {
             if !self.warned_rt_without_gi && !self.realtime_gi_active {
                 self.warned_rt_without_gi = true;
                 tracing::warn!(
-                    "the camera has RayTracedReflections, but there is no realtime light-probe                      volume (LightProbeVolume with update: Realtime) for them to trace;                      reflections stay screen-space"
+                    "the camera has RayTracedReflections, but there is no realtime light-probe \
+                     volume (LightProbeVolume with update: Realtime) for them to trace; \
+                     reflections stay screen-space"
                 );
             }
             return None;
-        };
+        }
         let rt = self.rt_reflections.get_or_insert_with(|| {
             let (depth, normals) = self.post_process.rt_reflection_layouts();
             crate::rt_reflections::RtReflections::new(&self.device, depth, normals)
         });
-        let pipeline = rt.pipeline()?;
-        let bind = rt.scene_bind_group(
-            &self.device,
-            &self.queue,
-            &scene,
-            &self.probe_buffer,
+        let pipelines = rt.pipelines()?;
+        Some((
+            pipelines,
             crate::rt_reflections::RtParams {
                 inv_view_proj: view_proj.inverse().to_cols_array_2d(),
+                view_proj: view_proj.to_cols_array_2d(),
+                prev_view_proj: self.prev_unjittered_view_proj.to_cols_array_2d(),
                 cam_pos: [cam_pos.x, cam_pos.y, cam_pos.z, intensity],
                 max_roughness: settings.max_roughness,
                 max_distance: settings.max_distance,
                 instance_count: 0,
-                _pad: 0,
+                frame: 0,
+                history_valid: 0,
+                _pad: [0; 3],
             },
-        );
-        rt.frames_traced += 1;
-        Some((pipeline, bind))
+        ))
     }
 
     /// Switches screen-space GI's spatial filter, for the test that
@@ -10358,7 +10390,7 @@ impl WgpuSurface {
         // the opaque pass reads them, so they need the prepass too.
         // Ray-traced reflections trace from the same prepass, under what the
         // screen-space trace finds (or under nothing, with SSR off).
-        let rt_pass = self.rt_reflections_pass(unjittered_view_proj, cam_pos);
+        let rt_pass = self.rt_reflections_frame(unjittered_view_proj, cam_pos);
         let ssr_on = (self.post_process.ssr_enabled() || rt_pass.is_some()) && !self.fast_render;
         if decal_count > 0 || ssr_on {
             {
@@ -10554,10 +10586,27 @@ impl WgpuSurface {
         // This frame's reflections, for the opaque pass to read -- or cleared
         // to none, which it reads just the same.
         frame_draw_calls += self.post_process.trace_ssr(&mut encoder, self.fast_render);
-        if let Some((pipeline, scene)) = &rt_pass {
-            self.post_process
-                .trace_rt_reflections(&mut encoder, pipeline, scene);
-            frame_draw_calls += 1;
+        if let Some((pipelines, params)) = rt_pass {
+            let scene = self
+                .realtime_gi
+                .as_ref()
+                .and_then(|gi| gi.trace_scene())
+                .expect("checked by rt_reflections_frame");
+            let size = (self.width(), self.height());
+            self.rt_reflections
+                .as_mut()
+                .expect("made by rt_reflections_frame")
+                .encode(
+                    &self.device,
+                    &self.queue,
+                    &mut encoder,
+                    &pipelines,
+                    &scene,
+                    &self.probe_buffer,
+                    self.post_process.rt_reflection_inputs(size),
+                    params,
+                );
+            frame_draw_calls += 3;
         }
 
         // --- MSAA: the targets and pipelines the geometry passes use ---

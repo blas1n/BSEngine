@@ -46,6 +46,25 @@ pub(crate) fn feed_ssgi(world: &mut World) {
         .set_ssgi(ssgi);
 }
 
+/// Hands the surface the camera's ray-traced reflections -- the first
+/// camera's, as `render_frame` takes it -- or `None`. Beside
+/// [`feed_ssgi`] for the same reason.
+pub(crate) fn feed_ray_traced_reflections(world: &mut World) {
+    if !world.contains_resource::<bsengine_rhi_wgpu::WgpuSurfaceResource>() {
+        return;
+    }
+    let mut q = world.query::<(
+        &bsengine_core::Camera,
+        &Transform,
+        Option<&bsengine_core::RayTracedReflections>,
+    )>();
+    let rt = q.iter(world).next().and_then(|(_, _, r)| r.copied());
+    world
+        .resource_mut::<bsengine_rhi_wgpu::WgpuSurfaceResource>()
+        .0
+        .set_ray_traced_reflections(rt);
+}
+
 /// The baked probes last read: their path, and what it held (`None` for a
 /// file that could not be read, said once rather than every frame).
 #[derive(Default)]

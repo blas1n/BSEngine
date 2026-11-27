@@ -1666,6 +1666,7 @@ impl Plugin for RenderPlugin {
         app.register_type::<bsengine_core::Decal>();
         app.register_type::<bsengine_core::Lightmap>();
         app.register_type::<bsengine_core::ScreenSpaceReflections>();
+        app.register_type::<bsengine_core::RayTracedReflections>();
         app.register_type::<bsengine_core::ScreenSpaceGlobalIllumination>();
         app.init_asset::<crate::shader_asset::ShaderSource>()
             .register_asset_loader(crate::shader_asset::ShaderSourceLoader)
@@ -1731,6 +1732,7 @@ impl Plugin for RenderPlugin {
                     crate::realtime_gi::feed_realtime_gi,
                     crate::realtime_gi::feed_baked_probes,
                     crate::realtime_gi::feed_ssgi,
+                    crate::realtime_gi::feed_ray_traced_reflections,
                     sync_ui_fonts,
                     sync_safe_area,
                     sync_ui_scale,

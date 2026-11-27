@@ -6374,6 +6374,53 @@ impl PostProcessState {
         levels + 1
     }
 
+    /// The layouts of the bind groups [`Self::trace_rt_reflections`] binds
+    /// at 1 and 2 -- the prepass depth and the prepass normals, as the
+    /// screen-space trace binds them -- for the pipeline that pass draws
+    /// with (`crate::rt_reflections`).
+    pub(crate) fn rt_reflection_layouts(
+        &self,
+    ) -> (
+        std::sync::Arc<wgpu::BindGroupLayout>,
+        std::sync::Arc<wgpu::BindGroupLayout>,
+    ) {
+        (
+            std::sync::Arc::clone(&self.depth_bgl),
+            std::sync::Arc::clone(&self.ssgi_history_bgl),
+        )
+    }
+
+    /// Ray-traced reflections, drawn under what [`Self::trace_ssr`] just
+    /// wrote into [`Self::ssr_view`] (loaded, not cleared): the rays fill the
+    /// share the screen left, blended by `pipeline` (`crate::rt_reflections`),
+    /// so the opaque pass still reads one premultiplied reflection.
+    pub(crate) fn trace_rt_reflections(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        pipeline: &wgpu::RenderPipeline,
+        scene: &wgpu::BindGroup,
+    ) {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("rt reflections pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &self.ssr_view,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            ..Default::default()
+        });
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, scene, &[]);
+        pass.set_bind_group(1, &self.depth_bg, &[]);
+        pass.set_bind_group(2, &self.ssr_normal_bg, &[]);
+        pass.draw(0..3, 0..1);
+    }
+
     /// Builds the depth pyramid from the depth buffer as it stands, for a trace
     /// about to read it. Each trace builds its own: the reflections' runs on
     /// the prepass's depth, before the opaque pass, and the GI's after every

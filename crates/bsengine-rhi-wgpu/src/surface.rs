@@ -939,6 +939,59 @@ fn shade(in: VertOut, s: Surface) -> SceneOut {
         let brdf = textureSample(brdf_lut, ibl_sampler, vec2<f32>(n_dot_v, roughness)).rg;
         specular_ibl = prefiltered * (f_ibl * brdf.x + brdf.y);
     }
+    // Inside a light probe volume the probes also stand in for the sky's
+    // specular -- what a surface reflects where no reflection probe and no
+    // screen trace (both applied below, over this) say otherwise. Without
+    // it the sky is reflected wherever the sky cannot be seen: a covered
+    // room's metal floor showed blue, and stayed bright with every light
+    // off. Both halves are read from one blend of the probes (`n` for the
+    // diffuse, applied further down, and the reflection `r`), whose
+    // visibility weights are the surface's either way.
+    //
+    // By roughness, the two reference constructions:
+    //
+    // - Rough: the probes' irradiance facing `r`, through the same
+    //   `F * brdf` -- Lumen's, which hands every surface rougher than
+    //   `MaxRoughnessToTrace` (0.4) to the diffuse GI. A rough lobe is
+    //   about as wide as the cosine lobe the probes already are.
+    // - Smooth: the sky's own reflection, scaled by how much of the sky's
+    //   light the probes say arrives from `r` -- HDRP's APV "reflection
+    //   probe normalization". A mirror keeps the sky's picture, which the
+    //   probes do not have, and loses its brightness where the sky is
+    //   hidden; under an open sky the two agree and nothing changes.
+    //   Never above 1: a lamp-lit room is not a brighter sky, and its
+    //   light reaches a smooth surface through the rough half's blend or
+    //   the screen and reflection probes, not as a sky tinted like it.
+    //
+    // Between 0.4 and 0.6, a linear blend of the two.
+    var probe_diffuse = vec3<f32>(0.0);
+    let in_probes = probes.enabled != 0u && inside_probe_volume(in.world_pos);
+    if (in_probes) {
+        let probe_light = eval_probe_sh_pair(in.world_pos, n, r);
+        probe_diffuse = probe_light.along_n;
+        let gi_brdf = textureSampleLevel(
+            brdf_lut, ibl_sampler, vec2<f32>(n_dot_v, roughness), 0.0
+        ).rg;
+        let rough_gi = probe_light.along_dir * (f_ibl * gi_brdf.x + gi_brdf.y);
+        var smooth_gi = vec3<f32>(0.0);
+        if (light.ibl_enabled != 0u) {
+            // Level 0: this branch depends on the position, so no implicit
+            // derivatives; the irradiance cube is one level anyway.
+            let sky_irradiance = textureSampleLevel(irradiance_cube, ibl_sampler, r, 0.0).rgb;
+            let lum = vec3<f32>(0.2126, 0.7152, 0.0722);
+            let ratio = clamp(
+                dot(probe_light.along_dir, lum) / max(dot(sky_irradiance, lum), 1e-6),
+                0.0,
+                1.0,
+            );
+            smooth_gi = specular_ibl * ratio;
+        }
+        specular_ibl = mix(
+            smooth_gi,
+            rough_gi,
+            clamp((roughness - 0.4) / 0.2, 0.0, 1.0),
+        );
+    }
     if (reflection_probes.count > 0u) {
         // REPLACES the sky's specular, never adds to it: a probe captured the
         // sky too, wherever it could see it, so adding would reflect the sky
@@ -1019,14 +1072,14 @@ fn shade(in: VertOut, s: Surface) -> SceneOut {
                 + specular_ibl * (1.0 - ssr.a);
         }
     }
-    if (probes.enabled != 0u && inside_probe_volume(in.world_pos)) {
+    if (in_probes) {
         // REPLACES the ambient/IBL irradiance, never adds to it. The probes
         // captured the real scene *including the skybox background and the flat
         // ambient term*, so their SH already carries the sky's contribution;
-        // adding would double-count sky light and wash the scene out. The
-        // specular half is left to the IBL or reflection probe above --
-        // light probes are a diffuse-only, L2 representation.
-        let probe_irradiance = eval_probe_sh(in.world_pos, n);
+        // adding would double-count sky light and wash the scene out. Their
+        // part in the specular half was played above, under the reflection
+        // probes and the screen.
+        let probe_irradiance = probe_diffuse;
         diffuse_term = probe_irradiance * albedo * kd_ibl;
         diffuse_factor = albedo * kd_ibl;
     }

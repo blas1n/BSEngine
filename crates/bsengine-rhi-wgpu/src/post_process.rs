@@ -6390,35 +6390,20 @@ impl PostProcessState {
         )
     }
 
-    /// Ray-traced reflections, drawn under what [`Self::trace_ssr`] just
-    /// wrote into [`Self::ssr_view`] (loaded, not cleared): the rays fill the
-    /// share the screen left, blended by `pipeline` (`crate::rt_reflections`),
-    /// so the opaque pass still reads one premultiplied reflection.
-    pub(crate) fn trace_rt_reflections(
+    /// What the ray-traced reflections' passes (`crate::rt_reflections`)
+    /// read and draw into: the screen-space trace's depth and normals bind
+    /// groups, and its target, which they draw under what
+    /// [`Self::trace_ssr`] just wrote there.
+    pub(crate) fn rt_reflection_inputs(
         &self,
-        encoder: &mut wgpu::CommandEncoder,
-        pipeline: &wgpu::RenderPipeline,
-        scene: &wgpu::BindGroup,
-    ) {
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("rt reflections pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &self.ssr_view,
-                resolve_target: None,
-                depth_slice: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            ..Default::default()
-        });
-        pass.set_pipeline(pipeline);
-        pass.set_bind_group(0, scene, &[]);
-        pass.set_bind_group(1, &self.depth_bg, &[]);
-        pass.set_bind_group(2, &self.ssr_normal_bg, &[]);
-        pass.draw(0..3, 0..1);
+        size: (u32, u32),
+    ) -> crate::rt_reflections::ScreenInputs<'_> {
+        crate::rt_reflections::ScreenInputs {
+            depth: &self.depth_bg,
+            normals: &self.ssr_normal_bg,
+            target: &self.ssr_view,
+            size,
+        }
     }
 
     /// Builds the depth pyramid from the depth buffer as it stands, for a trace

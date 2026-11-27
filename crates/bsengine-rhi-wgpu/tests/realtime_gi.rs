@@ -214,6 +214,45 @@ fn the_update_compiles_for_d3d12() {
     );
 }
 
+/// The ray-traced reflections' pass compiles for D3D12 through FXC too: the
+/// same walk of the same tree as the update, in a fragment shader this time.
+#[cfg(windows)]
+#[test]
+fn the_reflections_compile_for_d3d12() {
+    let instance = wgpu::Instance::new({
+        let mut d = wgpu::InstanceDescriptor::new_without_display_handle();
+        d.backends = wgpu::Backends::DX12;
+        d.backend_options.dx12.shader_compiler = wgpu::Dx12Compiler::Fxc;
+        d
+    });
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::LowPower,
+        compatible_surface: None,
+        force_fallback_adapter: false,
+        apply_limit_buckets: false,
+    }))
+    .expect("Windows has a D3D12 adapter (WARP at worst); a skip would look like a pass");
+    let (device, _queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("d3d12 compile check"),
+        required_features: wgpu::Features::empty(),
+        required_limits: wgpu::Limits::downlevel_defaults(),
+        memory_hints: wgpu::MemoryHints::default(),
+        experimental_features: wgpu::ExperimentalFeatures::disabled(),
+        trace: wgpu::Trace::Off,
+    }))
+    .expect("a D3D12 device");
+    let error_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let started = std::time::Instant::now();
+    bsengine_rhi_wgpu::rt_reflections::build_pipeline_for_testing(&device);
+    let built = started.elapsed();
+    let error = pollster::block_on(error_scope.pop());
+    assert!(
+        error.is_none(),
+        "the reflections do not compile for D3D12: {error:?}"
+    );
+    eprintln!("rt reflections FXC compile: {built:?}");
+}
+
 // ---- the realtime probe volume -------------------------------------------
 
 /// A scene for the realtime volume: [`Surface`]'s surface and
@@ -2930,6 +2969,30 @@ impl MirrorRoom {
         self.s.centre()
     }
 
+    /// Lights the room with one white lamp at `at` instead of its own.
+    fn lamp_at(&mut self, at: Vec3) {
+        self.s.lights = vec![bsengine_bake::BakeLight::Point {
+            position: at,
+            color: Vec3::ONE,
+            intensity: 4.0,
+            range: 10.0,
+            contribution: bsengine_bake::Contribution::Indirect,
+        }];
+    }
+
+    /// Adds a small square card, static, centred on `centre` and facing
+    /// `facing`: something to cast a shadow.
+    fn card(&mut self, centre: Vec3, facing: Vec3) {
+        let n = facing.normalize();
+        let u = n.cross(Vec3::Y).normalize() * 0.5;
+        let v = u.cross(n).normalize() * 0.5;
+        self.s.add(
+            quad_corners(centre - (u + v) * 0.5, u, v),
+            Vec3::splat(0.6),
+            Vec3::ZERO,
+        );
+    }
+
     /// Moves the panel by `by`.
     fn move_panel(&mut self, by: Vec3) {
         let i = self.panel.expect("a room with a panel");
@@ -2946,6 +3009,9 @@ fn red_bias(p: [u8; 3]) -> i32 {
 /// that pixel (the same frame with it on and off), so whatever turns it red
 /// is the rays'.
 ///
+/// Measured: `[16, 81, 214]` without the screen's trace, the same with it,
+/// `[246, 9, 33]` with the rays.
+///
 /// Each frame from a room of its own: the probes go on converging update by
 /// update, so the same room measured twice differs by that alone.
 #[test]
@@ -2954,7 +3020,6 @@ fn a_mirror_reflects_the_wall_behind_the_camera() {
     let no_ssr = room().centre(None, false);
     let screen = room().centre(None, true);
     let rays = room().centre(Some(bsengine_core::RayTracedReflections::default()), true);
-    eprintln!("mirror: no ssr {no_ssr:?} screen {screen:?} rays {rays:?}");
     assert_eq!(
         screen, no_ssr,
         "premise: a reflection running back past the camera is nothing the screen can find"
@@ -2967,13 +3032,15 @@ fn a_mirror_reflects_the_wall_behind_the_camera() {
 
 /// The hit is lit by the lights as they are now: a grey wall behind the
 /// camera, warm in the mirror with the lamp on, dark with it off.
+///
+/// Measured: lit `[207, 174, 129]`, dark `[2, 9, 33]`, and without the rays
+/// `[28, 116, 232]` (the probes' stand-in for the sky).
 #[test]
 fn a_reflection_is_lit_by_the_lights_it_sees() {
     let rt = Some(bsengine_core::RayTracedReflections::default());
     let lit = MirrorRoom::new(Behind::Grey, true, false).centre(rt, false);
     let dark = MirrorRoom::new(Behind::Grey, false, false).centre(rt, false);
     let without = MirrorRoom::new(Behind::Grey, true, false).centre(None, false);
-    eprintln!("lamp: lit {lit:?} dark {dark:?} without rays {without:?}");
     assert!(
         red_bias(lit) > red_bias(without) + 20,
         "the lamp-lit wall is warm in the mirror: {without:?} -> {lit:?}"
@@ -2987,6 +3054,8 @@ fn a_reflection_is_lit_by_the_lights_it_sees() {
 /// A moving renderer is reflected where it is: the red panel behind the
 /// camera turns the mirror red, and moved aside, by its model alone, it
 /// leaves the mirror.
+///
+/// Measured: there `[245, 0, 0]`, moved `[56, 8, 31]`.
 #[test]
 fn a_moved_renderer_is_reflected_where_it_is() {
     let rt = Some(bsengine_core::RayTracedReflections::default());
@@ -2994,7 +3063,6 @@ fn a_moved_renderer_is_reflected_where_it_is() {
     let there = room.centre(rt, false);
     room.move_panel(Vec3::new(2.5, 0.0, 0.0));
     let moved = room.centre(rt, false);
-    eprintln!("panel: there {there:?} moved {moved:?}");
     assert!(
         red_bias(there) > 60,
         "premise: the panel is in the mirror: {there:?}"
@@ -3047,6 +3115,10 @@ fn ray_traced_reflections_with_nothing_to_trace_change_nothing() {
 /// red is the screen's red, unchanged (drawing the rays over the screen's
 /// result would wash it out), and the green is well under the rays' own
 /// (adding them in full, on top, would leave it whole).
+///
+/// Measured: screen `[230, 58, 191]`, rays `[2, 218, 31]`, both
+/// `[230, 165, 11]` -- the screen's red, and the rays' green in the share
+/// the sky had.
 #[test]
 fn the_rays_fill_only_what_the_screen_did_not_find() {
     let glow = Some((BACK_WALL, Vec3::new(0.0, 0.6, 0.0)));
@@ -3068,7 +3140,6 @@ fn the_rays_fill_only_what_the_screen_did_not_find() {
     let screen = measure(true, false);
     let rays = measure(false, true);
     let both = measure(true, true);
-    eprintln!("fill: screen {screen:?} rays {rays:?} both {both:?}");
     assert!(
         red_bias(screen) > 60,
         "premise: the screen finds the red wall: {screen:?}"
@@ -3121,5 +3192,41 @@ fn a_rough_surface_is_left_to_the_probes() {
         measure(0.9, true),
         measure(0.9, false),
         "a rough floor traces nothing"
+    );
+}
+
+/// The hit's own light is traced, shadow ray and all: a card between the
+/// lamp and the spot of the wall behind the camera that the mirror shows
+/// darkens that spot in the mirror. The probes, a metre and more apart,
+/// cannot draw a shadow that small -- with the hit lit by the probes alone,
+/// the card changed the reflection by a few levels.
+///
+/// Measured: lit `[210, 211, 212]`, shadowed `[164, 166, 170]` (the grey
+/// room's bounce stays in the shadow: 0.58 of the light); with the hit lit
+/// by the probes alone, `[169, 171, 175]` and `[163, 164, 169]` (0.93).
+#[test]
+fn a_reflection_shows_the_shadow_on_what_it_reflects() {
+    let rt = Some(bsengine_core::RayTracedReflections::default());
+    // The spot the centre pixel reflects is (0, 1.5, 3); the lamp is off to
+    // the side, and the card halfway between them, clear of the ray from the
+    // mirror (which runs along x = 0) and behind the camera.
+    let (lamp, spot) = (Vec3::new(1.6, 1.5, 2.0), Vec3::new(0.0, 1.5, 3.0));
+    let measure = |card: bool| {
+        let mut room = MirrorRoom::new(Behind::Grey, false, false);
+        room.lamp_at(lamp);
+        if card {
+            room.card((lamp + spot) * 0.5, lamp - spot);
+        }
+        room.centre(rt, false)
+    };
+    let lit = measure(false);
+    let shadowed = measure(true);
+    assert!(
+        lit.iter().any(|&c| c > 60),
+        "premise: the spot is lit: {lit:?}"
+    );
+    assert!(
+        linear_sum(shadowed) < 0.75 * linear_sum(lit),
+        "the card's shadow is in the mirror: {lit:?} -> {shadowed:?}"
     );
 }

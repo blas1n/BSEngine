@@ -273,6 +273,37 @@ fn shared(
     (layout, state)
 }
 
+/// Builds the pass's pipeline on `device`, here and now, with layouts of its
+/// own that match what the shader declares: what a test compiles under
+/// D3D12 (FXC by name), where every other test's adapter is Vulkan and a
+/// construct only FXC rejects would pass them all.
+#[doc(hidden)]
+pub fn build_pipeline_for_testing(device: &wgpu::Device) {
+    use bsengine_bake::gpu_scene::{sky_layout_entry, storage_layout_entry, uniform_layout_entry};
+    let fragment = wgpu::ShaderStages::FRAGMENT;
+    let scene = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("rt reflections bgl (test)"),
+        entries: &[
+            storage_layout_entry(0, fragment, true),
+            storage_layout_entry(1, fragment, true),
+            storage_layout_entry(2, fragment, true),
+            uniform_layout_entry(3, fragment),
+            sky_layout_entry(4, fragment),
+            uniform_layout_entry(5, fragment),
+            storage_layout_entry(6, fragment, true),
+        ],
+    });
+    // One unfilterable float texture each, as the prepass depth and normals
+    // are bound at 1 and 2.
+    let one_texture = || {
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("rt reflections screen bgl (test)"),
+            entries: &[sky_layout_entry(0, fragment)],
+        })
+    };
+    build_pipeline(device, &scene, &one_texture(), &one_texture());
+}
+
 /// A surface's ray-traced reflections: the shared pipeline, and this
 /// surface's parameters.
 pub(crate) struct RtReflections {

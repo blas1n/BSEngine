@@ -71,7 +71,7 @@ pub mod realtime_gi;
 pub mod render_caps;
 /// Ray-traced reflections: the share the screen-space trace missed, traced
 /// through the realtime GI's scene.
-mod rt_reflections;
+pub mod rt_reflections;
 /// Spherical-harmonic (L2) projection, irradiance evaluation and trilinear
 /// blending for light probes.
 pub mod sh;

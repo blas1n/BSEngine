@@ -4428,6 +4428,14 @@ pub struct WgpuSurface {
     /// The camera's screen-space GI, or `None` for none
     /// ([`Self::set_ssgi`]); kept until changed.
     ssgi: Option<bsengine_core::ScreenSpaceGlobalIllumination>,
+    /// The camera's ray-traced reflections, or `None` for none
+    /// ([`Self::set_ray_traced_reflections`]); kept until changed.
+    ray_traced_reflections: Option<bsengine_core::RayTracedReflections>,
+    /// Their pass, made the first frame they are asked for.
+    rt_reflections: Option<crate::rt_reflections::RtReflections>,
+    /// Whether "ray-traced reflections need a realtime volume" has been said
+    /// (once a surface, not every frame).
+    warned_rt_without_gi: bool,
     /// How [`Self::probe_buffer`] is laid out: its capacity, which an adaptive
     /// layout grows ([`Self::grow_probe_buffer`]).
     probe_layout: ProbeGridLayout,
@@ -7269,6 +7277,9 @@ impl WgpuSurface {
             show_light_probes: false,
             probe_display,
             ssgi: None,
+            ray_traced_reflections: None,
+            rt_reflections: None,
+            warned_rt_without_gi: false,
             probe_layout: ProbeGridLayout::DEFAULT,
             reflection_probe_buffer,
             rect_light_buffer,
@@ -8571,6 +8582,74 @@ impl WgpuSurface {
             self.post_process
                 .set_ssgi_full_resolution(&self.device, s.full_resolution);
         }
+    }
+
+    /// The camera's ray-traced reflections ([`bsengine_core::RayTracedReflections`]),
+    /// or `None` for none: kept until changed, as [`Self::set_ssgi`] is.
+    pub fn set_ray_traced_reflections(
+        &mut self,
+        reflections: Option<bsengine_core::RayTracedReflections>,
+    ) {
+        self.ray_traced_reflections = reflections;
+    }
+
+    /// Frames the ray-traced reflections' pass has run: what a test waits
+    /// for, since the pass needs the realtime GI's scene and its own
+    /// pipeline (built on a thread), and draws nothing before both.
+    #[doc(hidden)]
+    pub fn rt_reflection_frames(&self) -> u32 {
+        self.rt_reflections.as_ref().map_or(0, |r| r.frames_traced)
+    }
+
+    /// This frame's ray-traced reflections pass -- its pipeline and scene --
+    /// when the camera asks for them, a realtime volume has given them a
+    /// scene to trace, and the pipeline is built; `None` otherwise, and the
+    /// frame reflects as if they were off.
+    fn rt_reflections_pass(
+        &mut self,
+        view_proj: Mat4,
+        cam_pos: Vec3,
+    ) -> Option<(Arc<wgpu::RenderPipeline>, wgpu::BindGroup)> {
+        let settings = self.ray_traced_reflections?.clamped();
+        let intensity = self.ray_traced_reflections?.effective_intensity();
+        if intensity <= 0.0 || self.fast_render {
+            return None;
+        }
+        let scene = self
+            .realtime_gi
+            .as_ref()
+            .filter(|_| self.realtime_gi_active)
+            .and_then(|gi| gi.trace_scene());
+        let Some(scene) = scene else {
+            if !self.warned_rt_without_gi && !self.realtime_gi_active {
+                self.warned_rt_without_gi = true;
+                tracing::warn!(
+                    "the camera has RayTracedReflections, but there is no realtime light-probe                      volume (LightProbeVolume with update: Realtime) for them to trace;                      reflections stay screen-space"
+                );
+            }
+            return None;
+        };
+        let rt = self.rt_reflections.get_or_insert_with(|| {
+            let (depth, normals) = self.post_process.rt_reflection_layouts();
+            crate::rt_reflections::RtReflections::new(&self.device, depth, normals)
+        });
+        let pipeline = rt.pipeline()?;
+        let bind = rt.scene_bind_group(
+            &self.device,
+            &self.queue,
+            &scene,
+            &self.probe_buffer,
+            crate::rt_reflections::RtParams {
+                inv_view_proj: view_proj.inverse().to_cols_array_2d(),
+                cam_pos: [cam_pos.x, cam_pos.y, cam_pos.z, intensity],
+                max_roughness: settings.max_roughness,
+                max_distance: settings.max_distance,
+                instance_count: 0,
+                _pad: 0,
+            },
+        );
+        rt.frames_traced += 1;
+        Some((pipeline, bind))
     }
 
     /// Switches screen-space GI's spatial filter, for the test that
@@ -10277,7 +10356,10 @@ impl WgpuSurface {
         };
         // The reflections trace from this frame's depth and normals before
         // the opaque pass reads them, so they need the prepass too.
-        let ssr_on = self.post_process.ssr_enabled() && !self.fast_render;
+        // Ray-traced reflections trace from the same prepass, under what the
+        // screen-space trace finds (or under nothing, with SSR off).
+        let rt_pass = self.rt_reflections_pass(unjittered_view_proj, cam_pos);
+        let ssr_on = (self.post_process.ssr_enabled() || rt_pass.is_some()) && !self.fast_render;
         if decal_count > 0 || ssr_on {
             {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -10472,6 +10554,11 @@ impl WgpuSurface {
         // This frame's reflections, for the opaque pass to read -- or cleared
         // to none, which it reads just the same.
         frame_draw_calls += self.post_process.trace_ssr(&mut encoder, self.fast_render);
+        if let Some((pipeline, scene)) = &rt_pass {
+            self.post_process
+                .trace_rt_reflections(&mut encoder, pipeline, scene);
+            frame_draw_calls += 1;
+        }
 
         // --- MSAA: the targets and pipelines the geometry passes use ---
         //

@@ -174,6 +174,7 @@ mod tests {
         crate::skinning::SkinningPipeline::new(&device);
         let (_, _, gi_ready) = crate::realtime_gi::build_pipelines_for_testing(&device);
         assert!(gi_ready, "the realtime GI pipelines were built");
+        crate::rt_reflections::build_pipeline_for_testing(&device);
         for format in [
             bsengine_core::HdrOutputFormat::Hdr10,
             bsengine_core::HdrOutputFormat::Scrgb,

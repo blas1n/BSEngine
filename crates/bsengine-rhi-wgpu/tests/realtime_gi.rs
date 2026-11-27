@@ -29,6 +29,8 @@ struct Surface {
     /// The sun's colour and the ambient: `LightData::default()`'s unless a
     /// test darkens them.
     sun: Option<(Vec3, Vec3)>,
+    /// The camera's screen-space reflections: none unless a test sets them.
+    ssr: Option<bsengine_core::ScreenSpaceReflections>,
 }
 
 impl Surface {
@@ -44,6 +46,7 @@ impl Surface {
             draw_calls: Vec::new(),
             camera: (Mat4::IDENTITY, Vec3::new(0.0, 0.0, 5.0)),
             sun: None,
+            ssr: None,
         };
         s.push_quad(corners, emissive);
         s
@@ -124,7 +127,7 @@ impl Surface {
                 None,
                 None,
                 None,
-                None,
+                self.ssr,
                 None,
                 &[],
                 false,
@@ -137,7 +140,10 @@ impl Surface {
                 None,
                 (0.0, 0.0),
                 0,
-                Mat4::IDENTITY,
+                // The unjittered view-projection: what the screen-space
+                // passes reconstruct positions through. The identity here
+                // put every pixel's reflection somewhere else.
+                self.camera.0,
                 None,
                 &[],
                 None,
@@ -206,6 +212,45 @@ fn the_update_compiles_for_d3d12() {
         returned < built / 4,
         "creating the update must not wait for its compile: {returned:?} of {built:?}"
     );
+}
+
+/// The ray-traced reflections' pass compiles for D3D12 through FXC too: the
+/// same walk of the same tree as the update, in a fragment shader this time.
+#[cfg(windows)]
+#[test]
+fn the_reflections_compile_for_d3d12() {
+    let instance = wgpu::Instance::new({
+        let mut d = wgpu::InstanceDescriptor::new_without_display_handle();
+        d.backends = wgpu::Backends::DX12;
+        d.backend_options.dx12.shader_compiler = wgpu::Dx12Compiler::Fxc;
+        d
+    });
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::LowPower,
+        compatible_surface: None,
+        force_fallback_adapter: false,
+        apply_limit_buckets: false,
+    }))
+    .expect("Windows has a D3D12 adapter (WARP at worst); a skip would look like a pass");
+    let (device, _queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("d3d12 compile check"),
+        required_features: wgpu::Features::empty(),
+        required_limits: wgpu::Limits::downlevel_defaults(),
+        memory_hints: wgpu::MemoryHints::default(),
+        experimental_features: wgpu::ExperimentalFeatures::disabled(),
+        trace: wgpu::Trace::Off,
+    }))
+    .expect("a D3D12 device");
+    let error_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let started = std::time::Instant::now();
+    bsengine_rhi_wgpu::rt_reflections::build_pipeline_for_testing(&device);
+    let built = started.elapsed();
+    let error = pollster::block_on(error_scope.pop());
+    assert!(
+        error.is_none(),
+        "the reflections do not compile for D3D12: {error:?}"
+    );
+    eprintln!("rt reflections FXC compile: {built:?}");
 }
 
 // ---- the realtime probe volume -------------------------------------------
@@ -390,6 +435,36 @@ impl GiScene {
             coeffs: c.map(|v| Vec3::new(v[0], v[1], v[2])),
         };
         sh.eval_irradiance(n) / std::f32::consts::PI
+    }
+
+    /// The centre pixel of the last frame.
+    fn centre(&self) -> [u8; 3] {
+        let pixels = self
+            .scene
+            .surface
+            .read_pixels()
+            .expect("offscreen readback");
+        let at = (32 * 64 + 32) * 4;
+        [pixels[at], pixels[at + 1], pixels[at + 2]]
+    }
+
+    /// Frames until the ray-traced reflections' pass has drawn `n` more:
+    /// its pipeline builds on a thread, so this waits against the clock,
+    /// never for a fixed count of frames.
+    fn run_reflected(&mut self, input: &bsengine_rhi_wgpu::realtime_gi::RealtimeGiInput, n: u32) {
+        let target = self.scene.surface.rt_reflection_frames() + n;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(600);
+        while self.scene.surface.rt_reflection_frames() < target {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the ray-traced reflections never ran"
+            );
+            self.scene.surface.set_realtime_gi(Some(input.clone()));
+            self.scene.render(None).expect("the frame renders");
+            if self.scene.surface.rt_reflection_frames() < target {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+        }
     }
 
     /// How many of the first `n` probes have been updated at least once.
@@ -2554,6 +2629,19 @@ fn covered_metal_floor_glowing(
     glowing: Option<(usize, Vec3)>,
     volume: Option<ProbeVolumeParams>,
 ) -> [u8; 3] {
+    let mut s = covered_room(roughness, lamp, glowing);
+    match volume {
+        None => s.scene.render(None).expect("the frame renders"),
+        Some(volume) => {
+            let input = s.input(volume, 0.5, 1 << 20);
+            s.run(&input, 16);
+        }
+    }
+    s.centre()
+}
+
+/// [`covered_metal_floor_glowing`]'s room, camera and lights, not yet drawn.
+fn covered_room(roughness: f32, lamp: bool, glowing: Option<(usize, Vec3)>) -> GiScene {
     let mut s = GiScene::new(Vec3::new(0.1, 0.3, 1.0));
     let (lo, hi) = (Vec3::new(-3.0, 0.0, -3.0), Vec3::new(3.0, 3.0, 3.0));
     let size = hi - lo;
@@ -2618,16 +2706,7 @@ fn covered_metal_floor_glowing(
             * Mat4::look_at_rh(eye, Vec3::new(0.0, 0.0, -0.5), Vec3::Y),
         eye,
     );
-    match volume {
-        None => s.scene.render(None).expect("the frame renders"),
-        Some(volume) => {
-            let input = s.input(volume, 0.5, 1 << 20);
-            s.run(&input, 16);
-        }
-    }
-    let pixels = s.scene.surface.read_pixels().expect("offscreen readback");
-    let at = (32 * 64 + 32) * 4;
-    [pixels[at], pixels[at + 1], pixels[at + 2]]
+    s
 }
 
 /// The room's volume: probes from just outside its faces, as in
@@ -2762,5 +2841,392 @@ fn the_probes_specular_faces_the_reflection() {
     assert!(
         green(ahead) > green(behind) + 30,
         "the floor reflects the wall it faces: behind {behind:?}, ahead {ahead:?}"
+    );
+}
+
+/// What the mirror room's wall behind the camera is.
+#[derive(Clone, Copy)]
+enum Behind {
+    /// Glowing red.
+    Red,
+    /// Grey, lit (or not) by the room's lamp.
+    Grey,
+}
+
+/// A closed room whose back wall is a mirror -- white metal, nearly smooth --
+/// and a camera facing it square on, so the centre pixel reflects straight
+/// back past the camera to the wall behind it. Ray-traced reflections exist
+/// for exactly this: the reflection runs back toward the viewer, which the
+/// screen-space trace gives up on by construction (`fs_ssr`'s `facing`), and
+/// what it would show is not on screen anyway. The other walls are drawn
+/// black, the sun is off, and the sky -- a blue skybox -- is outside.
+struct MirrorRoom {
+    s: GiScene,
+    /// A moving red panel hung in front of the wall behind the camera, if
+    /// the test asked for one.
+    panel: Option<usize>,
+}
+
+impl MirrorRoom {
+    fn new(behind: Behind, lamp: bool, panel: bool) -> Self {
+        let mut s = GiScene::new(Vec3::new(0.1, 0.3, 1.0));
+        let (lo, hi) = (Vec3::new(-3.0, 0.0, -3.0), Vec3::new(3.0, 3.0, 3.0));
+        let size = hi - lo;
+        let grey = Vec3::splat(0.6);
+        let walls = [
+            // Floor (up), ceiling (down), back (+z), front (-z), left, right.
+            (
+                Vec3::new(lo.x, lo.y, hi.z),
+                Vec3::X * size.x,
+                Vec3::NEG_Z * size.z,
+            ),
+            (
+                Vec3::new(lo.x, hi.y, lo.z),
+                Vec3::X * size.x,
+                Vec3::Z * size.z,
+            ),
+            (lo, Vec3::X * size.x, Vec3::Y * size.y),
+            (
+                Vec3::new(hi.x, lo.y, hi.z),
+                Vec3::NEG_X * size.x,
+                Vec3::Y * size.y,
+            ),
+            (lo, Vec3::Y * size.y, Vec3::Z * size.z),
+            (
+                Vec3::new(hi.x, lo.y, hi.z),
+                Vec3::Y * size.y,
+                Vec3::NEG_Z * size.z,
+            ),
+        ];
+        for (i, (min, u, v)) in walls.into_iter().enumerate() {
+            let emissive = match (i, behind) {
+                (3, Behind::Red) => Vec3::new(2.0, 0.0, 0.0),
+                _ => Vec3::ZERO,
+            };
+            s.add(quad_corners(min, u, v), grey, emissive);
+            if i == 2 {
+                let mirror = s.scene.draw_calls.len() - 1;
+                s.scene.draw_calls[mirror].3.base_color = Vec3::ONE;
+                s.scene.draw_calls[mirror].3.metallic = 1.0;
+                s.scene.draw_calls[mirror].3.roughness = 0.05;
+            }
+        }
+        let panel = panel.then(|| {
+            // Facing -z, toward the mirror, a little in front of the wall
+            // behind the camera; moved by its model, with nothing rebuilt.
+            s.add_dynamic(
+                quad_corners(Vec3::new(1.0, -1.0, 0.0), Vec3::NEG_X * 2.0, Vec3::Y * 2.0),
+                Mat4::from_translation(Vec3::new(0.0, 1.5, 2.8)),
+                Vec3::ZERO,
+                Vec3::new(2.0, 0.0, 0.0),
+            )
+        });
+        if lamp {
+            s.lights = vec![bsengine_bake::BakeLight::Point {
+                position: Vec3::new(0.0, 2.5, 1.0),
+                color: Vec3::new(1.0, 0.55, 0.25),
+                intensity: 3.0,
+                range: 10.0,
+                contribution: bsengine_bake::Contribution::Indirect,
+            }];
+        }
+        s.scene.sun = Some((Vec3::ZERO, Vec3::ZERO));
+        s.scene
+            .surface
+            .set_skybox_from_rgba(1, 1, &[40, 100, 255, 255]);
+        let eye = Vec3::new(0.0, 1.5, 2.0);
+        s.scene.camera = (
+            Mat4::perspective_rh(1.0, 1.0, 0.05, 50.0)
+                * Mat4::look_at_rh(eye, Vec3::new(0.0, 1.5, -3.0), Vec3::Y),
+            eye,
+        );
+        Self { s, panel }
+    }
+
+    /// The room's volume input.
+    fn input(&self) -> bsengine_rhi_wgpu::realtime_gi::RealtimeGiInput {
+        let volume = ProbeVolumeParams {
+            origin: Vec3::new(-3.1, -0.1, -3.1),
+            extent: Vec3::new(6.2, 3.2, 6.2),
+            resolution: [6, 4, 6],
+        };
+        self.s.input(volume, 0.5, 1 << 20)
+    }
+
+    /// The centre pixel once the probes have settled -- and, with `rt`
+    /// enabled, once the reflections' pass has drawn two more frames (its
+    /// pipeline builds on a thread, so this waits for it against the clock,
+    /// never for a fixed count of frames). `ssr` switches the screen-space
+    /// trace on.
+    fn centre(&mut self, rt: Option<bsengine_core::RayTracedReflections>, ssr: bool) -> [u8; 3] {
+        self.s.scene.ssr = ssr.then(bsengine_core::ScreenSpaceReflections::default);
+        self.s.scene.surface.set_ray_traced_reflections(rt);
+        let input = self.input();
+        self.s.run(&input, 6);
+        if rt.is_some_and(|r| r.enabled) {
+            self.s.run_reflected(&input, 2);
+        }
+        self.s.centre()
+    }
+
+    /// Lights the room with one white lamp at `at` instead of its own.
+    fn lamp_at(&mut self, at: Vec3) {
+        self.s.lights = vec![bsengine_bake::BakeLight::Point {
+            position: at,
+            color: Vec3::ONE,
+            intensity: 4.0,
+            range: 10.0,
+            contribution: bsengine_bake::Contribution::Indirect,
+        }];
+    }
+
+    /// Adds a small square card, static, centred on `centre` and facing
+    /// `facing`: something to cast a shadow.
+    fn card(&mut self, centre: Vec3, facing: Vec3) {
+        let n = facing.normalize();
+        let u = n.cross(Vec3::Y).normalize() * 0.5;
+        let v = u.cross(n).normalize() * 0.5;
+        self.s.add(
+            quad_corners(centre - (u + v) * 0.5, u, v),
+            Vec3::splat(0.6),
+            Vec3::ZERO,
+        );
+    }
+
+    /// Moves the panel by `by`.
+    fn move_panel(&mut self, by: Vec3) {
+        let i = self.panel.expect("a room with a panel");
+        self.s.dynamics[i].model = Mat4::from_translation(by) * self.s.dynamics[i].model;
+    }
+}
+
+fn red_bias(p: [u8; 3]) -> i32 {
+    p[0] as i32 - (p[1] as i32 + p[2] as i32) / 2
+}
+
+/// The mirror shows the glowing wall behind the camera -- which the screen
+/// cannot: the premise is that the screen-space trace changes nothing at
+/// that pixel (the same frame with it on and off), so whatever turns it red
+/// is the rays'.
+///
+/// Measured: `[16, 81, 214]` without the screen's trace, the same with it,
+/// `[246, 9, 33]` with the rays.
+///
+/// Each frame from a room of its own: the probes go on converging update by
+/// update, so the same room measured twice differs by that alone.
+#[test]
+fn a_mirror_reflects_the_wall_behind_the_camera() {
+    let room = || MirrorRoom::new(Behind::Red, false, false);
+    let no_ssr = room().centre(None, false);
+    let screen = room().centre(None, true);
+    let rays = room().centre(Some(bsengine_core::RayTracedReflections::default()), true);
+    assert_eq!(
+        screen, no_ssr,
+        "premise: a reflection running back past the camera is nothing the screen can find"
+    );
+    assert!(
+        red_bias(rays) > red_bias(screen) + 60,
+        "the rays find the red wall: {screen:?} -> {rays:?}"
+    );
+}
+
+/// The hit is lit by the lights as they are now: a grey wall behind the
+/// camera, warm in the mirror with the lamp on, dark with it off.
+///
+/// Measured: lit `[207, 174, 129]`, dark `[2, 9, 33]`, and without the rays
+/// `[28, 116, 232]` (the probes' stand-in for the sky).
+#[test]
+fn a_reflection_is_lit_by_the_lights_it_sees() {
+    let rt = Some(bsengine_core::RayTracedReflections::default());
+    let lit = MirrorRoom::new(Behind::Grey, true, false).centre(rt, false);
+    let dark = MirrorRoom::new(Behind::Grey, false, false).centre(rt, false);
+    let without = MirrorRoom::new(Behind::Grey, true, false).centre(None, false);
+    assert!(
+        red_bias(lit) > red_bias(without) + 20,
+        "the lamp-lit wall is warm in the mirror: {without:?} -> {lit:?}"
+    );
+    assert!(
+        linear_sum(dark) < 0.3 * linear_sum(lit),
+        "and dark without the lamp: {lit:?} -> {dark:?}"
+    );
+}
+
+/// A moving renderer is reflected where it is: the red panel behind the
+/// camera turns the mirror red, and moved aside, by its model alone, it
+/// leaves the mirror.
+///
+/// Measured: there `[245, 0, 0]`, moved `[56, 8, 31]`.
+#[test]
+fn a_moved_renderer_is_reflected_where_it_is() {
+    let rt = Some(bsengine_core::RayTracedReflections::default());
+    let mut room = MirrorRoom::new(Behind::Grey, false, true);
+    let there = room.centre(rt, false);
+    room.move_panel(Vec3::new(2.5, 0.0, 0.0));
+    let moved = room.centre(rt, false);
+    assert!(
+        red_bias(there) > 60,
+        "premise: the panel is in the mirror: {there:?}"
+    );
+    assert!(
+        red_bias(moved) < red_bias(there) - 50,
+        "moved aside, it is gone from it: {there:?} -> {moved:?}"
+    );
+}
+
+/// Off is off: switched off, or with no realtime volume to trace, the frame
+/// is the one with no component at all, and the pass never runs.
+#[test]
+fn ray_traced_reflections_with_nothing_to_trace_change_nothing() {
+    let none = MirrorRoom::new(Behind::Red, false, false).centre(None, false);
+    let mut room = MirrorRoom::new(Behind::Red, false, false);
+    let off = room.centre(
+        Some(bsengine_core::RayTracedReflections {
+            enabled: false,
+            ..Default::default()
+        }),
+        false,
+    );
+    assert_eq!(off, none, "switched off");
+    assert_eq!(room.s.scene.surface.rt_reflection_frames(), 0);
+    // No realtime volume: the surface has no scene to trace.
+    let mut bare = MirrorRoom::new(Behind::Red, false, false);
+    bare.s
+        .scene
+        .surface
+        .set_ray_traced_reflections(Some(bsengine_core::RayTracedReflections::default()));
+    bare.s.scene.render(None).expect("the frame renders");
+    bare.s.scene.render(None).expect("the frame renders");
+    let with = bare.s.scene.surface.read_pixels().expect("readback");
+    bare.s.scene.surface.set_ray_traced_reflections(None);
+    bare.s.scene.render(None).expect("the frame renders");
+    let without = bare.s.scene.surface.read_pixels().expect("readback");
+    assert_eq!(with, without, "no volume, no rays");
+    assert_eq!(bare.s.scene.surface.rt_reflection_frames(), 0);
+}
+
+/// The rays fill only the share the screen left: where the screen-space
+/// trace found the reflection, its share stands, and the rays add only the
+/// rest -- the pass draws *under* it. A smooth metal floor reflecting the
+/// back wall in view, which the screen and the rays see differently on
+/// purpose: drawn red (what the screen reads from the last frame), traced
+/// green (the GI's emissive). At this slant the screen's weight is about
+/// 0.7 (`fs_ssr`'s `facing`), so the floor is mostly red with the screen
+/// alone -- the premise -- and green with the rays alone. With both, the
+/// red is the screen's red, unchanged (drawing the rays over the screen's
+/// result would wash it out), and the green is well under the rays' own
+/// (adding them in full, on top, would leave it whole).
+///
+/// Measured: screen `[230, 58, 191]`, rays `[2, 218, 31]`, both
+/// `[230, 165, 11]` -- the screen's red, and the rays' green in the share
+/// the sky had.
+#[test]
+fn the_rays_fill_only_what_the_screen_did_not_find() {
+    let glow = Some((BACK_WALL, Vec3::new(0.0, 0.6, 0.0)));
+    let measure = |ssr: bool, rt: bool| {
+        let mut s = covered_room(0.05, false, glow);
+        let back = s.scene.draw_calls.len() - 6 + BACK_WALL;
+        s.scene.draw_calls[back].3.emissive = Vec3::new(1.5, 0.0, 0.0);
+        s.scene.ssr = ssr.then(bsengine_core::ScreenSpaceReflections::default);
+        s.scene
+            .surface
+            .set_ray_traced_reflections(rt.then(bsengine_core::RayTracedReflections::default));
+        let input = s.input(room_volume(), 0.5, 1 << 20);
+        s.run(&input, 16);
+        if rt {
+            s.run_reflected(&input, 2);
+        }
+        s.centre()
+    };
+    let screen = measure(true, false);
+    let rays = measure(false, true);
+    let both = measure(true, true);
+    assert!(
+        red_bias(screen) > 60,
+        "premise: the screen finds the red wall: {screen:?}"
+    );
+    assert!(
+        rays[1] as i32 > rays[0] as i32 + 60,
+        "premise: the rays find it green: {rays:?}"
+    );
+    assert!(
+        (both[0] as i32 - screen[0] as i32).abs() <= 6,
+        "the screen's share stands: screen {screen:?}, both {both:?}"
+    );
+    assert!(
+        (both[1] as i32) < rays[1] as i32 - 30,
+        "the rays add only the share the screen left: rays {rays:?}, both {both:?}"
+    );
+}
+
+/// Rougher than `max_roughness` and the band after it, a surface traces
+/// nothing: one mirror ray is the wrong answer there, and the probes'
+/// stand-in answers instead. A rough metal floor reflecting a glowing green
+/// wall is the frame without the rays; the same floor smooth is not (the
+/// premise: there is something for the rays to change).
+#[test]
+fn a_rough_surface_is_left_to_the_probes() {
+    let glow = Some((BACK_WALL, Vec3::new(0.0, 0.6, 0.0)));
+    let measure = |roughness: f32, rt: bool| {
+        let mut s = covered_room(roughness, false, glow);
+        s.scene
+            .surface
+            .set_ray_traced_reflections(rt.then(bsengine_core::RayTracedReflections::default));
+        let input = s.input(room_volume(), 0.5, 1 << 20);
+        s.run(&input, 16);
+        // Two more frames either way: the probes go on converging frame by
+        // frame, so a frame count that differed would differ by that alone.
+        // The pipeline is built by the first measurement (the premise's), so
+        // after it the rays' two frames are exactly two.
+        if rt {
+            s.run_reflected(&input, 2);
+        } else {
+            for _ in 0..2 {
+                s.scene.surface.set_realtime_gi(Some(input.clone()));
+                s.scene.render(None).expect("the frame renders");
+            }
+        }
+        s.centre()
+    };
+    assert_ne!(measure(0.05, true), measure(0.05, false), "premise");
+    assert_eq!(
+        measure(0.9, true),
+        measure(0.9, false),
+        "a rough floor traces nothing"
+    );
+}
+
+/// The hit's own light is traced, shadow ray and all: a card between the
+/// lamp and the spot of the wall behind the camera that the mirror shows
+/// darkens that spot in the mirror. The probes, a metre and more apart,
+/// cannot draw a shadow that small -- with the hit lit by the probes alone,
+/// the card changed the reflection by a few levels.
+///
+/// Measured: lit `[210, 211, 212]`, shadowed `[164, 166, 170]` (the grey
+/// room's bounce stays in the shadow: 0.58 of the light); with the hit lit
+/// by the probes alone, `[169, 171, 175]` and `[163, 164, 169]` (0.93).
+#[test]
+fn a_reflection_shows_the_shadow_on_what_it_reflects() {
+    let rt = Some(bsengine_core::RayTracedReflections::default());
+    // The spot the centre pixel reflects is (0, 1.5, 3); the lamp is off to
+    // the side, and the card halfway between them, clear of the ray from the
+    // mirror (which runs along x = 0) and behind the camera.
+    let (lamp, spot) = (Vec3::new(1.6, 1.5, 2.0), Vec3::new(0.0, 1.5, 3.0));
+    let measure = |card: bool| {
+        let mut room = MirrorRoom::new(Behind::Grey, false, false);
+        room.lamp_at(lamp);
+        if card {
+            room.card((lamp + spot) * 0.5, lamp - spot);
+        }
+        room.centre(rt, false)
+    };
+    let lit = measure(false);
+    let shadowed = measure(true);
+    assert!(
+        lit.iter().any(|&c| c > 60),
+        "premise: the spot is lit: {lit:?}"
+    );
+    assert!(
+        linear_sum(shadowed) < 0.75 * linear_sum(lit),
+        "the card's shadow is in the mirror: {lit:?} -> {shadowed:?}"
     );
 }

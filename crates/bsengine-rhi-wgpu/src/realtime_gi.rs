@@ -458,31 +458,12 @@ fn eval_probe_sh_pair(world_pos: vec3<f32>, n: vec3<f32>, dir: vec3<f32>) -> Pro
 }
 pub(crate) use probe_grid_wgsl;
 
-/// The update pass, compiled after `TRACE_WGSL` and [`probe_grid_wgsl`].
-const UPDATE_WGSL: &str = r#"
-struct GiParams {
-    // The slice: probes first_probe .. first_probe + (workgroup count), mod
-    // total_probes.
-    first_probe: u32,
-    total_probes: u32,
-    rays: u32,
-    frame: u32,
-    // The halves, in probes: the bounce term and the history are read from
-    // `read_offset`, the update is written to `write_offset`.
-    read_offset: u32,
-    write_offset: u32,
-    hysteresis: f32,
-    // Whether the bounce term weighs probes by visibility, as shading does.
-    visibility: u32,
-    // This frame's turn of the ray set, the same for every probe.
-    rotation: mat3x3<f32>,
-    // Whether probes are relocated and classified. Always on; a test turns
-    // it off to look at visibility alone.
-    relocation: u32,
-    // How many of `instances` this update traces.
-    instance_count: u32,
-};
-
+/// The moving entities as every tracer over the realtime GI's scene reads
+/// them -- the probe update and the ray-traced reflections
+/// (`crate::rt_reflections`): their layout, `trace.wgsl`'s instance hooks,
+/// and what a hit found. Compiled after `TRACE_WGSL`; the includer declares
+/// `instances` and `tris` and defines `traced_instance_count()`.
+pub(crate) const INSTANCES_WGSL: &str = r#"
 // A moving entity: its mesh's own tree (`root`, `tri_base`, in `nodes` and
 // `tris` after the static tree), the transform into that tree's space, the
 // one back out for normals, its world bounds, and its material.
@@ -497,21 +478,13 @@ struct GiInstance {
     emissive: vec4<f32>,
 };
 
-@group(0) @binding(0) var<storage, read> nodes: array<Node>;
-@group(0) @binding(1) var<storage, read> tris: array<Tri>;
-@group(0) @binding(2) var<storage, read_write> probes: ProbeGrid;
-@group(0) @binding(3) var<uniform> scene: Scene;
-@group(0) @binding(4) var sky: texture_2d<f32>;
-@group(0) @binding(5) var<uniform> gi: GiParams;
-@group(0) @binding(6) var<storage, read> instances: array<GiInstance>;
-
 // `trace.wgsl`'s instance hooks, over the moving entities. The ray goes into
 // the mesh's space through the inverse transform, its direction *not*
 // renormalised: a hit at parameter t there is the hit at t in the world, so
 // distances compare with the static tree's and with `best` unchanged, under
 // any scale.
 fn instance_count() -> u32 {
-    return gi.instance_count;
+    return traced_instance_count();
 }
 fn instance_ray(i: u32, o: vec3<f32>, d: vec3<f32>, t_max: f32) -> InstanceRay {
     let inst = instances[i];
@@ -545,6 +518,47 @@ fn hit_surface(hit: Hit) -> HitSurface {
         inst.albedo.xyz,
         inst.emissive.xyz,
     );
+}
+
+"#;
+
+/// The update pass, compiled after `TRACE_WGSL` and [`probe_grid_wgsl`].
+const UPDATE_WGSL: &str = r#"
+struct GiParams {
+    // The slice: probes first_probe .. first_probe + (workgroup count), mod
+    // total_probes.
+    first_probe: u32,
+    total_probes: u32,
+    rays: u32,
+    frame: u32,
+    // The halves, in probes: the bounce term and the history are read from
+    // `read_offset`, the update is written to `write_offset`.
+    read_offset: u32,
+    write_offset: u32,
+    hysteresis: f32,
+    // Whether the bounce term weighs probes by visibility, as shading does.
+    visibility: u32,
+    // This frame's turn of the ray set, the same for every probe.
+    rotation: mat3x3<f32>,
+    // Whether probes are relocated and classified. Always on; a test turns
+    // it off to look at visibility alone.
+    relocation: u32,
+    // How many of `instances` this update traces.
+    instance_count: u32,
+};
+
+@group(0) @binding(0) var<storage, read> nodes: array<Node>;
+@group(0) @binding(1) var<storage, read> tris: array<Tri>;
+@group(0) @binding(2) var<storage, read_write> probes: ProbeGrid;
+@group(0) @binding(3) var<uniform> scene: Scene;
+@group(0) @binding(4) var sky: texture_2d<f32>;
+@group(0) @binding(5) var<uniform> gi: GiParams;
+@group(0) @binding(6) var<storage, read> instances: array<GiInstance>;
+
+// How many of `instances` this update traces: the hooks in
+// [`INSTANCES_WGSL`] ask, and each shader that includes them answers.
+fn traced_instance_count() -> u32 {
+    return gi.instance_count;
 }
 
 // Each thread's share of the nine coefficients, summed by the first nine.
@@ -1365,9 +1379,10 @@ const UPDATE_RUNTIME_CHECKS: wgpu::ShaderRuntimeChecks = wgpu::ShaderRuntimeChec
 
 fn build_pipelines(device: &wgpu::Device, layout: &wgpu::BindGroupLayout) -> Pipelines {
     let source = format!(
-        "{}{}{}",
+        "{}{}{}{}",
         bsengine_bake::gpu_scene::TRACE_WGSL,
         probe_grid_wgsl!(),
+        INSTANCES_WGSL,
         UPDATE_WGSL
     );
     // Without naga's loop bounding: it puts a 64-bit counter in every loop, so
@@ -1518,6 +1533,17 @@ pub(crate) struct RealtimeGi {
     pub(crate) instances_traced: u32,
     /// Whether the cap has been warned about (once a process, not a frame).
     warned_over_cap: bool,
+}
+
+/// [`RealtimeGi::trace_scene`]: the buffers a tracer over the GI's scene
+/// binds, as `INSTANCES_WGSL` and `TRACE_WGSL` read them.
+pub(crate) struct TraceScene<'a> {
+    pub(crate) nodes: &'a wgpu::Buffer,
+    pub(crate) tris: &'a wgpu::Buffer,
+    pub(crate) instances: &'a wgpu::Buffer,
+    pub(crate) scene: &'a wgpu::Buffer,
+    pub(crate) sky: &'a wgpu::Texture,
+    pub(crate) instance_count: u32,
 }
 
 /// One device's layout and pipelines.
@@ -1672,6 +1698,26 @@ impl RealtimeGi {
             .as_ref()
             .and_then(|g| g.skinned.as_ref())
             .map_or(0, |r| r.levels.len())
+    }
+
+    /// What ray-traced reflections trace (`crate::rt_reflections`): the
+    /// scene the last update traced -- its trees, its moving instances where
+    /// they were then, its lights and sky -- or `None` before an update has
+    /// run, when none of it has been written yet.
+    pub(crate) fn trace_scene(&self) -> Option<TraceScene<'_>> {
+        if self.updates == 0 {
+            return None;
+        }
+        let geometry = self.geometry.as_ref()?;
+        let (_, sky) = self.sky.as_ref()?;
+        Some(TraceScene {
+            nodes: &geometry.nodes,
+            tris: &geometry.tris,
+            instances: &self.instances,
+            scene: &self.scene,
+            sky,
+            instance_count: self.instances_traced,
+        })
     }
 
     /// Forgets the history (the next update of every probe starts fresh) and

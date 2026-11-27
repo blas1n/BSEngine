@@ -69,6 +69,9 @@ pub mod profiler;
 pub mod realtime_gi;
 /// What the adapter under a renderer can do that the renderer adapts to.
 pub mod render_caps;
+/// Ray-traced reflections: the share the screen-space trace missed, traced
+/// through the realtime GI's scene.
+pub mod rt_reflections;
 /// Spherical-harmonic (L2) projection, irradiance evaluation and trilinear
 /// blending for light probes.
 pub mod sh;

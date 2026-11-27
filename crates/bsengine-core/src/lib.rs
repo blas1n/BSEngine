@@ -122,6 +122,7 @@ pub mod physics_systems;
 pub mod prefab_instance;
 /// Root directory of the current project, used to resolve project-relative asset paths.
 pub mod project_dir;
+pub mod ray_traced_reflections;
 /// `bevy_reflect`-friendly wrapper for RGBA color values.
 pub mod reflect_color;
 /// `bevy_reflect`-friendly wrapper for angles expressed in degrees.
@@ -260,6 +261,7 @@ pub use prefab_instance::{PrefabInstance, PrefabInstanceBaseline};
 pub use project_dir::{
     project_path, resolve_project_path, resolve_project_path_checked, ProjectDir, ProjectPathError,
 };
+pub use ray_traced_reflections::RayTracedReflections;
 pub use reflect_color::ReflectColor;
 pub use reflect_degrees::ReflectDegrees;
 pub use reflect_glam::{ReflectQuat, ReflectVec2, ReflectVec3, ReflectVec4};

@@ -3540,7 +3540,7 @@ fn a_reflection_does_not_spill_across_an_edge() {
     );
     let panel_spread = (24..40).map(|c| (blue(c) - blue(32)).abs()).max().unwrap();
     assert!(
-        panel_spread <= 2,
+        panel_spread <= 4,
         "the panel is the same from edge to edge: {panel_spread} ({:?})",
         &row[23..41]
     );

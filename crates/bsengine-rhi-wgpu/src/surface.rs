@@ -8603,6 +8603,23 @@ impl WgpuSurface {
         }
     }
 
+    /// Switches the ray-traced reflections' spatial filter, for the test that
+    /// measures what it takes away. Takes effect once the reflections have
+    /// run a frame (they are made then).
+    #[doc(hidden)]
+    pub fn set_rt_reflection_spatial_for_testing(&mut self, on: bool) {
+        if let Some(rt) = &mut self.rt_reflections {
+            rt.spatial_enabled = on;
+        }
+    }
+
+    /// The size the ray-traced reflections last traced at, in trace pixels,
+    /// for the tests that check the resolution.
+    #[doc(hidden)]
+    pub fn rt_reflection_trace_size(&self) -> Option<(u32, u32)> {
+        self.rt_reflections.as_ref().and_then(|r| r.trace_size())
+    }
+
     /// Frames the ray-traced reflections' pass has run: what a test waits
     /// for, since the pass needs the realtime GI's scene and its own
     /// pipeline (built on a thread), and draws nothing before both.
@@ -8679,7 +8696,10 @@ impl WgpuSurface {
                 instance_count: 0,
                 frame: 0,
                 history_valid: 0,
-                _pad: [0; 3],
+                // Half resolution unless the camera asks for every pixel.
+                scale: if settings.full_resolution { 1 } else { 2 },
+                spatial: 1,
+                _pad: 0,
             },
         ))
     }
@@ -10606,7 +10626,7 @@ impl WgpuSurface {
                     self.post_process.rt_reflection_inputs(size),
                     params,
                 );
-            frame_draw_calls += 3;
+            frame_draw_calls += 4;
         }
 
         // --- MSAA: the targets and pipelines the geometry passes use ---

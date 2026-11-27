@@ -2542,15 +2542,16 @@ fn a_skinned_renderer_is_traced_as_its_folded_vertices_are() {
 /// the room is drawn black but the floor, and the harness sun is off, so no
 /// direct light reaches the floor at all.
 fn covered_metal_floor(roughness: f32, lamp: bool, volume: Option<ProbeVolumeParams>) -> [u8; 3] {
-    covered_metal_floor_glowing(roughness, lamp, Vec3::ZERO, volume)
+    covered_metal_floor_glowing(roughness, lamp, None, volume)
 }
 
-/// [`covered_metal_floor`] with the back wall -- the one the floor's
-/// centre pixel reflects -- glowing `back`.
+/// [`covered_metal_floor`] with one wall glowing: `Some((BACK_WALL, c))`
+/// for the one the floor's centre pixel reflects, `FRONT_WALL` for the one
+/// behind the camera.
 fn covered_metal_floor_glowing(
     roughness: f32,
     lamp: bool,
-    back: Vec3,
+    glowing: Option<(usize, Vec3)>,
     volume: Option<ProbeVolumeParams>,
 ) -> [u8; 3] {
     let mut s = GiScene::new(Vec3::new(0.1, 0.3, 1.0));
@@ -2594,9 +2595,10 @@ fn covered_metal_floor_glowing(
     ] {
         s.add(quad_corners(min, u, v), grey, Vec3::ZERO);
     }
-    // The back wall: the second of the five above.
-    let back_wall = s.statics.len() - 4;
-    s.statics[back_wall].emissive = back;
+    if let Some((wall, glow)) = glowing {
+        let first = s.statics.len() - 6;
+        s.statics[first + wall].emissive = glow;
+    }
     if lamp {
         s.lights = vec![bsengine_bake::BakeLight::Point {
             position: Vec3::new(0.0, 2.5, 0.0),
@@ -2731,18 +2733,34 @@ fn a_metal_floor_outside_the_volume_keeps_the_sky() {
     assert_eq!(outside, sky, "the floor is below the volume");
 }
 
+/// Which of [`covered_metal_floor_glowing`]'s statics a wall is: the
+/// floor is 0, the ceiling 1.
+const BACK_WALL: usize = 2;
+const FRONT_WALL: usize = 3;
+
 /// The probes' specular is read facing the reflection, not the normal: a
-/// rough metal floor whose reflection runs to a glowing green back wall is
-/// green, where the light from straight above it -- the grey ceiling, the
-/// warm lamp -- is not.
+/// rough metal floor is green when the green wall glows where its
+/// reflection runs (the back wall), and far less when the same glow is
+/// behind the camera. Read facing the normal -- straight up -- the two walls
+/// are about the same to it, since the cosine lobe around "up" sees them
+/// both from the side.
+///
+/// Measured: ahead `[78, 154, 52]`, behind `[78, 85, 52]`; read facing the
+/// normal instead, `[76, 119, 49]` and `[76, 103, 49]` -- 16 apart, not 69.
 #[test]
 fn the_probes_specular_faces_the_reflection() {
-    let green =
-        covered_metal_floor_glowing(0.9, true, Vec3::new(0.0, 0.6, 0.0), Some(room_volume()));
-    let plain = covered_metal_floor(0.9, true, Some(room_volume()));
-    let green_bias = |p: [u8; 3]| p[1] as i32 - (p[0] as i32 + p[2] as i32) / 2;
+    let glow = Vec3::new(0.0, 0.6, 0.0);
+    let ahead =
+        covered_metal_floor_glowing(0.9, true, Some((BACK_WALL, glow)), Some(room_volume()));
+    let behind =
+        covered_metal_floor_glowing(0.9, true, Some((FRONT_WALL, glow)), Some(room_volume()));
+    let green = |p: [u8; 3]| p[1] as i32 - (p[0] as i32 + p[2] as i32) / 2;
     assert!(
-        green_bias(green) > green_bias(plain) + 20,
-        "the floor reflects the wall in front of it: {plain:?} -> {green:?}"
+        green(behind) > 0,
+        "premise: the glow behind the camera reaches the floor too: {behind:?}"
+    );
+    assert!(
+        green(ahead) > green(behind) + 30,
+        "the floor reflects the wall it faces: behind {behind:?}, ahead {ahead:?}"
     );
 }

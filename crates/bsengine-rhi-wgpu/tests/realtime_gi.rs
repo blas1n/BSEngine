@@ -3485,18 +3485,23 @@ fn the_spatial_filter_takes_out_the_grain() {
 
 /// Neither the filter nor the upsample carries one surface's reflection
 /// onto another across an edge: a narrow rough panel in front of a glossy
-/// mirror reflecting red is, at its edges, what it is in its middle --
-/// its depth is not the mirror's, and the mirror's neighbours are weighed
-/// out. (The panel is rough enough to trace nothing; what it shows of the
-/// red is the probes' stand-in for the sky, the same all across it.)
+/// mirror reflecting red. The panel traces nothing (too rough), so what
+/// would spill is its *nothing* onto the mirror beside it, whose reflection
+/// would then fall away toward the panel -- the mirror's blue climbing
+/// column by column as the probes' stand-in shows through -- and the
+/// mirror's red onto the panel's edges. With the neighbours weighed by
+/// depth, the mirror runs smoothly up to the panel and the panel is the same
+/// from edge to edge. (The panel's own red is the probes' stand-in for the
+/// sky, the same all across it.)
 ///
-/// Measured: the mirror beside it `[237, 24, 70]`, the panel `[204, 6, 25]`
-/// from edge to edge.
+/// Measured: the mirror's blue toward the panel 71, 71, 70, 69, 68; with the
+/// filter blind to depth, 71, 108, 134, 161, 179, and the panel's edges 3
+/// bluer than its middle.
 #[test]
 fn a_reflection_does_not_spill_across_an_edge() {
     let mut room = MirrorRoom::new(Behind::Red, false, false);
     room.mirror_roughness(0.3);
-    // x from -0.3 to 0.3 at z = 0, two metres from the camera: columns 24
+    // x from -0.3 to 0.3 at z = 0, two metres from the camera: columns 23
     // to 40 of the row.
     room.s.scene.push_quad(
         [
@@ -3512,21 +3517,28 @@ fn a_reflection_does_not_spill_across_an_edge() {
     room.s.scene.draw_calls[i].3.metallic = 1.0;
     room.s.scene.draw_calls[i].3.roughness = 0.9;
     let row = room.middle_row(30);
+    let blue = |c: usize| row[c][2] as i32;
     // Told apart by their blue: both are red, the panel by the probes.
-    let middle = row[32][2] as i32;
     assert!(
-        row[20][2] as i32 > middle + 30,
+        blue(20) > blue(32) + 30,
         "premise: the mirror beside the panel is another colour: {:?} against {:?}",
         row[20],
         row[32]
     );
-    let worst = (25..40)
-        .map(|c| (row[c][2] as i32 - middle).abs())
+    let mirror_steps = (18..22)
+        .chain(41..45)
+        .map(|c| (blue(c + 1) - blue(c)).abs())
         .max()
         .unwrap();
     assert!(
-        worst <= 8,
-        "the panel's edges are its middle, not the mirror's red: {worst} ({:?})",
-        &row[24..41]
+        mirror_steps <= 10,
+        "the mirror runs smoothly up to the panel: steps of {mirror_steps} ({:?})",
+        &row[18..47]
+    );
+    let panel_spread = (24..40).map(|c| (blue(c) - blue(32)).abs()).max().unwrap();
+    assert!(
+        panel_spread <= 2,
+        "the panel is the same from edge to edge: {panel_spread} ({:?})",
+        &row[23..41]
     );
 }
